@@ -31,8 +31,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use('/admin', adminRouter);
 app.use('/api',UserRouter)
-// app.use('/api',userRouter);
-// app.use('/',publicRouter)
+
 
 // ✅ Swagger UI route
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerFile));
