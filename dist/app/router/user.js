@@ -1,0 +1,52 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const router = (0, express_1.Router)();
+const Controller = __importStar(require("../controller/user"));
+const jwtVerify2_1 = require("../../config/jwtVerify2");
+// const uploadPdf = getUploadMiddleware("pdf", 50, 1); // 50 MB max, 1 file
+router.post("/register", Controller.Register);
+router.post("/login", Controller.Login);
+router.get("/getprofile", jwtVerify2_1.tokenCheck, Controller.GetProfile);
+router.patch("/updateprofile", jwtVerify2_1.tokenCheck, Controller.UpdateProfile);
+router.get("/mysaleperson", jwtVerify2_1.tokenCheck, Controller.MySalePerson);
+router.post("/addproperty", jwtVerify2_1.tokenCheck, Controller.AddPropertys);
+router.post("/addproject", jwtVerify2_1.tokenCheck, Controller.addProdut);
+router.get("/projectlist", jwtVerify2_1.tokenCheck, Controller.getProjectList);
+router.get("/getprojectdetails/:id", jwtVerify2_1.tokenCheck, Controller.getProjectDetails);
+router.patch("/updateProejct/:id", jwtVerify2_1.tokenCheck, Controller.updateProduct);
+router.delete("/deleteproduct/:id", jwtVerify2_1.tokenCheck, Controller.deleteProduct);
+exports.default = router;
