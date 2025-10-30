@@ -1,0 +1,28 @@
+name: CI/CD Pipeline - Node Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      # Deploy to EC2 Server 1
+      - name: Deploy to EC2 (Server 1)
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/salesvera/ts_salesvera_backend   # Your Server 1 app path
+            git pull origin main
+            npm install --production
+            pm2 restart all 
+      
