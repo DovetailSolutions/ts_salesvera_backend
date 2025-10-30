@@ -329,7 +329,7 @@ export const UpdateCategory = async (
       return;
     }
 
-    // ✅ Update category
+   
     const updatedCategory = await Middleware.UpdateData(
       Category,
       id,

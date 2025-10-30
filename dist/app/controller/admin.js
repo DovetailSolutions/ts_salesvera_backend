@@ -273,7 +273,6 @@ const UpdateCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             (0, errorMessage_1.badRequest)(res, "Category already exists");
             return;
         }
-        // ✅ Update category
         const updatedCategory = yield Middleware.UpdateData(dbConnection_1.Category, id, { category_name } // Pass as object
         );
         if (!updatedCategory) {

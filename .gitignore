@@ -1,4 +1,5 @@
 /node_modules
 /uploads
 .env
-../Notigication
+src/Notigication/notification.json
+dist/Notigication/notification.json
