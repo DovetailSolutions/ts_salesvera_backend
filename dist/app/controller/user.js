@@ -78,6 +78,7 @@ exports.Register = Register;
 const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { email, password, deviceToken, devicemodel, devicename, deviceType, deviceId } = req.body || {};
+        console.log(">>>>>>>>>>>>>>>>>>>req.body", req.body);
         if (!email || !password) {
             (0, errorMessage_1.badRequest)(res, "Email and password are required");
             return;
@@ -99,8 +100,8 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const { accessToken, refreshToken } = Middleware.CreateToken(String(user.getDataValue("id")), String(user.getDataValue("role")));
         // ✅ Save refresh token in DB
         yield user.update({ refreshToken });
-        if (deviceId) {
-            const existing = yield dbConnection_1.Device.findOne({ where: { deviceId } });
+        if (deviceToken) {
+            const existing = yield dbConnection_1.Device.findOne({ where: { deviceToken } });
             if (!existing) {
                 yield dbConnection_1.Device.create({
                     userId: user === null || user === void 0 ? void 0 : user.id,
@@ -118,6 +119,7 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                     deviceType,
                     devicemodel,
                     devicename,
+                    deviceId,
                     isActive: true,
                 });
             }
