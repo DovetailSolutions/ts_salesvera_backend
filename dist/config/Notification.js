@@ -14,10 +14,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sheduleNotification = exports.sendPushNotification = void 0;
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
-const notification_json_1 = __importDefault(require("../Notigication/notification.json"));
-firebase_admin_1.default.initializeApp({
-    credential: firebase_admin_1.default.credential.cert(notification_json_1.default),
-});
 const sendPushNotification = (_a) => __awaiter(void 0, [_a], void 0, function* ({ token, title, body, data = {}, }) {
     try {
         // ✅ Case A → Single Device
