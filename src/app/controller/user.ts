@@ -32,8 +32,11 @@ import {
   Amenities,
   Property,
   Project,
+  Meeting,
+  Device,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
+import { ReadableStreamDefaultController } from "stream/web";
 
 export const Register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -60,26 +63,36 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
 
 export const Login = async (req: Request, res: Response): Promise<void> => {
   try {
-       const { email, password } = req.body || {};
+    const {
+      email,
+      password,
+      deviceToken,
+      devicemodel,
+      devicename,
+      deviceType,
+      deviceId
+    } = req.body || {};
 
-   if (!email || !password) {
+    if (!email || !password) {
       badRequest(res, "Email and password are required");
       return;
     }
 
     // ✅ Check if user exists
-       const user = await Middleware.FindByEmail(User, email);
-       if (!user) {
-         badRequest(res, "Invalid email or password");
-       }
+    const user = await Middleware.FindByEmail(User, email);
+    if (!user) {
+      badRequest(res, "Invalid email or password");
+      return;
+    }
 
     // ✅ Validate password
-       const hashedPassword = user.getDataValue("password");
-       const isPasswordValid = await bcrypt.compare(password, hashedPassword);
-   
-       if (!isPasswordValid) {
-         badRequest(res, "Invalid email or password");
-       }
+    const hashedPassword = user.getDataValue("password");
+    const isPasswordValid = await bcrypt.compare(password, hashedPassword);
+
+    if (!isPasswordValid) {
+      badRequest(res, "Invalid email or password");
+      ReadableStreamDefaultController;
+    }
 
     // ✅ Create access & refresh tokens
     const { accessToken, refreshToken } = Middleware.CreateToken(
@@ -89,6 +102,29 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
 
     // ✅ Save refresh token in DB
     await user.update({ refreshToken });
+
+    if (deviceId) {
+      const existing = await Device.findOne({ where: { deviceId } });
+      if (!existing) {
+        await Device.create({
+          userId: user?.id,
+          deviceToken,
+          deviceType,
+          deviceId,
+          devicemodel,
+          devicename,
+          isActive: true, // ✅ REQUIRED
+        });
+      } else {
+        await existing.update({
+          userId: user.id,
+          deviceType,
+          devicemodel,
+          devicename,
+          isActive: true,
+        });
+      }
+    }
 
     // ✅ Respond to client
     createSuccess(res, "Login successful", {
@@ -153,7 +189,10 @@ export const UpdateProfile = async (
     badRequest(res, errorMessage);
   }
 };
-export const MySalePerson = async (req: Request, res: Response): Promise<void> => {
+export const MySalePerson = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { page = 1, limit = 10, search = "" } = req.query;
 
@@ -183,14 +222,14 @@ export const MySalePerson = async (req: Request, res: Response): Promise<void> =
           as: "createdUsers",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           through: { attributes: [] },
-          where,              // ✅ apply search
-          required: false,    // ✅ so user must exist even if none found
+          where, // ✅ apply search
+          required: false, // ✅ so user must exist even if none found
         },
       ],
     });
 
     if (!result) {
-       badRequest(res, "User not found");
+      badRequest(res, "User not found");
     }
 
     /** ✅ Extract created users */
@@ -207,12 +246,291 @@ export const MySalePerson = async (req: Request, res: Response): Promise<void> =
       total,
       rows: createdUsers,
     });
-
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };
+
+export const CreateMeeting = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+    const isExist = await Meeting.findOne({
+      where: {
+        userId: finalUserId,
+        status: "in", // You wrote "in" but in schema you used: pending | completed | cancelled
+      },
+    });
+
+    /** ✅ If active meeting exists → Stop */
+    if (isExist) {
+      badRequest(
+        res,
+        `You already have an active meeting started at ${isExist.meetingTimeIn}`
+      );
+      return;
+    }
+    const {
+      companyName,
+      personName,
+      mobileNumber,
+      customerType,
+      meetingPurpose,
+      categoryId,
+      status,
+      latitude_in,
+      longitude_in,
+      meetingTimeIn,
+      scheduledTime,
+    } = req.body || {};
+
+    /** ✅ Required fields validation */
+    const requiredFields: Record<string, any> = {
+      companyName,
+      personName,
+      mobileNumber,
+      customerType,
+      meetingPurpose,
+      categoryId,
+      status,
+      // latitude_in,
+      // longitude_in,
+      // meetingTimeIn,
+    };
+
+    for (const key in requiredFields) {
+      if (!requiredFields[key]) {
+        badRequest(res, `${key} is required`);
+        return;
+      }
+    }
+
+    /** ✅ userId priority: req.body → token */
+
+    if (!finalUserId) {
+      badRequest(res, "userId is required");
+      return;
+    }
+
+    /** ✅ Prepare payload */
+    const payload: any = {
+      companyName,
+      personName,
+      mobileNumber,
+      customerType,
+      meetingPurpose,
+      categoryId,
+      status,
+      userId: finalUserId,
+    };
+
+    if (meetingTimeIn) {
+      payload.meetingTimeIn = meetingTimeIn;
+    }
+    if (latitude_in) {
+      payload.latitude_in = latitude_in;
+    }
+    if (longitude_in) {
+      payload.longitude_in = longitude_in;
+    }
+    if (scheduledTime) {
+      payload.scheduledTime = scheduledTime;
+    }
+
+    /** ✅ Save data */
+    const item = await Middleware.CreateData(Meeting, payload);
+    createSuccess(res, "Meeting successfully added", item);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const EndMeeting = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+    const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
+    if (!meetingId) {
+      badRequest(res, "meetingId is required");
+      return;
+    }
+    /** ✅ Check meeting exist for this user & active */
+    const isExist = await Meeting.findOne({
+      where: {
+        id: meetingId,
+        userId: finalUserId,
+        status: "in",
+      },
+    });
+    if (!isExist) {
+      badRequest(res, "No active meeting found with this meetingId");
+      return;
+    }
+    /** ✅ Update meeting */
+    isExist.status = "completed";
+    isExist.latitude_out = latitude_out ?? null;
+    isExist.longitude_out = longitude_out ?? null;
+    isExist.meetingTimeOut = new Date();
+    if (remarks) isExist.remarks = remarks;
+    await isExist.save();
+    createSuccess(res, "Meeting ended successfully", isExist);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const GetMeetingList = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { page = 1, limit = 10, search = "", status } = req.query;
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    if (!finalUserId) {
+      badRequest(res, "UserId not found");
+      return;
+    }
+
+    /** ✅ Search condition */
+    const where: any = {
+      userId: finalUserId,
+    };
+
+    if (search) {
+      where[Op.or] = [
+        { companyName: { [Op.iLike]: `%${search}%` } },
+        { personName: { [Op.iLike]: `%${search}%` } },
+        { mobileNumber: { [Op.iLike]: `%${search}%` } },
+        { remarks: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    /** ✅ Query with pagination + count */
+    const { rows, count } = await Meeting.findAndCountAll({
+      where,
+      limit: limitNum,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    /** ✅ Pagination Info */
+    const pageInfo = {
+      currentPage: pageNum,
+      pageSize: limitNum,
+      totalItems: count,
+      totalPages: Math.ceil(count / limitNum),
+    };
+
+    createSuccess(res, "Meeting list fetched", { pageInfo, data: rows });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+export const scheduled = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+    const { meetingId, latitude_in, longitude_in } = req.body || {};
+    if (!meetingId) {
+      badRequest(res, "meetingId is required");
+      return;
+    }
+    /** ✅ Check meeting exist for this user & active */
+    const isExist = await Meeting.findOne({
+      where: {
+        id: meetingId,
+        userId: finalUserId,
+        status: "scheduled",
+      },
+    });
+    if (!isExist) {
+      badRequest(res, "No scheduled meeting found with this meetingId");
+      return;
+    }
+    /** ✅ Update meeting */
+    isExist.status = "in";
+    isExist.latitude_in = latitude_in ?? null;
+    isExist.longitude_in = longitude_in ?? null;
+    isExist.meetingTimeIn = new Date();
+    await isExist.save();
+    createSuccess(res, "Meeting successfully start", isExist);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+export const Logout = async(req:Request,res:Response):Promise<void>=>{
+  try{
+      const { deviceId } = req.body;
+      if(!deviceId){
+        badRequest(res,"device token is missing")
+      }
+      await Device.destroy({ where: { deviceId }})
+      createSuccess(res,"logout sussfully")
+  }catch(error){
+    const errorMessage =
+    error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+
+export const getCategory = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const data = req.query;
+    const item = await Middleware.getAllList(Category,data)
+    createSuccess(res,"get all category",item)
+  }catch(error){
+    const errorMessage =
+    error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -431,7 +749,7 @@ export const getProjectList = async (
   try {
     const userData = req.userData as JwtPayload;
     const data = req.query;
-    const item = await Middleware.getCategory(Project, data,userData?.userId);
+    const item = await Middleware.getCategory(Project, data, userData?.userId);
     if (!item) {
       badRequest(res, "Amenities not found");
       return;
@@ -444,8 +762,10 @@ export const getProjectList = async (
   }
 };
 
-
-export const getProjectDetails = async (req: Request, res: Response): Promise<void> => {
+export const getProjectDetails = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { id } = req.params || {};
     const userData = req.userData as JwtPayload;
@@ -478,7 +798,10 @@ export const getProjectDetails = async (req: Request, res: Response): Promise<vo
   }
 };
 
-export const updateProduct = async (req: Request, res: Response): Promise<void> => {
+export const updateProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { id } = req.params; // project ID
     const userData = req.userData as JwtPayload;
@@ -524,7 +847,12 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
     }
 
     // ✅ Auto-calculate price_per_sqft if needed
-    const { price_range_from, price_range_to, price_per_sqft, units_size_sqft } = req.body;
+    const {
+      price_range_from,
+      price_range_to,
+      price_per_sqft,
+      units_size_sqft,
+    } = req.body;
     if (
       price_range_from &&
       price_range_to &&
@@ -536,7 +864,7 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
     }
 
     // ✅ Find project owned by current user (if applicable)
-   const project = await Middleware.getById(
+    const project = await Middleware.getById(
       Project,
       Number(id),
       Number(userData?.userId)
@@ -558,21 +886,27 @@ export const updateProduct = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-
-export const deleteProduct = async(req:Request,res:Response):Promise<void>=>{
-  try{
-     const { id } = req.params; // project ID
+export const deleteProduct = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params; // project ID
     const userData = req.userData as JwtPayload;
     if (!id) {
       badRequest(res, "Project ID is required");
       return;
     }
-    const item = await Middleware.DeleteItembyId(Project,Number(id),Number(userData?.userId))
-    if(!item){
-      badRequest(res,"product not founded")
+    const item = await Middleware.DeleteItembyId(
+      Project,
+      Number(id),
+      Number(userData?.userId)
+    );
+    if (!item) {
+      badRequest(res, "product not founded");
     }
-    createSuccess(res,"product delete successfully")
-  }catch(error){
+    createSuccess(res, "product delete successfully");
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);

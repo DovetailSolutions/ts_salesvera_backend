@@ -2,13 +2,15 @@ import dotenv from "dotenv";
 dotenv.config();
 import { Sequelize } from "sequelize";
 const env = process.env;
-import {createUserModel} from "../app/model/user";
-import{CategoryModel} from "../app/model/category";
-import{PropertyTypeModel} from '../app/model/propertytpe'
-import{FlatTypeModel} from '../app/model/flattype'
-import{AmenitiesModel} from "../app/model/amenities"
-import{PropertyModel} from "../app/model/property"
-import{ProjectModel} from "../app/model/project"
+import { createUserModel } from "../app/model/user";
+import { CategoryModel } from "../app/model/category";
+import { PropertyTypeModel } from "../app/model/propertytpe";
+import { FlatTypeModel } from "../app/model/flattype";
+import { AmenitiesModel } from "../app/model/amenities";
+import { PropertyModel } from "../app/model/property";
+import { ProjectModel } from "../app/model/project";
+import { MeetingTypeModel } from "../app/model/meeting";
+import { DeviceModel } from "../app/model/device";
 
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -22,17 +24,15 @@ const sequelize = new Sequelize(
   }
 );
 
-
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
-const PropertyType = PropertyTypeModel(sequelize)
-const Flat =FlatTypeModel(sequelize)
-const Amenities = AmenitiesModel(sequelize)
-const Property = PropertyModel(sequelize)
-const Project = ProjectModel(sequelize)
-
-
-
+const PropertyType = PropertyTypeModel(sequelize);
+const Flat = FlatTypeModel(sequelize);
+const Amenities = AmenitiesModel(sequelize);
+const Property = PropertyModel(sequelize);
+const Project = ProjectModel(sequelize);
+const Meeting = MeetingTypeModel(sequelize);
+const Device = DeviceModel(sequelize);
 
 User.belongsToMany(User, {
   through: "UserCreators",
@@ -48,10 +48,7 @@ User.belongsToMany(User, {
   otherKey: "user_id",
 });
 
-
-
-
-//join 
+//join
 PropertyType.belongsToMany(Category, {
   through: "PropertyCategories",
   foreignKey: "property_id",
@@ -76,4 +73,15 @@ export const connectDB = async () => {
   }
 };
 
-export { sequelize,User,Category,PropertyType,Flat,Amenities,Property,Project };
+export {
+  sequelize,
+  User,
+  Category,
+  PropertyType,
+  Flat,
+  Amenities,
+  Property,
+  Project,
+  Meeting,
+  Device,
+};
