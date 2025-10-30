@@ -33,6 +33,12 @@ app.use('/admin', adminRouter);
 app.use('/api',UserRouter)
 
 
+
+
+
+
+
+
 // ✅ Swagger UI route
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerFile));
 
