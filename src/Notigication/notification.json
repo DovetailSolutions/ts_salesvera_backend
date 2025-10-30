@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "dovetail-sales-tracking",
+  "private_key_id": "2f92ca63ac9f5ba3713f6729bcb8148184d4d01b",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCiiSTFZDkWb6bd\nNzF4lhEFEp4K3c57Px5Ud13QznB6dz8bFhoWeq3jodv/pNWk8Sdn7SGcLyZYV2RF\netXtCLjIL9KrWGRNhVT2OfRZ0f7aqf0eOa7U4/VYf6a92Xy5PXIyyV8vQ2Gop4KZ\nvajXkh55YhLE7dZ7heFizRLy6ogGBnE0O3BOIy3JHjNq6KGwth+hm6YqbkdtGN18\nuog5Fu/+tI20PyIz/Ho4FdtMJaWeI/9prtaQ7IaH3NMNNTvzkArBGBJaAA82MlPM\n0DqdQxVpx+rrcomeWF/nw9iuHSgJXdgYm5jkCrobtyibobjo8MdWA9axQ1MGTXTN\n0hNSdB5lAgMBAAECggEAIzqwoqxHh2pp85br/SQhykSvxtEu2R3kOBCrX//u90xz\nfC59NxQeLrG9mpqiyB6RGQCYAV9i41EF5d1rEvaJ/rIG6qa9DuRwdvI22WUf5Utl\nFrEQCQrj+eupO4sxcoE0CHgHTpo/R6wPLb2jJB6CxnKQeOjITXvGT4D9s3NMSmmw\nnrFAdgma45B8uv+PuVi0xjUOWzT4Y9BjTEL30XTkFfgdMtYmKXo0l6y8xabGN4hC\nmSzlF/eJ/7SJuEiwt93/uIHQYaqqw2Rh3VsZ7bXxzetad/elPTyh9EgABcP9nG9e\n7EG476VW1RtyYJHo89Ld6yyVz7/bsRVoui/8pZVBgQKBgQDOiyXZPOsAb51kFxJL\nHikGbJNE8XrrmZ5DGOLjc42OuiaqVWDjwHZ9rFFtTxFj5lXxE9w8CiY0pjPBVesz\nyyKBoD1m9RvIRBISYYlGppRF3Ls7j+sLGGSh8JKvhk0vvpDecqTCRWcGXcmHvhzf\nEN6uuIi6vvR6D8N9Trxs9/e34QKBgQDJdF9w1neUSYdvxFw6MJOn/uFVl/lLjmfA\nD9saNlKMO/2DJygLGIZKp5rmOSLSGnKhAcvJWYKvP4bEGWSBgb/G03DY7TU5Ma+0\nYo4iUbICZJsRhEGsiPtqeNeDxgH5Qfhmvbkupk/R5wNRY4YoOcnMGACPn2ClJr7Y\nod8w2+JnBQKBgEePKjPTyU/DW/J7k9j2wBv7riJqz72k4ZI5oxJOzLKwiAjnv8Po\nwKTV+Pg4Nrw353q4+MrMcWQ4WSIY1H6DWJc0n1F2hoOiIejAZkFWIXT6/tuqBzM2\n5la89PVfQIrUKXkIm1C7nvAzukkPcw1N2PkL8kNROX64y3A0wU+3sdnBAoGBAK6h\ntZZQI8qkzsYBVt2OfIEVvmn/Wri3kpJ4bDtVucscuc82Y0zzDn6quek2wEuXZ6TQ\ntMIvWMzn6cAWLvzg58jIQ7uYLRoOSzy4bnOrk/7lDVNq7a9N83vBkzkErXNQT69o\naZ3Zx7myYzrrZkF6jsbgS6Q0yYeAhdGuyJZHFgStAoGAUMqVxrrcuhSl89cTCDym\nSslbKZu7wwJWIGH8v2oBZpL16+r5RCY12WBTUCj+R62rY51UkVZ5+ndzekoWHljd\n1jDtV7VC655CVwzKna9eX+HuS8eOPcJqm9KRzb8F9UC7Zt9GBwtx8HbZHGVljLny\nXokAgB5CJzRH27jlEOr2zA0=\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@dovetail-sales-tracking.iam.gserviceaccount.com",
+  "client_id": "105781948037285881018",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40dovetail-sales-tracking.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

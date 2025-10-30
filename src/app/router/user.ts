@@ -31,83 +31,84 @@ router.get(
 );
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 router.post(
-    "/addproperty",
+    "/createmeeting",
     tokenCheck,
-    Controller.AddPropertys
+    Controller.CreateMeeting
 );
 
 router.post(
-    "/addproject",
+    "/endmeeting",
     tokenCheck,
-    Controller.addProdut
-);
-router.get(
-    "/projectlist",
-    tokenCheck,
-    Controller.getProjectList
+    Controller.EndMeeting
 );
 
 router.get(
-    "/getprojectdetails/:id",
+    "/getmeetinglist",
     tokenCheck,
-    Controller.getProjectDetails
-);
-  
-router.patch(
-    "/updateProejct/:id",
-    tokenCheck,
-    Controller.updateProduct
+    Controller.GetMeetingList
 );
 
-router.delete(
-    "/deleteproduct/:id",
+router.post(
+    "/scheduledupdate",
     tokenCheck,
-    Controller.deleteProduct
+    Controller.scheduled
 );
+
+router.post(
+    "/logout",
+    tokenCheck,
+    Controller.Logout
+);
+
+router.get(
+    "/getctegory",
+    tokenCheck,
+    Controller.getCategory
+);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export default router;

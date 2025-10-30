@@ -25,8 +25,6 @@ app.use(express_1.default.urlencoded({ extended: true, limit: '50mb' }));
 // app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.use('/admin', admin_1.default);
 app.use('/api', user_1.default);
-// app.use('/api',userRouter);
-// app.use('/',publicRouter)
 // ✅ Swagger UI route
 app.use('/api-docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile));
 app.get('/', (req, res) => {
