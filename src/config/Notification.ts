@@ -1,10 +1,10 @@
 import{Meeting} from "../config/dbConnection"
 import admin from "firebase-admin";
-import serviceAccount from '../Notigication/notification.json';
+// import serviceAccount from '../Notigication/notification.json' ;
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
-});
+// admin.initializeApp({
+//   credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
+// });
 
 
 export interface NotifyPayload {
