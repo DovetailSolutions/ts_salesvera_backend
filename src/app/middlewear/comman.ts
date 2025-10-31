@@ -589,3 +589,66 @@ export const getCategory = async (
     throw error;
   }
 };
+
+
+export const withuserlogin = async (
+  model: any,
+  id:any,
+  data: any = {},
+  searchFields: string[] = [],
+  include: any[] = []
+) => {
+  try {
+    const { page = 1, limit = 10, date, search, ...filters } = data;
+
+    const whereConditions: any = {};
+    if(id){
+      whereConditions.employee_id = id
+    }
+
+    // Only keep actual filters, not pagination values
+    Object.keys(filters).forEach((key) => {
+      if (filters[key] !== undefined && filters[key] !== "") {
+        whereConditions[key] = filters[key];
+      }
+    });
+
+    if (date) {
+      whereConditions.date = date;
+    }
+
+    if (search && searchFields.length > 0) {
+      whereConditions[Op.or] = searchFields.map((field) => ({
+        [field]: { [Op.iRegexp]: `^${search}` },
+      }));
+    }
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const  rows  = await model.findAll({
+      where: whereConditions,
+      include,
+      limit: Number(limit),
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    console.log(rows.length)
+    let count  = rows.length
+
+    return {
+      success: true,
+      data: rows,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        totalRecords: count,
+        totalPages: Math.ceil(count / Number(limit)),
+      },
+    };
+  } catch (error) {
+    console.error("Database Error:", error);
+    throw error;
+  }
+};
+

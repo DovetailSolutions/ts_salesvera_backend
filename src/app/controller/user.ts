@@ -9,7 +9,9 @@ import {
   fn,
   col,
   literal,
+  where,
 } from "sequelize";
+
 import fs from "fs";
 import pdfParse from "pdf-parse";
 import bcrypt from "bcrypt";
@@ -34,6 +36,8 @@ import {
   Project,
   Meeting,
   Device,
+  Attendance,
+  Leave,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -525,6 +529,234 @@ export const getCategory = async(req:Request,res:Response):Promise<void>=>{
     return;
   }
 }
+
+export const AttendancePunchIn = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    const { punch_in,latitude_in,longitude_in } = req.body || {};
+
+    if (!punch_in) {
+      badRequest(res, "Punch-in time is required");
+      return;
+    }
+
+    // 1) ✅ Check if already punched in today
+    const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+
+    const already = await Attendance.findOne({
+      where: {
+        employee_id: finalUserId,
+        date: today,
+      },
+    });
+
+    if (already) {
+      badRequest(res, "You have already punched-in today");
+      return;
+    }
+
+    // 2) ✅ Calculate Late
+    const officeTime = new Date(`${today} 09:30:00`);
+    const punchInTime = new Date(punch_in);
+
+    let late = false;
+    if (punchInTime > officeTime) {
+      late = true;
+    }
+
+    // 3) ✅ Create attendance record
+    const obj: any = {
+      employee_id: finalUserId,
+      date: today,
+      punch_in: punchInTime,
+      status: "present",
+      late,
+      latitude_in,
+      longitude_in
+    };
+
+    const item = await Attendance.create(obj);
+
+    createSuccess(res, "Punch-in recorded successfully", item);
+  } catch (error) {
+    const errorMessage =
+    error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+export const AttendancePunchOut = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+    const { punch_out,AttendanceId,latitude_out,longitude_out } = req.body || {};
+
+    if (!punch_out) {
+      badRequest(res, "Punch-out time is required");
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+
+    // ✅ Find today's punch-in record
+    const attendance = await Attendance.findOne({
+      where: {
+        employee_id: finalUserId,
+        date: today,
+        id:AttendanceId
+      },
+    });
+
+    if (!attendance) {
+      badRequest(res, "No punch-in record found today");
+      return;
+    }
+
+    // ✅ Check if already punched-out
+    if (attendance.punch_out) {
+      badRequest(res, "Already punched-out today");
+      return;
+    }
+
+    const punchInTime = new Date(attendance.punch_in as Date);
+    const punchOutTime = new Date(punch_out);
+
+    if (punchOutTime < punchInTime) {
+      badRequest(res, "Punch-out must be after punch-in");
+      return;
+    }
+    // ✅ Calculate working hours
+    const diffMs = punchOutTime.getTime() - punchInTime.getTime();
+    const workingHours = diffMs / (1000 * 60 * 60); // ms → hours
+    const workingHoursRounded = Number(workingHours.toFixed(2));
+
+    // ✅ Overtime (optional)
+    const officeHours = 8; // Standard
+    const overtime =
+      workingHoursRounded > officeHours
+        ? Number((workingHoursRounded - officeHours).toFixed(2))
+        : 0;
+
+    // ✅ Update DB
+    attendance.punch_out = punchOutTime;
+    attendance.working_hours = workingHoursRounded;
+    attendance.overtime = overtime;
+    attendance.latitude_out=latitude_out
+    attendance.longitude_out=longitude_out
+    await attendance.save();
+
+    createSuccess(res, "Punch-out completed",);
+  } catch (error) {
+    const errorMessage =
+    error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+export const getTodayAttendance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    // const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+
+    const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+
+const record = await Attendance.findOne({
+  where: {
+    employee_id: finalUserId,
+    [Op.and]: where(fn("DATE", col("date")), today),
+  },
+});
+
+    if (!record) {
+      badRequest(res, "No attendance found for today");
+      return;
+    }
+
+    createSuccess(res, "Today attendance fetched", record);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
+
+export const AttendanceList = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+    const data = req.query
+
+    const item = await Middleware.withuserlogin(Attendance,finalUserId,data)
+    createSuccess(res,"bbkbdkfbkd",item)
+
+
+  }catch(error){
+    const errorMessage =
+    error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+}
+
+
+export const requestLeave = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    const { from_date, to_date, reason } = req.body || {};
+
+    // ✅ Validate inputs
+    if (!from_date || !to_date || !reason) {
+      badRequest(res, "from_date, to_date & reason are required");
+      return;
+    }
+
+    const from = new Date(from_date);
+    const to = new Date(to_date);
+
+    // ✅ from_date <= to_date
+    if (to < from) {
+      badRequest(res, "to_date must be after from_date");
+      return;
+    }
+
+    // ✅ Create leave request
+    const leave = await Leave.create({
+      employee_id: finalUserId,
+      from_date: from,
+      to_date: to,
+      reason,
+      status: "pending",
+    });
+
+    createSuccess(res, "Leave requested successfully", leave);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
 
 
 

@@ -49,4 +49,10 @@ router.get("/getmeetinglist", jwtVerify2_1.tokenCheck, Controller.GetMeetingList
 router.post("/scheduledupdate", jwtVerify2_1.tokenCheck, Controller.scheduled);
 router.post("/logout", jwtVerify2_1.tokenCheck, Controller.Logout);
 router.get("/getctegory", jwtVerify2_1.tokenCheck, Controller.getCategory);
+// Attendance Summary
+router.post("/attendance/punch-in", jwtVerify2_1.tokenCheck, Controller.AttendancePunchIn);
+router.post("/attendance/punch-out", jwtVerify2_1.tokenCheck, Controller.AttendancePunchOut);
+router.get("/attendance/today", jwtVerify2_1.tokenCheck, Controller.getTodayAttendance);
+router.get("/attendancelist", jwtVerify2_1.tokenCheck, Controller.AttendanceList);
+router.post("/leave", jwtVerify2_1.tokenCheck, Controller.requestLeave);
 exports.default = router;
