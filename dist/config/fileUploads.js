@@ -23,7 +23,8 @@ const getUploadMiddleware = (type, maxSizeMB = 1000, maxFiles = 100) => {
             contentType: multer_s3_1.default.AUTO_CONTENT_TYPE,
             key: (_req, file, cb) => {
                 const ext = file.originalname.split(".").pop();
-                cb(null, `${type}/${(0, uuid_1.v4)()}.${ext}`);
+                cb(null, `salesvera/${type}/${(0, uuid_1.v4)()}.${ext}` // < === added "newProject/"
+                );
             },
         }),
         limits: {
