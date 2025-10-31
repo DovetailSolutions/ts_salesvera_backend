@@ -26,11 +26,28 @@ const property_1 = require("../app/model/property");
 const project_1 = require("../app/model/project");
 const meeting_1 = require("../app/model/meeting");
 const device_1 = require("../app/model/device");
+// const sequelize = new Sequelize(
+//   env.DB_NAME || "default_db",
+//   env.DB_USER_NAME || "default_user",
+//   env.DB_PASSWORD || "default_password",
+//   {
+//     host: env.DB_HOST,
+//     port: Number(env.DB_PORT) || 5432,
+//     dialect: "postgres",
+//     logging: false,
+//   }
+// );
 const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
     logging: false,
+    dialectOptions: {
+    // ssl: {
+    //   require: true,
+    //   rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
+    // },
+    },
 });
 exports.sequelize = sequelize;
 const User = (0, user_1.createUserModel)(sequelize);
