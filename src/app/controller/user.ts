@@ -1,14 +1,7 @@
 import {
-  Model,
-  FindOptions,
   Op,
-  WhereOptions,
-  Sequelize,
-  CreationAttributes,
-  Includeable,
   fn,
   col,
-  literal,
   where,
 } from "sequelize";
 
@@ -16,11 +9,7 @@ import fs from "fs";
 import pdfParse from "pdf-parse";
 import bcrypt from "bcrypt";
 import jwt, { JwtPayload } from "jsonwebtoken";
-// import cron from "node-cron";
-// import { S3 } from "aws-sdk";
 import { Request, Response } from "express-serve-static-core";
-// import csv from "csv-parser";
-// import fs from "fs";
 import {
   createSuccess,
   getSuccess,
@@ -74,9 +63,9 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       devicemodel,
       devicename,
       deviceType,
-      deviceId
+      deviceId,
     } = req.body || {};
-    console.log(">>>>>>>>>>>>>>>>>>>req.body",req.body)
+    console.log(">>>>>>>>>>>>>>>>>>>req.body", req.body);
 
     if (!email || !password) {
       badRequest(res, "Email and password are required");
@@ -165,36 +154,44 @@ export const UpdateProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const { firstName, lastName, email} = req.body || {};
+
+    const { firstName, lastName } = req.body || {};
 
     // ✅ Build update object dynamically
-    const updates = { firstName, lastName, email };
-    const filteredUpdates = Object.fromEntries(
-      Object.entries(updates).filter(([_, v]) => v !== undefined && v !== "")
-    );
+    const updates: any = {};
+    if (firstName) updates.firstName = firstName;
+    if (lastName) updates.lastName = lastName;
 
-    if (Object.keys(filteredUpdates).length === 0) {
+    // ✅ File upload (Multer-S3 case)
+    if (req.file && (req.file as any).location) {
+      updates.profile = (req.file as any).location;
+    }
+    // ✅ No valid field to update
+    if (Object.keys(updates).length === 0) {
       badRequest(res, "No valid fields provided to update");
       return;
     }
-    // ✅ Update user
+    // ✅ Run update
     const updatedUser = await Middleware.Update(
       User,
       Number(userData.userId),
-      filteredUpdates
+      updates
     );
 
     if (!updatedUser) {
       badRequest(res, "User not found");
       return;
     }
+
     createSuccess(res, "Profile updated successfully");
-  } catch (error) {
+  } catch (error: any) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
+    return;
   }
 };
+
 export const MySalePerson = async (
   req: Request,
   res: Response
@@ -335,6 +332,12 @@ export const CreateMeeting = async (
       userId: finalUserId,
     };
 
+    const files = req.files as Express.MulterS3.File[];
+
+    if (files?.length > 0) {
+      payload.image = files.map((file) => file.location);
+    }
+
     if (meetingTimeIn) {
       payload.meetingTimeIn = meetingTimeIn;
     }
@@ -469,7 +472,7 @@ export const scheduled = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if(!latitude_in && longitude_in){
+    if (!latitude_in && longitude_in) {
       badRequest(res, "latitude_in && longitude_in is required");
       return;
     }
@@ -500,35 +503,37 @@ export const scheduled = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-export const Logout = async(req:Request,res:Response):Promise<void>=>{
-  try{
-      const { deviceId } = req.body;
-      if(!deviceId){
-        badRequest(res,"device token is missing")
-      }
-      await Device.destroy({ where: { deviceId }})
-      createSuccess(res,"logout sussfully")
-  }catch(error){
+export const Logout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { deviceId } = req.body;
+    if (!deviceId) {
+      badRequest(res, "device token is missing");
+    }
+    await Device.destroy({ where: { deviceId } });
+    createSuccess(res, "logout sussfully");
+  } catch (error) {
     const errorMessage =
-    error instanceof Error ? error.message : "Something went wrong";
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
 };
 
-
-export const getCategory = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const getCategory = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
     const data = req.query;
-    const item = await Middleware.getAllList(Category,data)
-    createSuccess(res,"get all category",item)
-  }catch(error){
+    const item = await Middleware.getAllList(Category, data);
+    createSuccess(res, "get all category", item);
+  } catch (error) {
     const errorMessage =
-    error instanceof Error ? error.message : "Something went wrong";
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
-}
+};
 
 export const AttendancePunchIn = async (
   req: Request,
@@ -538,7 +543,7 @@ export const AttendancePunchIn = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    const { punch_in,latitude_in,longitude_in } = req.body || {};
+    const { punch_in, latitude_in, longitude_in } = req.body || {};
 
     if (!punch_in) {
       badRequest(res, "Punch-in time is required");
@@ -577,7 +582,7 @@ export const AttendancePunchIn = async (
       status: "present",
       late,
       latitude_in,
-      longitude_in
+      longitude_in,
     };
 
     const item = await Attendance.create(obj);
@@ -585,7 +590,7 @@ export const AttendancePunchIn = async (
     createSuccess(res, "Punch-in recorded successfully", item);
   } catch (error) {
     const errorMessage =
-    error instanceof Error ? error.message : "Something went wrong";
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
@@ -598,7 +603,8 @@ export const AttendancePunchOut = async (
   try {
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
-    const { punch_out,AttendanceId,latitude_out,longitude_out } = req.body || {};
+    const { punch_out, AttendanceId, latitude_out, longitude_out } =
+      req.body || {};
 
     if (!punch_out) {
       badRequest(res, "Punch-out time is required");
@@ -612,7 +618,7 @@ export const AttendancePunchOut = async (
       where: {
         employee_id: finalUserId,
         date: today,
-        id:AttendanceId
+        id: AttendanceId,
       },
     });
 
@@ -650,14 +656,14 @@ export const AttendancePunchOut = async (
     attendance.punch_out = punchOutTime;
     attendance.working_hours = workingHoursRounded;
     attendance.overtime = overtime;
-    attendance.latitude_out=latitude_out
-    attendance.longitude_out=longitude_out
+    attendance.latitude_out = latitude_out;
+    attendance.longitude_out = longitude_out;
     await attendance.save();
 
-    createSuccess(res, "Punch-out completed",);
+    createSuccess(res, "Punch-out completed");
   } catch (error) {
     const errorMessage =
-    error instanceof Error ? error.message : "Something went wrong";
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
@@ -675,12 +681,12 @@ export const getTodayAttendance = async (
 
     const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
 
-const record = await Attendance.findOne({
-  where: {
-    employee_id: finalUserId,
-    [Op.and]: where(fn("DATE", col("date")), today),
-  },
-});
+    const record = await Attendance.findOne({
+      where: {
+        employee_id: finalUserId,
+        [Op.and]: where(fn("DATE", col("date")), today),
+      },
+    });
 
     if (!record) {
       badRequest(res, "No attendance found for today");
@@ -693,26 +699,26 @@ const record = await Attendance.findOne({
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
-}
+};
 
-export const AttendanceList = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const AttendanceList = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
-    const data = req.query
+    const data = req.query;
 
-    const item = await Middleware.withuserlogin(Attendance,finalUserId,data)
-    createSuccess(res,"bbkbdkfbkd",item)
-
-
-  }catch(error){
+    const item = await Middleware.withuserlogin(Attendance, finalUserId, data);
+    createSuccess(res, "bbkbdkfbkd", item);
+  } catch (error) {
     const errorMessage =
-    error instanceof Error ? error.message : "Something went wrong";
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
-}
-
+};
 
 export const requestLeave = async (
   req: Request,
@@ -768,386 +774,3 @@ export const requestLeave = async (
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export const addProdut = async (req: Request, res: Response): Promise<void> => {
-  try {
-    // ✅ Get user ID from JWT
-    const userData = req.userData as JwtPayload;
-    const user_id = userData?.userId;
-    const {
-      project_name,
-      status,
-      project_details,
-      project_features,
-      price_range_from,
-      price_range_to,
-      price_per_sqft,
-      units_size_sqft,
-      total_units,
-      location,
-      city,
-      state,
-      country,
-      possession_date,
-      builder_name,
-      project_images,
-      is_active,
-    } = req.body || {};
-
-    const allowedFields = [
-      "project_name",
-      "status",
-      "project_details",
-      "project_features",
-      "price_range_from",
-      "price_range_to",
-      "price_per_sqft",
-      "units_size_sqft",
-      "total_units",
-      "location",
-      "city",
-      "state",
-      "country",
-      "possession_date",
-      "builder_name",
-      "project_images",
-      "is_active",
-    ];
-
-    // ✅ Build object with non-empty values
-    const object: any = { user_id }; // include user_id
-    for (const key of allowedFields) {
-      const value = req.body[key];
-      if (value !== undefined && value !== null && value !== "") {
-        object[key] = value;
-      }
-    }
-
-    // ✅ Auto-calculate price_per_sqft if missing
-    if (
-      price_range_from &&
-      price_range_to &&
-      !price_per_sqft &&
-      units_size_sqft
-    ) {
-      const avgPrice = (Number(price_range_from) + Number(price_range_to)) / 2;
-      object.price_per_sqft = avgPrice / Number(units_size_sqft);
-    }
-
-    // ✅ Save to DB
-    const item = await Project.create(object);
-
-    createSuccess(res, "Project added successfully", item);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const AddPropertys = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const builder_id = userData?.userId;
-    const {
-      name,
-      listing_type,
-      property_for,
-      owner_ship,
-      project_id,
-      category_id,
-      property_type,
-      amenities_id,
-      title,
-      unique_selling_point,
-      state,
-      city,
-      country,
-      locality,
-      address,
-      facing,
-      bedroom,
-      bathroom,
-      balconies,
-      floor_no,
-      total_floor,
-      furnished_status,
-      price,
-      price_negotiable,
-      price_include,
-      other_charge,
-      maintenance_charge,
-      maintenance_mode,
-      corner_plot,
-      length,
-      breadth,
-      is_active,
-      possession_status,
-      image,
-    } = req.body || {};
-
-    const allowedFields = [
-      "name",
-      "listing_type",
-      "property_for",
-      "owner_ship",
-      "project_id",
-      "category_id",
-      "property_type",
-      "amenities_id",
-      "title",
-      "price",
-      "unique_selling_point",
-      "state",
-      "city",
-      "country",
-      "locality",
-      "address",
-      "facing",
-      "bedroom",
-      "bathroom",
-      "balconies",
-      "floor_no",
-      "total_floor",
-      "furnished_status",
-      "price_negotiable",
-      "price_include",
-      "other_charge",
-      "maintenance_charge",
-      "maintenance_mode",
-      "corner_plot",
-      "length",
-      "breadth",
-      "is_active",
-      "possession_status",
-      "image",
-    ];
-
-    const object: any = { builder_id };
-    // ✅ Add only non-empty fields
-    for (const key of allowedFields) {
-      if (
-        req.body[key] !== undefined &&
-        req.body[key] !== null &&
-        req.body[key] !== ""
-      ) {
-        object[key] = req.body[key];
-      }
-    }
-    // ✅ Auto calculations
-    if (length && breadth) {
-      object.area = Number(length) * Number(breadth);
-    }
-    if (price) {
-      // If area exists, calculate price per sqft
-      if (object.area) {
-        object.price_per_sqft = Number(price) / Number(object.area);
-      }
-
-      // 25% of price as booking amount
-      object.booking_amount = Number(price) * 0.25;
-    }
-    console.log("✅ Final Property Object:", object);
-    const item = await Property.create(object);
-    createSuccess(res, "Property added successfully", item);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const getProjectList = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const data = req.query;
-    const item = await Middleware.getCategory(Project, data, userData?.userId);
-    if (!item) {
-      badRequest(res, "Amenities not found");
-      return;
-    }
-    createSuccess(res, "Amenities list", item);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const getProjectDetails = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { id } = req.params || {};
-    const userData = req.userData as JwtPayload;
-
-    // ✅ Validate input
-    if (!id) {
-      badRequest(res, "Project ID is required");
-      return;
-    }
-
-    // ✅ Fetch project by ID and user ID (if provided)
-    const item = await Middleware.getById(
-      Project,
-      Number(id),
-      Number(userData?.userId)
-    );
-
-    // ✅ Handle not found
-    if (!item) {
-      badRequest(res, "Project not found");
-      return;
-    }
-
-    // ✅ Success response
-    createSuccess(res, "Project details fetched successfully", item);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const updateProduct = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { id } = req.params; // project ID
-    const userData = req.userData as JwtPayload;
-
-    if (!id) {
-      badRequest(res, "Project ID is required");
-      return;
-    }
-
-    // ✅ Extract allowed fields
-    const allowedFields = [
-      "project_name",
-      "status",
-      "project_details",
-      "project_features",
-      "price_range_from",
-      "price_range_to",
-      "price_per_sqft",
-      "units_size_sqft",
-      "total_units",
-      "location",
-      "city",
-      "state",
-      "country",
-      "possession_date",
-      "builder_name",
-      "project_images",
-      "is_active",
-    ];
-
-    // ✅ Build update object with only provided values
-    const updates: Record<string, any> = {};
-    for (const key of allowedFields) {
-      const value = req.body[key];
-      if (value !== undefined && value !== null && value !== "") {
-        updates[key] = value;
-      }
-    }
-
-    if (Object.keys(updates).length === 0) {
-      badRequest(res, "No valid fields provided for update");
-      return;
-    }
-
-    // ✅ Auto-calculate price_per_sqft if needed
-    const {
-      price_range_from,
-      price_range_to,
-      price_per_sqft,
-      units_size_sqft,
-    } = req.body;
-    if (
-      price_range_from &&
-      price_range_to &&
-      !price_per_sqft &&
-      units_size_sqft
-    ) {
-      const avgPrice = (Number(price_range_from) + Number(price_range_to)) / 2;
-      updates.price_per_sqft = avgPrice / Number(units_size_sqft);
-    }
-
-    // ✅ Find project owned by current user (if applicable)
-    const project = await Middleware.getById(
-      Project,
-      Number(id),
-      Number(userData?.userId)
-    );
-
-    if (!project) {
-      badRequest(res, "Project not found or not authorized");
-      return;
-    }
-
-    // ✅ Perform update
-    await project.update(updates);
-
-    createSuccess(res, "Project updated successfully", project);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const deleteProduct = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { id } = req.params; // project ID
-    const userData = req.userData as JwtPayload;
-    if (!id) {
-      badRequest(res, "Project ID is required");
-      return;
-    }
-    const item = await Middleware.DeleteItembyId(
-      Project,
-      Number(id),
-      Number(userData?.userId)
-    );
-    if (!item) {
-      badRequest(res, "product not founded");
-    }
-    createSuccess(res, "product delete successfully");
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};

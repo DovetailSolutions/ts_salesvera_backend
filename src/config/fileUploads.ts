@@ -24,7 +24,10 @@ const getUploadMiddleware = (
       contentType: (multerS3 as any).AUTO_CONTENT_TYPE,
       key: (_req, file, cb) => {
         const ext = file.originalname.split(".").pop();
-        cb(null, `${type}/${uuidv4()}.${ext}`);
+        cb(
+          null,
+          `salesvera/${type}/${uuidv4()}.${ext}`  // < === added "newProject/"
+        );
       },
     }),
     limits: {
@@ -33,5 +36,6 @@ const getUploadMiddleware = (
     },
   });
 };
+
 
 export default getUploadMiddleware;

@@ -45,11 +45,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteProduct = exports.updateProduct = exports.getProjectDetails = exports.getProjectList = exports.AddPropertys = exports.addProdut = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const bcrypt_1 = __importDefault(require("bcrypt"));
-// import csv from "csv-parser";
-// import fs from "fs";
 const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_1 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
@@ -77,7 +75,7 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 exports.Register = Register;
 const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { email, password, deviceToken, devicemodel, devicename, deviceType, deviceId } = req.body || {};
+        const { email, password, deviceToken, devicemodel, devicename, deviceType, deviceId, } = req.body || {};
         console.log(">>>>>>>>>>>>>>>>>>>req.body", req.body);
         if (!email || !password) {
             (0, errorMessage_1.badRequest)(res, "Email and password are required");
@@ -151,16 +149,24 @@ exports.GetProfile = GetProfile;
 const UpdateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const { firstName, lastName, email } = req.body || {};
+        const { firstName, lastName } = req.body || {};
         // ✅ Build update object dynamically
-        const updates = { firstName, lastName, email };
-        const filteredUpdates = Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined && v !== ""));
-        if (Object.keys(filteredUpdates).length === 0) {
+        const updates = {};
+        if (firstName)
+            updates.firstName = firstName;
+        if (lastName)
+            updates.lastName = lastName;
+        // ✅ File upload (Multer-S3 case)
+        if (req.file && req.file.location) {
+            updates.profile = req.file.location;
+        }
+        // ✅ No valid field to update
+        if (Object.keys(updates).length === 0) {
             (0, errorMessage_1.badRequest)(res, "No valid fields provided to update");
             return;
         }
-        // ✅ Update user
-        const updatedUser = yield Middleware.Update(dbConnection_1.User, Number(userData.userId), filteredUpdates);
+        // ✅ Run update
+        const updatedUser = yield Middleware.Update(dbConnection_1.User, Number(userData.userId), updates);
         if (!updatedUser) {
             (0, errorMessage_1.badRequest)(res, "User not found");
             return;
@@ -170,6 +176,7 @@ const UpdateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
     }
 });
 exports.UpdateProfile = UpdateProfile;
@@ -276,6 +283,10 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             status,
             userId: finalUserId,
         };
+        const files = req.files;
+        if ((files === null || files === void 0 ? void 0 : files.length) > 0) {
+            payload.image = files.map((file) => file.location);
+        }
         if (meetingTimeIn) {
             payload.meetingTimeIn = meetingTimeIn;
         }
@@ -490,7 +501,7 @@ const AttendancePunchIn = (req, res) => __awaiter(void 0, void 0, void 0, functi
             status: "present",
             late,
             latitude_in,
-            longitude_in
+            longitude_in,
         };
         const item = yield dbConnection_1.Attendance.create(obj);
         (0, errorMessage_1.createSuccess)(res, "Punch-in recorded successfully", item);
@@ -517,7 +528,7 @@ const AttendancePunchOut = (req, res) => __awaiter(void 0, void 0, void 0, funct
             where: {
                 employee_id: finalUserId,
                 date: today,
-                id: AttendanceId
+                id: AttendanceId,
             },
         });
         if (!attendance) {
@@ -633,253 +644,3 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.requestLeave = requestLeave;
-const addProdut = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        // ✅ Get user ID from JWT
-        const userData = req.userData;
-        const user_id = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const { project_name, status, project_details, project_features, price_range_from, price_range_to, price_per_sqft, units_size_sqft, total_units, location, city, state, country, possession_date, builder_name, project_images, is_active, } = req.body || {};
-        const allowedFields = [
-            "project_name",
-            "status",
-            "project_details",
-            "project_features",
-            "price_range_from",
-            "price_range_to",
-            "price_per_sqft",
-            "units_size_sqft",
-            "total_units",
-            "location",
-            "city",
-            "state",
-            "country",
-            "possession_date",
-            "builder_name",
-            "project_images",
-            "is_active",
-        ];
-        // ✅ Build object with non-empty values
-        const object = { user_id }; // include user_id
-        for (const key of allowedFields) {
-            const value = req.body[key];
-            if (value !== undefined && value !== null && value !== "") {
-                object[key] = value;
-            }
-        }
-        // ✅ Auto-calculate price_per_sqft if missing
-        if (price_range_from &&
-            price_range_to &&
-            !price_per_sqft &&
-            units_size_sqft) {
-            const avgPrice = (Number(price_range_from) + Number(price_range_to)) / 2;
-            object.price_per_sqft = avgPrice / Number(units_size_sqft);
-        }
-        // ✅ Save to DB
-        const item = yield dbConnection_1.Project.create(object);
-        (0, errorMessage_1.createSuccess)(res, "Project added successfully", item);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.addProdut = addProdut;
-const AddPropertys = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const builder_id = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const { name, listing_type, property_for, owner_ship, project_id, category_id, property_type, amenities_id, title, unique_selling_point, state, city, country, locality, address, facing, bedroom, bathroom, balconies, floor_no, total_floor, furnished_status, price, price_negotiable, price_include, other_charge, maintenance_charge, maintenance_mode, corner_plot, length, breadth, is_active, possession_status, image, } = req.body || {};
-        const allowedFields = [
-            "name",
-            "listing_type",
-            "property_for",
-            "owner_ship",
-            "project_id",
-            "category_id",
-            "property_type",
-            "amenities_id",
-            "title",
-            "price",
-            "unique_selling_point",
-            "state",
-            "city",
-            "country",
-            "locality",
-            "address",
-            "facing",
-            "bedroom",
-            "bathroom",
-            "balconies",
-            "floor_no",
-            "total_floor",
-            "furnished_status",
-            "price_negotiable",
-            "price_include",
-            "other_charge",
-            "maintenance_charge",
-            "maintenance_mode",
-            "corner_plot",
-            "length",
-            "breadth",
-            "is_active",
-            "possession_status",
-            "image",
-        ];
-        const object = { builder_id };
-        // ✅ Add only non-empty fields
-        for (const key of allowedFields) {
-            if (req.body[key] !== undefined &&
-                req.body[key] !== null &&
-                req.body[key] !== "") {
-                object[key] = req.body[key];
-            }
-        }
-        // ✅ Auto calculations
-        if (length && breadth) {
-            object.area = Number(length) * Number(breadth);
-        }
-        if (price) {
-            // If area exists, calculate price per sqft
-            if (object.area) {
-                object.price_per_sqft = Number(price) / Number(object.area);
-            }
-            // 25% of price as booking amount
-            object.booking_amount = Number(price) * 0.25;
-        }
-        console.log("✅ Final Property Object:", object);
-        const item = yield dbConnection_1.Property.create(object);
-        (0, errorMessage_1.createSuccess)(res, "Property added successfully", item);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.AddPropertys = AddPropertys;
-const getProjectList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const data = req.query;
-        const item = yield Middleware.getCategory(dbConnection_1.Project, data, userData === null || userData === void 0 ? void 0 : userData.userId);
-        if (!item) {
-            (0, errorMessage_1.badRequest)(res, "Amenities not found");
-            return;
-        }
-        (0, errorMessage_1.createSuccess)(res, "Amenities list", item);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getProjectList = getProjectList;
-const getProjectDetails = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { id } = req.params || {};
-        const userData = req.userData;
-        // ✅ Validate input
-        if (!id) {
-            (0, errorMessage_1.badRequest)(res, "Project ID is required");
-            return;
-        }
-        // ✅ Fetch project by ID and user ID (if provided)
-        const item = yield Middleware.getById(dbConnection_1.Project, Number(id), Number(userData === null || userData === void 0 ? void 0 : userData.userId));
-        // ✅ Handle not found
-        if (!item) {
-            (0, errorMessage_1.badRequest)(res, "Project not found");
-            return;
-        }
-        // ✅ Success response
-        (0, errorMessage_1.createSuccess)(res, "Project details fetched successfully", item);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.getProjectDetails = getProjectDetails;
-const updateProduct = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { id } = req.params; // project ID
-        const userData = req.userData;
-        if (!id) {
-            (0, errorMessage_1.badRequest)(res, "Project ID is required");
-            return;
-        }
-        // ✅ Extract allowed fields
-        const allowedFields = [
-            "project_name",
-            "status",
-            "project_details",
-            "project_features",
-            "price_range_from",
-            "price_range_to",
-            "price_per_sqft",
-            "units_size_sqft",
-            "total_units",
-            "location",
-            "city",
-            "state",
-            "country",
-            "possession_date",
-            "builder_name",
-            "project_images",
-            "is_active",
-        ];
-        // ✅ Build update object with only provided values
-        const updates = {};
-        for (const key of allowedFields) {
-            const value = req.body[key];
-            if (value !== undefined && value !== null && value !== "") {
-                updates[key] = value;
-            }
-        }
-        if (Object.keys(updates).length === 0) {
-            (0, errorMessage_1.badRequest)(res, "No valid fields provided for update");
-            return;
-        }
-        // ✅ Auto-calculate price_per_sqft if needed
-        const { price_range_from, price_range_to, price_per_sqft, units_size_sqft, } = req.body;
-        if (price_range_from &&
-            price_range_to &&
-            !price_per_sqft &&
-            units_size_sqft) {
-            const avgPrice = (Number(price_range_from) + Number(price_range_to)) / 2;
-            updates.price_per_sqft = avgPrice / Number(units_size_sqft);
-        }
-        // ✅ Find project owned by current user (if applicable)
-        const project = yield Middleware.getById(dbConnection_1.Project, Number(id), Number(userData === null || userData === void 0 ? void 0 : userData.userId));
-        if (!project) {
-            (0, errorMessage_1.badRequest)(res, "Project not found or not authorized");
-            return;
-        }
-        // ✅ Perform update
-        yield project.update(updates);
-        (0, errorMessage_1.createSuccess)(res, "Project updated successfully", project);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.updateProduct = updateProduct;
-const deleteProduct = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { id } = req.params; // project ID
-        const userData = req.userData;
-        if (!id) {
-            (0, errorMessage_1.badRequest)(res, "Project ID is required");
-            return;
-        }
-        const item = yield Middleware.DeleteItembyId(dbConnection_1.Project, Number(id), Number(userData === null || userData === void 0 ? void 0 : userData.userId));
-        if (!item) {
-            (0, errorMessage_1.badRequest)(res, "product not founded");
-        }
-        (0, errorMessage_1.createSuccess)(res, "product delete successfully");
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.deleteProduct = deleteProduct;

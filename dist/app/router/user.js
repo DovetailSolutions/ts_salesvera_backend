@@ -32,18 +32,23 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const router = (0, express_1.Router)();
 const Controller = __importStar(require("../controller/user"));
 const jwtVerify2_1 = require("../../config/jwtVerify2");
-// const uploadPdf = getUploadMiddleware("pdf", 50, 1); // 50 MB max, 1 file
+const fileUploads_1 = __importDefault(require("../../config/fileUploads"));
+const profile = (0, fileUploads_1.default)("image");
+const meeting = (0, fileUploads_1.default)("image");
 router.post("/register", Controller.Register);
 router.post("/login", Controller.Login);
 router.get("/getprofile", jwtVerify2_1.tokenCheck, Controller.GetProfile);
-router.patch("/updateprofile", jwtVerify2_1.tokenCheck, Controller.UpdateProfile);
+router.patch("/updateprofile", jwtVerify2_1.tokenCheck, profile.single("profile"), Controller.UpdateProfile);
 router.get("/mysaleperson", jwtVerify2_1.tokenCheck, Controller.MySalePerson);
-router.post("/createmeeting", jwtVerify2_1.tokenCheck, Controller.CreateMeeting);
+router.post("/createmeeting", jwtVerify2_1.tokenCheck, meeting.array("image"), Controller.CreateMeeting);
 router.post("/endmeeting", jwtVerify2_1.tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", jwtVerify2_1.tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", jwtVerify2_1.tokenCheck, Controller.scheduled);
