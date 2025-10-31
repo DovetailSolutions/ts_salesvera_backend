@@ -19,7 +19,7 @@ const DeviceModel = (sequelize) => {
         deviceToken: {
             type: sequelize_1.DataTypes.STRING,
             allowNull: false,
-            unique: true,
+            // unique: true,
         },
         devicemodel: {
             type: sequelize_1.DataTypes.STRING,

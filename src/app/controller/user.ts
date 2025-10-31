@@ -72,6 +72,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       deviceType,
       deviceId
     } = req.body || {};
+    console.log(">>>>>>>>>>>>>>>>>>>req.body",req.body)
 
     if (!email || !password) {
       badRequest(res, "Email and password are required");
@@ -103,8 +104,8 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     // ✅ Save refresh token in DB
     await user.update({ refreshToken });
 
-    if (deviceId) {
-      const existing = await Device.findOne({ where: { deviceId } });
+    if (deviceToken) {
+      const existing = await Device.findOne({ where: { deviceToken } });
       if (!existing) {
         await Device.create({
           userId: user?.id,
@@ -121,6 +122,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
           deviceType,
           devicemodel,
           devicename,
+          deviceId,
           isActive: true,
         });
       }
@@ -159,7 +161,7 @@ export const UpdateProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const { firstName, lastName, email } = req.body || {};
+    const { firstName, lastName, email} = req.body || {};
 
     // ✅ Build update object dynamically
     const updates = { firstName, lastName, email };
@@ -460,6 +462,11 @@ export const scheduled = async (req: Request, res: Response): Promise<void> => {
     const { meetingId, latitude_in, longitude_in } = req.body || {};
     if (!meetingId) {
       badRequest(res, "meetingId is required");
+      return;
+    }
+
+    if(!latitude_in && longitude_in){
+      badRequest(res, "latitude_in && longitude_in is required");
       return;
     }
     /** ✅ Check meeting exist for this user & active */

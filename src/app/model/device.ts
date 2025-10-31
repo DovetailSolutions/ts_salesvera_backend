@@ -44,7 +44,7 @@ export const DeviceModel = (sequelize: Sequelize) => {
       deviceToken: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
+        // unique: true,
       },
       devicemodel: {
         type: DataTypes.STRING,
