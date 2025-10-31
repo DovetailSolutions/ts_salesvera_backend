@@ -12,6 +12,18 @@ import { ProjectModel } from "../app/model/project";
 import { MeetingTypeModel } from "../app/model/meeting";
 import { DeviceModel } from "../app/model/device";
 
+// const sequelize = new Sequelize(
+//   env.DB_NAME || "default_db",
+//   env.DB_USER_NAME || "default_user",
+//   env.DB_PASSWORD || "default_password",
+//   {
+//     host: env.DB_HOST,
+//     port: Number(env.DB_PORT) || 5432,
+//     dialect: "postgres",
+//     logging: false,
+//   }
+// );
+
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
   env.DB_USER_NAME || "default_user",
@@ -21,8 +33,15 @@ const sequelize = new Sequelize(
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
     logging: false,
+    dialectOptions: {
+      // ssl: {
+      //   require: true,
+      //   rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
+      // },
+    },
   }
 );
+
 
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
