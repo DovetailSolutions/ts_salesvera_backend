@@ -18,11 +18,6 @@ import {
 import {
   User,
   Category,
-  PropertyType,
-  Flat,
-  Amenities,
-  Property,
-  Project,
   Meeting,
   Device,
   Attendance,

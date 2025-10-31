@@ -11,8 +11,8 @@ const doc = {
         title: 'My API',
         description: 'API documentation with auto-generation',
     },
-    host: 'localhost:4500',
-    schemes: ['http'],
+    host: 'api.salesvera',
+    schemes: ['https'],
 };
 const outputFile = path_1.default.join(__dirname, '../../swagger-output.json');
 const endpointsFiles = ['./src/server.ts']; // your main app file or route entrypoint

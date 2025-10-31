@@ -5,10 +5,10 @@
     "description": "API documentation with auto-generation",
     "version": "1.0.0"
   },
-  "host": "localhost:4500",
+  "host": "api.salesvera",
   "basePath": "/",
   "schemes": [
-    "http"
+    "https"
   ],
   "paths": {
     "/": {
@@ -46,7 +46,13 @@
                 "phone": {
                   "example": "any"
                 },
+                "dob": {
+                  "example": "any"
+                },
                 "role": {
+                  "example": "any"
+                },
+                "createdBy": {
                   "example": "any"
                 }
               }
@@ -284,640 +290,6 @@
         }
       }
     },
-    "/admin/addpropertytype": {
-      "post": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "category_id": {
-                  "example": "any"
-                },
-                "name": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/getpropetytype": {
-      "get": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/getpropertydetails/{id}": {
-      "get": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/deleteproperty/{id}": {
-      "delete": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/updateproperty/{id}": {
-      "patch": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "example": "any"
-                },
-                "category_id": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/addFlat": {
-      "post": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "type": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/flatList": {
-      "get": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/flatdetails/{id}": {
-      "get": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/updateflat/{id}": {
-      "patch": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "type": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/flatdelete/{id}": {
-      "delete": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/addamenities": {
-      "post": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "type": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/amenitiesList": {
-      "get": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/amenitiesdetails/{id}": {
-      "get": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/updateamenities/{id}": {
-      "patch": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/amenitiesdelete/{id}": {
-      "delete": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/addproperty": {
-      "post": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "example": "any"
-                },
-                "listing_type": {
-                  "example": "any"
-                },
-                "property_for": {
-                  "example": "any"
-                },
-                "owner_ship": {
-                  "example": "any"
-                },
-                "builder_id": {
-                  "example": "any"
-                },
-                "project_id": {
-                  "example": "any"
-                },
-                "category_id": {
-                  "example": "any"
-                },
-                "property_type": {
-                  "example": "any"
-                },
-                "amenities_id": {
-                  "example": "any"
-                },
-                "title": {
-                  "example": "any"
-                },
-                "unique_selling_point": {
-                  "example": "any"
-                },
-                "state": {
-                  "example": "any"
-                },
-                "city": {
-                  "example": "any"
-                },
-                "country": {
-                  "example": "any"
-                },
-                "locality": {
-                  "example": "any"
-                },
-                "address": {
-                  "example": "any"
-                },
-                "facing": {
-                  "example": "any"
-                },
-                "bedroom": {
-                  "example": "any"
-                },
-                "bathroom": {
-                  "example": "any"
-                },
-                "balconies": {
-                  "example": "any"
-                },
-                "floor_no": {
-                  "example": "any"
-                },
-                "total_floor": {
-                  "example": "any"
-                },
-                "furnished_status": {
-                  "example": "any"
-                },
-                "price": {
-                  "example": "any"
-                },
-                "price_negotiable": {
-                  "example": "any"
-                },
-                "price_include": {
-                  "example": "any"
-                },
-                "other_charge": {
-                  "example": "any"
-                },
-                "maintenance_charge": {
-                  "example": "any"
-                },
-                "maintenance_mode": {
-                  "example": "any"
-                },
-                "corner_plot": {
-                  "example": "any"
-                },
-                "length": {
-                  "example": "any"
-                },
-                "breadth": {
-                  "example": "any"
-                },
-                "is_active": {
-                  "example": "any"
-                },
-                "possession_status": {
-                  "example": "any"
-                },
-                "image": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/admin/addproject": {
-      "post": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "project_name": {
-                  "example": "any"
-                },
-                "status": {
-                  "example": "any"
-                },
-                "project_details": {
-                  "example": "any"
-                },
-                "project_features": {
-                  "example": "any"
-                },
-                "price_range_from": {
-                  "example": "any"
-                },
-                "price_range_to": {
-                  "example": "any"
-                },
-                "price_per_sqft": {
-                  "example": "any"
-                },
-                "units_size_sqft": {
-                  "example": "any"
-                },
-                "total_units": {
-                  "example": "any"
-                },
-                "location": {
-                  "example": "any"
-                },
-                "city": {
-                  "example": "any"
-                },
-                "state": {
-                  "example": "any"
-                },
-                "country": {
-                  "example": "any"
-                },
-                "possession_date": {
-                  "example": "any"
-                },
-                "builder_name": {
-                  "example": "any"
-                },
-                "project_images": {
-                  "example": "any"
-                },
-                "is_active": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
     "/api/register": {
       "post": {
         "description": "",
@@ -952,7 +324,25 @@
             "schema": {
               "type": "object",
               "properties": {
-                "phone": {
+                "email": {
+                  "example": "any"
+                },
+                "password": {
+                  "example": "any"
+                },
+                "deviceToken": {
+                  "example": "any"
+                },
+                "devicemodel": {
+                  "example": "any"
+                },
+                "devicename": {
+                  "example": "any"
+                },
+                "deviceType": {
+                  "example": "any"
+                },
+                "deviceId": {
                   "example": "any"
                 }
               }
@@ -1006,9 +396,6 @@
                 },
                 "lastName": {
                   "example": "any"
-                },
-                "email": {
-                  "example": "any"
                 }
               }
             }
@@ -1024,7 +411,42 @@
         }
       }
     },
-    "/api/addproperty": {
+    "/api/mysaleperson": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/createmeeting": {
       "post": {
         "description": "",
         "parameters": [
@@ -1039,106 +461,7 @@
             "schema": {
               "type": "object",
               "properties": {
-                "name": {
-                  "example": "any"
-                },
-                "listing_type": {
-                  "example": "any"
-                },
-                "property_for": {
-                  "example": "any"
-                },
-                "owner_ship": {
-                  "example": "any"
-                },
-                "project_id": {
-                  "example": "any"
-                },
-                "category_id": {
-                  "example": "any"
-                },
-                "property_type": {
-                  "example": "any"
-                },
-                "amenities_id": {
-                  "example": "any"
-                },
-                "title": {
-                  "example": "any"
-                },
-                "unique_selling_point": {
-                  "example": "any"
-                },
-                "state": {
-                  "example": "any"
-                },
-                "city": {
-                  "example": "any"
-                },
-                "country": {
-                  "example": "any"
-                },
-                "locality": {
-                  "example": "any"
-                },
-                "address": {
-                  "example": "any"
-                },
-                "facing": {
-                  "example": "any"
-                },
-                "bedroom": {
-                  "example": "any"
-                },
-                "bathroom": {
-                  "example": "any"
-                },
-                "balconies": {
-                  "example": "any"
-                },
-                "floor_no": {
-                  "example": "any"
-                },
-                "total_floor": {
-                  "example": "any"
-                },
-                "furnished_status": {
-                  "example": "any"
-                },
-                "price": {
-                  "example": "any"
-                },
-                "price_negotiable": {
-                  "example": "any"
-                },
-                "price_include": {
-                  "example": "any"
-                },
-                "other_charge": {
-                  "example": "any"
-                },
-                "maintenance_charge": {
-                  "example": "any"
-                },
-                "maintenance_mode": {
-                  "example": "any"
-                },
-                "corner_plot": {
-                  "example": "any"
-                },
-                "length": {
-                  "example": "any"
-                },
-                "breadth": {
-                  "example": "any"
-                },
-                "is_active": {
-                  "example": "any"
-                },
-                "possession_status": {
-                  "example": "any"
-                },
-                "image": {
+                "where": {
                   "example": "any"
                 }
               }
@@ -1155,7 +478,7 @@
         }
       }
     },
-    "/api/addproject": {
+    "/api/endmeeting": {
       "post": {
         "description": "",
         "parameters": [
@@ -1170,55 +493,16 @@
             "schema": {
               "type": "object",
               "properties": {
-                "project_name": {
+                "meetingId": {
                   "example": "any"
                 },
-                "status": {
+                "latitude_out": {
                   "example": "any"
                 },
-                "project_details": {
+                "longitude_out": {
                   "example": "any"
                 },
-                "project_features": {
-                  "example": "any"
-                },
-                "price_range_from": {
-                  "example": "any"
-                },
-                "price_range_to": {
-                  "example": "any"
-                },
-                "price_per_sqft": {
-                  "example": "any"
-                },
-                "units_size_sqft": {
-                  "example": "any"
-                },
-                "total_units": {
-                  "example": "any"
-                },
-                "location": {
-                  "example": "any"
-                },
-                "city": {
-                  "example": "any"
-                },
-                "state": {
-                  "example": "any"
-                },
-                "country": {
-                  "example": "any"
-                },
-                "possession_date": {
-                  "example": "any"
-                },
-                "builder_name": {
-                  "example": "any"
-                },
-                "project_images": {
-                  "example": "any"
-                },
-                "is_active": {
+                "remarks": {
                   "example": "any"
                 }
               }
@@ -1235,7 +519,117 @@
         }
       }
     },
-    "/api/projectlist": {
+    "/api/getmeetinglist": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/scheduledupdate": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "meetingId": {
+                  "example": "any"
+                },
+                "latitude_in": {
+                  "example": "any"
+                },
+                "longitude_in": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "deviceId": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/getctegory": {
       "get": {
         "description": "",
         "parameters": [
@@ -1255,42 +649,10 @@
         }
       }
     },
-    "/api/getprojectdetails/{id}": {
-      "get": {
+    "/api/attendance/punch-in": {
+      "post": {
         "description": "",
         "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          }
-        }
-      }
-    },
-    "/api/updateProejct/{id}": {
-      "patch": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
           {
             "name": "authorization",
             "in": "header",
@@ -1302,16 +664,13 @@
             "schema": {
               "type": "object",
               "properties": {
-                "price_range_from": {
+                "punch_in": {
                   "example": "any"
                 },
-                "price_range_to": {
+                "latitude_in": {
                   "example": "any"
                 },
-                "price_per_sqft": {
-                  "example": "any"
-                },
-                "units_size_sqft": {
+                "longitude_in": {
                   "example": "any"
                 }
               }
@@ -1328,20 +687,113 @@
         }
       }
     },
-    "/api/deleteproduct/{id}": {
-      "delete": {
+    "/api/attendance/punch-out": {
+      "post": {
         "description": "",
         "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
           {
             "name": "authorization",
             "in": "header",
             "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "punch_out": {
+                  "example": "any"
+                },
+                "AttendanceId": {
+                  "example": "any"
+                },
+                "latitude_out": {
+                  "example": "any"
+                },
+                "longitude_out": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/attendance/today": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/attendancelist": {
+      "get": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/leave": {
+      "post": {
+        "description": "",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "from_date": {
+                  "example": "any"
+                },
+                "to_date": {
+                  "example": "any"
+                },
+                "reason": {
+                  "example": "any"
+                }
+              }
+            }
           }
         ],
         "responses": {

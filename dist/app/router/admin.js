@@ -47,26 +47,5 @@ router.get("/getcategory", jwtVerify_1.tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", jwtVerify_1.tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", jwtVerify_1.tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", jwtVerify_1.tokenCheck, AdminController.DeleteCategory);
-router.post("/addpropertytype", jwtVerify_1.tokenCheck, AdminController.AddProperty);
-router.get("/getpropetytype", jwtVerify_1.tokenCheck, AdminController.getPropertylist);
-router.get("/getpropertydetails/:id", jwtVerify_1.tokenCheck, AdminController.PropertyDetails);
-router.delete("/deleteproperty/:id", jwtVerify_1.tokenCheck, AdminController.deleteProperty);
-router.patch("/updateproperty/:id", jwtVerify_1.tokenCheck, AdminController.UpdateProperty);
-// router.get(
-//     "/get",
-//     uploadPdf.single("pdf"),
-//     AdminController.Pdf
-// );
-router.post("/addFlat", jwtVerify_1.tokenCheck, AdminController.addFlat);
-router.get("/flatList", jwtVerify_1.tokenCheck, AdminController.getFlatList);
-router.get("/flatdetails/:id", jwtVerify_1.tokenCheck, AdminController.FlatDetails);
-router.patch("/updateflat/:id", jwtVerify_1.tokenCheck, AdminController.UpdateFlat);
-router.delete("/flatdelete/:id", jwtVerify_1.tokenCheck, AdminController.flatDelete);
-router.post("/addamenities", jwtVerify_1.tokenCheck, AdminController.addamenities);
-router.get("/amenitiesList", jwtVerify_1.tokenCheck, AdminController.amenitiesList);
-router.get("/amenitiesdetails/:id", jwtVerify_1.tokenCheck, AdminController.amenitiesdetails);
-router.patch("/updateamenities/:id", jwtVerify_1.tokenCheck, AdminController.updateamenities);
-router.delete("/amenitiesdelete/:id", jwtVerify_1.tokenCheck, AdminController.amenitiesdelete);
-router.post("/addproperty", jwtVerify_1.tokenCheck, AdminController.AddPropertys);
-router.post("/addproject", jwtVerify_1.tokenCheck, AdminController.addProdut);
+// meeting apis 
 exports.default = router;
