@@ -22,7 +22,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd /home/ubuntu/salesvera/ts_salesvera_backend   # Your Server 1 app path
-            git pull origin main
+            git pull 
             npm install --production
             npm run build 
             pm2 restart all 
