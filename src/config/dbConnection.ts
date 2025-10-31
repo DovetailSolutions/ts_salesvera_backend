@@ -11,6 +11,8 @@ import { PropertyModel } from "../app/model/property";
 import { ProjectModel } from "../app/model/project";
 import { MeetingTypeModel } from "../app/model/meeting";
 import { DeviceModel } from "../app/model/device";
+import {Attendance} from "../app/model/attendance"
+import {Leave} from '../app/model/leaverequests'
 
 // const sequelize = new Sequelize(
 //   env.DB_NAME || "default_db",
@@ -42,7 +44,8 @@ const sequelize = new Sequelize(
   }
 );
 
-
+Attendance.initModel(sequelize);
+Leave.initModel(sequelize)
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
 const PropertyType = PropertyTypeModel(sequelize);
@@ -52,6 +55,7 @@ const Property = PropertyModel(sequelize);
 const Project = ProjectModel(sequelize);
 const Meeting = MeetingTypeModel(sequelize);
 const Device = DeviceModel(sequelize);
+
 
 User.belongsToMany(User, {
   through: "UserCreators",
@@ -103,4 +107,6 @@ export {
   Project,
   Meeting,
   Device,
+  Attendance,
+  Leave
 };

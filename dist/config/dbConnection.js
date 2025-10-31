@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Device = exports.Meeting = exports.Project = exports.Property = exports.Amenities = exports.Flat = exports.PropertyType = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Project = exports.Property = exports.Amenities = exports.Flat = exports.PropertyType = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -26,6 +26,10 @@ const property_1 = require("../app/model/property");
 const project_1 = require("../app/model/project");
 const meeting_1 = require("../app/model/meeting");
 const device_1 = require("../app/model/device");
+const attendance_1 = require("../app/model/attendance");
+Object.defineProperty(exports, "Attendance", { enumerable: true, get: function () { return attendance_1.Attendance; } });
+const leaverequests_1 = require("../app/model/leaverequests");
+Object.defineProperty(exports, "Leave", { enumerable: true, get: function () { return leaverequests_1.Leave; } });
 // const sequelize = new Sequelize(
 //   env.DB_NAME || "default_db",
 //   env.DB_USER_NAME || "default_user",
@@ -50,6 +54,8 @@ const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_
     },
 });
 exports.sequelize = sequelize;
+attendance_1.Attendance.initModel(sequelize);
+leaverequests_1.Leave.initModel(sequelize);
 const User = (0, user_1.createUserModel)(sequelize);
 exports.User = User;
 const Category = (0, category_1.CategoryModel)(sequelize);

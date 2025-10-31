@@ -23,7 +23,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmail = void 0;
+exports.withuserlogin = exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmail = void 0;
 const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../../config/dbConnection");
@@ -470,3 +470,51 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
     }
 });
 exports.getCategory = getCategory;
+const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, id_1, ...args_1], void 0, function* (model, id, data = {}, searchFields = [], include = []) {
+    try {
+        const { page = 1, limit = 10, date, search } = data, filters = __rest(data, ["page", "limit", "date", "search"]);
+        const whereConditions = {};
+        if (id) {
+            whereConditions.employee_id = id;
+        }
+        // Only keep actual filters, not pagination values
+        Object.keys(filters).forEach((key) => {
+            if (filters[key] !== undefined && filters[key] !== "") {
+                whereConditions[key] = filters[key];
+            }
+        });
+        if (date) {
+            whereConditions.date = date;
+        }
+        if (search && searchFields.length > 0) {
+            whereConditions[sequelize_1.Op.or] = searchFields.map((field) => ({
+                [field]: { [sequelize_1.Op.iRegexp]: `^${search}` },
+            }));
+        }
+        const offset = (Number(page) - 1) * Number(limit);
+        const rows = yield model.findAll({
+            where: whereConditions,
+            include,
+            limit: Number(limit),
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        console.log(rows.length);
+        let count = rows.length;
+        return {
+            success: true,
+            data: rows,
+            pagination: {
+                page: Number(page),
+                limit: Number(limit),
+                totalRecords: count,
+                totalPages: Math.ceil(count / Number(limit)),
+            },
+        };
+    }
+    catch (error) {
+        console.error("Database Error:", error);
+        throw error;
+    }
+});
+exports.withuserlogin = withuserlogin;
