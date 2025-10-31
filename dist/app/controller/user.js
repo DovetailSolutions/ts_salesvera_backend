@@ -394,6 +394,10 @@ const scheduled = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             (0, errorMessage_1.badRequest)(res, "meetingId is required");
             return;
         }
+        if (!latitude_in && longitude_in) {
+            (0, errorMessage_1.badRequest)(res, "latitude_in && longitude_in is required");
+            return;
+        }
         /** ✅ Check meeting exist for this user & active */
         const isExist = yield dbConnection_1.Meeting.findOne({
             where: {

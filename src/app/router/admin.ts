@@ -3,7 +3,7 @@ const router = Router();
 import * as AdminController from '../controller/admin'
 import { tokenCheck } from "../../config/jwtVerify";
 import getUploadMiddleware  from "../../config/fileUploads";
-const uploadPdf = getUploadMiddleware("pdf", 50, 1); // 50 MB max, 1 file
+// const uploadPdf = getUploadMiddleware("pdf", 50, 1); // 50 MB max, 1 file
 
 router.post(
     "/register",

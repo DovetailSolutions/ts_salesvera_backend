@@ -161,7 +161,7 @@ export const UpdateProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const { firstName, lastName, email } = req.body || {};
+    const { firstName, lastName, email} = req.body || {};
 
     // ✅ Build update object dynamically
     const updates = { firstName, lastName, email };
@@ -462,6 +462,11 @@ export const scheduled = async (req: Request, res: Response): Promise<void> => {
     const { meetingId, latitude_in, longitude_in } = req.body || {};
     if (!meetingId) {
       badRequest(res, "meetingId is required");
+      return;
+    }
+
+    if(!latitude_in && longitude_in){
+      badRequest(res, "latitude_in && longitude_in is required");
       return;
     }
     /** ✅ Check meeting exist for this user & active */
