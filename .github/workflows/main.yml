@@ -24,5 +24,6 @@ jobs:
             cd /home/ubuntu/salesvera/ts_salesvera_backend   # Your Server 1 app path
             git pull origin main
             npm install --production
+            npm run build 
             pm2 restart all 
       
