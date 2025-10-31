@@ -6,8 +6,8 @@ const doc = {
     title: 'My API',
     description: 'API documentation with auto-generation',
   },
-  host: 'localhost:4500',
-  schemes: ['http'],
+  host: 'api.salesvera',
+  schemes: ['https'],
 };
 
 const outputFile = path.join(__dirname, '../../swagger-output.json');
