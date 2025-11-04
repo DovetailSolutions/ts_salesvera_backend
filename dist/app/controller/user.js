@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.CreateExpense = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const errorMessage_1 = require("../middlewear/errorMessage");
@@ -644,3 +644,38 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.requestLeave = requestLeave;
+const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        const userData = req.userData;
+        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        if (!finalUserId) {
+            (0, errorMessage_1.badRequest)(res, "Invalid user");
+            return;
+        }
+        const { title } = (_a = req.body) !== null && _a !== void 0 ? _a : {};
+        if (!title || title.trim() === "") {
+            (0, errorMessage_1.badRequest)(res, "Title is required");
+            return;
+        }
+        const payload = {
+            userId: finalUserId,
+            title,
+        };
+        // ✅ files from multer (S3 upload)
+        const files = req.files;
+        if (Array.isArray(files) && files.length > 0) {
+            payload.billImage = files.map((file) => file.location);
+        }
+        // ✅ Create entry
+        const created = yield dbConnection_1.Expense.create(payload);
+        (0, errorMessage_1.createSuccess)(res, "Expense added successfully", created);
+    }
+    catch (error) {
+        console.error("Error in CreateExpense:", error);
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
+    }
+});
+exports.CreateExpense = CreateExpense;
