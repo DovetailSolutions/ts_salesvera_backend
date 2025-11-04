@@ -22,6 +22,7 @@ import {
   Device,
   Attendance,
   Leave,
+  Expense
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -755,6 +756,47 @@ export const requestLeave = async (
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
+  }
+};
+
+
+export const CreateExpense = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    if (!finalUserId) {
+       badRequest(res, "Invalid user");
+       return
+    }
+
+    const { title } = req.body ?? {};
+
+    if (!title || title.trim() === "") {
+       badRequest(res, "Title is required");
+       return
+    }
+
+    const payload: any = {
+      userId: finalUserId,
+      title,
+    };
+
+    // ✅ files from multer (S3 upload)
+    const files = req.files as Express.MulterS3.File[];
+    if (Array.isArray(files) && files.length > 0) {
+      payload.billImage = files.map((file) => file.location);
+    }
+
+    // ✅ Create entry
+    const created = await Expense.create(payload);
+
+     createSuccess(res, "Expense added successfully", created);
+  } catch (error) {
+    console.error("Error in CreateExpense:", error);
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return
   }
 };
 

@@ -43,6 +43,7 @@ const jwtVerify2_1 = require("../../config/jwtVerify2");
 const fileUploads_1 = __importDefault(require("../../config/fileUploads"));
 const profile = (0, fileUploads_1.default)("image");
 const meeting = (0, fileUploads_1.default)("image");
+const expense = (0, fileUploads_1.default)("expense");
 router.post("/register", Controller.Register);
 router.post("/login", Controller.Login);
 router.get("/getprofile", jwtVerify2_1.tokenCheck, Controller.GetProfile);
@@ -60,4 +61,6 @@ router.post("/attendance/punch-out", jwtVerify2_1.tokenCheck, Controller.Attenda
 router.get("/attendance/today", jwtVerify2_1.tokenCheck, Controller.getTodayAttendance);
 router.get("/attendancelist", jwtVerify2_1.tokenCheck, Controller.AttendanceList);
 router.post("/leave", jwtVerify2_1.tokenCheck, Controller.requestLeave);
+//Expense
+router.post("/expense", jwtVerify2_1.tokenCheck, expense.array("billImage"), Controller.CreateExpense);
 exports.default = router;

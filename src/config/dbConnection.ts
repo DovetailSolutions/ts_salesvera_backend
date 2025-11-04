@@ -8,6 +8,7 @@ import { MeetingTypeModel } from "../app/model/meeting";
 import { DeviceModel } from "../app/model/device";
 import {Attendance} from "../app/model/attendance"
 import {Leave} from '../app/model/leaverequests'
+import {Expense} from '../app/model/expense'
 
 
 const sequelize = new Sequelize(
@@ -30,6 +31,7 @@ const sequelize = new Sequelize(
 
 Attendance.initModel(sequelize);
 Leave.initModel(sequelize)
+Expense.initModel(sequelize)
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
 const Meeting = MeetingTypeModel(sequelize);
@@ -72,5 +74,6 @@ export {
   Meeting,
   Device,
   Attendance,
-  Leave
+  Leave,
+  Expense
 };
