@@ -38,12 +38,20 @@ router.get("/attendancelist", tokenCheck, Controller.AttendanceList);
 
 router.post("/leave", tokenCheck, Controller.requestLeave);
 
+
+
 //Expense
 router.post(
   "/expense",
   tokenCheck,
   expense.array("billImage"),
   Controller.CreateExpense
+);
+
+router.get(
+    "/refreashtoken",
+    tokenCheck,
+    Controller.ReFressToken
 );
 
 export default router;

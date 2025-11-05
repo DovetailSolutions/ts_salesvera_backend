@@ -6,12 +6,12 @@ class Expense extends sequelize_1.Model {
     static initModel(sequelize) {
         Expense.init({
             id: {
-                type: sequelize_1.DataTypes.BIGINT,
+                type: sequelize_1.DataTypes.NUMBER,
                 autoIncrement: true,
                 primaryKey: true,
             },
             userId: {
-                type: sequelize_1.DataTypes.BIGINT,
+                type: sequelize_1.DataTypes.NUMBER,
                 allowNull: false,
             },
             billImage: {
@@ -28,7 +28,7 @@ class Expense extends sequelize_1.Model {
                 defaultValue: "pending",
             },
             title: {
-                type: sequelize_1.DataTypes.STRING,
+                type: sequelize_1.DataTypes.TEXT,
                 allowNull: false,
             },
         }, {
