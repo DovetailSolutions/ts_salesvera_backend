@@ -27,18 +27,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ✅ Serve uploads folder for images
-// app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.use('/admin', adminRouter);
 app.use('/api',UserRouter)
-
-
-
-
-
-
-
-
 // ✅ Swagger UI route
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerFile));
 

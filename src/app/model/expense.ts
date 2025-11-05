@@ -37,13 +37,13 @@ export class Expense
     Expense.init(
       {
         id: {
-          type: DataTypes.BIGINT,
+          type: DataTypes.NUMBER,
           autoIncrement: true,
           primaryKey: true,
         },
 
         userId: {
-          type: DataTypes.BIGINT,
+          type: DataTypes.NUMBER,
           allowNull: false,
         },
 
@@ -64,7 +64,7 @@ export class Expense
         },
 
         title: {
-          type: DataTypes.STRING,
+          type: DataTypes.TEXT,
           allowNull: false,
         },
       },

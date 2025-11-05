@@ -801,6 +801,43 @@ export const CreateExpense = async (req: Request, res: Response): Promise<void> 
 };
 
 
+export const ReFressToken = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const user = await User.findByPk(userData.userId);
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    const { accessToken, refreshToken } = Middleware.CreateToken(
+      String(user.getDataValue("id")),
+      String(user.getDataValue("role"))
+    );
+
+    // update refresh token in DB
+    user.setDataValue("refreshToken", refreshToken); // or user.refreshToken = refreshToken;
+    await user.save();
+
+    createSuccess(res, "Login successful", {
+      token: accessToken,
+      refreshToken: refreshToken,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
 
 
 
