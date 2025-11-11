@@ -1,9 +1,4 @@
-import {
-  Op,
-  fn,
-  col,
-  where,
-} from "sequelize";
+import { Op, fn, col, where } from "sequelize";
 
 import fs from "fs";
 import pdfParse from "pdf-parse";
@@ -22,7 +17,7 @@ import {
   Device,
   Attendance,
   Leave,
-  Expense
+  Expense,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -759,22 +754,24 @@ export const requestLeave = async (
   }
 };
 
-
-export const CreateExpense = async (req: Request, res: Response): Promise<void> => {
+export const CreateExpense = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
     if (!finalUserId) {
-       badRequest(res, "Invalid user");
-       return
+      badRequest(res, "Invalid user");
+      return;
     }
 
     const { title } = req.body ?? {};
 
     if (!title || title.trim() === "") {
-       badRequest(res, "Title is required");
-       return
+      badRequest(res, "Title is required");
+      return;
     }
 
     const payload: any = {
@@ -791,15 +788,15 @@ export const CreateExpense = async (req: Request, res: Response): Promise<void> 
     // ✅ Create entry
     const created = await Expense.create(payload);
 
-     createSuccess(res, "Expense added successfully", created);
+    createSuccess(res, "Expense added successfully", created);
   } catch (error) {
     console.error("Error in CreateExpense:", error);
-    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return
+    return;
   }
 };
-
 
 export const ReFressToken = async (
   req: Request,
@@ -817,7 +814,6 @@ export const ReFressToken = async (
       badRequest(res, "User not found");
       return;
     }
-
     const { accessToken, refreshToken } = Middleware.CreateToken(
       String(user.getDataValue("id")),
       String(user.getDataValue("role"))
@@ -826,7 +822,6 @@ export const ReFressToken = async (
     // update refresh token in DB
     user.setDataValue("refreshToken", refreshToken); // or user.refreshToken = refreshToken;
     await user.save();
-
     createSuccess(res, "Login successful", {
       token: accessToken,
       refreshToken: refreshToken,
@@ -837,14 +832,3 @@ export const ReFressToken = async (
     badRequest(res, errorMessage, error);
   }
 };
-
-
-
-
-
-
-
-
-
-
-
