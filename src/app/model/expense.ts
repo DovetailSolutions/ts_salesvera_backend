@@ -10,18 +10,19 @@ export type ApprovalStatus = "accepted" | "rejected" | "not_clear" | "pending";
 export interface ExpenseAttributes {
   id: number;
   userId: number;
-  billImage: string[];     // array of image URLs
+  billImage: string[];
   approvedByAdmin: ApprovalStatus;
   approvedBySuperAdmin: ApprovalStatus;
   title: string;
-
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export interface ExpenseCreation
-  extends Optional<ExpenseAttributes, "id" | "approvedByAdmin" | "approvedBySuperAdmin"> {}
-
+  extends Optional<
+    ExpenseAttributes,
+    "id" | "approvedByAdmin" | "approvedBySuperAdmin"
+  > {}
 
 export class Expense
   extends Model<ExpenseAttributes, ExpenseCreation>
@@ -33,17 +34,18 @@ export class Expense
   public approvedByAdmin!: ApprovalStatus;
   public approvedBySuperAdmin!: ApprovalStatus;
   public title!: string;
+
   static initModel(sequelize: Sequelize) {
     Expense.init(
       {
         id: {
-          type: DataTypes.NUMBER,
+          type: DataTypes.INTEGER,   // ✅ FIXED
           autoIncrement: true,
           primaryKey: true,
         },
 
         userId: {
-          type: DataTypes.NUMBER,
+          type: DataTypes.INTEGER,   // ✅ FIXED
           allowNull: false,
         },
 

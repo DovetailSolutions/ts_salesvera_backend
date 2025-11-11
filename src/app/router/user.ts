@@ -6,7 +6,6 @@ import getUploadMiddleware from "../../config/fileUploads";
 const profile = getUploadMiddleware("image");
 const meeting = getUploadMiddleware("image");
 const expense = getUploadMiddleware("expense");
-
 router.post("/register", Controller.Register);
 router.post("/login", Controller.Login);
 router.get("/getprofile", tokenCheck, Controller.GetProfile);
@@ -16,7 +15,6 @@ router.patch(
   profile.single("profile"),
   Controller.UpdateProfile
 );
-
 router.get("/mysaleperson", tokenCheck, Controller.MySalePerson);
 router.post(
   "/createmeeting",
@@ -30,16 +28,11 @@ router.post("/scheduledupdate", tokenCheck, Controller.scheduled);
 router.post("/logout", tokenCheck, Controller.Logout);
 router.get("/getctegory", tokenCheck, Controller.getCategory);
 // Attendance Summary
-
 router.post("/attendance/punch-in", tokenCheck, Controller.AttendancePunchIn);
 router.post("/attendance/punch-out", tokenCheck, Controller.AttendancePunchOut);
 router.get("/attendance/today", tokenCheck, Controller.getTodayAttendance);
 router.get("/attendancelist", tokenCheck, Controller.AttendanceList);
-
 router.post("/leave", tokenCheck, Controller.requestLeave);
-
-
-
 //Expense
 router.post(
   "/expense",
@@ -47,11 +40,6 @@ router.post(
   expense.array("billImage"),
   Controller.CreateExpense
 );
-
-router.get(
-    "/refreashtoken",
-    tokenCheck,
-    Controller.ReFressToken
-);
+router.get("/refreashtoken",tokenCheck,Controller.ReFressToken);
 
 export default router;
