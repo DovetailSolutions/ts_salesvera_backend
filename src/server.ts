@@ -15,10 +15,12 @@ const swaggerFile = require(path.join(__dirname, '../swagger-output.json'));// â
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({
-  origin: '*',
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: "*",
+    credentials: false,
+  })
+);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));

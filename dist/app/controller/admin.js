@@ -140,7 +140,7 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         // ✅ Create tokens
         const { accessToken, refreshToken } = Middleware.CreateToken(String(user.getDataValue("id")), String(user.getDataValue("role")));
         // ✅ Update refresh token in DB
-        yield user.update({ refreshToken });
+        yield user.update({ refreshToken, user });
         // ✅ Respond
         (0, errorMessage_1.createSuccess)(res, "Login successful", {
             accessToken,
