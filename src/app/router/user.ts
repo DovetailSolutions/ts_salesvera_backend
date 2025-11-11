@@ -40,6 +40,6 @@ router.post(
   expense.array("billImage"),
   Controller.CreateExpense
 );
-router.get("/refreashtoken",tokenCheck,Controller.ReFressToken);
+router.get("/refreshtoken",tokenCheck,Controller.ReFressToken);
 
 export default router;
