@@ -151,6 +151,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     createSuccess(res, "Login successful", {
       accessToken,
       refreshToken,
+      user
     });
   } catch (error) {
     const errorMessage =

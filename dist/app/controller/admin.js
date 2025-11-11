@@ -145,6 +145,7 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         (0, errorMessage_1.createSuccess)(res, "Login successful", {
             accessToken,
             refreshToken,
+            user
         });
     }
     catch (error) {
