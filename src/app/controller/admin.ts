@@ -145,7 +145,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     );
 
     // ✅ Update refresh token in DB
-    await user.update({ refreshToken });
+    await user.update({ refreshToken,user });
 
     // ✅ Respond
     createSuccess(res, "Login successful", {

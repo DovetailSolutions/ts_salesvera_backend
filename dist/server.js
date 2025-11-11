@@ -16,8 +16,8 @@ const swaggerFile = require(path_1.default.join(__dirname, '../swagger-output.js
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 app.use((0, cors_1.default)({
-    origin: '*',
-    credentials: true,
+    origin: "*",
+    credentials: false,
 }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true, limit: '50mb' }));
