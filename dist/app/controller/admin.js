@@ -209,11 +209,12 @@ const UpdatePassword = (req, res) => __awaiter(void 0, void 0, void 0, function*
 exports.UpdatePassword = UpdatePassword;
 const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = 1, limit = 10, search = "" } = req.query;
+        const { page = 1, limit = 10, search = "", managerId } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
         const userData = req.userData;
+        const managerID = managerId ? Number(managerId) : userData.userId;
         /** ✅ Search condition */
         const where = {};
         if (search) {
@@ -225,7 +226,7 @@ const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             ];
         }
         /** ✅ Fetch created users */
-        const result = yield dbConnection_1.User.findByPk(userData.userId, {
+        const result = yield dbConnection_1.User.findByPk(managerID, {
             include: [
                 {
                     model: dbConnection_1.User,
@@ -463,25 +464,35 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             };
         }
         const { rows, count } = yield dbConnection_1.Meeting.findAndCountAll({
-            attributes: ["id", "companyName", "personName", "mobileNumber", "meetingTimeIn", "meetingTimeOut", "meetingPurpose"],
+            attributes: [
+                "id",
+                "companyName",
+                "personName",
+                "mobileNumber",
+                "meetingTimeIn",
+                "meetingTimeOut",
+                "meetingPurpose",
+            ],
             where,
             offset,
             limit: limitNum,
-            order: [["createdAt", "DESC"]]
+            order: [["createdAt", "DESC"]],
         });
         if (rows.length == 0) {
             (0, errorMessage_1.badRequest)(res, "Not meeting found");
+            return;
         }
         (0, errorMessage_1.createSuccess)(res, "User Meeting fetched successfully", {
             page: pageNum,
             limit: limitNum,
             total: count,
-            rows
+            rows,
         });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
     }
 });
 exports.getMeeting = getMeeting;
