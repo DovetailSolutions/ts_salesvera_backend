@@ -16,6 +16,7 @@ router.patch(
   Controller.UpdateProfile
 );
 router.get("/mysaleperson", tokenCheck, Controller.MySalePerson);
+
 router.post(
   "/createmeeting",
   tokenCheck,
