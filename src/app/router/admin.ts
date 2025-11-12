@@ -9,12 +9,20 @@ router.post("/register", AdminController.Register);
 router.post("/login", AdminController.Login);
 router.get("/getProfile", tokenCheck, AdminController.GetProfile);
 router.patch("/updatepassword", tokenCheck, AdminController.UpdatePassword);
+router.get("/mysaleperson", tokenCheck, AdminController.MySalePerson);
+router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
+router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
+
+
 
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
+
+
+
 
 // meeting apis 
 

@@ -24,18 +24,23 @@ import {
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
-import {
-  User,
-  Category,
-} from "../../config/dbConnection";
+import { User, Category } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 
 const UNIQUE_ROLES = ["admin", "super_admin"];
 
 export const Register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, firstName, lastName, phone, dob, role,createdBy } = req.body;
-
+    const {
+      email,
+      password,
+      firstName,
+      lastName,
+      phone,
+      dob,
+      role,
+      createdBy,
+    } = req.body;
     /** ✅ Required field validation */
     const requiredFields: Record<string, any> = {
       email,
@@ -49,30 +54,30 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
 
     for (const key in requiredFields) {
       if (!requiredFields[key]) {
-         badRequest(res, `${key} is required`);
-         return
+        badRequest(res, `${key} is required`);
+        return;
       }
     }
     /** ✅ Check if user with same email exists */
     const isExist = await Middleware.FindByEmail(User, email);
     if (isExist) {
-       badRequest(res, "Email already exists");
-       return
+      badRequest(res, "Email already exists");
+      return;
     }
 
     /** ✅ Check role — admin/super_admin only once in DB */
     if (UNIQUE_ROLES.includes(role)) {
       const existing = await Middleware.findByRole(User, role);
       if (existing) {
-         badRequest(
+        badRequest(
           res,
           `${role} already exists. Only one ${role} can be created.`
         );
-        return
+        return;
       }
     }
 
-    const obj:any = {
+    const obj: any = {
       email,
       password,
       firstName,
@@ -80,10 +85,10 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       phone,
       dob,
       role,
-    }
+    };
     const item = await User.create(obj);
 
-     if (role === "sale_person") {
+    if (role === "sale_person") {
       const ids = Array.isArray(createdBy)
         ? createdBy.map(Number)
         : [Number(createdBy)];
@@ -99,17 +104,17 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
     );
     await item.update({ refreshToken });
     createSuccess(res, `${role} registered successfully`, {
-      // item,
+      item,
       accessToken,
       // refreshToken,
     });
   } catch (error) {
-     badRequest(
+    badRequest(
       res,
       error instanceof Error ? error.message : "Something went wrong",
       error
     );
-    return
+    return;
   }
 };
 export const Login = async (req: Request, res: Response): Promise<void> => {
@@ -143,19 +148,19 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     );
 
     // ✅ Update refresh token in DB
-    await user.update({ refreshToken,user });
+    await user.update({ refreshToken, user });
 
     // ✅ Respond
     createSuccess(res, "Login successful", {
       accessToken,
       refreshToken,
-      user
+      user,
     });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
-    return
+    return;
   }
 };
 export const GetProfile = async (
@@ -170,7 +175,7 @@ export const GetProfile = async (
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
-    return
+    return;
   }
 };
 export const UpdatePassword = async (
@@ -220,9 +225,159 @@ export const UpdatePassword = async (
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
-    return
+    return;
   }
 };
+
+export const MySalePerson = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { page = 1, limit = 10, search = "" } = req.query;
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    const userData = req.userData as JwtPayload;
+
+    /** ✅ Search condition */
+    const where: any = {};
+
+    if (search) {
+      where[Op.or] = [
+        { firstName: { [Op.iLike]: `%${search}%` } },
+        { lastName: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { phone: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    /** ✅ Fetch created users */
+    const result = await User.findByPk(userData.userId, {
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          through: { attributes: [] },
+          where, // ✅ apply search
+          required: false, // ✅ so user must exist even if none found
+        },
+      ],
+    });
+
+    if (!result) {
+      badRequest(res, "User not found");
+    }
+
+    /** ✅ Extract created users */
+    // let createdUsers = result?.createdUsers || [];
+    let createdUsers = (result as any)?.createdUsers || [];
+
+    /** ✅ Pagination manually */
+    const total = createdUsers.length;
+    createdUsers = createdUsers.slice(offset, offset + limitNum);
+
+    createSuccess(res, "My sale persons", {
+      page: pageNum,
+      limit: limitNum,
+      total,
+      rows: createdUsers,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const assignSalesman = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { managerId, saleId } = req.body || {};
+
+    if (!managerId || !saleId) {
+      badRequest(res, "managerId & saleId are required");
+      return;
+    }
+    const manager = await User.findOne({ where: { id: managerId } });
+    if (!manager) {
+      badRequest(res, "Manager not found");
+      return;
+    }
+
+    if (manager.role !== "manager") {
+      badRequest(res, "User is not a manager");
+      return;
+    }
+
+    const ids = Array.isArray(saleId) ? saleId.map(Number) : [Number(saleId)];
+    await (manager as any).setCreatedUsers(ids);
+    createSuccess(res, "Salesman assigned");
+    return;
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const GetAllUser = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const { page = 1, limit = 10, search = "", role } = req.query;
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    const loggedInId = userData?.userId; // 👈 Logged-in user ID
+
+    const where: any = {
+      id: { [Op.ne]: loggedInId }, // ✅ Exclude logged-in user
+    };
+
+    if (role) where.role = role;
+
+    // Search filter
+    if (search) {
+      where[Op.or] = [
+        { firstName: { [Op.iLike]: `%${search}%` } },
+        { lastName: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { phone: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    /** ✅ Fetch Users */
+    const { rows, count } = await User.findAndCountAll({
+      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+      where,
+      offset,
+      limit: limitNum,
+      order: [["createdAt", "DESC"]],
+    });
+
+    createSuccess(res, "Users fetched successfully", {
+      page: pageNum,
+      limit: limitNum,
+      total: count,
+      rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
 export const AddCategory = async (
   req: Request,
   res: Response
@@ -248,7 +403,7 @@ export const AddCategory = async (
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
-    return
+    return;
   }
 };
 export const getcategory = async (
@@ -320,7 +475,6 @@ export const UpdateCategory = async (
       return;
     }
 
-   
     const updatedCategory = await Middleware.UpdateData(
       Category,
       id,
@@ -359,36 +513,3 @@ export const DeleteCategory = async (
     badRequest(res, errorMessage, error);
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

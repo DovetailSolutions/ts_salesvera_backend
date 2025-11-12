@@ -45,7 +45,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+const sequelize_1 = require("sequelize");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 // import csv from "csv-parser";
 // import fs from "fs";
@@ -55,7 +56,7 @@ const Middleware = __importStar(require("../middlewear/comman"));
 const UNIQUE_ROLES = ["admin", "super_admin"];
 const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { email, password, firstName, lastName, phone, dob, role, createdBy } = req.body;
+        const { email, password, firstName, lastName, phone, dob, role, createdBy, } = req.body;
         /** ✅ Required field validation */
         const requiredFields = {
             email,
@@ -107,7 +108,7 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const { accessToken, refreshToken } = Middleware.CreateToken(String(item.getDataValue("id")), String(item.getDataValue("role")));
         yield item.update({ refreshToken });
         (0, errorMessage_1.createSuccess)(res, `${role} registered successfully`, {
-            // item,
+            item,
             accessToken,
             // refreshToken,
         });
@@ -145,7 +146,7 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         (0, errorMessage_1.createSuccess)(res, "Login successful", {
             accessToken,
             refreshToken,
-            user
+            user,
         });
     }
     catch (error) {
@@ -206,6 +207,128 @@ const UpdatePassword = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.UpdatePassword = UpdatePassword;
+const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { page = 1, limit = 10, search = "" } = req.query;
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+        const offset = (pageNum - 1) * limitNum;
+        const userData = req.userData;
+        /** ✅ Search condition */
+        const where = {};
+        if (search) {
+            where[sequelize_1.Op.or] = [
+                { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            ];
+        }
+        /** ✅ Fetch created users */
+        const result = yield dbConnection_1.User.findByPk(userData.userId, {
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "createdUsers",
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    through: { attributes: [] },
+                    where, // ✅ apply search
+                    required: false, // ✅ so user must exist even if none found
+                },
+            ],
+        });
+        if (!result) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+        }
+        /** ✅ Extract created users */
+        // let createdUsers = result?.createdUsers || [];
+        let createdUsers = (result === null || result === void 0 ? void 0 : result.createdUsers) || [];
+        /** ✅ Pagination manually */
+        const total = createdUsers.length;
+        createdUsers = createdUsers.slice(offset, offset + limitNum);
+        (0, errorMessage_1.createSuccess)(res, "My sale persons", {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            rows: createdUsers,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.MySalePerson = MySalePerson;
+const assignSalesman = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { managerId, saleId } = req.body || {};
+        if (!managerId || !saleId) {
+            (0, errorMessage_1.badRequest)(res, "managerId & saleId are required");
+            return;
+        }
+        const manager = yield dbConnection_1.User.findOne({ where: { id: managerId } });
+        if (!manager) {
+            (0, errorMessage_1.badRequest)(res, "Manager not found");
+            return;
+        }
+        if (manager.role !== "manager") {
+            (0, errorMessage_1.badRequest)(res, "User is not a manager");
+            return;
+        }
+        const ids = Array.isArray(saleId) ? saleId.map(Number) : [Number(saleId)];
+        yield manager.setCreatedUsers(ids);
+        (0, errorMessage_1.createSuccess)(res, "Salesman assigned");
+        return;
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.assignSalesman = assignSalesman;
+const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const { page = 1, limit = 10, search = "", role } = req.query;
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+        const offset = (pageNum - 1) * limitNum;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId; // 👈 Logged-in user ID
+        const where = {
+            id: { [sequelize_1.Op.ne]: loggedInId }, // ✅ Exclude logged-in user
+        };
+        if (role)
+            where.role = role;
+        // Search filter
+        if (search) {
+            where[sequelize_1.Op.or] = [
+                { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            ];
+        }
+        /** ✅ Fetch Users */
+        const { rows, count } = yield dbConnection_1.User.findAndCountAll({
+            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+            where,
+            offset,
+            limit: limitNum,
+            order: [["createdAt", "DESC"]],
+        });
+        (0, errorMessage_1.createSuccess)(res, "Users fetched successfully", {
+            page: pageNum,
+            limit: limitNum,
+            total: count,
+            rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.GetAllUser = GetAllUser;
 const AddCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { category_name } = req.body || {};
