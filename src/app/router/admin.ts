@@ -12,6 +12,7 @@ router.patch("/updatepassword", tokenCheck, AdminController.UpdatePassword);
 router.get("/mysaleperson", tokenCheck, AdminController.MySalePerson);
 router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
 router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
+router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
 
 
 

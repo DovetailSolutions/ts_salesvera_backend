@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 // import csv from "csv-parser";
@@ -435,3 +435,54 @@ const DeleteCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.DeleteCategory = DeleteCategory;
+const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const { page = 1, limit = 10, search = "", userId, date } = req.query;
+        console.log(">>>>>>>>>>>>>>>", req.query);
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+        const offset = (pageNum - 1) * limitNum;
+        const where = {};
+        if (userId)
+            where.userId = userId;
+        if (search) {
+            where[sequelize_1.Op.or] = [
+                { companyName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { personName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            ];
+        }
+        /** ✅ Filter by Date (UTC) */
+        if (date) {
+            const inputDate = new Date(String(date));
+            const start = new Date(inputDate);
+            start.setUTCHours(0, 0, 0, 0);
+            const end = new Date(inputDate);
+            end.setUTCHours(23, 59, 59, 999);
+            where.meetingTimeIn = {
+                [sequelize_1.Op.between]: [start, end],
+            };
+        }
+        const { rows, count } = yield dbConnection_1.Meeting.findAndCountAll({
+            attributes: ["id", "companyName", "personName", "mobileNumber", "meetingTimeIn", "meetingTimeOut", "meetingPurpose"],
+            where,
+            offset,
+            limit: limitNum,
+            order: [["createdAt", "DESC"]]
+        });
+        if (rows.length == 0) {
+            (0, errorMessage_1.badRequest)(res, "Not meeting found");
+        }
+        (0, errorMessage_1.createSuccess)(res, "User Meeting fetched successfully", {
+            page: pageNum,
+            limit: limitNum,
+            total: count,
+            rows
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.getMeeting = getMeeting;
