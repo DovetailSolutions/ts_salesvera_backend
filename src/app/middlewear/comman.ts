@@ -575,7 +575,6 @@ export const getCategory = async (
       offset,
       order: [["createdAt", "DESC"]],
     });
-
     return {
       rows,
       pagination: {

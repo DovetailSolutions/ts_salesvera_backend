@@ -439,7 +439,6 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     try {
         const userData = req.userData;
         const { page = 1, limit = 10, search = "", userId, date } = req.query;
-        console.log(">>>>>>>>>>>>>>>", req.query);
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;

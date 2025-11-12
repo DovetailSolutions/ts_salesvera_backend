@@ -521,9 +521,6 @@ export const getMeeting = async(req:Request,res:Response):Promise<void>=>{
   try{
     const userData = req.userData as JwtPayload;
     const { page = 1, limit = 10, search = "", userId,date } = req.query;
-
-    console.log(">>>>>>>>>>>>>>>",req.query)
-
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum -1)* limitNum;
@@ -562,7 +559,6 @@ export const getMeeting = async(req:Request,res:Response):Promise<void>=>{
     if(rows.length== 0){
       badRequest(res,"Not meeting found")
     }
-
     createSuccess(res,"User Meeting fetched successfully",{
       page: pageNum,
       limit: limitNum,
