@@ -9,6 +9,7 @@ import {
   fn,
   col,
   literal,
+  NUMBER,
 } from "sequelize";
 import fs from "fs";
 import pdfParse from "pdf-parse";
@@ -24,7 +25,7 @@ import {
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
-import { User, Category } from "../../config/dbConnection";
+import { User, Category, Meeting } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 
 const UNIQUE_ROLES = ["admin", "super_admin"];
@@ -378,6 +379,7 @@ export const GetAllUser = async (
   }
 };
 
+
 export const AddCategory = async (
   req: Request,
   res: Response
@@ -513,3 +515,63 @@ export const DeleteCategory = async (
     badRequest(res, errorMessage, error);
   }
 };
+
+
+export const getMeeting = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    const { page = 1, limit = 10, search = "", userId,date } = req.query;
+
+    console.log(">>>>>>>>>>>>>>>",req.query)
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum -1)* limitNum;
+    const where:any = {};
+    if(userId) where.userId = userId;
+    if(search){
+      where[Op.or] = [
+         { companyName: { [Op.iLike]: `%${search}%` } },
+         { personName: { [Op.iLike]: `%${search}%` } },
+      ]
+    }
+
+     /** ✅ Filter by Date (UTC) */
+    if (date) {
+      const inputDate = new Date(String(date));
+
+      const start = new Date(inputDate);
+      start.setUTCHours(0, 0, 0, 0);
+
+      const end = new Date(inputDate);
+      end.setUTCHours(23, 59, 59, 999);
+
+      where.meetingTimeIn = {
+        [Op.between]: [start, end],
+      };
+    }
+    const {rows,count} = await Meeting.findAndCountAll({
+      attributes: ["id", "companyName", "personName", "mobileNumber", "meetingTimeIn", "meetingTimeOut","meetingPurpose" ],
+      where,
+      offset,
+      limit:limitNum,
+      order:[["createdAt","DESC"]]
+
+    })
+
+    if(rows.length== 0){
+      badRequest(res,"Not meeting found")
+    }
+
+    createSuccess(res,"User Meeting fetched successfully",{
+      page: pageNum,
+      limit: limitNum,
+      total: count,
+      rows
+    })
+  }catch(error){
+     const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
