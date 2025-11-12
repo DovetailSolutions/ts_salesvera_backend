@@ -37,7 +37,6 @@ const express_1 = require("express");
 const router = (0, express_1.Router)();
 const AdminController = __importStar(require("../controller/admin"));
 const jwtVerify_1 = require("../../config/jwtVerify");
-// const uploadPdf = getUploadMiddleware("pdf", 50, 1); // 50 MB max, 1 file
 router.post("/register", AdminController.Register);
 router.post("/login", AdminController.Login);
 router.get("/getProfile", jwtVerify_1.tokenCheck, AdminController.GetProfile);

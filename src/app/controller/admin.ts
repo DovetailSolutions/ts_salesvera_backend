@@ -235,13 +235,14 @@ export const MySalePerson = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { page = 1, limit = 10, search = "" } = req.query;
+    const { page = 1, limit = 10, search = "",managerId  } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
 
     const userData = req.userData as JwtPayload;
+    const managerID = managerId ? Number(managerId) : userData.userId;
 
     /** ✅ Search condition */
     const where: any = {};
@@ -256,7 +257,7 @@ export const MySalePerson = async (
     }
 
     /** ✅ Fetch created users */
-    const result = await User.findByPk(userData.userId, {
+    const result = await User.findByPk(managerID, {
       include: [
         {
           model: User,
@@ -378,7 +379,6 @@ export const GetAllUser = async (
     badRequest(res, errorMessage);
   }
 };
-
 
 export const AddCategory = async (
   req: Request,
@@ -516,27 +516,26 @@ export const DeleteCategory = async (
   }
 };
 
-
-export const getMeeting = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const getMeeting = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    const { page = 1, limit = 10, search = "", userId,date } = req.query;
-
-    console.log(">>>>>>>>>>>>>>>",req.query)
-
+    const { page = 1, limit = 10, search = "", userId, date } = req.query;
     const pageNum = Number(page);
     const limitNum = Number(limit);
-    const offset = (pageNum -1)* limitNum;
-    const where:any = {};
-    if(userId) where.userId = userId;
-    if(search){
+    const offset = (pageNum - 1) * limitNum;
+    const where: any = {};
+    if (userId) where.userId = userId;
+    if (search) {
       where[Op.or] = [
-         { companyName: { [Op.iLike]: `%${search}%` } },
-         { personName: { [Op.iLike]: `%${search}%` } },
-      ]
+        { companyName: { [Op.iLike]: `%${search}%` } },
+        { personName: { [Op.iLike]: `%${search}%` } },
+      ];
     }
 
-     /** ✅ Filter by Date (UTC) */
+    /** ✅ Filter by Date (UTC) */
     if (date) {
       const inputDate = new Date(String(date));
 
@@ -550,28 +549,36 @@ export const getMeeting = async(req:Request,res:Response):Promise<void>=>{
         [Op.between]: [start, end],
       };
     }
-    const {rows,count} = await Meeting.findAndCountAll({
-      attributes: ["id", "companyName", "personName", "mobileNumber", "meetingTimeIn", "meetingTimeOut","meetingPurpose" ],
+    const { rows, count } = await Meeting.findAndCountAll({
+      attributes: [
+        "id",
+        "companyName",
+        "personName",
+        "mobileNumber",
+        "meetingTimeIn",
+        "meetingTimeOut",
+        "meetingPurpose",
+      ],
       where,
       offset,
-      limit:limitNum,
-      order:[["createdAt","DESC"]]
+      limit: limitNum,
+      order: [["createdAt", "DESC"]],
+    });
 
-    })
-
-    if(rows.length== 0){
-      badRequest(res,"Not meeting found")
+    if (rows.length == 0) {
+      badRequest(res, "Not meeting found");
+      return;
     }
-
-    createSuccess(res,"User Meeting fetched successfully",{
+    createSuccess(res, "User Meeting fetched successfully", {
       page: pageNum,
       limit: limitNum,
       total: count,
-      rows
-    })
-  }catch(error){
-     const errorMessage =
+      rows,
+    });
+  } catch (error) {
+    const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
+    return;
   }
-}
+};
