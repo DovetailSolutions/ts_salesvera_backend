@@ -112,8 +112,6 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
     return
   }
 };
-
-
 export const Login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body || {};
@@ -160,7 +158,6 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     return
   }
 };
-
 export const GetProfile = async (
   req: Request,
   res: Response
@@ -176,7 +173,6 @@ export const GetProfile = async (
     return
   }
 };
-
 export const UpdatePassword = async (
   req: Request,
   res: Response
@@ -227,7 +223,6 @@ export const UpdatePassword = async (
     return
   }
 };
-
 export const AddCategory = async (
   req: Request,
   res: Response
@@ -256,7 +251,6 @@ export const AddCategory = async (
     return
   }
 };
-
 export const getcategory = async (
   req: Request,
   res: Response
@@ -271,7 +265,6 @@ export const getcategory = async (
     badRequest(res, errorMessage, error);
   }
 };
-
 export const categoryDetails = async (
   req: Request,
   res: Response
@@ -298,7 +291,6 @@ export const categoryDetails = async (
     badRequest(res, errorMessage, error);
   }
 };
-
 export const UpdateCategory = async (
   req: Request,
   res: Response
@@ -345,7 +337,6 @@ export const UpdateCategory = async (
     badRequest(res, errorMessage, error);
   }
 };
-
 export const DeleteCategory = async (
   req: Request,
   res: Response
