@@ -538,6 +538,7 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 personName: ((_b = row.personName) === null || _b === void 0 ? void 0 : _b.trim()) || "",
                 mobileNumber: ((_c = row.mobileNumber) === null || _c === void 0 ? void 0 : _c.trim()) || "",
                 companyEmail: ((_d = row.companyEmail) === null || _d === void 0 ? void 0 : _d.trim()) || "",
+                customerType: "existing"
             });
         })
             .on("end", () => __awaiter(void 0, void 0, void 0, function* () {

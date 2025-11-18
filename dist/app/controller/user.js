@@ -248,7 +248,7 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.badRequest)(res, `You already have an active meeting started at ${isExist.meetingTimeIn}`);
             return;
         }
-        const { companyName, personName, mobileNumber, customerType, meetingPurpose, categoryId, status, latitude_in, longitude_in, meetingTimeIn, scheduledTime, } = req.body || {};
+        const { companyName, personName, mobileNumber, customerType, companyEmail, meetingPurpose, categoryId, status, latitude_in, longitude_in, meetingTimeIn, scheduledTime, } = req.body || {};
         /** ✅ Required fields validation */
         const requiredFields = {
             companyName,
@@ -273,10 +273,12 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.badRequest)(res, "userId is required");
             return;
         }
+        const isExists = yield dbConnection_1.Meeting.findOne({ where: { companyName, personName, mobileNumber, companyEmail } });
         /** ✅ Prepare payload */
         const payload = {
             companyName,
             personName,
+            companyEmail,
             mobileNumber,
             customerType,
             meetingPurpose,
@@ -285,6 +287,9 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             userId: finalUserId,
         };
         const files = req.files;
+        if (isExists) {
+            payload.customerType = isExists.customerType;
+        }
         if ((files === null || files === void 0 ? void 0 : files.length) > 0) {
             payload.image = files.map((file) => file.location);
         }
@@ -302,7 +307,12 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         }
         /** ✅ Save data */
         const item = yield Middleware.CreateData(dbConnection_1.Meeting, payload);
-        (0, errorMessage_1.createSuccess)(res, "Meeting successfully added", item);
+        if (isExists) {
+            (0, errorMessage_1.createSuccess)(res, "Meeting successfully added/user already exist", item);
+        }
+        else {
+            (0, errorMessage_1.createSuccess)(res, "Meeting successfully added", item);
+        }
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";

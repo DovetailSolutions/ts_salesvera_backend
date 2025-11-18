@@ -644,6 +644,7 @@ export const BulkUploads = async (
       personName: row.personName?.trim() || "",
       mobileNumber: row.mobileNumber?.trim() || "",
       companyEmail: row.companyEmail?.trim() || "",
+      customerType:"existing"
     });
   })
   .on("end", async () => {

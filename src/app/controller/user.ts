@@ -277,6 +277,7 @@ export const CreateMeeting = async (
       personName,
       mobileNumber,
       customerType,
+      companyEmail,
       meetingPurpose,
       categoryId,
       status,
@@ -314,10 +315,14 @@ export const CreateMeeting = async (
       return;
     }
 
+    const isExists =  await Meeting.findOne({where:{companyName,personName,mobileNumber,companyEmail}})
+  
+
     /** ✅ Prepare payload */
     const payload: any = {
       companyName,
       personName,
+      companyEmail,
       mobileNumber,
       customerType,
       meetingPurpose,
@@ -327,6 +332,10 @@ export const CreateMeeting = async (
     };
 
     const files = req.files as Express.MulterS3.File[];
+
+    if(isExists){
+      payload.customerType = isExists.customerType
+    }
 
     if (files?.length > 0) {
       payload.image = files.map((file) => file.location);
@@ -347,7 +356,12 @@ export const CreateMeeting = async (
 
     /** ✅ Save data */
     const item = await Middleware.CreateData(Meeting, payload);
-    createSuccess(res, "Meeting successfully added", item);
+    if(isExists){
+      createSuccess(res, "Meeting successfully added/user already exist",item);
+    }else{
+      createSuccess(res, "Meeting successfully added", item);
+    }
+    
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
