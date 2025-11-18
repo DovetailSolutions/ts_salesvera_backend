@@ -28,6 +28,10 @@ const MeetingTypeModel = (sequelize) => {
             type: sequelize_1.DataTypes.STRING,
             allowNull: true,
         },
+        companyEmail: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+        },
         customerType: {
             type: sequelize_1.DataTypes.ENUM("new", "existing", "followup"),
             defaultValue: "new",
@@ -78,7 +82,7 @@ const MeetingTypeModel = (sequelize) => {
         },
         userId: {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
-            allowNull: false,
+            allowNull: true,
         },
     }, {
         tableName: "meeting",

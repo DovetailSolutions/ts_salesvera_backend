@@ -72,6 +72,10 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      companyEmail: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
 
       customerType: {
         type: DataTypes.ENUM("new", "existing", "followup"),
@@ -133,7 +137,7 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
 
       userId: {
         type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: false,
+        allowNull: true,
       },
     },
     {

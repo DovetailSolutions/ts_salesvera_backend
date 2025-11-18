@@ -45,8 +45,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
+const client_s3_1 = require("@aws-sdk/client-s3");
+const csv_parser_1 = __importDefault(require("csv-parser"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 // import csv from "csv-parser";
 // import fs from "fs";
@@ -496,3 +498,84 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.getMeeting = getMeeting;
+const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        // Correct check for multer.array()
+        if (!req.files || req.files.length === 0) {
+            (0, errorMessage_1.badRequest)(res, "CSV file is required");
+            return;
+        }
+        // Multer.array("csv") → req.files is an array
+        // const csvFile = (req.files as Express.Multer.File[])[0];
+        // const csvFile = (req.files as { csv: MulterS3File[] }).csv[0];
+        const csvFile = req.files[0];
+        const s3 = new client_s3_1.S3Client({
+            region: process.env.AWS_REGION,
+            credentials: {
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            },
+        });
+        const params = {
+            Bucket: csvFile.bucket,
+            Key: csvFile.key,
+        };
+        const data = yield s3.send(new client_s3_1.GetObjectCommand(params));
+        if (!data.Body) {
+            (0, errorMessage_1.badRequest)(res, "Unable to read CSV from S3");
+            return;
+        }
+        const stream = data.Body;
+        const results = [];
+        stream
+            .pipe((0, csv_parser_1.default)({
+            mapHeaders: ({ header }) => header.trim(),
+        }))
+            .on("data", (row) => {
+            var _a, _b, _c, _d;
+            results.push({
+                companyName: ((_a = row.companyName) === null || _a === void 0 ? void 0 : _a.trim()) || "",
+                personName: ((_b = row.personName) === null || _b === void 0 ? void 0 : _b.trim()) || "",
+                mobileNumber: ((_c = row.mobileNumber) === null || _c === void 0 ? void 0 : _c.trim()) || "",
+                companyEmail: ((_d = row.companyEmail) === null || _d === void 0 ? void 0 : _d.trim()) || "",
+            });
+        })
+            .on("end", () => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                const uniqueRows = [];
+                for (const r of results) {
+                    const exists = yield dbConnection_1.Meeting.findOne({
+                        where: {
+                            companyName: r.companyName,
+                            personName: r.personName,
+                            mobileNumber: r.mobileNumber,
+                            companyEmail: r.companyEmail,
+                        },
+                    });
+                    // If NOT found → add to insert list
+                    if (!exists) {
+                        uniqueRows.push(r);
+                    }
+                }
+                // Insert ONLY new rows
+                if (uniqueRows.length > 0) {
+                    yield dbConnection_1.Meeting.bulkCreate(uniqueRows);
+                }
+                return (0, errorMessage_1.createSuccess)(res, "Bulk upload successful", {
+                    totalCSV: results.length,
+                    inserted: uniqueRows.length,
+                    duplicatesSkipped: results.length - uniqueRows.length,
+                });
+            }
+            catch (err) {
+                (0, errorMessage_1.badRequest)(res, "DB error: " + err);
+                return;
+            }
+        }));
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.BulkUploads = BulkUploads;

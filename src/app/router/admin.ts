@@ -3,6 +3,10 @@ const router = Router();
 import * as AdminController from "../controller/admin";
 import { tokenCheck } from "../../config/jwtVerify";
 import getUploadMiddleware from "../../config/fileUploads";
+const profile = getUploadMiddleware("image");
+const meeting = getUploadMiddleware("image");
+const expense = getUploadMiddleware("expense");
+const csv = getUploadMiddleware("csv")
 
 
 router.post("/register", AdminController.Register);
@@ -14,13 +18,16 @@ router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
 router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
 
-
-
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
+
+
+router.post("/bulk-upload",csv.array("csv") ,AdminController.BulkUploads)
+
+
 
 
 
