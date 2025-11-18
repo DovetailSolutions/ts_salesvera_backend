@@ -11,8 +11,11 @@ import {
   literal,
   NUMBER,
 } from "sequelize";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { Readable } from "stream";
 import fs from "fs";
 import pdfParse from "pdf-parse";
+import csv from "csv-parser";
 import bcrypt from "bcrypt";
 import jwt, { JwtPayload } from "jsonwebtoken";
 // import cron from "node-cron";
@@ -27,6 +30,7 @@ import {
 } from "../middlewear/errorMessage";
 import { User, Category, Meeting } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
+import { S3 } from "@aws-sdk/client-s3";
 
 const UNIQUE_ROLES = ["admin", "super_admin"];
 
@@ -235,7 +239,7 @@ export const MySalePerson = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { page = 1, limit = 10, search = "",managerId  } = req.query;
+    const { page = 1, limit = 10, search = "", managerId } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -580,5 +584,107 @@ export const getMeeting = async (
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
+  }
+};
+
+interface MulterS3File extends Express.Multer.File {
+  bucket: string;
+  key: string;
+  location?: string;
+  etag?: string;
+}
+
+export const BulkUploads = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    // Correct check for multer.array()
+    if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+      badRequest(res, "CSV file is required");
+      return;
+    }
+
+    // Multer.array("csv") → req.files is an array
+    // const csvFile = (req.files as Express.Multer.File[])[0];
+    // const csvFile = (req.files as { csv: MulterS3File[] }).csv[0];
+    const csvFile = (req.files as MulterS3File[])[0];
+
+    const s3 = new S3Client({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    });
+
+    const params = {
+      Bucket: csvFile.bucket,
+      Key: csvFile.key,
+    };
+
+    const data = await s3.send(new GetObjectCommand(params));
+    if (!data.Body) {
+      badRequest(res, "Unable to read CSV from S3");
+      return;
+    }
+
+    const stream = data.Body as Readable;
+    const results: any[] = [];
+
+   stream
+  .pipe(
+    csv({
+      mapHeaders: ({ header }) => header.trim(),
+    })
+  )
+  .on("data", (row) => {
+    results.push({
+      companyName: row.companyName?.trim() || "",
+      personName: row.personName?.trim() || "",
+      mobileNumber: row.mobileNumber?.trim() || "",
+      companyEmail: row.companyEmail?.trim() || "",
+    });
+  })
+  .on("end", async () => {
+    try {
+      const uniqueRows: any[] = [];
+
+      for (const r of results) {
+        const exists = await Meeting.findOne({
+          where: {
+            companyName: r.companyName,
+            personName: r.personName,
+            mobileNumber: r.mobileNumber,
+            companyEmail: r.companyEmail,
+          },
+        });
+
+        // If NOT found → add to insert list
+        if (!exists) {
+          uniqueRows.push(r);
+        }
+      }
+
+      // Insert ONLY new rows
+      if (uniqueRows.length > 0) {
+        await Meeting.bulkCreate(uniqueRows);
+      }
+
+      return createSuccess(res, "Bulk upload successful", {
+        totalCSV: results.length,
+        inserted: uniqueRows.length,
+        duplicatesSkipped: results.length - uniqueRows.length,
+      });
+
+    } catch (err) {
+       badRequest(res, "DB error: " + err);
+       return
+    }
+  });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
   }
 };

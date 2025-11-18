@@ -156,13 +156,10 @@ export const GetPost = async(model:any,data:any)=>{
 export const getAllList = async (model: any, data: any = {}, searchFields: string[] = []) => {
   try {
     const { page = 1, limit = 10, date, search, ...filters } = data;
-
     const whereConditions: any = { ...filters };
-
     if (date) {
       whereConditions.date = date; 
     }
-
     // 🔍 Add search functionality
     if (search && searchFields.length > 0) {
       whereConditions[Op.or] = searchFields.map((field) => ({

@@ -138,6 +138,5 @@ export const createUserModel = (sequelize: Sequelize) => {
       },
     }
   );
-
   return User;
 };
