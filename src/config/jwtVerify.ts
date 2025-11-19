@@ -61,7 +61,7 @@ export const tokenCheck = async (
       User.findOne({
         where: {
           id,
-          [Op.or]: [{ role: "admin" }, { role: "super_admin" }],
+          [Op.or]: [{ role: "admin" }, { role: "super_admin" },{role:"manager"}],
         },
       }),
     ]);
