@@ -57,7 +57,7 @@ const tokenCheck = (req, res, next) => __awaiter(void 0, void 0, void 0, functio
                 },
             }),
         ]);
-        if ((item && (item === null || item === void 0 ? void 0 : item.role) === "admin") || (item === null || item === void 0 ? void 0 : item.role) === "super_admin") {
+        if ((item && (item === null || item === void 0 ? void 0 : item.role) === "admin") || (item === null || item === void 0 ? void 0 : item.role) === "super_admin" || (item === null || item === void 0 ? void 0 : item.role) === "manager") {
             return next();
         }
         return res.status(403).json({
