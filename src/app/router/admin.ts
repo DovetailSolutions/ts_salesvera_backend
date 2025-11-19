@@ -17,13 +17,11 @@ router.get("/mysaleperson", tokenCheck, AdminController.MySalePerson);
 router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
 router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
-
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
-
 router.post("/bulk-upload",csv.array("csv"),AdminController.BulkUploads)
 
 

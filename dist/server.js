@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 5000;
 // }));
 // ✅ Additional headers (optional but recommended)
 const allowedOrigins = [
-    "http://localhost:5174",
+    "http://localhost:5173",
     "https://salesvera.com",
     "https://www.salesvera.com",
     "https://api.salesvera.com",
