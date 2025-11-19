@@ -569,7 +569,7 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 });
             }
             catch (err) {
-                (0, errorMessage_1.badRequest)(res, "DB error: " + err);
+                (0, errorMessage_1.badRequest)(res, "file upload error" + err);
                 return;
             }
         }));

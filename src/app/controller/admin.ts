@@ -679,7 +679,7 @@ export const BulkUploads = async (
       });
 
     } catch (err) {
-       badRequest(res, "DB error: " + err);
+       badRequest(res, "file upload error" + err);
        return
     }
   });
