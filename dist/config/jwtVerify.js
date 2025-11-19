@@ -53,7 +53,7 @@ const tokenCheck = (req, res, next) => __awaiter(void 0, void 0, void 0, functio
             dbConnection_1.User.findOne({
                 where: {
                     id,
-                    [sequelize_1.Op.or]: [{ role: "admin" }, { role: "super_admin" }],
+                    [sequelize_1.Op.or]: [{ role: "admin" }, { role: "super_admin" }, { role: "manager" }],
                 },
             }),
         ]);
