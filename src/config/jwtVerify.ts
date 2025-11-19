@@ -65,7 +65,7 @@ export const tokenCheck = async (
         },
       }),
     ]);
-    if ((item && item?.role === "admin") || item?.role === "super_admin") {
+    if ((item && item?.role === "admin") || item?.role === "super_admin" ||item?.role === "manager") {
       return next();
     }
     return res.status(403).json({
