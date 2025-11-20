@@ -29,6 +29,7 @@ export class Meeting extends Model {
   public longitude_in!: string | null;
   public latitude_out!: string | null;
   public longitude_out!: string | null;
+  public companyEmail!:string|null;
 
   public meetingTimeOut!: Date;
   public meetingTimeIn!: Date;
