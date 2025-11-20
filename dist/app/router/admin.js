@@ -52,12 +52,12 @@ router.patch("/updatepassword", jwtVerify_1.tokenCheck, AdminController.UpdatePa
 router.get("/mysaleperson", jwtVerify_1.tokenCheck, AdminController.MySalePerson);
 router.post('/assign-salesman', jwtVerify_1.tokenCheck, AdminController.assignSalesman);
 router.get("/getalluser", jwtVerify_1.tokenCheck, AdminController.GetAllUser);
-router.get('/getusermeeting', jwtVerify_1.tokenCheck, AdminController.getMeeting);
+router.get('/getusermeeting', AdminController.getMeeting);
 router.post("/addcategory", jwtVerify_1.tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", jwtVerify_1.tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", jwtVerify_1.tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", jwtVerify_1.tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", jwtVerify_1.tokenCheck, AdminController.DeleteCategory);
-router.post("/bulk-upload", csv.array("csv"), AdminController.BulkUploads);
+router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.array("csv"), AdminController.BulkUploads);
 // meeting apis 
 exports.default = router;

@@ -526,11 +526,14 @@ export const getMeeting = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const { page = 1, limit = 10, search = "", userId, date } = req.query;
+    const { page = 1, limit = 10, search = "", userId, date,empty } = req.query;
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
     const where: any = {};
+   if (empty === "true" ) {
+      where.userId = null;
+      }
     if (userId) where.userId = userId;
     if (search) {
       where[Op.or] = [
@@ -559,9 +562,11 @@ export const getMeeting = async (
         "companyName",
         "personName",
         "mobileNumber",
+        "companyEmail",
         "meetingTimeIn",
         "meetingTimeOut",
         "meetingPurpose",
+        "userId"
       ],
       where,
       offset,
@@ -689,3 +694,5 @@ export const BulkUploads = async (
     badRequest(res, errorMessage);
   }
 };
+
+

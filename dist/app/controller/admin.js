@@ -441,11 +441,14 @@ exports.DeleteCategory = DeleteCategory;
 const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const { page = 1, limit = 10, search = "", userId, date } = req.query;
+        const { page = 1, limit = 10, search = "", userId, date, empty } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
         const where = {};
+        if (empty === "true") {
+            where.userId = null;
+        }
         if (userId)
             where.userId = userId;
         if (search) {
@@ -471,9 +474,11 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 "companyName",
                 "personName",
                 "mobileNumber",
+                "companyEmail",
                 "meetingTimeIn",
                 "meetingTimeOut",
                 "meetingPurpose",
+                "userId"
             ],
             where,
             offset,
