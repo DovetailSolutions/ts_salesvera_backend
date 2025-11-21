@@ -52,6 +52,13 @@ User.belongsToMany(User, {
   otherKey: "user_id",
 });
 
+
+
+// User.hasMany(User, {
+//   as: "createdUsers",
+//   foreignKey: "createdBy",
+// });
+
 //join
 
 
