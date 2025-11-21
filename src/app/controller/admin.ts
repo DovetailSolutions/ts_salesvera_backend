@@ -332,6 +332,8 @@ export const assignSalesman = async (
   }
 };
 
+
+
 export const GetAllUser = async (
   req: Request,
   res: Response
@@ -363,19 +365,54 @@ export const GetAllUser = async (
     }
 
     /** ✅ Fetch Users */
+    // const { rows, count } = await User.findAndCountAll({
+    //   attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+    //   where,
+    //   offset,
+    //   limit: limitNum,
+    //   order: [["createdAt", "DESC"]],
+    // });
+type PlainUser = ReturnType<typeof rows[number]["get"]> & {
+  creator?: any;
+};
+
     const { rows, count } = await User.findAndCountAll({
+  attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
+  where,
+  offset,
+  limit: limitNum,
+  order: [["createdAt", "DESC"]],
+  include: [
+    {
+      model: User,
+      as: "creators",
       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-      where,
-      offset,
-      limit: limitNum,
-      order: [["createdAt", "DESC"]],
-    });
+      through: { attributes: [] },
+      required: false,
+    }
+  ]
+});
+
+type UserWithCreator = {
+  [key: string]: any;
+  creator?: any;
+};
+
+const finalRows: UserWithCreator[] = rows.map((user) => {
+  const u = user.get({ plain: true }) as UserWithCreator;
+
+  u.creator = u.creators?.[0] || null;
+  delete u.creators;
+
+  return u;
+});
+
 
     createSuccess(res, "Users fetched successfully", {
       page: pageNum,
       limit: limitNum,
       total: count,
-      rows,
+      finalRows,
     });
   } catch (error) {
     const errorMessage =
@@ -692,6 +729,7 @@ export const BulkUploads = async (
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
+    return
   }
 };
 

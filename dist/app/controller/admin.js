@@ -311,19 +311,34 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
             ];
         }
-        /** ✅ Fetch Users */
         const { rows, count } = yield dbConnection_1.User.findAndCountAll({
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+            attributes: ["id", "firstName", "lastName", "email", "phone", "role", "createdAt"],
             where,
             offset,
             limit: limitNum,
             order: [["createdAt", "DESC"]],
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "creators",
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    through: { attributes: [] },
+                    required: false,
+                }
+            ]
+        });
+        const finalRows = rows.map((user) => {
+            var _a;
+            const u = user.get({ plain: true });
+            u.creator = ((_a = u.creators) === null || _a === void 0 ? void 0 : _a[0]) || null;
+            delete u.creators;
+            return u;
         });
         (0, errorMessage_1.createSuccess)(res, "Users fetched successfully", {
             page: pageNum,
             limit: limitNum,
             total: count,
-            rows,
+            finalRows,
         });
     }
     catch (error) {
@@ -582,6 +597,7 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
     }
 });
 exports.BulkUploads = BulkUploads;

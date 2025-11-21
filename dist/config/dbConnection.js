@@ -63,6 +63,10 @@ User.belongsToMany(User, {
     foreignKey: "created_by_user_id",
     otherKey: "user_id",
 });
+// User.hasMany(User, {
+//   as: "createdUsers",
+//   foreignKey: "createdBy",
+// });
 //join
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
