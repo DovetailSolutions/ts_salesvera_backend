@@ -28,7 +28,7 @@ import {
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
-import { User, Category, Meeting } from "../../config/dbConnection";
+import { User, Category, Meeting,Attendance } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
 
@@ -732,5 +732,58 @@ export const BulkUploads = async (
     return
   }
 };
+
+export const getAttendance = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { page = 1, limit = 10, userId } = req.query || {};
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    if (!userId) {
+      badRequest(res, "UserId is required", 400);
+      return;
+    }
+
+    // ✅ 1) Fetch user
+    const user = await User.findOne({
+      where: { id: Number(userId) },
+      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+    });
+
+    if (!user) {
+      badRequest(res, "User not found", 404);
+      return;
+    }
+
+    // ✅ 2) Fetch attendance with pagination
+    const { rows: attendance, count } = await Attendance.findAndCountAll({
+      where: { employee_id: Number(userId) },
+      limit: limitNum,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ 3) Response
+    createSuccess(res, "User attendance fetched successfully", {
+      user,
+      attendance,
+      pagination: {
+        totalRecords: count,
+        totalPages: Math.ceil(count / limitNum),
+        currentPage: pageNum,
+        limit: limitNum,
+      },
+    });
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
 
 

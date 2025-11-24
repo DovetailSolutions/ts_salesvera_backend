@@ -59,5 +59,6 @@ router.get("/getcategoy/:id", jwtVerify_1.tokenCheck, AdminController.categoryDe
 router.patch("/updatecategory/:id", jwtVerify_1.tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", jwtVerify_1.tokenCheck, AdminController.DeleteCategory);
 router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.array("csv"), AdminController.BulkUploads);
+router.get("/get-attendance", jwtVerify_1.tokenCheck, AdminController.getAttendance);
 // meeting apis 
 exports.default = router;
