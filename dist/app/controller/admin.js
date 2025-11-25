@@ -312,7 +312,15 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             ];
         }
         const { rows, count } = yield dbConnection_1.User.findAndCountAll({
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role", "createdAt"],
+            attributes: [
+                "id",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt",
+            ],
             where,
             offset,
             limit: limitNum,
@@ -324,8 +332,8 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                     attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
                     through: { attributes: [] },
                     required: false,
-                }
-            ]
+                },
+            ],
         });
         const finalRows = rows.map((user) => {
             var _a;
@@ -456,7 +464,7 @@ exports.DeleteCategory = DeleteCategory;
 const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const { page = 1, limit = 10, search = "", userId, date, empty } = req.query;
+        const { page = 1, limit = 10, search = "", userId, date, empty, } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
@@ -493,7 +501,7 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 "meetingTimeIn",
                 "meetingTimeOut",
                 "meetingPurpose",
-                "userId"
+                "userId",
             ],
             where,
             offset,
@@ -558,7 +566,7 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 personName: ((_b = row.personName) === null || _b === void 0 ? void 0 : _b.trim()) || "",
                 mobileNumber: ((_c = row.mobileNumber) === null || _c === void 0 ? void 0 : _c.trim()) || "",
                 companyEmail: ((_d = row.companyEmail) === null || _d === void 0 ? void 0 : _d.trim()) || "",
-                customerType: "existing"
+                customerType: "existing",
             });
         })
             .on("end", () => __awaiter(void 0, void 0, void 0, function* () {
@@ -650,19 +658,29 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     try {
         const { employee_id, status } = req.body;
         if (!employee_id)
-            (0, errorMessage_1.badRequest)(res, "employee id is missing");
+            (0, errorMessage_1.badRequest)(res, "Employee id is missing");
         const obj = {};
         if (status) {
             obj.status = status;
-            dbConnection_1.Leave;
         }
-        const item = yield Middleware.Update(dbConnection_1.Leave, employee_id, obj);
-        (0, errorMessage_1.createSuccess)(res, "status update ");
+        // Update Status
+        yield dbConnection_1.Leave.update(obj, {
+            where: { employee_id }
+        });
+        // Fetch updated leave after update
+        const updatedLeave = yield dbConnection_1.Leave.findOne({
+            where: { employee_id },
+            attributes: ["id", "employee_id", "status"] // choose fields you need
+        });
+        if (!updatedLeave) {
+            (0, errorMessage_1.badRequest)(res, "Leave not found");
+            return;
+        }
+        (0, errorMessage_1.createSuccess)(res, "Status updated", updatedLeave);
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
     }
 });
 exports.approveLeave = approveLeave;
