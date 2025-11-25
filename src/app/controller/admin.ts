@@ -28,7 +28,13 @@ import {
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
-import { User, Category, Meeting,Attendance,Leave } from "../../config/dbConnection";
+import {
+  User,
+  Category,
+  Meeting,
+  Attendance,
+  Leave,
+} from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
 
@@ -332,8 +338,6 @@ export const assignSalesman = async (
   }
 };
 
-
-
 export const GetAllUser = async (
   req: Request,
   res: Response
@@ -372,41 +376,48 @@ export const GetAllUser = async (
     //   limit: limitNum,
     //   order: [["createdAt", "DESC"]],
     // });
-type PlainUser = ReturnType<typeof rows[number]["get"]> & {
-  creator?: any;
-};
+    type PlainUser = ReturnType<(typeof rows)[number]["get"]> & {
+      creator?: any;
+    };
 
     const { rows, count } = await User.findAndCountAll({
-  attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
-  where,
-  offset,
-  limit: limitNum,
-  order: [["createdAt", "DESC"]],
-  include: [
-    {
-      model: User,
-      as: "creators",
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-      through: { attributes: [] },
-      required: false,
-    }
-  ]
-});
+      attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "phone",
+        "role",
+        "createdAt",
+      ],
+      where,
+      offset,
+      limit: limitNum,
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: User,
+          as: "creators",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          through: { attributes: [] },
+          required: false,
+        },
+      ],
+    });
 
-type UserWithCreator = {
-  [key: string]: any;
-  creator?: any;
-};
+    type UserWithCreator = {
+      [key: string]: any;
+      creator?: any;
+    };
 
-const finalRows: UserWithCreator[] = rows.map((user) => {
-  const u = user.get({ plain: true }) as UserWithCreator;
+    const finalRows: UserWithCreator[] = rows.map((user) => {
+      const u = user.get({ plain: true }) as UserWithCreator;
 
-  u.creator = u.creators?.[0] || null;
-  delete u.creators;
+      u.creator = u.creators?.[0] || null;
+      delete u.creators;
 
-  return u;
-});
-
+      return u;
+    });
 
     createSuccess(res, "Users fetched successfully", {
       page: pageNum,
@@ -563,14 +574,21 @@ export const getMeeting = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const { page = 1, limit = 10, search = "", userId, date,empty } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      search = "",
+      userId,
+      date,
+      empty,
+    } = req.query;
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
     const where: any = {};
-   if (empty === "true" ) {
+    if (empty === "true") {
       where.userId = null;
-      }
+    }
     if (userId) where.userId = userId;
     if (search) {
       where[Op.or] = [
@@ -603,7 +621,7 @@ export const getMeeting = async (
         "meetingTimeIn",
         "meetingTimeOut",
         "meetingPurpose",
-        "userId"
+        "userId",
       ],
       where,
       offset,
@@ -674,66 +692,68 @@ export const BulkUploads = async (
     const stream = data.Body as Readable;
     const results: any[] = [];
 
-   stream
-  .pipe(
-    csv({
-      mapHeaders: ({ header }) => header.trim(),
-    })
-  )
-  .on("data", (row) => {
-    results.push({
-      companyName: row.companyName?.trim() || "",
-      personName: row.personName?.trim() || "",
-      mobileNumber: row.mobileNumber?.trim() || "",
-      companyEmail: row.companyEmail?.trim() || "",
-      customerType:"existing"
-    });
-  })
-  .on("end", async () => {
-    try {
-      const uniqueRows: any[] = [];
-
-      for (const r of results) {
-        const exists = await Meeting.findOne({
-          where: {
-            companyName: r.companyName,
-            personName: r.personName,
-            mobileNumber: r.mobileNumber,
-            companyEmail: r.companyEmail,
-          },
+    stream
+      .pipe(
+        csv({
+          mapHeaders: ({ header }) => header.trim(),
+        })
+      )
+      .on("data", (row) => {
+        results.push({
+          companyName: row.companyName?.trim() || "",
+          personName: row.personName?.trim() || "",
+          mobileNumber: row.mobileNumber?.trim() || "",
+          companyEmail: row.companyEmail?.trim() || "",
+          customerType: "existing",
         });
+      })
+      .on("end", async () => {
+        try {
+          const uniqueRows: any[] = [];
 
-        // If NOT found → add to insert list
-        if (!exists) {
-          uniqueRows.push(r);
+          for (const r of results) {
+            const exists = await Meeting.findOne({
+              where: {
+                companyName: r.companyName,
+                personName: r.personName,
+                mobileNumber: r.mobileNumber,
+                companyEmail: r.companyEmail,
+              },
+            });
+
+            // If NOT found → add to insert list
+            if (!exists) {
+              uniqueRows.push(r);
+            }
+          }
+
+          // Insert ONLY new rows
+          if (uniqueRows.length > 0) {
+            await Meeting.bulkCreate(uniqueRows);
+          }
+
+          return createSuccess(res, "Bulk upload successful", {
+            totalCSV: results.length,
+            inserted: uniqueRows.length,
+            duplicatesSkipped: results.length - uniqueRows.length,
+          });
+        } catch (err) {
+          badRequest(res, "file upload error" + err);
+          return;
         }
-      }
-
-      // Insert ONLY new rows
-      if (uniqueRows.length > 0) {
-        await Meeting.bulkCreate(uniqueRows);
-      }
-
-      return createSuccess(res, "Bulk upload successful", {
-        totalCSV: results.length,
-        inserted: uniqueRows.length,
-        duplicatesSkipped: results.length - uniqueRows.length,
       });
-
-    } catch (err) {
-       badRequest(res, "file upload error" + err);
-       return
-    }
-  });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return
+    return;
   }
 };
 
-export const getAttendance = async (req: Request, res: Response): Promise<void> => {
+export const getAttendance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { page = 1, limit = 10, userId } = req.query || {};
 
@@ -776,7 +796,6 @@ export const getAttendance = async (req: Request, res: Response): Promise<void> 
         limit: limitNum,
       },
     });
-
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -785,26 +804,42 @@ export const getAttendance = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-export const approveLeave = async(req:Request,res:Response):Promise<void>=>{
-  try{
-    const {employee_id,status} =req.body;
-    if(!employee_id) badRequest(res,"employee id is missing")
+export const approveLeave = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { employee_id, status } = req.body;
 
-    const obj:any = {};
-    if(status){
-      obj.status = status;Leave
-    }  
+    if (!employee_id)  badRequest(res, "Employee id is missing");
 
-    const item = await Middleware.Update(Leave,employee_id,obj);
-    createSuccess(res,"status update ")
+    const obj: any = {};
+    if (status) {
+      obj.status = status;
+    }
 
-  }catch(error){
+    // Update Status
+    await Leave.update(obj, {
+      where: { employee_id }
+    });
+
+    // Fetch updated leave after update
+    const updatedLeave = await Leave.findOne({
+      where: { employee_id },
+      attributes: ["id", "employee_id", "status"]   // choose fields you need
+    });
+
+    if (!updatedLeave) {
+       badRequest(res, "Leave not found");
+       return
+    }
+
+     createSuccess(res, "Status updated", updatedLeave);
+
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
+     badRequest(res, errorMessage);
   }
-}
-
-
+};
 
