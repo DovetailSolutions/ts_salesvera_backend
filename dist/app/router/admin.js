@@ -60,5 +60,6 @@ router.patch("/updatecategory/:id", jwtVerify_1.tokenCheck, AdminController.Upda
 router.delete("/deletecategory/:id", jwtVerify_1.tokenCheck, AdminController.DeleteCategory);
 router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.array("csv"), AdminController.BulkUploads);
 router.get("/get-attendance", jwtVerify_1.tokenCheck, AdminController.getAttendance);
+router.patch("/approved-leave", jwtVerify_1.tokenCheck, AdminController.approveLeave);
 // meeting apis 
 exports.default = router;

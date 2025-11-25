@@ -28,11 +28,11 @@ import {
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
-import { User, Category, Meeting,Attendance } from "../../config/dbConnection";
+import { User, Category, Meeting,Attendance,Leave } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
 
-const UNIQUE_ROLES = ["admin", "super_admin"];
+const UNIQUE_ROLES = ["super_admin"];
 
 export const Register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -784,6 +784,27 @@ export const getAttendance = async (req: Request, res: Response): Promise<void> 
     return;
   }
 };
+
+export const approveLeave = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const {employee_id,status} =req.body;
+    if(!employee_id) badRequest(res,"employee id is missing")
+
+    const obj:any = {};
+    if(status){
+      obj.status = status;Leave
+    }  
+
+    const item = await Middleware.Update(Leave,employee_id,obj);
+    createSuccess(res,"status update ")
+
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+}
 
 
 
