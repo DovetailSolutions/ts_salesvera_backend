@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAttendance = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.approveLeave = exports.getAttendance = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -55,7 +55,7 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_1 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
-const UNIQUE_ROLES = ["admin", "super_admin"];
+const UNIQUE_ROLES = ["super_admin"];
 const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { email, password, firstName, lastName, phone, dob, role, createdBy, } = req.body;
@@ -646,3 +646,23 @@ const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.getAttendance = getAttendance;
+const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { employee_id, status } = req.body;
+        if (!employee_id)
+            (0, errorMessage_1.badRequest)(res, "employee id is missing");
+        const obj = {};
+        if (status) {
+            obj.status = status;
+            dbConnection_1.Leave;
+        }
+        const item = yield Middleware.Update(dbConnection_1.Leave, employee_id, obj);
+        (0, errorMessage_1.createSuccess)(res, "status update ");
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
+    }
+});
+exports.approveLeave = approveLeave;
