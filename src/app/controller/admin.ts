@@ -99,7 +99,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
     };
     const item = await User.create(obj);
 
-    if (role === "sale_person") {
+    if (role === "sale_person" || role === "manager") {
       const ids = Array.isArray(createdBy)
         ? createdBy.map(Number)
         : [Number(createdBy)];

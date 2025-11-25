@@ -99,7 +99,7 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             role,
         };
         const item = yield dbConnection_1.User.create(obj);
-        if (role === "sale_person") {
+        if (role === "sale_person" || role === "manager") {
             const ids = Array.isArray(createdBy)
                 ? createdBy.map(Number)
                 : [Number(createdBy)];
