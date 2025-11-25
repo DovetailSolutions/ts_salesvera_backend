@@ -108,6 +108,8 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       await (item as any).setCreators(ids);
     }
 
+
+    
     /** ✅ JWT Tokens */
     const { accessToken, refreshToken } = Middleware.CreateToken(
       String(item.getDataValue("id")),
