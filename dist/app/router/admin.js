@@ -61,5 +61,7 @@ router.delete("/deletecategory/:id", jwtVerify_1.tokenCheck, AdminController.Del
 router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.array("csv"), AdminController.BulkUploads);
 router.get("/get-attendance", jwtVerify_1.tokenCheck, AdminController.getAttendance);
 router.patch("/approved-leave", jwtVerify_1.tokenCheck, AdminController.approveLeave);
+router.get("/get-expense", jwtVerify_1.tokenCheck, AdminController.GetExpense);
+router.get("/admin-manager", jwtVerify_1.tokenCheck, AdminController.test);
 // meeting apis 
 exports.default = router;

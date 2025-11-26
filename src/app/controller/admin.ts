@@ -34,6 +34,7 @@ import {
   Meeting,
   Attendance,
   Leave,
+  Expense,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -428,15 +429,6 @@ export const GetAllUser = async (
         { phone: { [Op.iLike]: `%${search}%` } },
       ];
     }
-
-    /** ✅ Fetch Users */
-    // const { rows, count } = await User.findAndCountAll({
-    //   attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-    //   where,
-    //   offset,
-    //   limit: limitNum,
-    //   order: [["createdAt", "DESC"]],
-    // });
     type PlainUser = ReturnType<(typeof rows)[number]["get"]> & {
       creator?: any;
     };
@@ -904,3 +896,205 @@ export const approveLeave = async (
   }
 };
 
+export const GetExpense = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { page = 1, limit = 10, userId } = req.query || {};
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    if (!userId) {
+      badRequest(res, "UserId is required", 400);
+      return;
+    }
+
+    // ✅ 1) Fetch user
+    const user = await User.findOne({
+      where: { id: Number(userId) },
+      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+    });
+
+    if (!user) {
+      badRequest(res, "User not found", 404);
+      return;
+    }
+
+    // ✅ 2) Fetch attendance with pagination
+    const { rows: attendance, count } = await Expense.findAndCountAll({
+      where: { userId: Number(userId) },
+      limit: limitNum,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ 3) Response
+    createSuccess(res, "User Expense fetched successfully", {
+      user,
+      attendance,
+      pagination: {
+        totalRecords: count,
+        totalPages: Math.ceil(count / limitNum),
+        currentPage: pageNum,
+        limit: limitNum,
+      },
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+// export const test = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const { page = 1, limit = 10, search = "", role } = req.query;
+
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+
+//     const loggedInId = userData?.userId;
+//     const mainWhere: any = { id: loggedInId };
+//     const createdWhere: any = {};
+//     if (search) {
+//       createdWhere[Op.or] = [
+//         { firstName: { [Op.iLike]: `%${search}%` } },
+//         { lastName: { [Op.iLike]: `%${search}%` } },
+//         { email: { [Op.iLike]: `%${search}%` } },
+//         { phone: { [Op.iLike]: `%${search}%` } },
+//       ];
+//     }
+
+//    const rows = await User.findByPk(loggedInId,{
+//   // where: mainWhere,
+//   attributes: [
+//     "id",
+//     "firstName",
+//     "lastName",
+//     "email",
+//     "phone",
+//     "role",
+//     "createdAt",
+//   ],
+//   include: [
+//     {
+//       model: User,
+//       as: "createdUsers",
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//       through: { attributes: [] },
+//       where: createdWhere,
+//       required: false,
+//       include: [
+//         {
+//           model: User,
+//           as: "createdUsers", // nested level
+//           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//           through: { attributes: [] },
+//           where: createdWhere,
+//           required: false,
+//         },
+//       ],
+//     },
+//   ],
+//   order: [["createdAt", "DESC"]],
+// });
+//     createSuccess(res, "Users fetched successfully", {  page: pageNum,
+//       limit: limitNum,
+//       user:rows });
+//   } catch (error) {
+//     badRequest(
+//       res,
+//       error instanceof Error ? error.message : "Something went wrong"
+//     );
+//   }
+// };
+
+
+export const test = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const { page = 1, limit = 10, search = "", role } = req.query;
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    const loggedInId = userData?.userId;
+    const mainWhere: any = { id: loggedInId };
+    const createdWhere: any = {};
+    
+    if (search) {
+      createdWhere[Op.or] = [
+        { firstName: { [Op.iLike]: `%${search}%` } },
+        { lastName: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { phone: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    // Get total count
+    const totalCount = await User.count({
+      where: mainWhere,
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          where: createdWhere,
+          required: false,
+        },
+      ],
+    });
+
+    const rows = await User.findByPk(loggedInId, {
+      attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "phone",
+        "role",
+        "createdAt",
+      ],
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          through: { attributes: [] },
+          where: createdWhere,
+          required: false,
+          include: [
+            {
+              model: User,
+              as: "createdUsers",
+              attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+              through: { attributes: [] },
+              where: createdWhere,
+              required: false,
+            },
+          ],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    createSuccess(res, "Users fetched successfully", {
+      page: pageNum,
+      limit: limitNum,
+      total: totalCount,
+      pages: Math.ceil(totalCount / limitNum),
+      user: rows
+    });
+  } catch (error) {
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};
