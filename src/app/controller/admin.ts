@@ -134,48 +134,107 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body || {};
 
-    // ✅ Validate input
+    // Validate input
     if (!email || !password) {
-      badRequest(res, "Email and password are required");
-      return;
+       badRequest(res, "Email and password are required");
     }
 
-    // ✅ Check if user exists
+    // Find user
     const user = await Middleware.FindByEmail(User, email);
     if (!user) {
-      badRequest(res, "Invalid email or password");
+       badRequest(res, "Invalid email or password");
     }
 
-    // ✅ Validate password
-    const hashedPassword = user.getDataValue("password");
+    // Allowed roles
+    const allowedRoles = ["admin", "manager","super_admin"];
+
+    if (!allowedRoles.includes(user.get("role"))) {
+       badRequest(res, "Access restricted. Only admin & manager can login.");
+    }
+
+    // Validate password
+    const hashedPassword = user.get("password");
     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
 
     if (!isPasswordValid) {
-      badRequest(res, "Invalid email or password");
+       badRequest(res, "Invalid email or password");
     }
 
-    // ✅ Create tokens
+    // Create tokens
     const { accessToken, refreshToken } = Middleware.CreateToken(
-      String(user.getDataValue("id")),
-      String(user.getDataValue("role"))
+      String(user.get("id")),
+      String(user.get("role"))
     );
 
-    // ✅ Update refresh token in DB
-    await user.update({ refreshToken, user });
+    // Save refresh token
+    await user.update({ refreshToken });
 
-    // ✅ Respond
-    createSuccess(res, "Login successful", {
+     createSuccess(res, "Login successful", {
       accessToken,
       refreshToken,
       user,
     });
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-    return;
+     badRequest(res, errorMessage);
   }
 };
+
+
+// export const Login = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { email, password } = req.body || {};
+
+//     // ✅ Validate input
+//     if (!email || !password) {
+//       badRequest(res, "Email and password are required");
+//       return;
+//     }
+
+//     // ✅ Check if user exists
+//     const user = await Middleware.FindByEmail(User, email);
+//     console.log(">>>>user",user)
+//     if (!user || user.get("role") != "sale_person") {
+//    badRequest(res, "Invalid email or password");
+//    return;
+// }
+//     if (user.get("role") != "sale_person") {
+//    badRequest(res, "Invalid email or password");
+//    return;
+// }
+
+//     // ✅ Validate password
+//     const hashedPassword = user.getDataValue("password");
+//     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
+
+//     if (!isPasswordValid) {
+//       badRequest(res, "Invalid email or password");
+//     }
+
+//     // ✅ Create tokens
+//     const { accessToken, refreshToken } = Middleware.CreateToken(
+//       String(user.getDataValue("id")),
+//       String(user.getDataValue("role"))
+//     );
+
+//     // ✅ Update refresh token in DB
+//     await user.update({ refreshToken, user });
+
+//     // ✅ Respond
+//     createSuccess(res, "Login successful", {
+//       accessToken,
+//       refreshToken,
+//       user,
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage, error);
+//     return;
+//   }
+// };
 export const GetProfile = async (
   req: Request,
   res: Response
