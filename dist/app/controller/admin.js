@@ -124,27 +124,30 @@ exports.Register = Register;
 const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { email, password } = req.body || {};
-        // ✅ Validate input
+        // Validate input
         if (!email || !password) {
             (0, errorMessage_1.badRequest)(res, "Email and password are required");
-            return;
         }
-        // ✅ Check if user exists
+        // Find user
         const user = yield Middleware.FindByEmail(dbConnection_1.User, email);
         if (!user) {
             (0, errorMessage_1.badRequest)(res, "Invalid email or password");
         }
-        // ✅ Validate password
-        const hashedPassword = user.getDataValue("password");
+        // Allowed roles
+        const allowedRoles = ["admin", "manager", "super_admin"];
+        if (!allowedRoles.includes(user.get("role"))) {
+            (0, errorMessage_1.badRequest)(res, "Access restricted. Only admin & manager can login.");
+        }
+        // Validate password
+        const hashedPassword = user.get("password");
         const isPasswordValid = yield bcrypt_1.default.compare(password, hashedPassword);
         if (!isPasswordValid) {
             (0, errorMessage_1.badRequest)(res, "Invalid email or password");
         }
-        // ✅ Create tokens
-        const { accessToken, refreshToken } = Middleware.CreateToken(String(user.getDataValue("id")), String(user.getDataValue("role")));
-        // ✅ Update refresh token in DB
-        yield user.update({ refreshToken, user });
-        // ✅ Respond
+        // Create tokens
+        const { accessToken, refreshToken } = Middleware.CreateToken(String(user.get("id")), String(user.get("role")));
+        // Save refresh token
+        yield user.update({ refreshToken });
         (0, errorMessage_1.createSuccess)(res, "Login successful", {
             accessToken,
             refreshToken,
@@ -153,11 +156,55 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-        return;
+        (0, errorMessage_1.badRequest)(res, errorMessage);
     }
 });
 exports.Login = Login;
+// export const Login = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { email, password } = req.body || {};
+//     // ✅ Validate input
+//     if (!email || !password) {
+//       badRequest(res, "Email and password are required");
+//       return;
+//     }
+//     // ✅ Check if user exists
+//     const user = await Middleware.FindByEmail(User, email);
+//     console.log(">>>>user",user)
+//     if (!user || user.get("role") != "sale_person") {
+//    badRequest(res, "Invalid email or password");
+//    return;
+// }
+//     if (user.get("role") != "sale_person") {
+//    badRequest(res, "Invalid email or password");
+//    return;
+// }
+//     // ✅ Validate password
+//     const hashedPassword = user.getDataValue("password");
+//     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
+//     if (!isPasswordValid) {
+//       badRequest(res, "Invalid email or password");
+//     }
+//     // ✅ Create tokens
+//     const { accessToken, refreshToken } = Middleware.CreateToken(
+//       String(user.getDataValue("id")),
+//       String(user.getDataValue("role"))
+//     );
+//     // ✅ Update refresh token in DB
+//     await user.update({ refreshToken, user });
+//     // ✅ Respond
+//     createSuccess(res, "Login successful", {
+//       accessToken,
+//       refreshToken,
+//       user,
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage, error);
+//     return;
+//   }
+// };
 const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
