@@ -1173,60 +1173,176 @@ export const UpdateExpense = async (req: Request, res: Response): Promise<void> 
 };
 
 
+
+// export const leaveList = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const { page = 1, limit = 10, search = "", role } = req.query;
+
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+
+//     const loggedInId = userData?.userId;
+//     const mainWhere: any = { id: loggedInId };
+//     const createdWhere: any = {};
+
+//     if (search) {
+//       createdWhere[Op.or] = [
+//         { firstName: { [Op.iLike]: `%${search}%` } },
+//         { lastName: { [Op.iLike]: `%${search}%` } },
+//         { email: { [Op.iLike]: `%${search}%` } },
+//         { phone: { [Op.iLike]: `%${search}%` } },
+//       ];
+//     }
+
+//     // Get total count
+//     const totalCount = await User.count({
+//       where: mainWhere,
+//       // include: [
+//       //   {
+//       //     model: User,
+//       //     as: "createdUsers",
+//       //     where: createdWhere,
+//       //     required: false,
+//       //   },
+//       // ],
+//     });
+   
+
+
+//     const rows = await User.findByPk(loggedInId, {
+//       attributes: [
+//         "id",
+//         "firstName",
+//         "lastName",
+//         "email",
+//         "phone",
+//         "role",
+//         "createdAt",
+//       ],
+//       include: [
+//         {
+//           model: User,
+//           as: "createdUsers",
+//           attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
+//           through: { attributes: [] },
+//           where: createdWhere,
+//           required: false,
+//           include: [
+//             {
+//               model: User,
+//               as: "createdUsers",
+//               attributes: [
+//                 "id",
+//                 "firstName",
+//                 "lastName",
+//                 "email",
+//                 "phone",
+//                 "role",
+//                 "createdAt"
+//               ],
+//               through: { attributes: [] },
+//               where: createdWhere,
+//               required: false,
+//               include: [
+//                 {
+//                   model: Leave,
+//                   as: "Leaves",
+//                   required: false,
+//                 },
+//               ],
+//             },
+//           ],
+//         },
+//       ],
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     createSuccess(res, "Users fetched successfully", {
+//       page: pageNum,
+//       limit: limitNum,
+//       total: totalCount,
+//       pages: Math.ceil(totalCount / limitNum),
+//       user: rows,
+//     });
+//   } catch (error) {
+//       const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+type UserWithChildren = any & {
+  createdUsers?: UserWithChildren[];
+};
+
+async function getAllChildUserIds(userId: number): Promise<number[]> {
+  const result = new Set<number>();
+
+  async function fetchLevel(id: number) {
+    const user = (await User.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id"],
+          through: { attributes: [] },
+        },
+      ],
+    })) as UserWithChildren;
+
+    if (!user?.createdUsers) return;
+
+    for (const child of user.createdUsers) {
+      if (!result.has(child.id)) {
+        result.add(child.id);
+        await fetchLevel(child.id); // recursive call
+      }
+    }
+  }
+
+  await fetchLevel(userId);
+
+  return Array.from(result);
+}
+
+
 export const leaveList = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { page = 1, limit = 10, search = "", userId } = req.query || {};
+     const userData = req.userData as JwtPayload;
+     const loggedInId = userData.userId
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
+     console.log(">>>>>>>>>>>>",loggedInId)
 
-    // if (!userId) {
-    //   badRequest(res, "userId is missing");
-    //   return;
-    // }
+    const childIds = await getAllChildUserIds(loggedInId);
 
-    // 1. Fetch user
-    const user = await User.findByPk(Number(userId));
+    const allUserIds = [loggedInId, ...childIds];
 
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
+    const leaves = await Leave.findAll({
+      where: { employee_id: allUserIds },
+      include:[
+        {
+          model:User,
+          as:"user",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          required: false,
+        }
 
-    // 2. Build search condition
-    const where: any = {employee_id: userId };
-
-    if (search) {
-      where[Op.or] = [
-        { leaveType: { [Op.like]: `%${search}%` } },
-        { status: { [Op.like]: `%${search}%` } },
-      ];
-    }
-
-    // 3. Fetch attendance with pagination
-    const { rows: attendanceList, count: totalCount } = await Leave.findAndCountAll({
-      where,
-      limit: limitNum,
-      offset,
+      ],
+      // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
       order: [["createdAt", "DESC"]],
     });
 
-    // 4. Response
-     createSuccess(res, "Leave list fetched successfully", {
-      page: pageNum,
-      limit: limitNum,
-      totalCount,
-      totalPages: Math.ceil(totalCount / limitNum),
-      leaves: attendanceList,
+    res.status(200).json({
+      success: true,
+      message: "Leaves fetched successfully",
+      data: leaves,
     });
-
   } catch (error) {
-    const errorMessage =
+     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
 };
-
-
