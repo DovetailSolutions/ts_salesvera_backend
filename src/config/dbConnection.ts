@@ -55,6 +55,9 @@ User.belongsToMany(User, {
 User.hasMany(Attendance, { foreignKey: "employee_id" });
 Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
+User.hasMany(Leave, { foreignKey: "employee_id" });
+Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
+
 
 
 

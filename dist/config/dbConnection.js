@@ -65,6 +65,8 @@ User.belongsToMany(User, {
 });
 User.hasMany(attendance_1.Attendance, { foreignKey: "employee_id" });
 attendance_1.Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
+User.hasMany(leaverequests_1.Leave, { foreignKey: "employee_id" });
+leaverequests_1.Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 // User.hasMany(User, {
 //   as: "createdUsers",
 //   foreignKey: "createdBy",
