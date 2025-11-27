@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.getAttendance = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -656,51 +656,53 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.BulkUploads = BulkUploads;
-const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { page = 1, limit = 10, userId } = req.query || {};
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        if (!userId) {
-            (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
-            return;
-        }
-        // ✅ 1) Fetch user
-        const user = yield dbConnection_1.User.findOne({
-            where: { id: Number(userId) },
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-        });
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found", 404);
-            return;
-        }
-        // ✅ 2) Fetch attendance with pagination
-        const { rows: attendance, count } = yield dbConnection_1.Attendance.findAndCountAll({
-            where: { employee_id: Number(userId) },
-            limit: limitNum,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ 3) Response
-        (0, errorMessage_1.createSuccess)(res, "User attendance fetched successfully", {
-            user,
-            attendance,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limitNum),
-                currentPage: pageNum,
-                limit: limitNum,
-            },
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
-    }
-});
-exports.getAttendance = getAttendance;
+// export const getAttendance = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: attendance, count } = await Attendance.findAndCountAll({
+//       where: { employee_id: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       attendance,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
 const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { employee_id, status } = req.body;
@@ -1000,12 +1002,8 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     try {
         const userData = req.userData;
         const loggedInId = userData.userId;
-        console.log(">>>>>>>>>>>>>>>>");
-        console.log(">>>>>>>>>>>>", loggedInId);
         const childIds = yield getAllChildUserIds(loggedInId);
-        console.log(">>>>>>>>>>>>>>>>>", childIds);
         const allUserIds = [loggedInId, ...childIds];
-        console.log(">>>>>>>>>>>>>>>>>>", allUserIds);
         const leaves = yield dbConnection_1.Expense.findAll({
             where: { userId: allUserIds },
             include: [
@@ -1019,10 +1017,9 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
             order: [["createdAt", "DESC"]],
         });
-        console.log(">>>>>>>>>>>>>>>data", leaves);
         res.status(200).json({
             success: true,
-            message: "Leaves fetched successfully",
+            message: "Expense fetched successfully",
             data: leaves,
         });
     }
@@ -1033,3 +1030,35 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.GetExpense = GetExpense;
+const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData.userId;
+        const childIds = yield getAllChildUserIds(loggedInId);
+        const allUserIds = [loggedInId, ...childIds];
+        const leaves = yield dbConnection_1.Attendance.findAll({
+            where: { employee_id: allUserIds },
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "user",
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    required: false,
+                }
+            ],
+            // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
+            order: [["createdAt", "DESC"]],
+        });
+        res.status(200).json({
+            success: true,
+            message: "Expense fetched successfully",
+            data: leaves,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
+    }
+});
+exports.getAttendance = getAttendance;

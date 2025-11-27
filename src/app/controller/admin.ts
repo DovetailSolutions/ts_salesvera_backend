@@ -799,59 +799,59 @@ export const BulkUploads = async (
   }
 };
 
-export const getAttendance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { page = 1, limit = 10, userId } = req.query || {};
+// export const getAttendance = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
 
-    if (!userId) {
-      badRequest(res, "UserId is required", 400);
-      return;
-    }
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
 
-    // ✅ 1) Fetch user
-    const user = await User.findOne({
-      where: { id: Number(userId) },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-    });
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
 
-    if (!user) {
-      badRequest(res, "User not found", 404);
-      return;
-    }
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
 
-    // ✅ 2) Fetch attendance with pagination
-    const { rows: attendance, count } = await Attendance.findAndCountAll({
-      where: { employee_id: Number(userId) },
-      limit: limitNum,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: attendance, count } = await Attendance.findAndCountAll({
+//       where: { employee_id: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
 
-    // ✅ 3) Response
-    createSuccess(res, "User attendance fetched successfully", {
-      user,
-      attendance,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limitNum),
-        currentPage: pageNum,
-        limit: limitNum,
-      },
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
-  }
-};
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       attendance,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
 
 export const approveLeave = async (
   req: Request,
@@ -891,59 +891,7 @@ export const approveLeave = async (
   }
 };
 
-export const GetExpense = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { page = 1, limit = 10, userId } = req.query || {};
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
-
-    if (!userId) {
-      badRequest(res, "UserId is required", 400);
-      return;
-    }
-
-    // ✅ 1) Fetch user
-    const user = await User.findOne({
-      where: { id: Number(userId) },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-    });
-
-    if (!user) {
-      badRequest(res, "User not found", 404);
-      return;
-    }
-
-    // ✅ 2) Fetch attendance with pagination
-    const { rows: attendance, count } = await Expense.findAndCountAll({
-      where: { userId: Number(userId) },
-      limit: limitNum,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ 3) Response
-    createSuccess(res, "User Expense fetched successfully", {
-      user,
-      attendance,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limitNum),
-        currentPage: pageNum,
-        limit: limitNum,
-      },
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
-  }
-};
 
 // export const test = async (req: Request, res: Response): Promise<void> => {
 //   try {
@@ -1341,6 +1289,87 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
     });
   } catch (error) {
      const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+
+
+export const GetExpense = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+      const userData = req.userData as JwtPayload;
+     const loggedInId = userData.userId
+    const childIds = await getAllChildUserIds(loggedInId);
+    const allUserIds = [loggedInId, ...childIds];
+    const leaves = await Expense.findAll({
+      where: { userId: allUserIds },
+      include:[
+        {
+          model:User,
+          as:"user",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          required: false,
+        }
+
+      ],
+      // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
+      order: [["createdAt", "DESC"]],
+    });
+ 
+
+    res.status(200).json({
+      success: true,
+      message: "Expense fetched successfully",
+      data: leaves,
+    });
+  
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+
+
+export const getAttendance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+      const userData = req.userData as JwtPayload;
+     const loggedInId = userData.userId
+    const childIds = await getAllChildUserIds(loggedInId);
+    const allUserIds = [loggedInId, ...childIds];
+    const leaves = await Attendance.findAll({
+      where: { employee_id: allUserIds },
+      include:[
+        {
+          model:User,
+          as:"user",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          required: false,
+        }
+      ],
+      // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
+      order: [["createdAt", "DESC"]],
+    });
+ 
+
+    res.status(200).json({
+      success: true,
+      message: "Expense fetched successfully",
+      data: leaves,
+    });
+  
+  } catch (error) {
+    const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
