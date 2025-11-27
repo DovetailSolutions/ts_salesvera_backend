@@ -25,9 +25,11 @@ router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory)
 router.post("/bulk-upload",tokenCheck,csv.array("csv"),AdminController.BulkUploads)
 router.get("/get-attendance", tokenCheck, AdminController.getAttendance);
 router.patch("/approved-leave",tokenCheck,AdminController.approveLeave);
+router.get("/get-leave-list",tokenCheck,AdminController.leaveList)
 router.get("/get-expense",tokenCheck,AdminController.GetExpense);
+router.get("/admin-manager",tokenCheck,AdminController.test);
 
-router.get("/admin-manager",tokenCheck,AdminController.test)
+router.patch('/approved-expense', tokenCheck, AdminController.UpdateExpense)
 
 
 

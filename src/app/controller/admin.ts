@@ -1111,9 +1111,122 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       user: rows,
     });
   } catch (error) {
-    badRequest(
-      res,
-      error instanceof Error ? error.message : "Something went wrong"
-    );
+      const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
   }
 };
+
+
+export const UpdateExpense = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { approvedByAdmin, approvedBySuperAdmin, userId, role } = req.body || {};
+
+    // Validate userId
+    if (!userId) {
+      badRequest(res, "userId is missing");
+      return;
+    }
+
+    // Get expense record
+    const item = await Expense.findOne({ where: { userId } });
+
+    if (!item) {
+      badRequest(res, "Expense record not found");
+      return;
+    }
+
+    // ---------- Manager Approval ----------
+    if (role === "manager") {
+      item.approvedByAdmin = approvedByAdmin;
+      await item.save();
+
+      createSuccess(res, "Manager approval updated", { expense: item });
+      return;
+    }
+
+    // ---------- Admin Approval ----------
+    if (role === "admin") {
+
+      // Check if manager approved first
+      if (item.approvedByAdmin !== "accepted") {
+        badRequest(res, "Manager must approve first before admin approval.");
+        return;
+      }
+
+      item.approvedBySuperAdmin = approvedBySuperAdmin;
+      await item.save();
+
+      createSuccess(res, "Admin approval updated", { expense: item });
+      return;
+    }
+
+    badRequest(res, "Invalid role provided");
+    
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+
+export const leaveList = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { page = 1, limit = 10, search = "", userId } = req.query || {};
+
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
+    // if (!userId) {
+    //   badRequest(res, "userId is missing");
+    //   return;
+    // }
+
+    // 1. Fetch user
+    const user = await User.findByPk(Number(userId));
+
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    // 2. Build search condition
+    const where: any = {employee_id: userId };
+
+    if (search) {
+      where[Op.or] = [
+        { leaveType: { [Op.like]: `%${search}%` } },
+        { status: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 3. Fetch attendance with pagination
+    const { rows: attendanceList, count: totalCount } = await Leave.findAndCountAll({
+      where,
+      limit: limitNum,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // 4. Response
+     createSuccess(res, "Leave list fetched successfully", {
+      page: pageNum,
+      limit: limitNum,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limitNum),
+      leaves: attendanceList,
+    });
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+    return;
+  }
+};
+
+
