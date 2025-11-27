@@ -838,7 +838,15 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 {
                     model: dbConnection_1.User,
                     as: "createdUsers",
-                    attributes: ["id", "firstName", "lastName", "email", "phone", "role", "createdAt"],
+                    attributes: [
+                        "id",
+                        "firstName",
+                        "lastName",
+                        "email",
+                        "phone",
+                        "role",
+                        "createdAt",
+                    ],
                     through: { attributes: [] },
                     where: createdWhere,
                     required: false,
@@ -853,7 +861,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                                 "email",
                                 "phone",
                                 "role",
-                                "createdAt"
+                                "createdAt",
                             ],
                             through: { attributes: [] },
                             where: createdWhere,
@@ -980,7 +988,7 @@ const leaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                     as: "user",
                     attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
                     required: false,
-                }
+                },
             ],
             // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
             order: [["createdAt", "DESC"]],
@@ -1012,7 +1020,7 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                     as: "user",
                     attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
                     required: false,
-                }
+                },
             ],
             // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
             order: [["createdAt", "DESC"]],
@@ -1035,30 +1043,50 @@ const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         const userData = req.userData;
         const loggedInId = userData.userId;
         const childIds = yield getAllChildUserIds(loggedInId);
-        const allUserIds = [loggedInId, ...childIds];
-        const leaves = yield dbConnection_1.Attendance.findAll({
-            where: { employee_id: allUserIds },
+        const allUserIds = [loggedInId, ...childIds]; // keep full list
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        const leaves = yield dbConnection_1.User.findAll({
+            where: {
+                id: {
+                    [sequelize_1.Op.in]: allUserIds, // include all child users
+                    [sequelize_1.Op.ne]: loggedInId, // ❌ exclude logged-in user
+                }
+            },
+            attributes: [
+                "id",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt",
+            ],
             include: [
                 {
-                    model: dbConnection_1.User,
-                    as: "user",
-                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    model: dbConnection_1.Attendance,
+                    as: "Attendances",
+                    where: {
+                        punch_in: {
+                            [sequelize_1.Op.between]: [todayStart, todayEnd],
+                        }
+                    },
                     required: false,
                 }
             ],
-            // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
             order: [["createdAt", "DESC"]],
         });
         res.status(200).json({
             success: true,
-            message: "Expense fetched successfully",
+            message: "Attendance fetched successfully",
             data: leaves,
         });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
     }
 });
 exports.getAttendance = getAttendance;

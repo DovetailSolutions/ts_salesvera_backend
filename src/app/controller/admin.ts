@@ -891,8 +891,6 @@ export const approveLeave = async (
   }
 };
 
-
-
 // export const test = async (req: Request, res: Response): Promise<void> => {
 //   try {
 //     const userData = req.userData as JwtPayload;
@@ -992,8 +990,6 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       //   },
       // ],
     });
-   
-
 
     const rows = await User.findByPk(loggedInId, {
       attributes: [
@@ -1009,7 +1005,15 @@ export const test = async (req: Request, res: Response): Promise<void> => {
         {
           model: User,
           as: "createdUsers",
-          attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
+          attributes: [
+            "id",
+            "firstName",
+            "lastName",
+            "email",
+            "phone",
+            "role",
+            "createdAt",
+          ],
           through: { attributes: [] },
           where: createdWhere,
           required: false,
@@ -1024,7 +1028,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
                 "email",
                 "phone",
                 "role",
-                "createdAt"
+                "createdAt",
               ],
               through: { attributes: [] },
               where: createdWhere,
@@ -1059,17 +1063,20 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       user: rows,
     });
   } catch (error) {
-      const errorMessage =
+    const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
 };
 
-
-export const UpdateExpense = async (req: Request, res: Response): Promise<void> => {
+export const UpdateExpense = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const { approvedByAdmin, approvedBySuperAdmin, userId, role } = req.body || {};
+    const { approvedByAdmin, approvedBySuperAdmin, userId, role } =
+      req.body || {};
 
     // Validate userId
     if (!userId) {
@@ -1096,7 +1103,6 @@ export const UpdateExpense = async (req: Request, res: Response): Promise<void> 
 
     // ---------- Admin Approval ----------
     if (role === "admin") {
-
       // Check if manager approved first
       if (item.approvedByAdmin !== "accepted") {
         badRequest(res, "Manager must approve first before admin approval.");
@@ -1111,7 +1117,6 @@ export const UpdateExpense = async (req: Request, res: Response): Promise<void> 
     }
 
     badRequest(res, "Invalid role provided");
-    
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -1119,8 +1124,6 @@ export const UpdateExpense = async (req: Request, res: Response): Promise<void> 
     return;
   }
 };
-
-
 
 // export const leaveList = async (req: Request, res: Response): Promise<void> => {
 //   try {
@@ -1156,8 +1159,6 @@ export const UpdateExpense = async (req: Request, res: Response): Promise<void> 
 //       //   },
 //       // ],
 //     });
-   
-
 
 //     const rows = await User.findByPk(loggedInId, {
 //       attributes: [
@@ -1255,13 +1256,12 @@ async function getAllChildUserIds(userId: number): Promise<number[]> {
   return Array.from(result);
 }
 
-
 export const leaveList = async (req: Request, res: Response): Promise<void> => {
   try {
-     const userData = req.userData as JwtPayload;
-     const loggedInId = userData.userId
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
 
-     console.log(">>>>>>>>>>>>",loggedInId)
+    console.log(">>>>>>>>>>>>", loggedInId);
 
     const childIds = await getAllChildUserIds(loggedInId);
 
@@ -1269,14 +1269,13 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
 
     const leaves = await Leave.findAll({
       where: { employee_id: allUserIds },
-      include:[
+      include: [
         {
-          model:User,
-          as:"user",
+          model: User,
+          as: "user",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           required: false,
-        }
-
+        },
       ],
       // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
       order: [["createdAt", "DESC"]],
@@ -1288,46 +1287,41 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
       data: leaves,
     });
   } catch (error) {
-     const errorMessage =
+    const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
     return;
   }
 };
-
-
 
 export const GetExpense = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-      const userData = req.userData as JwtPayload;
-     const loggedInId = userData.userId
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
     const childIds = await getAllChildUserIds(loggedInId);
     const allUserIds = [loggedInId, ...childIds];
     const leaves = await Expense.findAll({
       where: { userId: allUserIds },
-      include:[
+      include: [
         {
-          model:User,
-          as:"user",
+          model: User,
+          as: "user",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           required: false,
-        }
-
+        },
       ],
       // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
       order: [["createdAt", "DESC"]],
     });
- 
 
     res.status(200).json({
       success: true,
       message: "Expense fetched successfully",
       data: leaves,
     });
-  
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -1336,42 +1330,60 @@ export const GetExpense = async (
   }
 };
 
-
-
-export const getAttendance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const getAttendance = async (req: Request, res: Response): Promise<void> => {
   try {
-      const userData = req.userData as JwtPayload;
-     const loggedInId = userData.userId
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
     const childIds = await getAllChildUserIds(loggedInId);
-    const allUserIds = [loggedInId, ...childIds];
-    const leaves = await Attendance.findAll({
-      where: { employee_id: allUserIds },
-      include:[
+    const allUserIds = [loggedInId, ...childIds];  // keep full list
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const leaves = await User.findAll({
+      where: {
+        id: {
+          [Op.in]: allUserIds,     // include all child users
+          [Op.ne]: loggedInId,     // ❌ exclude logged-in user
+        }
+      },
+       attributes: [
+                "id",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt",
+              ],
+      include: [
         {
-          model:User,
-          as:"user",
-          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          model: Attendance,
+          as: "Attendances",
+          where: {
+            punch_in: {
+              [Op.between]: [todayStart, todayEnd],
+            }
+          },
           required: false,
         }
       ],
-      // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
       order: [["createdAt", "DESC"]],
     });
- 
 
     res.status(200).json({
       success: true,
-      message: "Expense fetched successfully",
+      message: "Attendance fetched successfully",
       data: leaves,
     });
-  
+
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return;
   }
 };
+
