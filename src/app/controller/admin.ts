@@ -109,8 +109,6 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       await (item as any).setCreators(ids);
     }
 
-
-
     /** ✅ JWT Tokens */
     const { accessToken, refreshToken } = Middleware.CreateToken(
       String(item.getDataValue("id")),
@@ -137,20 +135,20 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
 
     // Validate input
     if (!email || !password) {
-       badRequest(res, "Email and password are required");
+      badRequest(res, "Email and password are required");
     }
 
     // Find user
     const user = await Middleware.FindByEmail(User, email);
     if (!user) {
-       badRequest(res, "Invalid email or password");
+      badRequest(res, "Invalid email or password");
     }
 
     // Allowed roles
-    const allowedRoles = ["admin", "manager","super_admin"];
+    const allowedRoles = ["admin", "manager", "super_admin"];
 
     if (!allowedRoles.includes(user.get("role"))) {
-       badRequest(res, "Access restricted. Only admin & manager can login.");
+      badRequest(res, "Access restricted. Only admin & manager can login.");
     }
 
     // Validate password
@@ -158,7 +156,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
 
     if (!isPasswordValid) {
-       badRequest(res, "Invalid email or password");
+      badRequest(res, "Invalid email or password");
     }
 
     // Create tokens
@@ -170,19 +168,17 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     // Save refresh token
     await user.update({ refreshToken });
 
-     createSuccess(res, "Login successful", {
+    createSuccess(res, "Login successful", {
       accessToken,
       refreshToken,
       user,
     });
-
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-     badRequest(res, errorMessage);
+    badRequest(res, errorMessage);
   }
 };
-
 
 // export const Login = async (req: Request, res: Response): Promise<void> => {
 //   try {
@@ -864,7 +860,7 @@ export const approveLeave = async (
   try {
     const { employee_id, status } = req.body;
 
-    if (!employee_id)  badRequest(res, "Employee id is missing");
+    if (!employee_id) badRequest(res, "Employee id is missing");
 
     const obj: any = {};
     if (status) {
@@ -873,26 +869,25 @@ export const approveLeave = async (
 
     // Update Status
     await Leave.update(obj, {
-      where: { employee_id }
+      where: { employee_id },
     });
 
     // Fetch updated leave after update
     const updatedLeave = await Leave.findOne({
       where: { employee_id },
-      attributes: ["id", "employee_id", "status"]   // choose fields you need
+      attributes: ["id", "employee_id", "status"], // choose fields you need
     });
 
     if (!updatedLeave) {
-       badRequest(res, "Leave not found");
-       return
+      badRequest(res, "Leave not found");
+      return;
     }
 
-     createSuccess(res, "Status updated", updatedLeave);
-
+    createSuccess(res, "Status updated", updatedLeave);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-     badRequest(res, errorMessage);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -1015,7 +1010,6 @@ export const GetExpense = async (
 //   }
 // };
 
-
 export const test = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -1028,7 +1022,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
     const loggedInId = userData?.userId;
     const mainWhere: any = { id: loggedInId };
     const createdWhere: any = {};
-    
+
     if (search) {
       createdWhere[Op.or] = [
         { firstName: { [Op.iLike]: `%${search}%` } },
@@ -1041,15 +1035,17 @@ export const test = async (req: Request, res: Response): Promise<void> => {
     // Get total count
     const totalCount = await User.count({
       where: mainWhere,
-      include: [
-        {
-          model: User,
-          as: "createdUsers",
-          where: createdWhere,
-          required: false,
-        },
-      ],
+      // include: [
+      //   {
+      //     model: User,
+      //     as: "createdUsers",
+      //     where: createdWhere,
+      //     required: false,
+      //   },
+      // ],
     });
+   
+
 
     const rows = await User.findByPk(loggedInId, {
       attributes: [
@@ -1065,7 +1061,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
         {
           model: User,
           as: "createdUsers",
-          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
           through: { attributes: [] },
           where: createdWhere,
           required: false,
@@ -1073,10 +1069,33 @@ export const test = async (req: Request, res: Response): Promise<void> => {
             {
               model: User,
               as: "createdUsers",
-              attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+              attributes: [
+                "id",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt"
+              ],
               through: { attributes: [] },
               where: createdWhere,
               required: false,
+              include: [
+                {
+                  model: Attendance,
+                  as: "Attendances",
+                  where: {
+                    punch_in: {
+                      [Op.between]: [
+                        new Date(new Date().setHours(0, 0, 0, 0)),
+                        new Date(new Date().setHours(23, 59, 59, 999)),
+                      ],
+                    },
+                  },
+                  required: false,
+                },
+              ],
             },
           ],
         },
@@ -1089,7 +1108,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       limit: limitNum,
       total: totalCount,
       pages: Math.ceil(totalCount / limitNum),
-      user: rows
+      user: rows,
     });
   } catch (error) {
     badRequest(

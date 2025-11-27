@@ -712,12 +712,12 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         // Update Status
         yield dbConnection_1.Leave.update(obj, {
-            where: { employee_id }
+            where: { employee_id },
         });
         // Fetch updated leave after update
         const updatedLeave = yield dbConnection_1.Leave.findOne({
             where: { employee_id },
-            attributes: ["id", "employee_id", "status"] // choose fields you need
+            attributes: ["id", "employee_id", "status"], // choose fields you need
         });
         if (!updatedLeave) {
             (0, errorMessage_1.badRequest)(res, "Leave not found");
@@ -858,14 +858,14 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         // Get total count
         const totalCount = yield dbConnection_1.User.count({
             where: mainWhere,
-            include: [
-                {
-                    model: dbConnection_1.User,
-                    as: "createdUsers",
-                    where: createdWhere,
-                    required: false,
-                },
-            ],
+            // include: [
+            //   {
+            //     model: User,
+            //     as: "createdUsers",
+            //     where: createdWhere,
+            //     required: false,
+            //   },
+            // ],
         });
         const rows = yield dbConnection_1.User.findByPk(loggedInId, {
             attributes: [
@@ -881,7 +881,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 {
                     model: dbConnection_1.User,
                     as: "createdUsers",
-                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role", "createdAt"],
                     through: { attributes: [] },
                     where: createdWhere,
                     required: false,
@@ -889,10 +889,33 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                         {
                             model: dbConnection_1.User,
                             as: "createdUsers",
-                            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                            attributes: [
+                                "id",
+                                "firstName",
+                                "lastName",
+                                "email",
+                                "phone",
+                                "role",
+                                "createdAt"
+                            ],
                             through: { attributes: [] },
                             where: createdWhere,
                             required: false,
+                            include: [
+                                {
+                                    model: dbConnection_1.Attendance,
+                                    as: "Attendances",
+                                    where: {
+                                        punch_in: {
+                                            [sequelize_1.Op.between]: [
+                                                new Date(new Date().setHours(0, 0, 0, 0)),
+                                                new Date(new Date().setHours(23, 59, 59, 999)),
+                                            ],
+                                        },
+                                    },
+                                    required: false,
+                                },
+                            ],
                         },
                     ],
                 },
@@ -904,7 +927,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             limit: limitNum,
             total: totalCount,
             pages: Math.ceil(totalCount / limitNum),
-            user: rows
+            user: rows,
         });
     }
     catch (error) {
