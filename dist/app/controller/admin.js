@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.leaveList = exports.UpdateExpense = exports.test = exports.GetExpense = exports.approveLeave = exports.getAttendance = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.getAttendance = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -731,51 +731,6 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.approveLeave = approveLeave;
-const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { page = 1, limit = 10, userId } = req.query || {};
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        if (!userId) {
-            (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
-            return;
-        }
-        // ✅ 1) Fetch user
-        const user = yield dbConnection_1.User.findOne({
-            where: { id: Number(userId) },
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-        });
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found", 404);
-            return;
-        }
-        // ✅ 2) Fetch attendance with pagination
-        const { rows: attendance, count } = yield dbConnection_1.Expense.findAndCountAll({
-            where: { userId: Number(userId) },
-            limit: limitNum,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ 3) Response
-        (0, errorMessage_1.createSuccess)(res, "User Expense fetched successfully", {
-            user,
-            attendance,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limitNum),
-                currentPage: pageNum,
-                limit: limitNum,
-            },
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
-    }
-});
-exports.GetExpense = GetExpense;
 // export const test = async (req: Request, res: Response): Promise<void> => {
 //   try {
 //     const userData = req.userData as JwtPayload;
@@ -979,44 +934,59 @@ const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.UpdateExpense = UpdateExpense;
+function getAllChildUserIds(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const result = new Set();
+        function fetchLevel(id) {
+            return __awaiter(this, void 0, void 0, function* () {
+                const user = (yield dbConnection_1.User.findByPk(id, {
+                    include: [
+                        {
+                            model: dbConnection_1.User,
+                            as: "createdUsers",
+                            attributes: ["id"],
+                            through: { attributes: [] },
+                        },
+                    ],
+                }));
+                if (!(user === null || user === void 0 ? void 0 : user.createdUsers))
+                    return;
+                for (const child of user.createdUsers) {
+                    if (!result.has(child.id)) {
+                        result.add(child.id);
+                        yield fetchLevel(child.id); // recursive call
+                    }
+                }
+            });
+        }
+        yield fetchLevel(userId);
+        return Array.from(result);
+    });
+}
 const leaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = 1, limit = 10, search = "", userId } = req.query || {};
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        // if (!userId) {
-        //   badRequest(res, "userId is missing");
-        //   return;
-        // }
-        // 1. Fetch user
-        const user = yield dbConnection_1.User.findByPk(Number(userId));
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-            return;
-        }
-        // 2. Build search condition
-        const where = { employee_id: userId };
-        if (search) {
-            where[sequelize_1.Op.or] = [
-                { leaveType: { [sequelize_1.Op.like]: `%${search}%` } },
-                { status: { [sequelize_1.Op.like]: `%${search}%` } },
-            ];
-        }
-        // 3. Fetch attendance with pagination
-        const { rows: attendanceList, count: totalCount } = yield dbConnection_1.Leave.findAndCountAll({
-            where,
-            limit: limitNum,
-            offset,
+        const userData = req.userData;
+        const loggedInId = userData.userId;
+        console.log(">>>>>>>>>>>>", loggedInId);
+        const childIds = yield getAllChildUserIds(loggedInId);
+        const allUserIds = [loggedInId, ...childIds];
+        const leaves = yield dbConnection_1.Leave.findAll({
+            where: { employee_id: allUserIds },
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "user",
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    required: false,
+                }
+            ],
+            // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
             order: [["createdAt", "DESC"]],
         });
-        // 4. Response
-        (0, errorMessage_1.createSuccess)(res, "Leave list fetched successfully", {
-            page: pageNum,
-            limit: limitNum,
-            totalCount,
-            totalPages: Math.ceil(totalCount / limitNum),
-            leaves: attendanceList,
+        res.status(200).json({
+            success: true,
+            message: "Leaves fetched successfully",
+            data: leaves,
         });
     }
     catch (error) {
@@ -1026,3 +996,40 @@ const leaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.leaveList = leaveList;
+const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData.userId;
+        console.log(">>>>>>>>>>>>>>>>");
+        console.log(">>>>>>>>>>>>", loggedInId);
+        const childIds = yield getAllChildUserIds(loggedInId);
+        console.log(">>>>>>>>>>>>>>>>>", childIds);
+        const allUserIds = [loggedInId, ...childIds];
+        console.log(">>>>>>>>>>>>>>>>>>", allUserIds);
+        const leaves = yield dbConnection_1.Expense.findAll({
+            where: { userId: allUserIds },
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "user",
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    required: false,
+                }
+            ],
+            // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
+            order: [["createdAt", "DESC"]],
+        });
+        console.log(">>>>>>>>>>>>>>>data", leaves);
+        res.status(200).json({
+            success: true,
+            message: "Leaves fetched successfully",
+            data: leaves,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
+    }
+});
+exports.GetExpense = GetExpense;
