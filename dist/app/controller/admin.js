@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.approveLeave = exports.getAttendance = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.test = exports.GetExpense = exports.approveLeave = exports.getAttendance = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -731,3 +731,184 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.approveLeave = approveLeave;
+const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { page = 1, limit = 10, userId } = req.query || {};
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+        const offset = (pageNum - 1) * limitNum;
+        if (!userId) {
+            (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
+            return;
+        }
+        // ✅ 1) Fetch user
+        const user = yield dbConnection_1.User.findOne({
+            where: { id: Number(userId) },
+            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+        });
+        if (!user) {
+            (0, errorMessage_1.badRequest)(res, "User not found", 404);
+            return;
+        }
+        // ✅ 2) Fetch attendance with pagination
+        const { rows: attendance, count } = yield dbConnection_1.Expense.findAndCountAll({
+            where: { userId: Number(userId) },
+            limit: limitNum,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        // ✅ 3) Response
+        (0, errorMessage_1.createSuccess)(res, "User Expense fetched successfully", {
+            user,
+            attendance,
+            pagination: {
+                totalRecords: count,
+                totalPages: Math.ceil(count / limitNum),
+                currentPage: pageNum,
+                limit: limitNum,
+            },
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
+    }
+});
+exports.GetExpense = GetExpense;
+// export const test = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const { page = 1, limit = 10, search = "", role } = req.query;
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     const loggedInId = userData?.userId;
+//     const mainWhere: any = { id: loggedInId };
+//     const createdWhere: any = {};
+//     if (search) {
+//       createdWhere[Op.or] = [
+//         { firstName: { [Op.iLike]: `%${search}%` } },
+//         { lastName: { [Op.iLike]: `%${search}%` } },
+//         { email: { [Op.iLike]: `%${search}%` } },
+//         { phone: { [Op.iLike]: `%${search}%` } },
+//       ];
+//     }
+//    const rows = await User.findByPk(loggedInId,{
+//   // where: mainWhere,
+//   attributes: [
+//     "id",
+//     "firstName",
+//     "lastName",
+//     "email",
+//     "phone",
+//     "role",
+//     "createdAt",
+//   ],
+//   include: [
+//     {
+//       model: User,
+//       as: "createdUsers",
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//       through: { attributes: [] },
+//       where: createdWhere,
+//       required: false,
+//       include: [
+//         {
+//           model: User,
+//           as: "createdUsers", // nested level
+//           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//           through: { attributes: [] },
+//           where: createdWhere,
+//           required: false,
+//         },
+//       ],
+//     },
+//   ],
+//   order: [["createdAt", "DESC"]],
+// });
+//     createSuccess(res, "Users fetched successfully", {  page: pageNum,
+//       limit: limitNum,
+//       user:rows });
+//   } catch (error) {
+//     badRequest(
+//       res,
+//       error instanceof Error ? error.message : "Something went wrong"
+//     );
+//   }
+// };
+const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const { page = 1, limit = 10, search = "", role } = req.query;
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+        const offset = (pageNum - 1) * limitNum;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const mainWhere = { id: loggedInId };
+        const createdWhere = {};
+        if (search) {
+            createdWhere[sequelize_1.Op.or] = [
+                { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            ];
+        }
+        // Get total count
+        const totalCount = yield dbConnection_1.User.count({
+            where: mainWhere,
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "createdUsers",
+                    where: createdWhere,
+                    required: false,
+                },
+            ],
+        });
+        const rows = yield dbConnection_1.User.findByPk(loggedInId, {
+            attributes: [
+                "id",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt",
+            ],
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "createdUsers",
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    through: { attributes: [] },
+                    where: createdWhere,
+                    required: false,
+                    include: [
+                        {
+                            model: dbConnection_1.User,
+                            as: "createdUsers",
+                            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                            through: { attributes: [] },
+                            where: createdWhere,
+                            required: false,
+                        },
+                    ],
+                },
+            ],
+            order: [["createdAt", "DESC"]],
+        });
+        (0, errorMessage_1.createSuccess)(res, "Users fetched successfully", {
+            page: pageNum,
+            limit: limitNum,
+            total: totalCount,
+            pages: Math.ceil(totalCount / limitNum),
+            user: rows
+        });
+    }
+    catch (error) {
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
+    }
+});
+exports.test = test;

@@ -14,8 +14,10 @@ export interface ExpenseAttributes {
   approvedByAdmin: ApprovalStatus;
   approvedBySuperAdmin: ApprovalStatus;
   title: string;
+  total_amount:string;
   createdAt?: Date;
   updatedAt?: Date;
+
 }
 
 export interface ExpenseCreation
@@ -34,6 +36,7 @@ export class Expense
   public approvedByAdmin!: ApprovalStatus;
   public approvedBySuperAdmin!: ApprovalStatus;
   public title!: string;
+  public total_amount!:string
 
   static initModel(sequelize: Sequelize) {
     Expense.init(
@@ -46,12 +49,12 @@ export class Expense
 
         userId: {
           type: DataTypes.INTEGER,   // ✅ FIXED
-          allowNull: false,
+          allowNull: true,
         },
 
         billImage: {
           type: DataTypes.ARRAY(DataTypes.STRING),
-          allowNull: false,
+          allowNull: true,
           defaultValue: [],
         },
 
@@ -67,8 +70,12 @@ export class Expense
 
         title: {
           type: DataTypes.TEXT,
-          allowNull: false,
+          allowNull: true,
         },
+        total_amount:{
+          type:DataTypes.STRING,
+          allowNull:true
+        }
       },
       {
         sequelize,

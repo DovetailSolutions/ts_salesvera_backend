@@ -12,11 +12,11 @@ class Expense extends sequelize_1.Model {
             },
             userId: {
                 type: sequelize_1.DataTypes.INTEGER, // ✅ FIXED
-                allowNull: false,
+                allowNull: true,
             },
             billImage: {
                 type: sequelize_1.DataTypes.ARRAY(sequelize_1.DataTypes.STRING),
-                allowNull: false,
+                allowNull: true,
                 defaultValue: [],
             },
             approvedByAdmin: {
@@ -29,8 +29,12 @@ class Expense extends sequelize_1.Model {
             },
             title: {
                 type: sequelize_1.DataTypes.TEXT,
-                allowNull: false,
+                allowNull: true,
             },
+            total_amount: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            }
         }, {
             sequelize,
             tableName: "expenses",
