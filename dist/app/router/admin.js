@@ -65,5 +65,8 @@ router.get("/get-leave-list", jwtVerify_1.tokenCheck, AdminController.leaveList)
 router.get("/get-expense", jwtVerify_1.tokenCheck, AdminController.GetExpense);
 router.get("/admin-manager", jwtVerify_1.tokenCheck, AdminController.test);
 router.patch('/approved-expense', jwtVerify_1.tokenCheck, AdminController.UpdateExpense);
+router.get("/user-attendance", jwtVerify_1.tokenCheck, AdminController.userAttendance);
+router.get('/user-leave', jwtVerify_1.tokenCheck, AdminController.userLeave);
+router.get('/user-expense', jwtVerify_1.tokenCheck, AdminController.userExpense);
 // meeting apis 
 exports.default = router;

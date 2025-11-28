@@ -29,6 +29,9 @@ router.get("/get-leave-list",tokenCheck,AdminController.leaveList)
 router.get("/get-expense",tokenCheck,AdminController.GetExpense);
 router.get("/admin-manager",tokenCheck,AdminController.test);
 router.patch('/approved-expense', tokenCheck, AdminController.UpdateExpense)
+router.get("/user-attendance",tokenCheck,AdminController.userAttendance)
+router.get('/user-leave',tokenCheck,AdminController.userLeave)
+router.get('/user-expense',tokenCheck,AdminController.userExpense)
 
 
 
