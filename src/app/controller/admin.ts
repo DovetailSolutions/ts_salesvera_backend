@@ -1261,11 +1261,14 @@ export const GetExpense = async (
     const loggedInId = userData.userId;
     const childIds = await getAllChildUserIds(loggedInId);
     const allUserIds = [loggedInId, ...childIds];
-     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
 
-    // 🔥 Build dynamic filters
-    const expenseWhere: any = {};
-    
+    const { approvedByAdmin, approvedBySuperAdmin } = req.query;
+
+    // 🔥 Build dynamic where condition
+    const expenseWhere: any = {
+      userId: { [Op.in]: allUserIds }
+    };
+
     if (approvedByAdmin !== undefined) {
       expenseWhere.approvedByAdmin = approvedByAdmin;
     }
@@ -1273,35 +1276,23 @@ export const GetExpense = async (
     if (approvedBySuperAdmin !== undefined) {
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
     }
-    const leaves = await User.findAll({
-      where: {
-        id: {
-          [Op.in]: allUserIds, // include all child users
-          [Op.ne]: loggedInId, // ❌ exclude logged-in user
-        },
-      },
-       attributes: [
-        "id",
-        "firstName",
-        "lastName",
-        "email",
-        "phone",
-        "role",
-        "createdAt",
-      ],
+
+    const leaves = await Expense.findAll({
+      where: expenseWhere, // 👈 final merged condition
       include: [
         {
-          model: Expense,
-          as: "Expenses",
-          // attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          model: User,
+          as: "user",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           required: false,
-          where: Object.keys(expenseWhere).length ? expenseWhere : undefined,
-
         },
       ],
-      // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
       order: [["createdAt", "DESC"]],
     });
+
+    if(leaves.length === 0 ){
+      badRequest(res,"data not found")
+    }
 
     res.status(200).json({
       success: true,
@@ -1312,9 +1303,9 @@ export const GetExpense = async (
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return;
   }
 };
+
 
 export const getAttendance = async (
   req: Request,
@@ -1582,16 +1573,38 @@ const fetchData = async (
   offset: number,
   dateFilter?: any
 ) => {
-  return model.findAndCountAll({
-    where: {
-      ...where,
-      ...(dateFilter ? { createdAt: dateFilter } : {}),
-    },
+   return await model.findAndCountAll({
+    where,
     limit,
     offset,
     order: [["createdAt", "DESC"]],
   });
 };
+// const fetchData = async (
+//   model: any,
+//   where: any,
+//   limit: number,
+//   offset: number,
+//   dateFilter?: any
+// ) => {
+//   const finalWhere: any = {
+//     ...where,
+//     ...(dateFilter ? { createdAt: dateFilter } : {}),
+//   };
+
+//   console.log("🔥 Final WHERE filter:", finalWhere);
+
+//   const item = await model.findAndCountAll({
+//     where: finalWhere,
+//     limit,
+//     offset,
+//     order: [["createdAt", "DESC"]],
+//   });
+
+//   console.log("👉 Query Result:", item);
+//   return item;
+// };
+
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
@@ -1646,6 +1659,8 @@ export const userAttendance = async (req: Request, res: Response) => {
 
 export const userExpense = async (req: Request, res: Response) => {
   try {
+
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>userExpense")
     const { userId } = req.query;
     if (!userId) return badRequest(res, "UserId is required", 400);
 
@@ -1653,6 +1668,7 @@ export const userExpense = async (req: Request, res: Response) => {
     const dateFilter = getDateFilter(req.query);
 
     const user = await findUser(Number(userId));
+
     if (!user) return badRequest(res, "User not found", 404);
 
     const { rows, count } = await fetchData(
@@ -1688,7 +1704,7 @@ export const userLeave = async (req: Request, res: Response) => {
     if (!userId) return badRequest(res, "UserId is required", 400);
 
     const { page, limit, offset } = getPagination(req);
-    const dateFilter = getDateFilter(req.query);
+    // const dateFilter = getDateFilter(req.query);
 
     const user = await findUser(Number(userId));
     if (!user) return badRequest(res, "User not found", 404);
@@ -1698,8 +1714,10 @@ export const userLeave = async (req: Request, res: Response) => {
       { employee_id: Number(userId) },
       limit,
       offset,
-      dateFilter
+      // dateFilter
     );
+
+    console.log(">>>>>>>>>>>>>>>>>>>rows")
 
     createSuccess(res, "User leave fetched successfully", {
       user,
