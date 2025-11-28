@@ -1287,12 +1287,11 @@ const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function*
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
         const { page, limit, offset } = getPagination(req);
         const dateFilter = getDateFilter(req.query);
-        const user = yield findUser(Number(userId));
-        if (!user)
-            return (0, errorMessage_1.badRequest)(res, "User not found", 404);
+        // const user = await findUser(Number(userId));
+        // if (!user) return badRequest(res, "User not found", 404);
         const { rows, count } = yield fetchData(dbConnection_1.Attendance, { employee_id: Number(userId) }, limit, offset, dateFilter);
         (0, errorMessage_1.createSuccess)(res, "User attendance fetched successfully", {
-            user,
+            // user,
             attendance: rows,
             pagination: {
                 totalRecords: count,
@@ -1309,18 +1308,16 @@ const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function*
 exports.userAttendance = userAttendance;
 const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        console.log(">>>>>>>>>>>>>>>>>>>>>>>userExpense");
         const { userId } = req.query;
         if (!userId)
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
         const { page, limit, offset } = getPagination(req);
         const dateFilter = getDateFilter(req.query);
-        const user = yield findUser(Number(userId));
-        if (!user)
-            return (0, errorMessage_1.badRequest)(res, "User not found", 404);
+        // const user = await findUser(Number(userId));
+        // if (!user) return badRequest(res, "User not found", 404);
         const { rows, count } = yield fetchData(dbConnection_1.Expense, { userId: Number(userId) }, limit, offset, dateFilter);
         (0, errorMessage_1.createSuccess)(res, "User expense fetched successfully", {
-            user,
+            // user,
             leave: rows,
             pagination: {
                 totalRecords: count,
@@ -1342,13 +1339,11 @@ const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
         const { page, limit, offset } = getPagination(req);
         // const dateFilter = getDateFilter(req.query);
-        const user = yield findUser(Number(userId));
-        if (!user)
-            return (0, errorMessage_1.badRequest)(res, "User not found", 404);
+        // const user = await findUser(Number(userId));
+        // if (!user) return badRequest(res, "User not found", 404);
         const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset);
-        console.log(">>>>>>>>>>>>>>>>>>>rows");
         (0, errorMessage_1.createSuccess)(res, "User leave fetched successfully", {
-            user,
+            // user,
             leave: rows,
             pagination: {
                 totalRecords: count,

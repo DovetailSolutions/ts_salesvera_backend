@@ -1628,8 +1628,8 @@ export const userAttendance = async (req: Request, res: Response) => {
     const { page, limit, offset } = getPagination(req);
     const dateFilter = getDateFilter(req.query);
 
-    const user = await findUser(Number(userId));
-    if (!user) return badRequest(res, "User not found", 404);
+    // const user = await findUser(Number(userId));
+    // if (!user) return badRequest(res, "User not found", 404);
 
     const { rows, count } = await fetchData(
       Attendance,
@@ -1640,7 +1640,7 @@ export const userAttendance = async (req: Request, res: Response) => {
     );
 
     createSuccess(res, "User attendance fetched successfully", {
-      user,
+      // user,
       attendance: rows,
       pagination: {
         totalRecords: count,
@@ -1659,18 +1659,14 @@ export const userAttendance = async (req: Request, res: Response) => {
 
 export const userExpense = async (req: Request, res: Response) => {
   try {
-
-    console.log(">>>>>>>>>>>>>>>>>>>>>>>userExpense")
     const { userId } = req.query;
     if (!userId) return badRequest(res, "UserId is required", 400);
 
     const { page, limit, offset } = getPagination(req);
     const dateFilter = getDateFilter(req.query);
 
-    const user = await findUser(Number(userId));
-
-    if (!user) return badRequest(res, "User not found", 404);
-
+    // const user = await findUser(Number(userId));
+    // if (!user) return badRequest(res, "User not found", 404);
     const { rows, count } = await fetchData(
       Expense,
       { userId: Number(userId) },
@@ -1680,7 +1676,7 @@ export const userExpense = async (req: Request, res: Response) => {
     );
 
     createSuccess(res, "User expense fetched successfully", {
-      user,
+      // user,
       leave: rows,
       pagination: {
         totalRecords: count,
@@ -1700,15 +1696,11 @@ export const userExpense = async (req: Request, res: Response) => {
 export const userLeave = async (req: Request, res: Response) => {
   try {
     const { userId } = req.query;
-
     if (!userId) return badRequest(res, "UserId is required", 400);
-
     const { page, limit, offset } = getPagination(req);
     // const dateFilter = getDateFilter(req.query);
-
-    const user = await findUser(Number(userId));
-    if (!user) return badRequest(res, "User not found", 404);
-
+    // const user = await findUser(Number(userId));
+    // if (!user) return badRequest(res, "User not found", 404);
     const { rows, count } = await fetchData(
       Leave,
       { employee_id: Number(userId) },
@@ -1716,11 +1708,8 @@ export const userLeave = async (req: Request, res: Response) => {
       offset,
       // dateFilter
     );
-
-    console.log(">>>>>>>>>>>>>>>>>>>rows")
-
     createSuccess(res, "User leave fetched successfully", {
-      user,
+      // user,
       leave: rows,
       pagination: {
         totalRecords: count,
