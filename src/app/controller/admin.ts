@@ -1261,14 +1261,42 @@ export const GetExpense = async (
     const loggedInId = userData.userId;
     const childIds = await getAllChildUserIds(loggedInId);
     const allUserIds = [loggedInId, ...childIds];
-    const leaves = await Expense.findAll({
-      where: { userId: allUserIds },
+     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
+
+    // 🔥 Build dynamic filters
+    const expenseWhere: any = {};
+    
+    if (approvedByAdmin !== undefined) {
+      expenseWhere.approvedByAdmin = approvedByAdmin;
+    }
+
+    if (approvedBySuperAdmin !== undefined) {
+      expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
+    }
+    const leaves = await User.findAll({
+      where: {
+        id: {
+          [Op.in]: allUserIds, // include all child users
+          [Op.ne]: loggedInId, // ❌ exclude logged-in user
+        },
+      },
+       attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "phone",
+        "role",
+        "createdAt",
+      ],
       include: [
         {
-          model: User,
-          as: "user",
-          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          model: Expense,
+          as: "Expenses",
+          // attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           required: false,
+          where: Object.keys(expenseWhere).length ? expenseWhere : undefined,
+
         },
       ],
       // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
