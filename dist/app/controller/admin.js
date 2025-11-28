@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.userExpense = exports.userLeave = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -819,21 +819,21 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                             through: { attributes: [] },
                             where: createdWhere,
                             required: false,
-                            include: [
-                                {
-                                    model: dbConnection_1.Attendance,
-                                    as: "Attendances",
-                                    where: {
-                                        punch_in: {
-                                            [sequelize_1.Op.between]: [
-                                                new Date(new Date().setHours(0, 0, 0, 0)),
-                                                new Date(new Date().setHours(23, 59, 59, 999)),
-                                            ],
-                                        },
-                                    },
-                                    required: false,
-                                },
-                            ],
+                            // include: [
+                            //   {
+                            //     model: Attendance,
+                            //     as: "Attendances",
+                            //     where: {
+                            //       punch_in: {
+                            //         [Op.between]: [
+                            //           new Date(new Date().setHours(0, 0, 0, 0)),
+                            //           new Date(new Date().setHours(23, 59, 59, 999)),
+                            //         ],
+                            //       },
+                            //     },
+                            //     required: false,
+                            //   },
+                            // ],
                         },
                     ],
                 },
@@ -930,17 +930,31 @@ const leaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
         const loggedInId = userData.userId;
-        console.log(">>>>>>>>>>>>", loggedInId);
+        const { status } = req.query; // <- status comes from query
         const childIds = yield getAllChildUserIds(loggedInId);
         const allUserIds = [loggedInId, ...childIds];
-        const leaves = yield dbConnection_1.Leave.findAll({
-            where: { employee_id: allUserIds },
+        const leaves = yield dbConnection_1.User.findAll({
+            where: {
+                id: {
+                    [sequelize_1.Op.in]: allUserIds, // include all child users
+                    [sequelize_1.Op.ne]: loggedInId, // ❌ exclude logged-in user
+                },
+            },
+            attributes: [
+                "id",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt",
+            ],
             include: [
                 {
-                    model: dbConnection_1.User,
-                    as: "user",
-                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    model: dbConnection_1.Leave,
+                    as: "Leaves",
                     required: false,
+                    where: status ? { status } : undefined,
                 },
             ],
             // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
@@ -1006,7 +1020,7 @@ const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 id: {
                     [sequelize_1.Op.in]: allUserIds, // include all child users
                     [sequelize_1.Op.ne]: loggedInId, // ❌ exclude logged-in user
-                }
+                },
             },
             attributes: [
                 "id",
@@ -1024,10 +1038,10 @@ const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                     where: {
                         punch_in: {
                             [sequelize_1.Op.between]: [todayStart, todayEnd],
-                        }
+                        },
                     },
                     required: false,
-                }
+                },
             ],
             order: [["createdAt", "DESC"]],
         });
@@ -1043,138 +1057,274 @@ const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.getAttendance = getAttendance;
+// export const userAttendance = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: attendance, count } = await Attendance.findAndCountAll({
+//       where: { employee_id: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       attendance,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+// export const userLeave = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: leave, count } = await Leave.findAndCountAll({
+//       where: { employee_id: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       leave,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+// export const userExpense = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: leave, count } = await Expense.findAndCountAll({
+//       where: { userId: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       leave,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+const getDateFilter = (query) => {
+    const { startDate, endDate, lastDays, today } = query;
+    const filter = {};
+    //  between
+    if (startDate && endDate) {
+        filter[sequelize_1.Op.between] = [new Date(startDate), new Date(endDate)];
+    }
+    // only start date
+    if (startDate) {
+        filter[sequelize_1.Op.gte] = new Date(startDate);
+    }
+    if (endDate) {
+        filter[sequelize_1.Op.lte] = new Date(endDate);
+    }
+    if (lastDays) {
+        const now = new Date();
+        const past = new Date();
+        past.setDate(now.getDate() - Number(lastDays));
+        filter[sequelize_1.Op.between] = [past, now];
+    }
+    if (today === "true") {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date();
+        end.setHours(23, 59, 59, 999);
+        filter[sequelize_1.Op.between] = [start, end];
+    }
+    return filter;
+};
+const fetchData = (model, where, limit, offset, dateFilter) => __awaiter(void 0, void 0, void 0, function* () {
+    return model.findAndCountAll({
+        where: Object.assign(Object.assign({}, where), (dateFilter ? { createdAt: dateFilter } : {})),
+        limit,
+        offset,
+        order: [["createdAt", "DESC"]],
+    });
+});
+const getPagination = (req) => {
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const offset = (page - 1) * limit;
+    return { page, limit, offset };
+};
+const findUser = (userId) => __awaiter(void 0, void 0, void 0, function* () {
+    return dbConnection_1.User.findOne({
+        where: { id: userId },
+        attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+    });
+});
 const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = 1, limit = 10, userId } = req.query || {};
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        if (!userId) {
-            (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
-            return;
-        }
-        // ✅ 1) Fetch user
-        const user = yield dbConnection_1.User.findOne({
-            where: { id: Number(userId) },
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-        });
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found", 404);
-            return;
-        }
-        // ✅ 2) Fetch attendance with pagination
-        const { rows: attendance, count } = yield dbConnection_1.Attendance.findAndCountAll({
-            where: { employee_id: Number(userId) },
-            limit: limitNum,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ 3) Response
+        const { userId } = req.query;
+        if (!userId)
+            return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
+        const { page, limit, offset } = getPagination(req);
+        const dateFilter = getDateFilter(req.query);
+        const user = yield findUser(Number(userId));
+        if (!user)
+            return (0, errorMessage_1.badRequest)(res, "User not found", 404);
+        const { rows, count } = yield fetchData(dbConnection_1.Attendance, { employee_id: Number(userId) }, limit, offset, dateFilter);
         (0, errorMessage_1.createSuccess)(res, "User attendance fetched successfully", {
             user,
-            attendance,
+            attendance: rows,
             pagination: {
                 totalRecords: count,
-                totalPages: Math.ceil(count / limitNum),
-                currentPage: pageNum,
-                limit: limitNum,
+                totalPages: Math.ceil(count / limit),
+                currentPage: page,
+                limit,
             },
         });
     }
     catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
     }
 });
 exports.userAttendance = userAttendance;
-const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { page = 1, limit = 10, userId } = req.query || {};
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        if (!userId) {
-            (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
-            return;
-        }
-        // ✅ 1) Fetch user
-        const user = yield dbConnection_1.User.findOne({
-            where: { id: Number(userId) },
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-        });
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found", 404);
-            return;
-        }
-        // ✅ 2) Fetch attendance with pagination
-        const { rows: leave, count } = yield dbConnection_1.Leave.findAndCountAll({
-            where: { employee_id: Number(userId) },
-            limit: limitNum,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ 3) Response
-        (0, errorMessage_1.createSuccess)(res, "User attendance fetched successfully", {
-            user,
-            leave,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limitNum),
-                currentPage: pageNum,
-                limit: limitNum,
-            },
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
-    }
-});
-exports.userLeave = userLeave;
 const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = 1, limit = 10, userId } = req.query || {};
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        if (!userId) {
-            (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
-            return;
-        }
-        // ✅ 1) Fetch user
-        const user = yield dbConnection_1.User.findOne({
-            where: { id: Number(userId) },
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-        });
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found", 404);
-            return;
-        }
-        // ✅ 2) Fetch attendance with pagination
-        const { rows: leave, count } = yield dbConnection_1.Expense.findAndCountAll({
-            where: { userId: Number(userId) },
-            limit: limitNum,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ 3) Response
-        (0, errorMessage_1.createSuccess)(res, "User attendance fetched successfully", {
+        const { userId } = req.query;
+        if (!userId)
+            return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
+        const { page, limit, offset } = getPagination(req);
+        const dateFilter = getDateFilter(req.query);
+        const user = yield findUser(Number(userId));
+        if (!user)
+            return (0, errorMessage_1.badRequest)(res, "User not found", 404);
+        const { rows, count } = yield fetchData(dbConnection_1.Expense, { userId: Number(userId) }, limit, offset, dateFilter);
+        (0, errorMessage_1.createSuccess)(res, "User expense fetched successfully", {
             user,
-            leave,
+            leave: rows,
             pagination: {
                 totalRecords: count,
-                totalPages: Math.ceil(count / limitNum),
-                currentPage: pageNum,
-                limit: limitNum,
+                totalPages: Math.ceil(count / limit),
+                currentPage: page,
+                limit,
             },
         });
     }
     catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
     }
 });
 exports.userExpense = userExpense;
+const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { userId } = req.query;
+        if (!userId)
+            return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
+        const { page, limit, offset } = getPagination(req);
+        const dateFilter = getDateFilter(req.query);
+        const user = yield findUser(Number(userId));
+        if (!user)
+            return (0, errorMessage_1.badRequest)(res, "User not found", 404);
+        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset, dateFilter);
+        (0, errorMessage_1.createSuccess)(res, "User leave fetched successfully", {
+            user,
+            leave: rows,
+            pagination: {
+                totalRecords: count,
+                totalPages: Math.ceil(count / limit),
+                currentPage: page,
+                limit,
+            },
+        });
+    }
+    catch (error) {
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
+    }
+});
+exports.userLeave = userLeave;

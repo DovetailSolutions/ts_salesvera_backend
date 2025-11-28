@@ -799,8 +799,6 @@ export const BulkUploads = async (
   }
 };
 
-
-
 export const approveLeave = async (
   req: Request,
   res: Response
@@ -981,21 +979,21 @@ export const test = async (req: Request, res: Response): Promise<void> => {
               through: { attributes: [] },
               where: createdWhere,
               required: false,
-              include: [
-                {
-                  model: Attendance,
-                  as: "Attendances",
-                  where: {
-                    punch_in: {
-                      [Op.between]: [
-                        new Date(new Date().setHours(0, 0, 0, 0)),
-                        new Date(new Date().setHours(23, 59, 59, 999)),
-                      ],
-                    },
-                  },
-                  required: false,
-                },
-              ],
+              // include: [
+              //   {
+              //     model: Attendance,
+              //     as: "Attendances",
+              //     where: {
+              //       punch_in: {
+              //         [Op.between]: [
+              //           new Date(new Date().setHours(0, 0, 0, 0)),
+              //           new Date(new Date().setHours(23, 59, 59, 999)),
+              //         ],
+              //       },
+              //     },
+              //     required: false,
+              //   },
+              // ],
             },
           ],
         },
@@ -1208,21 +1206,33 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
-
-    console.log(">>>>>>>>>>>>", loggedInId);
-
+    const { status } = req.query; // <- status comes from query
     const childIds = await getAllChildUserIds(loggedInId);
 
     const allUserIds = [loggedInId, ...childIds];
 
-    const leaves = await Leave.findAll({
-      where: { employee_id: allUserIds },
+    const leaves = await User.findAll({
+      where: {
+        id: {
+          [Op.in]: allUserIds, // include all child users
+          [Op.ne]: loggedInId, // ❌ exclude logged-in user
+        },
+      },
+      attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "phone",
+        "role",
+        "createdAt",
+      ],
       include: [
         {
-          model: User,
-          as: "user",
-          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          model: Leave,
+          as: "Leaves",
           required: false,
+          where: status ? { status } : undefined,
         },
       ],
       // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
@@ -1278,13 +1288,16 @@ export const GetExpense = async (
   }
 };
 
-export const getAttendance = async (req: Request, res: Response): Promise<void> => {
+export const getAttendance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
 
     const childIds = await getAllChildUserIds(loggedInId);
-    const allUserIds = [loggedInId, ...childIds];  // keep full list
+    const allUserIds = [loggedInId, ...childIds]; // keep full list
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -1295,19 +1308,19 @@ export const getAttendance = async (req: Request, res: Response): Promise<void> 
     const leaves = await User.findAll({
       where: {
         id: {
-          [Op.in]: allUserIds,     // include all child users
-          [Op.ne]: loggedInId,     // ❌ exclude logged-in user
-        }
+          [Op.in]: allUserIds, // include all child users
+          [Op.ne]: loggedInId, // ❌ exclude logged-in user
+        },
       },
-       attributes: [
-                "id",
-                "firstName",
-                "lastName",
-                "email",
-                "phone",
-                "role",
-                "createdAt",
-              ],
+      attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "email",
+        "phone",
+        "role",
+        "createdAt",
+      ],
       include: [
         {
           model: Attendance,
@@ -1315,10 +1328,10 @@ export const getAttendance = async (req: Request, res: Response): Promise<void> 
           where: {
             punch_in: {
               [Op.between]: [todayStart, todayEnd],
-            }
+            },
           },
           required: false,
-        }
+        },
       ],
       order: [["createdAt", "DESC"]],
     });
@@ -1328,174 +1341,352 @@ export const getAttendance = async (req: Request, res: Response): Promise<void> 
       message: "Attendance fetched successfully",
       data: leaves,
     });
-
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-
-export const userAttendance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { page = 1, limit = 10, userId } = req.query || {};
-
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
-
-    if (!userId) {
-      badRequest(res, "UserId is required", 400);
-      return;
-    }
-
-    // ✅ 1) Fetch user
-    const user = await User.findOne({
-      where: { id: Number(userId) },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-    });
-
-    if (!user) {
-      badRequest(res, "User not found", 404);
-      return;
-    }
-
-    // ✅ 2) Fetch attendance with pagination
-    const { rows: attendance, count } = await Attendance.findAndCountAll({
-      where: { employee_id: Number(userId) },
-      limit: limitNum,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ 3) Response
-    createSuccess(res, "User attendance fetched successfully", {
-      user,
-      attendance,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limitNum),
-        currentPage: pageNum,
-        limit: limitNum,
-      },
-    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return;
   }
 };
 
+// export const userAttendance = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
 
-export const userLeave = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
+
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
+
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
+
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: attendance, count } = await Attendance.findAndCountAll({
+//       where: { employee_id: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       attendance,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+
+// export const userLeave = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
+
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
+
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
+
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
+
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: leave, count } = await Leave.findAndCountAll({
+//       where: { employee_id: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       leave,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+
+// export const userExpense = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { page = 1, limit = 10, userId } = req.query || {};
+
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+
+//     if (!userId) {
+//       badRequest(res, "UserId is required", 400);
+//       return;
+//     }
+
+//     // ✅ 1) Fetch user
+//     const user = await User.findOne({
+//       where: { id: Number(userId) },
+//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+//     });
+
+//     if (!user) {
+//       badRequest(res, "User not found", 404);
+//       return;
+//     }
+
+//     // ✅ 2) Fetch attendance with pagination
+//     const { rows: leave, count } = await Expense.findAndCountAll({
+//       where: { userId: Number(userId) },
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     // ✅ 3) Response
+//     createSuccess(res, "User attendance fetched successfully", {
+//       user,
+//       leave,
+//       pagination: {
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / limitNum),
+//         currentPage: pageNum,
+//         limit: limitNum,
+//       },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+
+const getDateFilter = (query: any) => {
+  const { startDate, endDate, lastDays, today } = query;
+  const filter: any = {};
+
+  //  between
+
+  if (startDate && endDate) {
+    filter[Op.between] = [new Date(startDate), new Date(endDate)];
+  }
+  // only start date
+  if (startDate) {
+    filter[Op.gte] = new Date(startDate);
+  }
+
+  if (endDate) {
+    filter[Op.lte] = new Date(endDate);
+  }
+
+  if (lastDays) {
+    const now = new Date();
+    const past = new Date();
+    past.setDate(now.getDate() - Number(lastDays));
+    filter[Op.between] = [past, now];
+  }
+
+  if (today === "true") {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+
+    filter[Op.between] = [start, end];
+  }
+  return filter;
+};
+
+const fetchData = async (
+  model: any,
+  where: any,
+  limit: number,
+  offset: number,
+  dateFilter?: any
+) => {
+  return model.findAndCountAll({
+    where: {
+      ...where,
+      ...(dateFilter ? { createdAt: dateFilter } : {}),
+    },
+    limit,
+    offset,
+    order: [["createdAt", "DESC"]],
+  });
+};
+const getPagination = (req: Request) => {
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 10);
+  const offset = (page - 1) * limit;
+
+  return { page, limit, offset };
+};
+
+const findUser = async (userId: number) => {
+  return User.findOne({
+    where: { id: userId },
+    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+  });
+};
+
+export const userAttendance = async (req: Request, res: Response) => {
   try {
-    const { page = 1, limit = 10, userId } = req.query || {};
+    const { userId } = req.query;
+    if (!userId) return badRequest(res, "UserId is required", 400);
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
+    const { page, limit, offset } = getPagination(req);
+    const dateFilter = getDateFilter(req.query);
 
-    if (!userId) {
-      badRequest(res, "UserId is required", 400);
-      return;
-    }
+    const user = await findUser(Number(userId));
+    if (!user) return badRequest(res, "User not found", 404);
 
-    // ✅ 1) Fetch user
-    const user = await User.findOne({
-      where: { id: Number(userId) },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-    });
-
-    if (!user) {
-      badRequest(res, "User not found", 404);
-      return;
-    }
-
-    // ✅ 2) Fetch attendance with pagination
-    const { rows: leave, count } = await Leave.findAndCountAll({
-      where: { employee_id: Number(userId) },
-      limit: limitNum,
+    const { rows, count } = await fetchData(
+      Attendance,
+      { employee_id: Number(userId) },
+      limit,
       offset,
-      order: [["createdAt", "DESC"]],
-    });
+      dateFilter
+    );
 
-    // ✅ 3) Response
     createSuccess(res, "User attendance fetched successfully", {
       user,
-      leave,
+      attendance: rows,
       pagination: {
         totalRecords: count,
-        totalPages: Math.ceil(count / limitNum),
-        currentPage: pageNum,
-        limit: limitNum,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit,
       },
     });
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
   }
 };
 
-export const userExpense = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const userExpense = async (req: Request, res: Response) => {
   try {
-    const { page = 1, limit = 10, userId } = req.query || {};
+    const { userId } = req.query;
+    if (!userId) return badRequest(res, "UserId is required", 400);
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
+    const { page, limit, offset } = getPagination(req);
+    const dateFilter = getDateFilter(req.query);
 
-    if (!userId) {
-      badRequest(res, "UserId is required", 400);
-      return;
-    }
+    const user = await findUser(Number(userId));
+    if (!user) return badRequest(res, "User not found", 404);
 
-    // ✅ 1) Fetch user
-    const user = await User.findOne({
-      where: { id: Number(userId) },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-    });
-
-    if (!user) {
-      badRequest(res, "User not found", 404);
-      return;
-    }
-
-    // ✅ 2) Fetch attendance with pagination
-    const { rows: leave, count } = await Expense.findAndCountAll({
-      where: { userId: Number(userId) },
-      limit: limitNum,
+    const { rows, count } = await fetchData(
+      Expense,
+      { userId: Number(userId) },
+      limit,
       offset,
-      order: [["createdAt", "DESC"]],
-    });
+      dateFilter
+    );
 
-    // ✅ 3) Response
-    createSuccess(res, "User attendance fetched successfully", {
+    createSuccess(res, "User expense fetched successfully", {
       user,
-      leave,
+      leave: rows,
       pagination: {
         totalRecords: count,
-        totalPages: Math.ceil(count / limitNum),
-        currentPage: pageNum,
-        limit: limitNum,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit,
       },
     });
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
   }
 };
 
+export const userLeave = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) return badRequest(res, "UserId is required", 400);
+
+    const { page, limit, offset } = getPagination(req);
+    const dateFilter = getDateFilter(req.query);
+
+    const user = await findUser(Number(userId));
+    if (!user) return badRequest(res, "User not found", 404);
+
+    const { rows, count } = await fetchData(
+      Leave,
+      { employee_id: Number(userId) },
+      limit,
+      offset,
+      dateFilter
+    );
+
+    createSuccess(res, "User leave fetched successfully", {
+      user,
+      leave: rows,
+      pagination: {
+        totalRecords: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit,
+      },
+    });
+  } catch (error) {
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};
