@@ -41,6 +41,11 @@ const createUserModel = (sequelize) => {
             type: sequelize_1.DataTypes.STRING,
             allowNull: true,
         },
+        status: {
+            type: sequelize_1.DataTypes.ENUM("active", "deActive", "delete"),
+            allowNull: false,
+            defaultValue: "active",
+        },
         role: {
             type: sequelize_1.DataTypes.ENUM("user", "admin", "client", "super_admin", "manager", "sale_person"),
             allowNull: false,

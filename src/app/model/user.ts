@@ -1,9 +1,15 @@
-import { Sequelize, DataTypes, Model, Optional,  BelongsToManyGetAssociationsMixin,
+import {
+  Sequelize,
+  DataTypes,
+  Model,
+  Optional,
+  BelongsToManyGetAssociationsMixin,
   BelongsToManySetAssociationsMixin,
   BelongsToManyAddAssociationMixin,
   BelongsToManyAddAssociationsMixin,
   BelongsToManyRemoveAssociationMixin,
-  BelongsToManyRemoveAssociationsMixin, } from "sequelize";
+  BelongsToManyRemoveAssociationsMixin,
+} from "sequelize";
 import bcrypt from "bcrypt";
 
 // 1. Define the attributes
@@ -16,9 +22,10 @@ interface UserAttributes {
   phone?: string;
   role?: "user" | "admin" | "super_admin" | "manager" | "sale_person"; // Match ENUM exactly!
   refreshToken?: string;
+  status?: "active" | "deActive" | "delete";
   dob?: string;
   profile?: string;
- createdBy?: number[];
+  createdBy?: number[];
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -37,9 +44,11 @@ export class User extends Model<UserAttributes, UserCreationAttributes> {
   public addCreatedUser!: BelongsToManyAddAssociationMixin<User, number>;
   public addCreatedUsers!: BelongsToManyAddAssociationsMixin<User, number>;
   public removeCreatedUser!: BelongsToManyRemoveAssociationMixin<User, number>;
-  public removeCreatedUsers!: BelongsToManyRemoveAssociationsMixin<User, number>;
+  public removeCreatedUsers!: BelongsToManyRemoveAssociationsMixin<
+    User,
+    number
+  >;
 }
-
 
 // 2. Define creation interface for Sequelize
 type UserCreationAttributes = Optional<
@@ -52,6 +61,7 @@ type UserCreationAttributes = Optional<
   | "phone"
   | "refreshToken"
   | "dob"
+  | "status"
   | "profile"
   | "createdBy"
 >;
@@ -85,6 +95,12 @@ export const createUserModel = (sequelize: Sequelize) => {
       phone: {
         type: DataTypes.STRING,
         allowNull: true,
+      },
+
+      status: {
+        type: DataTypes.ENUM("active","deActive","delete"),
+        allowNull: false,
+        defaultValue: "active",
       },
       role: {
         type: DataTypes.ENUM(
