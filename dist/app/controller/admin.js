@@ -979,14 +979,38 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const loggedInId = userData.userId;
         const childIds = yield getAllChildUserIds(loggedInId);
         const allUserIds = [loggedInId, ...childIds];
-        const leaves = yield dbConnection_1.Expense.findAll({
-            where: { userId: allUserIds },
+        const { approvedByAdmin, approvedBySuperAdmin } = req.query;
+        // 🔥 Build dynamic filters
+        const expenseWhere = {};
+        if (approvedByAdmin !== undefined) {
+            expenseWhere.approvedByAdmin = approvedByAdmin;
+        }
+        if (approvedBySuperAdmin !== undefined) {
+            expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
+        }
+        const leaves = yield dbConnection_1.User.findAll({
+            where: {
+                id: {
+                    [sequelize_1.Op.in]: allUserIds, // include all child users
+                    [sequelize_1.Op.ne]: loggedInId, // ❌ exclude logged-in user
+                },
+            },
+            attributes: [
+                "id",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt",
+            ],
             include: [
                 {
-                    model: dbConnection_1.User,
-                    as: "user",
-                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    model: dbConnection_1.Expense,
+                    as: "Expenses",
+                    // attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
                     required: false,
+                    where: Object.keys(expenseWhere).length ? expenseWhere : undefined,
                 },
             ],
             // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
