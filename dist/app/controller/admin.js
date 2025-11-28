@@ -980,42 +980,31 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const childIds = yield getAllChildUserIds(loggedInId);
         const allUserIds = [loggedInId, ...childIds];
         const { approvedByAdmin, approvedBySuperAdmin } = req.query;
-        // 🔥 Build dynamic filters
-        const expenseWhere = {};
+        // 🔥 Build dynamic where condition
+        const expenseWhere = {
+            userId: { [sequelize_1.Op.in]: allUserIds }
+        };
         if (approvedByAdmin !== undefined) {
             expenseWhere.approvedByAdmin = approvedByAdmin;
         }
         if (approvedBySuperAdmin !== undefined) {
             expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
         }
-        const leaves = yield dbConnection_1.User.findAll({
-            where: {
-                id: {
-                    [sequelize_1.Op.in]: allUserIds, // include all child users
-                    [sequelize_1.Op.ne]: loggedInId, // ❌ exclude logged-in user
-                },
-            },
-            attributes: [
-                "id",
-                "firstName",
-                "lastName",
-                "email",
-                "phone",
-                "role",
-                "createdAt",
-            ],
+        const leaves = yield dbConnection_1.Expense.findAll({
+            where: expenseWhere, // 👈 final merged condition
             include: [
                 {
-                    model: dbConnection_1.Expense,
-                    as: "Expenses",
-                    // attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    model: dbConnection_1.User,
+                    as: "user",
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
                     required: false,
-                    where: Object.keys(expenseWhere).length ? expenseWhere : undefined,
                 },
             ],
-            // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
             order: [["createdAt", "DESC"]],
         });
+        if (leaves.length === 0) {
+            (0, errorMessage_1.badRequest)(res, "data not found");
+        }
         res.status(200).json({
             success: true,
             message: "Expense fetched successfully",
@@ -1025,7 +1014,6 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
     }
 });
 exports.GetExpense = GetExpense;
@@ -1252,13 +1240,34 @@ const getDateFilter = (query) => {
     return filter;
 };
 const fetchData = (model, where, limit, offset, dateFilter) => __awaiter(void 0, void 0, void 0, function* () {
-    return model.findAndCountAll({
-        where: Object.assign(Object.assign({}, where), (dateFilter ? { createdAt: dateFilter } : {})),
+    return yield model.findAndCountAll({
+        where,
         limit,
         offset,
         order: [["createdAt", "DESC"]],
     });
 });
+// const fetchData = async (
+//   model: any,
+//   where: any,
+//   limit: number,
+//   offset: number,
+//   dateFilter?: any
+// ) => {
+//   const finalWhere: any = {
+//     ...where,
+//     ...(dateFilter ? { createdAt: dateFilter } : {}),
+//   };
+//   console.log("🔥 Final WHERE filter:", finalWhere);
+//   const item = await model.findAndCountAll({
+//     where: finalWhere,
+//     limit,
+//     offset,
+//     order: [["createdAt", "DESC"]],
+//   });
+//   console.log("👉 Query Result:", item);
+//   return item;
+// };
 const getPagination = (req) => {
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 10);
@@ -1300,6 +1309,7 @@ const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function*
 exports.userAttendance = userAttendance;
 const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        console.log(">>>>>>>>>>>>>>>>>>>>>>>userExpense");
         const { userId } = req.query;
         if (!userId)
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
@@ -1331,11 +1341,12 @@ const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         if (!userId)
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
         const { page, limit, offset } = getPagination(req);
-        const dateFilter = getDateFilter(req.query);
+        // const dateFilter = getDateFilter(req.query);
         const user = yield findUser(Number(userId));
         if (!user)
             return (0, errorMessage_1.badRequest)(res, "User not found", 404);
-        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset, dateFilter);
+        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset);
+        console.log(">>>>>>>>>>>>>>>>>>>rows");
         (0, errorMessage_1.createSuccess)(res, "User leave fetched successfully", {
             user,
             leave: rows,
