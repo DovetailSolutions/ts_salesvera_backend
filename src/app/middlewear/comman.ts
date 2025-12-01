@@ -545,6 +545,13 @@ export const getCategory = async (
     if(id){
       where.user_id = id
     }
+     if(id){
+      where.adminId = id
+    }
+    if(id){
+      where.managerId = id
+    }
+
 
     // ✅ If filtering by category_id, use include instead of where
     const include: any[] = [];

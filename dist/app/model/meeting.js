@@ -84,6 +84,14 @@ const MeetingTypeModel = (sequelize) => {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             allowNull: true,
         },
+        adminId: {
+            type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+            allowNull: true,
+        },
+        managerId: {
+            type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+            allowNull: true,
+        },
     }, {
         tableName: "meeting",
         sequelize,
