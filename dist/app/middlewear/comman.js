@@ -52,7 +52,28 @@ const FindByField = (model, fieldName, fieldValue, id) => __awaiter(void 0, void
         // Normalize value: lowercase + remove spaces
         const normalizedValue = fieldValue.replace(/\s+/g, "").toLowerCase();
         return yield model.findOne({
-            where: sequelize_1.Sequelize.where(sequelize_1.Sequelize.fn("REPLACE", sequelize_1.Sequelize.fn("LOWER", sequelize_1.Sequelize.col(fieldName)), " ", ""), normalizedValue),
+            // where: Sequelize.where(
+            //   Sequelize.fn(
+            //     "REPLACE",
+            //     Sequelize.fn("LOWER", Sequelize.col(fieldName)),
+            //     " ",
+            //     ""
+            //   ),
+            //   normalizedValue
+            // ),
+            where: {
+                // field comparison with normalization
+                [sequelize_1.Op.and]: [
+                    sequelize_1.Sequelize.where(sequelize_1.Sequelize.fn("REPLACE", sequelize_1.Sequelize.fn("LOWER", sequelize_1.Sequelize.col(fieldName)), " ", ""), normalizedValue),
+                    // 🔥 OR condition for adminId or managerId
+                    {
+                        [sequelize_1.Op.or]: [
+                            { adminId: id },
+                            { managerId: id }
+                        ]
+                    }
+                ]
+            }
         });
     }
     catch (error) {
@@ -424,6 +445,10 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
+        console.log(">>>>>>>>>>>>>>>>>> login:", login);
+        // -------------------------
+        // MAIN WHERE
+        // -------------------------
         const where = {};
         if (search) {
             where.name = { [sequelize_1.Op.iLike]: `%${search}%` };
@@ -431,29 +456,42 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
         if (id) {
             where.user_id = id;
         }
-        if (id) {
-            where.adminId = id;
+        // 🔥 FIXED: OR condition for admin/manager
+        if (login) {
+            where[sequelize_1.Op.or] = [
+                { adminId: login },
+                { managerId: login }
+            ];
         }
-        if (id) {
-            where.managerId = id;
-        }
-        // ✅ If filtering by category_id, use include instead of where
+        // -------------------------
+        // INCLUDE CATEGORY FILTER
+        // -------------------------
         const include = [];
         if (category_id) {
             include.push({
                 model: dbConnection_1.Category,
                 as: "categories",
-                where: { id: Number(category_id) },
-                through: { attributes: [] }, // hides junction table fields
+                where: {
+                    id: Number(category_id),
+                    [sequelize_1.Op.or]: [
+                        { adminId: login },
+                        { managerId: login }
+                    ]
+                },
+                through: { attributes: [] },
             });
         }
-        // ✅ Total count with include
+        // -------------------------
+        // COUNT
+        // -------------------------
         const totalItems = yield Model.count({
             where,
             include: include.length ? include : undefined,
             distinct: true,
         });
-        // ✅ Fetch rows with pagination & include
+        // -------------------------
+        // FETCH ROWS
+        // -------------------------
         const rows = yield Model.findAll({
             where,
             include: include.length ? include : undefined,
