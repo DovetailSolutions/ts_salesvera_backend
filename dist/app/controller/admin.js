@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.AttendanceBook = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -658,7 +658,7 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
 exports.BulkUploads = BulkUploads;
 const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { employee_id, status } = req.body;
+        const { employee_id, leaveID, status } = req.body;
         if (!employee_id)
             (0, errorMessage_1.badRequest)(res, "Employee id is missing");
         const obj = {};
@@ -667,11 +667,15 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         }
         // Update Status
         yield dbConnection_1.Leave.update(obj, {
-            where: { employee_id },
+            where: { employee_id, id: leaveID },
         });
+        console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>", status);
+        // if(status === "rejected"){
+        //   await Attendance.update({status:"leaveReject"},{ where: { employee_id,id:leaveID }})
+        // }
         // Fetch updated leave after update
         const updatedLeave = yield dbConnection_1.Leave.findOne({
-            where: { employee_id },
+            where: { employee_id, id: leaveID },
             attributes: ["id", "employee_id", "status"], // choose fields you need
         });
         if (!updatedLeave) {
@@ -982,7 +986,7 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const { approvedByAdmin, approvedBySuperAdmin } = req.query;
         // 🔥 Build dynamic where condition
         const expenseWhere = {
-            userId: { [sequelize_1.Op.in]: allUserIds }
+            userId: { [sequelize_1.Op.in]: allUserIds },
         };
         if (approvedByAdmin !== undefined) {
             expenseWhere.approvedByAdmin = approvedByAdmin;
@@ -1341,7 +1345,9 @@ const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         // const dateFilter = getDateFilter(req.query);
         // const user = await findUser(Number(userId));
         // if (!user) return badRequest(res, "User not found", 404);
-        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset);
+        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset
+        // dateFilter
+        );
         (0, errorMessage_1.createSuccess)(res, "User leave fetched successfully", {
             // user,
             leave: rows,
@@ -1358,3 +1364,69 @@ const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.userLeave = userLeave;
+const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData.userId;
+        const childIds = yield getAllChildUserIds(loggedInId);
+        const allUserIds = [...childIds]; // Exclude logged-in user (same as your code)
+        // SELECT month
+        const { month = new Date().getMonth() + 1, year = new Date().getFullYear(), } = req.query;
+        const startDate = new Date(Number(year), Number(month) - 1, 1);
+        const endDate = new Date(Number(year), Number(month), 0); // last day of month
+        const totalDays = endDate.getDate();
+        // 1. FETCH USERS + ATTENDANCES
+        const users = yield dbConnection_1.User.findAll({
+            where: { id: { [sequelize_1.Op.in]: allUserIds } },
+            attributes: ["id", "firstName", "lastName"],
+            include: [
+                {
+                    model: dbConnection_1.Attendance,
+                    as: "Attendances",
+                    where: {
+                        date: {
+                            [sequelize_1.Op.between]: [startDate, endDate],
+                        },
+                    },
+                    required: false,
+                },
+            ],
+        });
+        // 2. FORMAT RESULT LIKE ATTENDANCE BOOK
+        const formatted = users.map((user) => {
+            var _a;
+            const dayMap = {};
+            // initialize all days with "-"
+            for (let day = 1; day <= totalDays; day++) {
+                dayMap[String(day)] = "-";
+            }
+            // fill attendance days
+            (_a = user.Attendances) === null || _a === void 0 ? void 0 : _a.forEach((a) => {
+                const startDay = new Date(a.date).getDate(); // present or start day
+                const endDay = new Date(a.punch_in).getDate(); // leave end day
+                // Step 1: fill the start day (e.g. "present")
+                dayMap[String(startDay)] = a.status || "-";
+                // Step 2: fill leave days AFTER the present day
+                if (endDay > startDay) {
+                    for (let i = startDay + 1; i <= endDay; i++) {
+                        dayMap[String(i)] = "leave";
+                    }
+                }
+            });
+            return {
+                id: user.id,
+                name: `${user.firstName} ${user.lastName}`,
+                days: dayMap,
+            };
+        });
+        res.status(200).json({
+            success: true,
+            message: "Attendance fetched successfully",
+            data: formatted,
+        });
+    }
+    catch (error) {
+        (0, errorMessage_1.badRequest)(res, error.message);
+    }
+});
+exports.AttendanceBook = AttendanceBook;

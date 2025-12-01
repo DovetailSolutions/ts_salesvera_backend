@@ -42,6 +42,10 @@ router.get('/user-leave',tokenCheck,AdminController.userLeave)
 router.get('/user-expense',tokenCheck,AdminController.userExpense)
 
 
+router.get("/attendance-book", tokenCheck, AdminController.AttendanceBook);
+
+
+
 
 
 

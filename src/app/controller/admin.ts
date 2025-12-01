@@ -804,7 +804,7 @@ export const approveLeave = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { employee_id, status } = req.body;
+    const { employee_id, leaveID, status } = req.body;
 
     if (!employee_id) badRequest(res, "Employee id is missing");
 
@@ -815,12 +815,18 @@ export const approveLeave = async (
 
     // Update Status
     await Leave.update(obj, {
-      where: { employee_id },
+      where: { employee_id,id:leaveID },
     });
+
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>",status)
+
+    // if(status === "rejected"){
+    //   await Attendance.update({status:"leaveReject"},{ where: { employee_id,id:leaveID }})
+    // }
 
     // Fetch updated leave after update
     const updatedLeave = await Leave.findOne({
-      where: { employee_id },
+      where: { employee_id,id:leaveID },
       attributes: ["id", "employee_id", "status"], // choose fields you need
     });
 
@@ -1266,7 +1272,7 @@ export const GetExpense = async (
 
     // 🔥 Build dynamic where condition
     const expenseWhere: any = {
-      userId: { [Op.in]: allUserIds }
+      userId: { [Op.in]: allUserIds },
     };
 
     if (approvedByAdmin !== undefined) {
@@ -1290,8 +1296,8 @@ export const GetExpense = async (
       order: [["createdAt", "DESC"]],
     });
 
-    if(leaves.length === 0 ){
-      badRequest(res,"data not found")
+    if (leaves.length === 0) {
+      badRequest(res, "data not found");
     }
 
     res.status(200).json({
@@ -1305,7 +1311,6 @@ export const GetExpense = async (
     badRequest(res, errorMessage);
   }
 };
-
 
 export const getAttendance = async (
   req: Request,
@@ -1573,7 +1578,7 @@ const fetchData = async (
   offset: number,
   dateFilter?: any
 ) => {
-   return await model.findAndCountAll({
+  return await model.findAndCountAll({
     where,
     limit,
     offset,
@@ -1705,7 +1710,7 @@ export const userLeave = async (req: Request, res: Response) => {
       Leave,
       { employee_id: Number(userId) },
       limit,
-      offset,
+      offset
       // dateFilter
     );
     createSuccess(res, "User leave fetched successfully", {
@@ -1723,5 +1728,87 @@ export const userLeave = async (req: Request, res: Response) => {
       res,
       error instanceof Error ? error.message : "Something went wrong"
     );
+  }
+};
+
+export const AttendanceBook = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
+    const childIds = await getAllChildUserIds(loggedInId);
+    const allUserIds = [...childIds]; // Exclude logged-in user (same as your code)
+
+    // SELECT month
+    const {
+      month = new Date().getMonth() + 1,
+      year = new Date().getFullYear(),
+    } = req.query;
+
+    const startDate = new Date(Number(year), Number(month) - 1, 1);
+    const endDate = new Date(Number(year), Number(month), 0); // last day of month
+    const totalDays = endDate.getDate();
+
+    // 1. FETCH USERS + ATTENDANCES
+    const users = await User.findAll({
+      where: { id: { [Op.in]: allUserIds } },
+      attributes: ["id", "firstName", "lastName"],
+      include: [
+        {
+          model: Attendance,
+          as: "Attendances",
+          where: {
+            date: {
+              [Op.between]: [startDate, endDate],
+            },
+          },
+          required: false,
+        },
+      ],
+    });
+
+    // 2. FORMAT RESULT LIKE ATTENDANCE BOOK
+   const formatted = users.map((user) => {
+  const dayMap: Record<string, string> = {};
+
+  // initialize all days with "-"
+  for (let day = 1; day <= totalDays; day++) {
+    dayMap[String(day)] = "-";
+  }
+
+  // fill attendance days
+  (user as any).Attendances?.forEach((a: any) => {
+    const startDay = new Date(a.date).getDate();       // present or start day
+    const endDay = new Date(a.punch_in).getDate();     // leave end day
+
+    // Step 1: fill the start day (e.g. "present")
+    dayMap[String(startDay)] = a.status || "-";
+
+    // Step 2: fill leave days AFTER the present day
+    if (endDay > startDay) {
+      for (let i = startDay + 1; i <= endDay; i++) {
+        dayMap[String(i)] = "leave";
+      }
+    }
+  });
+
+  return {
+    id: user.id,
+    name: `${user.firstName} ${user.lastName}`,
+    days: dayMap,
+  };
+});
+
+
+    res.status(200).json({
+      success: true,
+      message: "Attendance fetched successfully",
+      data: formatted,
+    });
+  } catch (error: any) {
+    badRequest(res, error.message);
   }
 };
