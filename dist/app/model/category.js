@@ -16,6 +16,14 @@ const CategoryModel = (sequelize) => {
             type: sequelize_1.DataTypes.STRING,
             allowNull: false,
         },
+        adminId: {
+            type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+            allowNull: true,
+        },
+        managerId: {
+            type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+            allowNull: true,
+        },
     }, {
         tableName: "categories",
         timestamps: true,

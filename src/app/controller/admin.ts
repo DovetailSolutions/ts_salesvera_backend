@@ -486,6 +486,8 @@ export const AddCategory = async (
   res: Response
 ): Promise<void> => {
   try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
     const { category_name } = req.body || {};
     if (!category_name) {
       badRequest(res, "category name is missing");
@@ -500,7 +502,7 @@ export const AddCategory = async (
       badRequest(res, "Category already exists");
       return;
     }
-    const item = await Category.create({ category_name });
+    const item = await Category.create({ category_name,adminId:loggedInId,managerId:loggedInId });
     createSuccess(res, "category create successfully");
   } catch (error) {
     const errorMessage =
@@ -514,8 +516,10 @@ export const getcategory = async (
   res: Response
 ): Promise<void> => {
   try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
     const data = req.query;
-    const item = await Middleware.getCategory(Category, data);
+    const item = await Middleware.getCategory(Category, data,loggedInId);
     createSuccess(res, "category list", item);
   } catch (error) {
     const errorMessage =
@@ -623,6 +627,7 @@ export const getMeeting = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
     const {
       page = 1,
       limit = 10,
@@ -634,10 +639,15 @@ export const getMeeting = async (
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
-    const where: any = {};
+    const where: any = { [Op.or]: [
+    { adminId: loggedInId },
+    { managerId: loggedInId }
+  ]};
     if (empty === "true") {
       where.userId = null;
     }
+   
+    
     if (userId) where.userId = userId;
     if (search) {
       where[Op.or] = [
@@ -708,15 +718,13 @@ export const BulkUploads = async (
   res: Response
 ): Promise<void> => {
   try {
+    const userData = req.userData as JwtPayload;
+    let loginUser = userData?.userId;
     // Correct check for multer.array()
     if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
       badRequest(res, "CSV file is required");
       return;
     }
-
-    // Multer.array("csv") → req.files is an array
-    // const csvFile = (req.files as Express.Multer.File[])[0];
-    // const csvFile = (req.files as { csv: MulterS3File[] }).csv[0];
     const csvFile = (req.files as MulterS3File[])[0];
 
     const s3 = new S3Client({
@@ -737,10 +745,8 @@ export const BulkUploads = async (
       badRequest(res, "Unable to read CSV from S3");
       return;
     }
-
     const stream = data.Body as Readable;
     const results: any[] = [];
-
     stream
       .pipe(
         csv({
@@ -754,22 +760,26 @@ export const BulkUploads = async (
           mobileNumber: row.mobileNumber?.trim() || "",
           companyEmail: row.companyEmail?.trim() || "",
           customerType: "existing",
+          adminId: loginUser,
+          managerId: loginUser,
         });
       })
       .on("end", async () => {
         try {
           const uniqueRows: any[] = [];
-
           for (const r of results) {
             const exists = await Meeting.findOne({
-              where: {
-                companyName: r.companyName,
-                personName: r.personName,
-                mobileNumber: r.mobileNumber,
-                companyEmail: r.companyEmail,
-              },
+             where: {
+              [Op.or]: [
+                { adminId: loginUser },
+                { managerId: loginUser }
+              ],
+              companyName: { [Op.in]: results.map((r) => r.companyName) },
+              personName: { [Op.in]: results.map((r) => r.personName) },
+              mobileNumber: { [Op.in]: results.map((r) => r.mobileNumber) },
+              companyEmail: { [Op.in]: results.map((r) => r.companyEmail) },
+            },
             });
-
             // If NOT found → add to insert list
             if (!exists) {
               uniqueRows.push(r);
@@ -816,21 +826,27 @@ export const approveLeave = async (
 
     // Update Status
     await Leave.update(obj, {
-      where: { employee_id,id:leaveID },
+      where: { employee_id, id: leaveID },
     });
 
-    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>",status)
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>", status);
 
-    if(status === "rejected"){
-      await Attendance.update({status:"leaveReject"},{ where: { employee_id,status:"leave" }})
+    if (status === "rejected") {
+      await Attendance.update(
+        { status: "leaveReject" },
+        { where: { employee_id, status: "leave" } }
+      );
     }
-    if(status === "approved"){
-      await Attendance.update({status:"leaveApproved"},{ where: { employee_id,status:"leave" }})
+    if (status === "approved") {
+      await Attendance.update(
+        { status: "leaveApproved" },
+        { where: { employee_id, status: "leave" } }
+      );
     }
 
     // Fetch updated leave after update
     const updatedLeave = await Leave.findOne({
-      where: { employee_id,id:leaveID },
+      where: { employee_id, id: leaveID },
       attributes: ["id", "employee_id", "status"], // choose fields you need
     });
 
@@ -1031,7 +1047,7 @@ export const UpdateExpense = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { approvedByAdmin, approvedBySuperAdmin, userId,expenseId, role } =
+    const { approvedByAdmin, approvedBySuperAdmin, userId, expenseId, role } =
       req.body || {};
 
     // Validate userId
@@ -1039,13 +1055,13 @@ export const UpdateExpense = async (
       badRequest(res, "userId is missing");
       return;
     }
-     if (!expenseId) {
+    if (!expenseId) {
       badRequest(res, "expenseId is missing");
       return;
     }
 
     // Get expense record
-    const item = await Expense.findOne({ where: { userId,id:expenseId } });
+    const item = await Expense.findOne({ where: { userId, id: expenseId } });
 
     if (!item) {
       badRequest(res, "Expense record not found");
@@ -1739,6 +1755,87 @@ export const userLeave = async (req: Request, res: Response) => {
   }
 };
 
+// export const AttendanceBook = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const loggedInId = userData.userId;
+
+//     const childIds = await getAllChildUserIds(loggedInId);
+//     const allUserIds = [...childIds]; // Exclude logged-in user (same as your code)
+
+//     // SELECT month
+//     const {
+//       month = new Date().getMonth() + 1,
+//       year = new Date().getFullYear(),
+//     } = req.query;
+
+//     const startDate = new Date(Number(year), Number(month) - 1, 1);
+//     const endDate = new Date(Number(year), Number(month), 0); // last day of month
+//     const totalDays = endDate.getDate();
+
+//     // 1. FETCH USERS + ATTENDANCES
+//     const users = await User.findAll({
+//       where: { id: { [Op.in]: allUserIds } },
+//       attributes: ["id", "firstName", "lastName"],
+//       include: [
+//         {
+//           model: Attendance,
+//           as: "Attendances",
+//           where: {
+//             date: {
+//               [Op.between]: [startDate, endDate],
+//             },
+//           },
+//           required: false,
+//         },
+//       ],
+//     });
+
+//     // 2. FORMAT RESULT LIKE ATTENDANCE BOOK
+//    const formatted = users.map((user) => {
+//   const dayMap: Record<string, string> = {};
+
+//   // initialize all days with "-"
+//   for (let day = 1; day <= totalDays; day++) {
+//     dayMap[String(day)] = "-";
+//   }
+
+//   // fill attendance days
+//   (user as any).Attendances?.forEach((a: any) => {
+//     const startDay = new Date(a.date).getDate();       // present or start day
+//     const endDay = new Date(a.punch_in).getDate();     // leave end day
+
+//     // Step 1: fill the start day (e.g. "present")
+//     dayMap[String(startDay)] = a.status || "-";
+
+//     // Step 2: fill leave days AFTER the present day
+//     if (endDay > startDay) {
+//       for (let i = startDay + 1; i <= endDay; i++) {
+//         dayMap[String(i)] = a.status || "-";
+//       }
+//     }
+//   });
+
+//   return {
+//     id: user.id,
+//     name: `${user.firstName} ${user.lastName}`,
+//     days: dayMap,
+//   };
+// });
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Attendance fetched successfully",
+//       data: formatted,
+//     });
+//   } catch (error: any) {
+//     badRequest(res, error.message);
+//   }
+// };
+
 export const AttendanceBook = async (
   req: Request,
   res: Response
@@ -1748,21 +1845,41 @@ export const AttendanceBook = async (
     const loggedInId = userData.userId;
 
     const childIds = await getAllChildUserIds(loggedInId);
-    const allUserIds = [...childIds]; // Exclude logged-in user (same as your code)
+    const allUserIds = [...childIds];
 
-    // SELECT month
+    // Month – Year
     const {
       month = new Date().getMonth() + 1,
       year = new Date().getFullYear(),
+      search = "",
+      page = 1,
+      limit = 10,
     } = req.query;
 
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const offset = (pageNum - 1) * limitNum;
+
     const startDate = new Date(Number(year), Number(month) - 1, 1);
-    const endDate = new Date(Number(year), Number(month), 0); // last day of month
+    const endDate = new Date(Number(year), Number(month), 0);
     const totalDays = endDate.getDate();
 
-    // 1. FETCH USERS + ATTENDANCES
-    const users = await User.findAll({
-      where: { id: { [Op.in]: allUserIds } },
+    // SEARCH filter
+    const searchFilter = search
+      ? {
+          [Op.or]: [
+            { firstName: { [Op.iLike]: `%${search}%` } },
+            { lastName: { [Op.iLike]: `%${search}%` } },
+          ],
+        }
+      : {};
+
+    // 1. FETCH USERS with pagination + searching
+    const { rows: users, count: totalCount } = await User.findAndCountAll({
+      where: {
+        id: { [Op.in]: allUserIds },
+        ...searchFilter,
+      },
       attributes: ["id", "firstName", "lastName"],
       include: [
         {
@@ -1776,45 +1893,51 @@ export const AttendanceBook = async (
           required: false,
         },
       ],
+      offset,
+      limit: limitNum,
+      order: [["firstName", "ASC"]],
     });
 
-    // 2. FORMAT RESULT LIKE ATTENDANCE BOOK
-   const formatted = users.map((user) => {
-  const dayMap: Record<string, string> = {};
+    // 2. FORMAT OUTPUT
+    const formatted = users.map((user) => {
+      const dayMap: Record<string, string> = {};
 
-  // initialize all days with "-"
-  for (let day = 1; day <= totalDays; day++) {
-    dayMap[String(day)] = "-";
-  }
-
-  // fill attendance days
-  (user as any).Attendances?.forEach((a: any) => {
-    const startDay = new Date(a.date).getDate();       // present or start day
-    const endDay = new Date(a.punch_in).getDate();     // leave end day
-
-    // Step 1: fill the start day (e.g. "present")
-    dayMap[String(startDay)] = a.status || "-";
-
-    // Step 2: fill leave days AFTER the present day
-    if (endDay > startDay) {
-      for (let i = startDay + 1; i <= endDay; i++) {
-        dayMap[String(i)] = a.status || "-";
+      // fill default "-"
+      for (let day = 1; day <= totalDays; day++) {
+        dayMap[String(day)] = "-";
       }
-    }
-  });
 
-  return {
-    id: user.id,
-    name: `${user.firstName} ${user.lastName}`,
-    days: dayMap,
-  };
-});
+      // fill attendance
+      (user as any).Attendances?.forEach((a: any) => {
+        const startDay = new Date(a.date).getDate();
+        const endDay = new Date(a.punch_in).getDate();
 
+        dayMap[String(startDay)] = a.status || "-";
 
+        if (endDay > startDay) {
+          for (let i = startDay + 1; i <= endDay; i++) {
+            dayMap[String(i)] = a.status || "-";
+          }
+        }
+      });
+
+      return {
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`,
+        days: dayMap,
+      };
+    });
+
+    // RESPONSE
     res.status(200).json({
       success: true,
       message: "Attendance fetched successfully",
-      data: formatted,
+      data: {
+        page: pageNum,
+        limit: limitNum,
+        totalCount,
+        users: formatted,
+      },
     });
   } catch (error: any) {
     badRequest(res, error.message);

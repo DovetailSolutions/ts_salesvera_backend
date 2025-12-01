@@ -680,7 +680,7 @@ const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.badRequest)(res, "Invalid user");
             return;
         }
-        const { title } = (_a = req.body) !== null && _a !== void 0 ? _a : {};
+        const { title, total_amount } = (_a = req.body) !== null && _a !== void 0 ? _a : {};
         if (!title || title.trim() === "") {
             (0, errorMessage_1.badRequest)(res, "Title is required");
             return;
@@ -688,6 +688,7 @@ const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         const payload = {
             userId: finalUserId,
             title,
+            total_amount,
         };
         // ✅ files from multer (S3 upload)
         const files = req.files;

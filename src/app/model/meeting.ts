@@ -34,7 +34,10 @@ export class Meeting extends Model {
   public meetingTimeOut!: Date;
   public meetingTimeIn!: Date;
   public userId!: number;
+  public adminId!: number;
+  public managerId!:number
   public scheduledTime!:Date;
+
 
   // Relationship helpers
   public getCategories!: BelongsToManyGetAssociationsMixin<Category>;
@@ -135,8 +138,15 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
         type: DataTypes.DATE,
         allowNull: true,
       },
-
       userId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      },
+       adminId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      },
+       managerId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },

@@ -801,7 +801,7 @@ export const CreateExpense = async (
       return;
     }
 
-    const { title } = req.body ?? {};
+    const { title,total_amount } = req.body ?? {};
 
     if (!title || title.trim() === "") {
       badRequest(res, "Title is required");
@@ -811,6 +811,7 @@ export const CreateExpense = async (
     const payload: any = {
       userId: finalUserId,
       title,
+      total_amount,
     };
 
     // ✅ files from multer (S3 upload)

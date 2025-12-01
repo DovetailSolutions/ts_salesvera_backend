@@ -431,6 +431,12 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
         if (id) {
             where.user_id = id;
         }
+        if (id) {
+            where.adminId = id;
+        }
+        if (id) {
+            where.managerId = id;
+        }
         // ✅ If filtering by category_id, use include instead of where
         const include = [];
         if (category_id) {
