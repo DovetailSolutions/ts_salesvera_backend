@@ -47,7 +47,7 @@ const findByRole = (model, role) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.findByRole = findByRole;
-const FindByField = (model, fieldName, fieldValue) => __awaiter(void 0, void 0, void 0, function* () {
+const FindByField = (model, fieldName, fieldValue, id) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         // Normalize value: lowercase + remove spaces
         const normalizedValue = fieldValue.replace(/\s+/g, "").toLowerCase();
@@ -418,7 +418,7 @@ const findOneByCondition = (model, condition) => __awaiter(void 0, void 0, void 
     }
 });
 exports.findOneByCondition = findOneByCondition;
-const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, data_1, ...args_1], void 0, function* (Model, data, id = "") {
+const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, data_1, ...args_1], void 0, function* (Model, data, id = "", login = "") {
     try {
         const { page = 1, limit = 10, search = "", category_id } = data;
         const pageNum = Number(page);

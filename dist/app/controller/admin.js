@@ -411,7 +411,7 @@ const AddCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             (0, errorMessage_1.badRequest)(res, "category name is missing");
             return;
         }
-        const isCategoryExist = yield Middleware.FindByField(dbConnection_1.Category, "category_name", category_name);
+        const isCategoryExist = yield Middleware.FindByField(dbConnection_1.Category, "category_name", category_name, loggedInId);
         if (isCategoryExist) {
             (0, errorMessage_1.badRequest)(res, "Category already exists");
             return;
@@ -431,7 +431,7 @@ const getcategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         const userData = req.userData;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
         const data = req.query;
-        const item = yield Middleware.getCategory(dbConnection_1.Category, data, loggedInId);
+        const item = yield Middleware.getCategory(dbConnection_1.Category, data, "", loggedInId);
         (0, errorMessage_1.createSuccess)(res, "category list", item);
     }
     catch (error) {
@@ -473,7 +473,7 @@ const UpdateCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             return;
         }
         // ✅ Check if category with same name already exists
-        const isCategoryExist = yield Middleware.FindByField(dbConnection_1.Category, "category_name", category_name);
+        const isCategoryExist = yield Middleware.FindByField(dbConnection_1.Category, "category_name", category_name, "");
         if (isCategoryExist) {
             (0, errorMessage_1.badRequest)(res, "Category already exists");
             return;

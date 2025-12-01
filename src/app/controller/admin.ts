@@ -496,7 +496,8 @@ export const AddCategory = async (
     const isCategoryExist = await Middleware.FindByField(
       Category,
       "category_name",
-      category_name
+      category_name,
+      loggedInId,
     );
     if (isCategoryExist) {
       badRequest(res, "Category already exists");
@@ -519,7 +520,7 @@ export const getcategory = async (
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
     const data = req.query;
-    const item = await Middleware.getCategory(Category, data,loggedInId);
+    const item = await Middleware.getCategory(Category, data, "",loggedInId);
     createSuccess(res, "category list", item);
   } catch (error) {
     const errorMessage =
@@ -574,7 +575,8 @@ export const UpdateCategory = async (
     const isCategoryExist = await Middleware.FindByField(
       Category,
       "category_name",
-      category_name
+      category_name,
+      "",
     );
 
     if (isCategoryExist) {

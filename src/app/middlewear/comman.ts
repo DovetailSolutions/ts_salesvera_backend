@@ -42,7 +42,9 @@ export const findByRole = async(model:any, role: string)=>{
 export const FindByField = async (
   model: any,
   fieldName: string,
-  fieldValue: string
+  fieldValue: string,
+  id:""
+  
 ): Promise<any> => {
   try {
     // Normalize value: lowercase + remove spaces
@@ -521,7 +523,8 @@ export const findOneByCondition = async (
 export const getCategory = async (
   Model: any,
   data: { page?: number; limit?: number; search?: string; category_id?: number },
-  id=""
+  id="",
+  login=""
 ): Promise<{
   rows: any[];
   pagination: {
