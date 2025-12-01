@@ -68,5 +68,6 @@ router.patch('/approved-expense', jwtVerify_1.tokenCheck, AdminController.Update
 router.get("/user-attendance", jwtVerify_1.tokenCheck, AdminController.userAttendance);
 router.get('/user-leave', jwtVerify_1.tokenCheck, AdminController.userLeave);
 router.get('/user-expense', jwtVerify_1.tokenCheck, AdminController.userExpense);
+router.get("/attendance-book", jwtVerify_1.tokenCheck, AdminController.AttendanceBook);
 // meeting apis 
 exports.default = router;

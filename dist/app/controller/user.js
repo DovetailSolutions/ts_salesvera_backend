@@ -626,19 +626,26 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
         const { from_date, to_date, reason } = req.body || {};
-        // ✅ Validate inputs
+        // --------------------
+        // ✅ Basic Validation
+        // --------------------
         if (!from_date || !to_date || !reason) {
             (0, errorMessage_1.badRequest)(res, "from_date, to_date & reason are required");
             return;
         }
         const from = new Date(from_date);
         const to = new Date(to_date);
-        // ✅ from_date <= to_date
+        if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+            (0, errorMessage_1.badRequest)(res, "Invalid date format");
+            return;
+        }
         if (to < from) {
             (0, errorMessage_1.badRequest)(res, "to_date must be after from_date");
             return;
         }
-        // ✅ Create leave request
+        // --------------------
+        // ✅ Create Leave Request
+        // --------------------
         const leave = yield dbConnection_1.Leave.create({
             employee_id: finalUserId,
             from_date: from,
@@ -646,12 +653,21 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             reason,
             status: "pending",
         });
+        // --------------------
+        // ✅ Insert Attendance Entry (1 entry per request)
+        // --------------------
+        if (leave) {
+            yield dbConnection_1.Attendance.create({
+                employee_id: finalUserId,
+                date: from,
+                punch_in: to,
+                status: "leave",
+            });
+        }
         (0, errorMessage_1.createSuccess)(res, "Leave requested successfully", leave);
     }
     catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
+        (0, errorMessage_1.badRequest)(res, (error === null || error === void 0 ? void 0 : error.message) || "Something went wrong");
     }
 });
 exports.requestLeave = requestLeave;

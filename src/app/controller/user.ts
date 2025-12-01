@@ -738,22 +738,30 @@ export const requestLeave = async (
 
     const { from_date, to_date, reason } = req.body || {};
 
-    // ✅ Validate inputs
+    // --------------------
+    // ✅ Basic Validation
+    // --------------------
     if (!from_date || !to_date || !reason) {
-      badRequest(res, "from_date, to_date & reason are required");
-      return;
+       badRequest(res, "from_date, to_date & reason are required");
+       return
     }
 
     const from = new Date(from_date);
     const to = new Date(to_date);
 
-    // ✅ from_date <= to_date
-    if (to < from) {
-      badRequest(res, "to_date must be after from_date");
-      return;
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+        badRequest(res, "Invalid date format");
+        return
     }
 
-    // ✅ Create leave request
+    if (to < from) {
+       badRequest(res, "to_date must be after from_date");
+       return
+    }
+
+    // --------------------
+    // ✅ Create Leave Request
+    // --------------------
     const leave = await Leave.create({
       employee_id: finalUserId,
       from_date: from,
@@ -762,14 +770,23 @@ export const requestLeave = async (
       status: "pending",
     });
 
+    // --------------------
+    // ✅ Insert Attendance Entry (1 entry per request)
+    // --------------------
+    if (leave) {
+      await Attendance.create({
+        employee_id: finalUserId,
+        date: from,
+        punch_in: to,
+        status: "leave",
+      });
+    }
     createSuccess(res, "Leave requested successfully", leave);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
+  } catch (error: any) {
+     badRequest(res, error?.message || "Something went wrong");
   }
 };
+
 
 export const CreateExpense = async (
   req: Request,
