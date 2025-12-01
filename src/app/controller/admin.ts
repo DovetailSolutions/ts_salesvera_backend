@@ -714,7 +714,6 @@ export const getMeeting = async (
       where.userId = null;
     }
    
-    
     if (userId) where.userId = userId;
     if (search) {
       where[Op.or] = [
