@@ -56,6 +56,18 @@ const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_1 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
 const UNIQUE_ROLES = ["super_admin"];
+const getPagination = (req) => {
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const offset = (page - 1) * limit;
+    return { page, limit, offset };
+};
+const findUser = (userId) => __awaiter(void 0, void 0, void 0, function* () {
+    return dbConnection_1.User.findOne({
+        where: { id: userId },
+        attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+    });
+});
 const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { email, password, firstName, lastName, phone, dob, role, createdBy, } = req.body;
@@ -427,11 +439,34 @@ const AddCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
 });
 exports.AddCategory = AddCategory;
 const getcategory = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
         const userData = req.userData;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const role = userData === null || userData === void 0 ? void 0 : userData.role;
+        let ll = loggedInId; // default (admin or fallback)
+        let manager = null;
+        // 🔹 If logged-in user is MANAGER → fetch admin (creator)
+        if (role === "manager") {
+            manager = yield dbConnection_1.User.findByPk(loggedInId, {
+                attributes: ["id", "role"],
+                include: [
+                    {
+                        model: dbConnection_1.User,
+                        as: "creators",
+                        attributes: ["id", "role"],
+                        through: { attributes: [] },
+                    },
+                ],
+            });
+            const plain = manager === null || manager === void 0 ? void 0 : manager.get({ plain: true });
+            if (((_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a.length) > 0) {
+                ll = plain.creators[0].id; // parent admin ID
+            }
+        }
+        // 🔹 Continue with your category function
         const data = req.query;
-        const item = yield Middleware.getCategory(dbConnection_1.Category, data, "", loggedInId);
+        const item = yield Middleware.getCategory(dbConnection_1.Category, data, "", ll);
         (0, errorMessage_1.createSuccess)(res, "category list", item);
     }
     catch (error) {
@@ -513,17 +548,35 @@ const DeleteCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
 });
 exports.DeleteCategory = DeleteCategory;
 const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
         const userData = req.userData;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const role = userData === null || userData === void 0 ? void 0 : userData.role;
+        let ll = loggedInId;
+        let manager = null;
+        if (role === "manager") {
+            manager = yield dbConnection_1.User.findByPk(loggedInId, {
+                attributes: ["id", "role"],
+                include: [
+                    {
+                        model: dbConnection_1.User,
+                        as: "creators",
+                        attributes: ["id", "role"],
+                        through: { attributes: [] },
+                    },
+                ],
+            });
+            const plain = manager === null || manager === void 0 ? void 0 : manager.get({ plain: true });
+            if (((_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a.length) > 0) {
+                ll = plain.creators[0].id; // parent admin ID
+            }
+        }
         const { page = 1, limit = 10, search = "", userId, date, empty, } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
-        const where = { [sequelize_1.Op.or]: [
-                { adminId: loggedInId },
-                { managerId: loggedInId }
-            ] };
+        const where = { adminId: ll };
         if (empty === "true") {
             where.userId = null;
         }
@@ -1271,39 +1324,6 @@ const fetchData = (model, where, limit, offset, dateFilter) => __awaiter(void 0,
         limit,
         offset,
         order: [["createdAt", "DESC"]],
-    });
-});
-// const fetchData = async (
-//   model: any,
-//   where: any,
-//   limit: number,
-//   offset: number,
-//   dateFilter?: any
-// ) => {
-//   const finalWhere: any = {
-//     ...where,
-//     ...(dateFilter ? { createdAt: dateFilter } : {}),
-//   };
-//   console.log("🔥 Final WHERE filter:", finalWhere);
-//   const item = await model.findAndCountAll({
-//     where: finalWhere,
-//     limit,
-//     offset,
-//     order: [["createdAt", "DESC"]],
-//   });
-//   console.log("👉 Query Result:", item);
-//   return item;
-// };
-const getPagination = (req) => {
-    const page = Number(req.query.page || 1);
-    const limit = Number(req.query.limit || 10);
-    const offset = (page - 1) * limit;
-    return { page, limit, offset };
-};
-const findUser = (userId) => __awaiter(void 0, void 0, void 0, function* () {
-    return dbConnection_1.User.findOne({
-        where: { id: userId },
-        attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
     });
 });
 const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {

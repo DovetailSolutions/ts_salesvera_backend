@@ -1,7 +1,6 @@
 import { Model,FindOptions,Op,WhereOptions  ,Sequelize ,CreationAttributes,Includeable } from "sequelize";
 import jwt from "jsonwebtoken";
 import { User, Category } from "../../config/dbConnection";
-
 import { promises } from "dns";
 import { Mode } from "fs";
 interface FindOneWithIncludeParams {

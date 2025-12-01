@@ -41,6 +41,23 @@ import { S3 } from "@aws-sdk/client-s3";
 
 const UNIQUE_ROLES = ["super_admin"];
 
+
+
+const getPagination = (req: Request) => {
+  const page = Number(req.query.page || 1);
+  const limit = Number(req.query.limit || 10);
+  const offset = (page - 1) * limit;
+
+  return { page, limit, offset };
+};
+
+const findUser = async (userId: number) => {
+  return User.findOne({
+    where: { id: userId },
+    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+  });
+};
+
 export const Register = async (req: Request, res: Response): Promise<void> => {
   try {
     const {
@@ -519,8 +536,36 @@ export const getcategory = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
+    const role = userData?.role;
+
+    let ll = loggedInId;   // default (admin or fallback)
+
+    let manager: any = null;
+
+    // 🔹 If logged-in user is MANAGER → fetch admin (creator)
+    if (role === "manager") {
+      manager = await User.findByPk(loggedInId, {
+        attributes: ["id", "role"],
+        include: [
+          {
+            model: User,
+            as: "creators",
+            attributes: ["id", "role"],
+            through: { attributes: [] },
+          },
+        ],
+      });
+
+      const plain = manager?.get({ plain: true }) as any;
+
+      if (plain?.creators?.length > 0) {
+        ll = plain.creators[0].id;      // parent admin ID
+      }
+    }
+    // 🔹 Continue with your category function
     const data = req.query;
-    const item = await Middleware.getCategory(Category, data, "",loggedInId);
+    const item = await Middleware.getCategory(Category, data, "", ll);
+
     createSuccess(res, "category list", item);
   } catch (error) {
     const errorMessage =
@@ -528,6 +573,7 @@ export const getcategory = async (
     badRequest(res, errorMessage, error);
   }
 };
+
 export const categoryDetails = async (
   req: Request,
   res: Response
@@ -630,6 +676,28 @@ export const getMeeting = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
+    const role = userData?.role;
+    let ll = loggedInId;
+    let manager: any = null;
+     if (role === "manager") {
+      manager = await User.findByPk(loggedInId, {
+        attributes: ["id", "role"],
+        include: [
+          {
+            model: User,
+            as: "creators",
+            attributes: ["id", "role"],
+            through: { attributes: [] },
+          },
+        ],
+      });
+
+      const plain = manager?.get({ plain: true }) as any;
+
+      if (plain?.creators?.length > 0) {
+        ll = plain.creators[0].id;      // parent admin ID
+      }
+    }
     const {
       page = 1,
       limit = 10,
@@ -641,10 +709,7 @@ export const getMeeting = async (
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
-    const where: any = { [Op.or]: [
-    { adminId: loggedInId },
-    { managerId: loggedInId }
-  ]};
+    const where: any = {adminId:ll};
     if (empty === "true") {
       where.userId = null;
     }
@@ -1611,45 +1676,9 @@ const fetchData = async (
     order: [["createdAt", "DESC"]],
   });
 };
-// const fetchData = async (
-//   model: any,
-//   where: any,
-//   limit: number,
-//   offset: number,
-//   dateFilter?: any
-// ) => {
-//   const finalWhere: any = {
-//     ...where,
-//     ...(dateFilter ? { createdAt: dateFilter } : {}),
-//   };
 
-//   console.log("🔥 Final WHERE filter:", finalWhere);
 
-//   const item = await model.findAndCountAll({
-//     where: finalWhere,
-//     limit,
-//     offset,
-//     order: [["createdAt", "DESC"]],
-//   });
 
-//   console.log("👉 Query Result:", item);
-//   return item;
-// };
-
-const getPagination = (req: Request) => {
-  const page = Number(req.query.page || 1);
-  const limit = Number(req.query.limit || 10);
-  const offset = (page - 1) * limit;
-
-  return { page, limit, offset };
-};
-
-const findUser = async (userId: number) => {
-  return User.findOne({
-    where: { id: userId },
-    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-  });
-};
 
 export const userAttendance = async (req: Request, res: Response) => {
   try {
