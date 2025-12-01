@@ -661,6 +661,8 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         const { employee_id, leaveID, status } = req.body;
         if (!employee_id)
             (0, errorMessage_1.badRequest)(res, "Employee id is missing");
+        if (!leaveID)
+            (0, errorMessage_1.badRequest)(res, "leaveID id is missing");
         const obj = {};
         if (status) {
             obj.status = status;
@@ -868,6 +870,10 @@ const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         // Validate userId
         if (!userId) {
             (0, errorMessage_1.badRequest)(res, "userId is missing");
+            return;
+        }
+        if (!expenseId) {
+            (0, errorMessage_1.badRequest)(res, "expenseId is missing");
             return;
         }
         // Get expense record
