@@ -807,6 +807,7 @@ export const approveLeave = async (
     const { employee_id, leaveID, status } = req.body;
 
     if (!employee_id) badRequest(res, "Employee id is missing");
+    if (!leaveID) badRequest(res, "leaveID id is missing");
 
     const obj: any = {};
     if (status) {
@@ -1036,6 +1037,10 @@ export const UpdateExpense = async (
     // Validate userId
     if (!userId) {
       badRequest(res, "userId is missing");
+      return;
+    }
+     if (!expenseId) {
+      badRequest(res, "expenseId is missing");
       return;
     }
 
