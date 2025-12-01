@@ -670,9 +670,12 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             where: { employee_id, id: leaveID },
         });
         console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>", status);
-        // if(status === "rejected"){
-        //   await Attendance.update({status:"leaveReject"},{ where: { employee_id,id:leaveID }})
-        // }
+        if (status === "rejected") {
+            yield dbConnection_1.Attendance.update({ status: "leaveReject" }, { where: { employee_id, status: "leave" } });
+        }
+        if (status === "approved") {
+            yield dbConnection_1.Attendance.update({ status: "leaveApproved" }, { where: { employee_id, status: "leave" } });
+        }
         // Fetch updated leave after update
         const updatedLeave = yield dbConnection_1.Leave.findOne({
             where: { employee_id, id: leaveID },
@@ -1409,7 +1412,7 @@ const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function*
                 // Step 2: fill leave days AFTER the present day
                 if (endDay > startDay) {
                     for (let i = startDay + 1; i <= endDay; i++) {
-                        dayMap[String(i)] = "leave";
+                        dayMap[String(i)] = a.status || "-";
                     }
                 }
             });

@@ -820,9 +820,12 @@ export const approveLeave = async (
 
     console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>",status)
 
-    // if(status === "rejected"){
-    //   await Attendance.update({status:"leaveReject"},{ where: { employee_id,id:leaveID }})
-    // }
+    if(status === "rejected"){
+      await Attendance.update({status:"leaveReject"},{ where: { employee_id,status:"leave" }})
+    }
+    if(status === "approved"){
+      await Attendance.update({status:"leaveApproved"},{ where: { employee_id,status:"leave" }})
+    }
 
     // Fetch updated leave after update
     const updatedLeave = await Leave.findOne({
@@ -1790,7 +1793,7 @@ export const AttendanceBook = async (
     // Step 2: fill leave days AFTER the present day
     if (endDay > startDay) {
       for (let i = startDay + 1; i <= endDay; i++) {
-        dayMap[String(i)] = "leave";
+        dayMap[String(i)] = a.status || "-";
       }
     }
   });
