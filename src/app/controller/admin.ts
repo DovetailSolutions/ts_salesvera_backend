@@ -1027,7 +1027,7 @@ export const UpdateExpense = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { approvedByAdmin, approvedBySuperAdmin, userId, role } =
+    const { approvedByAdmin, approvedBySuperAdmin, userId,expenseId, role } =
       req.body || {};
 
     // Validate userId
@@ -1037,7 +1037,7 @@ export const UpdateExpense = async (
     }
 
     // Get expense record
-    const item = await Expense.findOne({ where: { userId } });
+    const item = await Expense.findOne({ where: { userId,id:expenseId } });
 
     if (!item) {
       badRequest(res, "Expense record not found");
