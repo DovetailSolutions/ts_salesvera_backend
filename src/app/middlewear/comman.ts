@@ -51,15 +51,37 @@ export const FindByField = async (
     const normalizedValue = fieldValue.replace(/\s+/g, "").toLowerCase();
 
     return await model.findOne({
-      where: Sequelize.where(
-        Sequelize.fn(
-          "REPLACE",
-          Sequelize.fn("LOWER", Sequelize.col(fieldName)),
-          " ",
-          ""
-        ),
-        normalizedValue
-      ),
+      // where: Sequelize.where(
+      //   Sequelize.fn(
+      //     "REPLACE",
+      //     Sequelize.fn("LOWER", Sequelize.col(fieldName)),
+      //     " ",
+      //     ""
+      //   ),
+      //   normalizedValue
+      // ),
+       where: {
+        // field comparison with normalization
+        [Op.and]: [
+          Sequelize.where(
+            Sequelize.fn(
+              "REPLACE",
+              Sequelize.fn("LOWER", Sequelize.col(fieldName)),
+              " ",
+              ""
+            ),
+            normalizedValue
+          ),
+
+          // 🔥 OR condition for adminId or managerId
+          {
+            [Op.or]: [
+              { adminId: id },
+              { managerId: id }
+            ]
+          }
+        ]
+      }
     });
   } catch (error) {
     console.error(`Error in FindByFieldNormalized (${fieldName}):`, error);
@@ -523,8 +545,8 @@ export const findOneByCondition = async (
 export const getCategory = async (
   Model: any,
   data: { page?: number; limit?: number; search?: string; category_id?: number },
-  id="",
-  login=""
+  id = "",
+  login = ""
 ): Promise<{
   rows: any[];
   pagination: {
@@ -536,45 +558,66 @@ export const getCategory = async (
 }> => {
   try {
     const { page = 1, limit = 10, search = "", category_id } = data;
+
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
 
+    console.log(">>>>>>>>>>>>>>>>>> login:", login);
+
+    // -------------------------
+    // MAIN WHERE
+    // -------------------------
     const where: any = {};
+
     if (search) {
       where.name = { [Op.iLike]: `%${search}%` };
     }
 
-    if(id){
-      where.user_id = id
-    }
-     if(id){
-      where.adminId = id
-    }
-    if(id){
-      where.managerId = id
+    if (id) {
+      where.user_id = id;
     }
 
+    // 🔥 FIXED: OR condition for admin/manager
+    if (login) {
+      where[Op.or] = [
+        { adminId: login },
+        { managerId: login }
+      ];
+    }
 
-    // ✅ If filtering by category_id, use include instead of where
+    // -------------------------
+    // INCLUDE CATEGORY FILTER
+    // -------------------------
     const include: any[] = [];
+
     if (category_id) {
       include.push({
         model: Category,
         as: "categories",
-        where: { id: Number(category_id) },
-        through: { attributes: [] }, // hides junction table fields
+        where: {
+          id: Number(category_id),
+          [Op.or]: [
+            { adminId: login },
+            { managerId: login }
+          ]
+        },
+        through: { attributes: [] },
       });
     }
 
-    // ✅ Total count with include
+    // -------------------------
+    // COUNT
+    // -------------------------
     const totalItems = await Model.count({
       where,
       include: include.length ? include : undefined,
       distinct: true,
     });
 
-    // ✅ Fetch rows with pagination & include
+    // -------------------------
+    // FETCH ROWS
+    // -------------------------
     const rows = await Model.findAll({
       where,
       include: include.length ? include : undefined,
@@ -582,6 +625,7 @@ export const getCategory = async (
       offset,
       order: [["createdAt", "DESC"]],
     });
+
     return {
       rows,
       pagination: {
@@ -595,6 +639,7 @@ export const getCategory = async (
     throw error;
   }
 };
+
 
 
 export const withuserlogin = async (
