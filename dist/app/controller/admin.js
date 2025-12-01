@@ -861,14 +861,14 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 exports.test = test;
 const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { approvedByAdmin, approvedBySuperAdmin, userId, role } = req.body || {};
+        const { approvedByAdmin, approvedBySuperAdmin, userId, expenseId, role } = req.body || {};
         // Validate userId
         if (!userId) {
             (0, errorMessage_1.badRequest)(res, "userId is missing");
             return;
         }
         // Get expense record
-        const item = yield dbConnection_1.Expense.findOne({ where: { userId } });
+        const item = yield dbConnection_1.Expense.findOne({ where: { userId, id: expenseId } });
         if (!item) {
             (0, errorMessage_1.badRequest)(res, "Expense record not found");
             return;
