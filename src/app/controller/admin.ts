@@ -1706,8 +1706,6 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
     createSuccess(res, "Meeting scheduled successfully");
     }
 
-    // Update meeting
-
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
