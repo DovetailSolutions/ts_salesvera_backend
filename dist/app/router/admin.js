@@ -70,5 +70,6 @@ router.get('/user-leave', jwtVerify_1.tokenCheck, AdminController.userLeave);
 router.get('/user-expense', jwtVerify_1.tokenCheck, AdminController.userExpense);
 router.get("/attendance-book", jwtVerify_1.tokenCheck, AdminController.AttendanceBook);
 router.post("/create-client", jwtVerify_1.tokenCheck, AdminController.createClient);
+router.post("/assign-meeting", jwtVerify_1.tokenCheck, AdminController.assignMeeting);
 // meeting apis 
 exports.default = router;

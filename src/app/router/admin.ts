@@ -34,6 +34,8 @@ router.get('/user-leave',tokenCheck,AdminController.userLeave)
 router.get('/user-expense',tokenCheck,AdminController.userExpense)
 router.get("/attendance-book", tokenCheck, AdminController.AttendanceBook);
 router.post("/create-client", tokenCheck, AdminController.createClient);
+router.post("/assign-meeting", tokenCheck, AdminController.assignMeeting);
+
 
 
 

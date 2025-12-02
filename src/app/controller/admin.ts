@@ -41,8 +41,6 @@ import { S3 } from "@aws-sdk/client-s3";
 
 const UNIQUE_ROLES = ["super_admin"];
 
-
-
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
   const limit = Number(req.query.limit || 10);
@@ -514,13 +512,17 @@ export const AddCategory = async (
       Category,
       "category_name",
       category_name,
-      loggedInId,
+      loggedInId
     );
     if (isCategoryExist) {
       badRequest(res, "Category already exists");
       return;
     }
-    const item = await Category.create({ category_name,adminId:loggedInId,managerId:loggedInId });
+    const item = await Category.create({
+      category_name,
+      adminId: loggedInId,
+      managerId: loggedInId,
+    });
     createSuccess(res, "category create successfully");
   } catch (error) {
     const errorMessage =
@@ -538,7 +540,7 @@ export const getcategory = async (
     const loggedInId = userData?.userId;
     const role = userData?.role;
 
-    let ll = loggedInId;   // default (admin or fallback)
+    let ll = loggedInId; // default (admin or fallback)
 
     let manager: any = null;
 
@@ -559,7 +561,7 @@ export const getcategory = async (
       const plain = manager?.get({ plain: true }) as any;
 
       if (plain?.creators?.length > 0) {
-        ll = plain.creators[0].id;      // parent admin ID
+        ll = plain.creators[0].id; // parent admin ID
       }
     }
     // 🔹 Continue with your category function
@@ -622,7 +624,7 @@ export const UpdateCategory = async (
       Category,
       "category_name",
       category_name,
-      "",
+      ""
     );
 
     if (isCategoryExist) {
@@ -676,14 +678,10 @@ export const getMeeting = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
-
-
     const role = userData?.role;
-
-   
     let ll = loggedInId;
     let manager: any = null;
-     if (role === "manager") {
+    if (role === "manager") {
       manager = await User.findByPk(loggedInId, {
         attributes: ["id", "role"],
         include: [
@@ -699,7 +697,7 @@ export const getMeeting = async (
       const plain = manager?.get({ plain: true }) as any;
 
       if (plain?.creators?.length > 0) {
-        ll = plain.creators[0].id;      // parent admin ID
+        ll = plain.creators[0].id; // parent admin ID
       }
     }
     const {
@@ -710,7 +708,7 @@ export const getMeeting = async (
       date,
       empty,
     } = req.query;
-    
+
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
@@ -718,11 +716,10 @@ export const getMeeting = async (
     const where: any = {};
 
     if (empty === "true") {
-  where.userId = null;
-  where.adminId = ll;    // <-- correctly added to where clause
-}
+      where.userId = null;
+      where.adminId = ll; // <-- correctly added to where clause
+    }
 
-   
     if (userId) where.userId = userId;
     if (search) {
       where[Op.or] = [
@@ -746,7 +743,6 @@ export const getMeeting = async (
       };
     }
 
-   
     const { rows, count } = await Meeting.findAndCountAll({
       attributes: [
         "id",
@@ -764,7 +760,6 @@ export const getMeeting = async (
       limit: limitNum,
       order: [["createdAt", "DESC"]],
     });
-    
 
     if (rows.length == 0) {
       badRequest(res, "Not meeting found");
@@ -847,16 +842,13 @@ export const BulkUploads = async (
           const uniqueRows: any[] = [];
           for (const r of results) {
             const exists = await Meeting.findOne({
-             where: {
-              [Op.or]: [
-                { adminId: loginUser },
-                { managerId: loginUser }
-              ],
-              companyName: { [Op.in]: results.map((r) => r.companyName) },
-              personName: { [Op.in]: results.map((r) => r.personName) },
-              mobileNumber: { [Op.in]: results.map((r) => r.mobileNumber) },
-              companyEmail: { [Op.in]: results.map((r) => r.companyEmail) },
-            },
+              where: {
+                [Op.or]: [{ adminId: loginUser }, { managerId: loginUser }],
+                companyName: { [Op.in]: results.map((r) => r.companyName) },
+                personName: { [Op.in]: results.map((r) => r.personName) },
+                mobileNumber: { [Op.in]: results.map((r) => r.mobileNumber) },
+                companyEmail: { [Op.in]: results.map((r) => r.companyEmail) },
+              },
             });
             // If NOT found → add to insert list
             if (!exists) {
@@ -938,71 +930,6 @@ export const approveLeave = async (
   }
 };
 
-// export const test = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const { page = 1, limit = 10, search = "", role } = req.query;
-
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-
-//     const loggedInId = userData?.userId;
-//     const mainWhere: any = { id: loggedInId };
-//     const createdWhere: any = {};
-//     if (search) {
-//       createdWhere[Op.or] = [
-//         { firstName: { [Op.iLike]: `%${search}%` } },
-//         { lastName: { [Op.iLike]: `%${search}%` } },
-//         { email: { [Op.iLike]: `%${search}%` } },
-//         { phone: { [Op.iLike]: `%${search}%` } },
-//       ];
-//     }
-
-//    const rows = await User.findByPk(loggedInId,{
-//   // where: mainWhere,
-//   attributes: [
-//     "id",
-//     "firstName",
-//     "lastName",
-//     "email",
-//     "phone",
-//     "role",
-//     "createdAt",
-//   ],
-//   include: [
-//     {
-//       model: User,
-//       as: "createdUsers",
-//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-//       through: { attributes: [] },
-//       where: createdWhere,
-//       required: false,
-//       include: [
-//         {
-//           model: User,
-//           as: "createdUsers", // nested level
-//           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-//           through: { attributes: [] },
-//           where: createdWhere,
-//           required: false,
-//         },
-//       ],
-//     },
-//   ],
-//   order: [["createdAt", "DESC"]],
-// });
-//     createSuccess(res, "Users fetched successfully", {  page: pageNum,
-//       limit: limitNum,
-//       user:rows });
-//   } catch (error) {
-//     badRequest(
-//       res,
-//       error instanceof Error ? error.message : "Something went wrong"
-//     );
-//   }
-// };
-
 export const test = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -1028,14 +955,6 @@ export const test = async (req: Request, res: Response): Promise<void> => {
     // Get total count
     const totalCount = await User.count({
       where: mainWhere,
-      // include: [
-      //   {
-      //     model: User,
-      //     as: "createdUsers",
-      //     where: createdWhere,
-      //     required: false,
-      //   },
-      // ],
     });
 
     const rows = await User.findByPk(loggedInId, {
@@ -1080,21 +999,6 @@ export const test = async (req: Request, res: Response): Promise<void> => {
               through: { attributes: [] },
               where: createdWhere,
               required: false,
-              // include: [
-              //   {
-              //     model: Attendance,
-              //     as: "Attendances",
-              //     where: {
-              //       punch_in: {
-              //         [Op.between]: [
-              //           new Date(new Date().setHours(0, 0, 0, 0)),
-              //           new Date(new Date().setHours(23, 59, 59, 999)),
-              //         ],
-              //       },
-              //     },
-              //     required: false,
-              //   },
-              // ],
             },
           ],
         },
@@ -1471,168 +1375,6 @@ export const getAttendance = async (
   }
 };
 
-// export const userAttendance = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { page = 1, limit = 10, userId } = req.query || {};
-
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-
-//     if (!userId) {
-//       badRequest(res, "UserId is required", 400);
-//       return;
-//     }
-
-//     // ✅ 1) Fetch user
-//     const user = await User.findOne({
-//       where: { id: Number(userId) },
-//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-//     });
-
-//     if (!user) {
-//       badRequest(res, "User not found", 404);
-//       return;
-//     }
-
-//     // ✅ 2) Fetch attendance with pagination
-//     const { rows: attendance, count } = await Attendance.findAndCountAll({
-//       where: { employee_id: Number(userId) },
-//       limit: limitNum,
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-
-//     // ✅ 3) Response
-//     createSuccess(res, "User attendance fetched successfully", {
-//       user,
-//       attendance,
-//       pagination: {
-//         totalRecords: count,
-//         totalPages: Math.ceil(count / limitNum),
-//         currentPage: pageNum,
-//         limit: limitNum,
-//       },
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//     return;
-//   }
-// };
-
-// export const userLeave = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { page = 1, limit = 10, userId } = req.query || {};
-
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-
-//     if (!userId) {
-//       badRequest(res, "UserId is required", 400);
-//       return;
-//     }
-
-//     // ✅ 1) Fetch user
-//     const user = await User.findOne({
-//       where: { id: Number(userId) },
-//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-//     });
-
-//     if (!user) {
-//       badRequest(res, "User not found", 404);
-//       return;
-//     }
-
-//     // ✅ 2) Fetch attendance with pagination
-//     const { rows: leave, count } = await Leave.findAndCountAll({
-//       where: { employee_id: Number(userId) },
-//       limit: limitNum,
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-
-//     // ✅ 3) Response
-//     createSuccess(res, "User attendance fetched successfully", {
-//       user,
-//       leave,
-//       pagination: {
-//         totalRecords: count,
-//         totalPages: Math.ceil(count / limitNum),
-//         currentPage: pageNum,
-//         limit: limitNum,
-//       },
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//     return;
-//   }
-// };
-
-// export const userExpense = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { page = 1, limit = 10, userId } = req.query || {};
-
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-
-//     if (!userId) {
-//       badRequest(res, "UserId is required", 400);
-//       return;
-//     }
-
-//     // ✅ 1) Fetch user
-//     const user = await User.findOne({
-//       where: { id: Number(userId) },
-//       attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-//     });
-
-//     if (!user) {
-//       badRequest(res, "User not found", 404);
-//       return;
-//     }
-
-//     // ✅ 2) Fetch attendance with pagination
-//     const { rows: leave, count } = await Expense.findAndCountAll({
-//       where: { userId: Number(userId) },
-//       limit: limitNum,
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-
-//     // ✅ 3) Response
-//     createSuccess(res, "User attendance fetched successfully", {
-//       user,
-//       leave,
-//       pagination: {
-//         totalRecords: count,
-//         totalPages: Math.ceil(count / limitNum),
-//         currentPage: pageNum,
-//         limit: limitNum,
-//       },
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//     return;
-//   }
-// };
-
 const getDateFilter = (query: any) => {
   const { startDate, endDate, lastDays, today } = query;
   const filter: any = {};
@@ -1684,9 +1426,6 @@ const fetchData = async (
     order: [["createdAt", "DESC"]],
   });
 };
-
-
-
 
 export const userAttendance = async (req: Request, res: Response) => {
   try {
@@ -1794,210 +1533,18 @@ export const userLeave = async (req: Request, res: Response) => {
   }
 };
 
-// export const AttendanceBook = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const loggedInId = userData.userId;
-
-//     const childIds = await getAllChildUserIds(loggedInId);
-//     const allUserIds = [...childIds]; // Exclude logged-in user (same as your code)
-
-//     // SELECT month
-//     const {
-//       month = new Date().getMonth() + 1,
-//       year = new Date().getFullYear(),
-//     } = req.query;
-
-//     const startDate = new Date(Number(year), Number(month) - 1, 1);
-//     const endDate = new Date(Number(year), Number(month), 0); // last day of month
-//     const totalDays = endDate.getDate();
-
-//     // 1. FETCH USERS + ATTENDANCES
-//     const users = await User.findAll({
-//       where: { id: { [Op.in]: allUserIds } },
-//       attributes: ["id", "firstName", "lastName"],
-//       include: [
-//         {
-//           model: Attendance,
-//           as: "Attendances",
-//           where: {
-//             date: {
-//               [Op.between]: [startDate, endDate],
-//             },
-//           },
-//           required: false,
-//         },
-//       ],
-//     });
-
-//     // 2. FORMAT RESULT LIKE ATTENDANCE BOOK
-//    const formatted = users.map((user) => {
-//   const dayMap: Record<string, string> = {};
-
-//   // initialize all days with "-"
-//   for (let day = 1; day <= totalDays; day++) {
-//     dayMap[String(day)] = "-";
-//   }
-
-//   // fill attendance days
-//   (user as any).Attendances?.forEach((a: any) => {
-//     const startDay = new Date(a.date).getDate();       // present or start day
-//     const endDay = new Date(a.punch_in).getDate();     // leave end day
-
-//     // Step 1: fill the start day (e.g. "present")
-//     dayMap[String(startDay)] = a.status || "-";
-
-//     // Step 2: fill leave days AFTER the present day
-//     if (endDay > startDay) {
-//       for (let i = startDay + 1; i <= endDay; i++) {
-//         dayMap[String(i)] = a.status || "-";
-//       }
-//     }
-//   });
-
-//   return {
-//     id: user.id,
-//     name: `${user.firstName} ${user.lastName}`,
-//     days: dayMap,
-//   };
-// });
-
-//     res.status(200).json({
-//       success: true,
-//       message: "Attendance fetched successfully",
-//       data: formatted,
-//     });
-//   } catch (error: any) {
-//     badRequest(res, error.message);
-//   }
-// };
-
-export const AttendanceBook = async (
+export const createClient = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-
-    const childIds = await getAllChildUserIds(loggedInId);
-    const allUserIds = [...childIds];
-
-    // Month – Year
-    const {
-      month = new Date().getMonth() + 1,
-      year = new Date().getFullYear(),
-      search = "",
-      page = 1,
-      limit = 10,
-    } = req.query;
-
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
-
-    const startDate = new Date(Number(year), Number(month) - 1, 1);
-    const endDate = new Date(Number(year), Number(month), 0);
-    const totalDays = endDate.getDate();
-
-    // SEARCH filter
-    const searchFilter = search
-      ? {
-          [Op.or]: [
-            { firstName: { [Op.iLike]: `%${search}%` } },
-            { lastName: { [Op.iLike]: `%${search}%` } },
-          ],
-        }
-      : {};
-
-    // 1. FETCH USERS with pagination + searching
-    const { rows: users, count: totalCount } = await User.findAndCountAll({
-      where: {
-        id: { [Op.in]: allUserIds },
-        ...searchFilter,
-      },
-      attributes: ["id","firstName","lastName","role","email","dob","profile"],
-      include: [
-        {
-          model: Attendance,
-          as: "Attendances",
-          where: {
-            date: {
-              [Op.between]: [startDate, endDate],
-            },
-          },
-          required: false,
-        },
-      ],
-      offset,
-      limit: limitNum,
-      order: [["firstName", "ASC"]],
-    });
-
-    console.log(">>>>>>>>>>count",totalCount)
-
-    // 2. FORMAT OUTPUT
-    const formatted = users.map((user) => {
-      const dayMap: Record<string, string> = {};
-
-      // fill default "-"
-      for (let day = 1; day <= totalDays; day++) {
-        dayMap[String(day)] = "-";
-      }
-
-      // fill attendance
-      (user as any).Attendances?.forEach((a: any) => {
-        const startDay = new Date(a.date).getDate();
-        const endDay = new Date(a.punch_in).getDate();
-
-        dayMap[String(startDay)] = a.status || "-";
-
-        if (endDay > startDay) {
-          for (let i = startDay + 1; i <= endDay; i++) {
-            dayMap[String(i)] = a.status || "-";
-          }
-        }
-      });
-
-      return {
-        id: user.id,
-        name: `${user.firstName} ${user.lastName}`,
-        email:user?.email,
-        dob:user?.dob,
-        profile:user?.profile,
-        role:user?.role,
-        days: dayMap,
-      };
-    });
-
-    // RESPONSE
-    res.status(200).json({
-      success: true,
-      message: "Attendance fetched successfully",
-      data: {
-        page: pageNum,
-        limit: limitNum,
-        totalCount,
-        users: formatted,
-      },
-    });
-  } catch (error: any) {
-    badRequest(res, error.message);
-  }
-};
-
-
-export const createClient = async (req: Request, res: Response): Promise<void> => {
-  try {
     const { userId } = req.userData as JwtPayload;
-    const { companyName, personName, mobileNumber, companyEmail } = req.body || {};
+    const { companyName, personName, mobileNumber, companyEmail } =
+      req.body || {};
     // Required fields check
     if (![companyName, personName, mobileNumber, companyEmail].every(Boolean)) {
-       badRequest(res, "All fields are required");
-       return
+      badRequest(res, "All fields are required");
+      return;
     }
     // Check if client already exists
     const isExist = await Meeting.findOne({
@@ -2006,13 +1553,13 @@ export const createClient = async (req: Request, res: Response): Promise<void> =
         companyName,
         personName,
         mobileNumber,
-        companyEmail
-      }
+        companyEmail,
+      },
     });
 
     if (isExist) {
-       badRequest(res, "Client already exists");
-       return
+      badRequest(res, "Client already exists");
+      return;
     }
 
     // Create new client
@@ -2023,11 +1570,148 @@ export const createClient = async (req: Request, res: Response): Promise<void> =
       companyEmail,
       adminId: userId,
       managerId: userId,
-      customerType: "existing"
+      customerType: "existing",
     });
-     createSuccess(res, "Client created successfully");
+    createSuccess(res, "Client created successfully");
   } catch (error) {
-     badRequest(res, error instanceof Error ? error.message : "Something went wrong");
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};
+
+const generateDayMap = (totalDays: number) =>
+  Object.fromEntries(
+    Array.from({ length: totalDays }, (_, i) => [String(i + 1), "-"])
+  );
+
+// Build search filter
+const buildSearchFilter = (search: string) =>
+  search
+    ? {
+        [Op.or]: [
+          { firstName: { [Op.iLike]: `%${search}%` } },
+          { lastName: { [Op.iLike]: `%${search}%` } },
+        ],
+      }
+    : {};
+// =========================== MAIN FUNCTION ===============================
+
+export const AttendanceBook = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { userId } = req.userData as JwtPayload;
+
+    const childIds = await getAllChildUserIds(userId); // assuming this returns array
+    if (!childIds.length) badRequest(res, "No child users found");
+
+    // Query Params
+    const month = Number(req.query.month) || new Date().getMonth() + 1;
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const search = String(req.query.search || "");
+    const pageNum = Number(req.query.page) || 1;
+    const limitNum = Number(req.query.limit) || 10;
+    const offset = (pageNum - 1) * limitNum;
+
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0);
+    const totalDays = endDate.getDate();
+
+    // Fetch users + Attendance together (Optimized Query)
+    const { rows: users, count: totalCount } = await User.findAndCountAll({
+      where: { id: { [Op.in]: childIds }, ...buildSearchFilter(search) },
+      attributes: [
+        "id",
+        "firstName",
+        "lastName",
+        "role",
+        "email",
+        "dob",
+        "profile",
+      ],
+      include: [
+        {
+          model: Attendance,
+          as: "Attendances",
+          where: { date: { [Op.between]: [startDate, endDate] } },
+          required: false,
+        },
+      ],
+      offset,
+      limit: limitNum,
+      order: [["firstName", "ASC"]],
+    });
+
+    // Format response
+    const formatted = users.map((u: any) => {
+      const days = generateDayMap(totalDays);
+
+      u.Attendances?.forEach((a: any) => {
+        const start = new Date(a.date).getDate();
+        const end = new Date(a.punch_in).getDate();
+        for (let i = start; i <= end; i++) days[String(i)] = a.status ?? "-";
+      });
+
+      return {
+        id: u.id,
+        name: `${u.firstName} ${u.lastName}`,
+        email: u.email,
+        dob: u.dob,
+        profile: u.profile,
+        role: u.role,
+        days,
+      };
+    });
+    res.status(200).json({
+      success: true,
+      message: "Attendance loaded",
+      data: { page: pageNum, limit: limitNum, totalCount, users: formatted },
+    });
+  } catch (error: any) {
+    badRequest(res, error.message);
+  }
+};
+
+export const assignMeeting = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId, meetingId, scheduledTime } = req.body || {};
+
+    // Validate required fields
+    if (!userId || !meetingId || !scheduledTime) {
+       badRequest(res, "userId, meetingId and scheduledTime are required");
+    }
+
+    // Check meeting exists
+    const meeting = await Meeting.findOne({ where: { id: meetingId } });
+
+    if (!meeting) {
+       badRequest(res, "Meeting not found");
+    }
+
+    // If already assigned to another employee and schedule time is conflicted
+    if (meeting?.userId && new Date(meeting?.scheduledTime) > new Date(scheduledTime)) {
+       badRequest(res, "This client is already scheduled for another employee");
+    }else{
+    await Meeting.update(
+      {
+        userId,
+        scheduledTime,
+        status: "scheduled"
+      },
+      { where: { id: meetingId } }
+    );
+    createSuccess(res, "Meeting scheduled successfully");
+    }
+
+    // Update meeting
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
   }
 };
 
