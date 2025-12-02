@@ -23,26 +23,18 @@ router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
 router.post("/bulk-upload",tokenCheck,csv.array("csv"),AdminController.BulkUploads)
-
-
 router.get("/get-attendance", tokenCheck, AdminController.getAttendance);
 router.patch("/approved-leave",tokenCheck,AdminController.approveLeave);
 router.get("/get-leave-list",tokenCheck,AdminController.leaveList)
 router.get("/get-expense",tokenCheck,AdminController.GetExpense);
 router.get("/admin-manager",tokenCheck,AdminController.test);
-
-
 router.patch('/approved-expense', tokenCheck, AdminController.UpdateExpense)
-
-
-
-
 router.get("/user-attendance",tokenCheck,AdminController.userAttendance)
 router.get('/user-leave',tokenCheck,AdminController.userLeave)
 router.get('/user-expense',tokenCheck,AdminController.userExpense)
-
-
 router.get("/attendance-book", tokenCheck, AdminController.AttendanceBook);
+router.post("/create-client", tokenCheck, AdminController.createClient);
+
 
 
 

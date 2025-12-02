@@ -906,9 +906,6 @@ export const approveLeave = async (
     await Leave.update(obj, {
       where: { employee_id, id: leaveID },
     });
-
-    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>", status);
-
     if (status === "rejected") {
       await Attendance.update(
         { status: "leaveReject" },
@@ -1922,7 +1919,7 @@ export const AttendanceBook = async (
         id: { [Op.in]: allUserIds },
         ...searchFilter,
       },
-      attributes: ["id", "firstName", "lastName"],
+      attributes: ["id","firstName","lastName","role","email","dob","profile"],
       include: [
         {
           model: Attendance,
@@ -1939,6 +1936,8 @@ export const AttendanceBook = async (
       limit: limitNum,
       order: [["firstName", "ASC"]],
     });
+
+    console.log(">>>>>>>>>>count",totalCount)
 
     // 2. FORMAT OUTPUT
     const formatted = users.map((user) => {
@@ -1966,6 +1965,10 @@ export const AttendanceBook = async (
       return {
         id: user.id,
         name: `${user.firstName} ${user.lastName}`,
+        email:user?.email,
+        dob:user?.dob,
+        profile:user?.profile,
+        role:user?.role,
         days: dayMap,
       };
     });
@@ -1985,3 +1988,46 @@ export const AttendanceBook = async (
     badRequest(res, error.message);
   }
 };
+
+
+export const createClient = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId } = req.userData as JwtPayload;
+    const { companyName, personName, mobileNumber, companyEmail } = req.body || {};
+    // Required fields check
+    if (![companyName, personName, mobileNumber, companyEmail].every(Boolean)) {
+       badRequest(res, "All fields are required");
+       return
+    }
+    // Check if client already exists
+    const isExist = await Meeting.findOne({
+      where: {
+        [Op.or]: [{ adminId: userId }, { managerId: userId }],
+        companyName,
+        personName,
+        mobileNumber,
+        companyEmail
+      }
+    });
+
+    if (isExist) {
+       badRequest(res, "Client already exists");
+       return
+    }
+
+    // Create new client
+    await Meeting.create({
+      companyName,
+      personName,
+      mobileNumber,
+      companyEmail,
+      adminId: userId,
+      managerId: userId,
+      customerType: "existing"
+    });
+     createSuccess(res, "Client created successfully");
+  } catch (error) {
+     badRequest(res, error instanceof Error ? error.message : "Something went wrong");
+  }
+};
+
