@@ -1330,7 +1330,6 @@ const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             }, { where: { id: meetingId } });
             (0, errorMessage_1.createSuccess)(res, "Meeting scheduled successfully");
         }
-        // Update meeting
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
