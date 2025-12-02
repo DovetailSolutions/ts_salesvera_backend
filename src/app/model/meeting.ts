@@ -20,24 +20,30 @@ export class Meeting extends Model {
   public personName!: string;
   public mobileNumber!: string;
   public customerType!: "new" | "existing" | "followup";
-  public meetingPurpose!: "demo" | "support" | "collection" | "general" |"newlead"|"other"|"feedback";
+  public meetingPurpose!:
+    | "demo"
+    | "support"
+    | "collection"
+    | "general"
+    | "newlead"
+    | "other"
+    | "feedback";
   public categoryId!: number;
   public remarks!: string | null;
-  public status!: "pending" | "completed" | "cancelled" |"in"|"out";
+  public status!: "pending" | "completed" | "cancelled" | "in" | "out";
 
   public latitude_in!: string | null;
   public longitude_in!: string | null;
   public latitude_out!: string | null;
   public longitude_out!: string | null;
-  public companyEmail!:string|null;
+  public companyEmail!: string | null;
 
   public meetingTimeOut!: Date;
   public meetingTimeIn!: Date;
   public userId!: number;
   public adminId!: number;
-  public managerId!:number
-  public scheduledTime!:Date;
-
+  public managerId!: number;
+  public scheduledTime!: Date;
 
   // Relationship helpers
   public getCategories!: BelongsToManyGetAssociationsMixin<Category>;
@@ -45,7 +51,10 @@ export class Meeting extends Model {
   public addCategory!: BelongsToManyAddAssociationMixin<Category, number>;
   public addCategories!: BelongsToManyAddAssociationsMixin<Category, number>;
   public removeCategory!: BelongsToManyRemoveAssociationMixin<Category, number>;
-  public removeCategories!: BelongsToManyRemoveAssociationsMixin<Category, number>;
+  public removeCategories!: BelongsToManyRemoveAssociationsMixin<
+    Category,
+    number
+  >;
 }
 
 export const MeetingTypeModel = (sequelize: Sequelize) => {
@@ -87,7 +96,15 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
       },
 
       meetingPurpose: {
-        type: DataTypes.ENUM("demo", "support", "collection", "general","newlead","other","feedback"),
+        type: DataTypes.ENUM(
+          "demo",
+          "support",
+          "collection",
+          "general",
+          "newlead",
+          "other",
+          "feedback"
+        ),
         allowNull: true,
       },
 
@@ -102,11 +119,18 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
       },
 
       status: {
-        type: DataTypes.ENUM("pending", "completed", "cancelled","in","out","scheduled"),
+        type: DataTypes.ENUM(
+          "pending",
+          "completed",
+          "cancelled",
+          "in",
+          "out",
+          "scheduled"
+        ),
         defaultValue: "pending",
       },
 
-        scheduledTime: {
+      scheduledTime: {
         type: DataTypes.DATE,
         allowNull: true,
       },
@@ -125,7 +149,7 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
-       longitude_out: {
+      longitude_out: {
         type: DataTypes.STRING,
         allowNull: true,
       },
@@ -142,11 +166,11 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
-       adminId: {
+      adminId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
-       managerId: {
+      managerId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
