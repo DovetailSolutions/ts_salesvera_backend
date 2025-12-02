@@ -576,9 +576,11 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
-        const where = { adminId: ll };
+        // adminId:ll
+        const where = {};
         if (empty === "true") {
             where.userId = null;
+            where.adminId = ll; // <-- correctly added to where clause
         }
         if (userId)
             where.userId = userId;

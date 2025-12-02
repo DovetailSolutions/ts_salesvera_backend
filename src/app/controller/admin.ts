@@ -676,7 +676,11 @@ export const getMeeting = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
+
+
     const role = userData?.role;
+
+   
     let ll = loggedInId;
     let manager: any = null;
      if (role === "manager") {
@@ -706,13 +710,18 @@ export const getMeeting = async (
       date,
       empty,
     } = req.query;
+    
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
-    const where: any = {adminId:ll};
+    // adminId:ll
+    const where: any = {};
+
     if (empty === "true") {
-      where.userId = null;
-    }
+  where.userId = null;
+  where.adminId = ll;    // <-- correctly added to where clause
+}
+
    
     if (userId) where.userId = userId;
     if (search) {
@@ -736,6 +745,8 @@ export const getMeeting = async (
         [Op.between]: [start, end],
       };
     }
+
+   
     const { rows, count } = await Meeting.findAndCountAll({
       attributes: [
         "id",
@@ -753,6 +764,7 @@ export const getMeeting = async (
       limit: limitNum,
       order: [["createdAt", "DESC"]],
     });
+    
 
     if (rows.length == 0) {
       badRequest(res, "Not meeting found");
