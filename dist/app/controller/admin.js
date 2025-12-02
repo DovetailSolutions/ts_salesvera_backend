@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AttendanceBook = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.createClient = exports.AttendanceBook = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -739,7 +739,6 @@ const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         yield dbConnection_1.Leave.update(obj, {
             where: { employee_id, id: leaveID },
         });
-        console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>", status);
         if (status === "rejected") {
             yield dbConnection_1.Attendance.update({ status: "leaveReject" }, { where: { employee_id, status: "leave" } });
         }
@@ -1503,7 +1502,7 @@ const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function*
         // 1. FETCH USERS with pagination + searching
         const { rows: users, count: totalCount } = yield dbConnection_1.User.findAndCountAll({
             where: Object.assign({ id: { [sequelize_1.Op.in]: allUserIds } }, searchFilter),
-            attributes: ["id", "firstName", "lastName"],
+            attributes: ["id", "firstName", "lastName", "role", "email", "dob", "profile"],
             include: [
                 {
                     model: dbConnection_1.Attendance,
@@ -1520,6 +1519,7 @@ const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function*
             limit: limitNum,
             order: [["firstName", "ASC"]],
         });
+        console.log(">>>>>>>>>>count", totalCount);
         // 2. FORMAT OUTPUT
         const formatted = users.map((user) => {
             var _a;
@@ -1542,6 +1542,10 @@ const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function*
             return {
                 id: user.id,
                 name: `${user.firstName} ${user.lastName}`,
+                email: user === null || user === void 0 ? void 0 : user.email,
+                dob: user === null || user === void 0 ? void 0 : user.dob,
+                profile: user === null || user === void 0 ? void 0 : user.profile,
+                role: user === null || user === void 0 ? void 0 : user.role,
                 days: dayMap,
             };
         });
@@ -1562,3 +1566,43 @@ const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.AttendanceBook = AttendanceBook;
+const createClient = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { userId } = req.userData;
+        const { companyName, personName, mobileNumber, companyEmail } = req.body || {};
+        // Required fields check
+        if (![companyName, personName, mobileNumber, companyEmail].every(Boolean)) {
+            (0, errorMessage_1.badRequest)(res, "All fields are required");
+            return;
+        }
+        // Check if client already exists
+        const isExist = yield dbConnection_1.Meeting.findOne({
+            where: {
+                [sequelize_1.Op.or]: [{ adminId: userId }, { managerId: userId }],
+                companyName,
+                personName,
+                mobileNumber,
+                companyEmail
+            }
+        });
+        if (isExist) {
+            (0, errorMessage_1.badRequest)(res, "Client already exists");
+            return;
+        }
+        // Create new client
+        yield dbConnection_1.Meeting.create({
+            companyName,
+            personName,
+            mobileNumber,
+            companyEmail,
+            adminId: userId,
+            managerId: userId,
+            customerType: "existing"
+        });
+        (0, errorMessage_1.createSuccess)(res, "Client created successfully");
+    }
+    catch (error) {
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
+    }
+});
+exports.createClient = createClient;
