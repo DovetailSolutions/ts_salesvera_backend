@@ -1682,6 +1682,7 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
     // Validate required fields
     if (!userId || !meetingId || !scheduledTime) {
        badRequest(res, "userId, meetingId and scheduledTime are required");
+       return
     }
 
     // Check meeting exists
@@ -1689,27 +1690,40 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
 
     if (!meeting) {
        badRequest(res, "Meeting not found");
+       return
     }
 
-    // If already assigned to another employee and schedule time is conflicted
-    if (meeting?.userId && new Date(meeting?.scheduledTime) > new Date(scheduledTime)) {
-       badRequest(res, "This client is already scheduled for another employee");
-    }else{
-    await Meeting.update(
-      {
-        userId,
-        scheduledTime,
-        status: "scheduled"
-      },
-      { where: { id: meetingId } }
-    );
-    createSuccess(res, "Meeting scheduled successfully");
+    // If meeting is already assigned & scheduled time conflicts
+    if (meeting.userId) {
+      const existingTime = new Date(meeting.scheduledTime);
+      const newTime = new Date(scheduledTime);
+
+      if (existingTime.getTime() === newTime.getTime()) {
+         badRequest(res, "This meeting is already scheduled at this time");
+         return
+      }
     }
+
+    // Create new meeting entry (assign to employee)
+    await Meeting.create({
+      companyName: meeting.companyName,
+      personName: meeting.personName,
+      mobileNumber: meeting.mobileNumber,
+      companyEmail: meeting.companyEmail,
+      userId,
+      scheduledTime,
+      status: "scheduled",
+      customerType:"existing"
+    });
+
+     createSuccess(res, "Meeting scheduled successfully");
 
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
+     badRequest(res, errorMessage);
+     return
   }
 };
+
 

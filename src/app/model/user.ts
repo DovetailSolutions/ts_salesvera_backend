@@ -26,6 +26,7 @@ interface UserAttributes {
   dob?: string;
   profile?: string;
   createdBy?: number[];
+  onlineSatus?: "online" | "offline"
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -64,6 +65,7 @@ type UserCreationAttributes = Optional<
   | "status"
   | "profile"
   | "createdBy"
+  |"onlineSatus"
 >;
 
 // 3. Define the Model Instance
@@ -101,6 +103,11 @@ export const createUserModel = (sequelize: Sequelize) => {
         type: DataTypes.ENUM("active","deActive","delete"),
         allowNull: false,
         defaultValue: "active",
+      },
+       onlineSatus: {
+        type: DataTypes.ENUM("online","offline"),
+        allowNull: false,
+        defaultValue: "offline",
       },
       role: {
         type: DataTypes.ENUM(

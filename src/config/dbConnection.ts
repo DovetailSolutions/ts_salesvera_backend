@@ -9,6 +9,9 @@ import { DeviceModel } from "../app/model/device";
 import {Attendance} from "../app/model/attendance"
 import {Leave} from '../app/model/leaverequests'
 import {Expense} from '../app/model/expense'
+import{ChatRoom} from '../app/model/chatRoom'
+import{ChatParticipant} from '../app/model/ChatParticipant'
+import{Message} from '../app/model/Message'
 
 
 const sequelize = new Sequelize(
@@ -32,10 +35,19 @@ const sequelize = new Sequelize(
 Attendance.initModel(sequelize);
 Leave.initModel(sequelize)
 Expense.initModel(sequelize)
+
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
 const Meeting = MeetingTypeModel(sequelize);
 const Device = DeviceModel(sequelize);
+// const Chat = ChatRoom(sequelize);
+// const Message = Message(sequelize);
+// // const Device = DeviceModel(sequelize);
+ChatRoom.initModel(sequelize);
+ChatParticipant.initModel(sequelize);
+Message.initModel(sequelize);
+
+
 
 
 User.belongsToMany(User, {
@@ -68,12 +80,36 @@ Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 
 
-// User.hasMany(User, {
-//   as: "createdUsers",
-//   foreignKey: "createdBy",
-// });
+ChatRoom.hasMany(ChatParticipant, {
+  foreignKey: "chatRoomId",
+  as: "participants",
+});
 
-//join
+ChatParticipant.belongsTo(ChatRoom, {
+  foreignKey: "chatRoomId",
+});
+
+// ChatRoom → Messages
+ChatRoom.hasMany(Message, {
+  foreignKey: "chatRoomId",
+  as: "messages",
+});
+
+Message.belongsTo(ChatRoom, {
+  foreignKey: "chatRoomId",
+});
+
+// User → Message
+User.hasMany(Message, { foreignKey: "senderId" });
+Message.belongsTo(User, { foreignKey: "senderId" });
+
+User.hasMany(ChatParticipant, {
+  foreignKey: "userId",
+  as: "chatParticipants"
+});
+
+ChatParticipant.belongsTo(User, { foreignKey: "userId", as: "user" });
+
 
 
 
@@ -96,5 +132,8 @@ export {
   Device,
   Attendance,
   Leave,
-  Expense
+  Expense,
+  ChatRoom,
+  ChatParticipant,
+  Message
 };

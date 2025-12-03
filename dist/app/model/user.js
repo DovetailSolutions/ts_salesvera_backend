@@ -46,6 +46,11 @@ const createUserModel = (sequelize) => {
             allowNull: false,
             defaultValue: "active",
         },
+        onlineSatus: {
+            type: sequelize_1.DataTypes.ENUM("online", "offline"),
+            allowNull: false,
+            defaultValue: "offline",
+        },
         role: {
             type: sequelize_1.DataTypes.ENUM("user", "admin", "client", "super_admin", "manager", "sale_person"),
             allowNull: false,

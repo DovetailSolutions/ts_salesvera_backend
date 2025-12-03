@@ -4,24 +4,18 @@ dotenv.config();
 import express, { Request, Response } from "express";
 import cors from "cors";
 import path from "path";
+import http from "http";
 
 import { connectDB } from "./config/dbConnection";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import swaggerUi from "swagger-ui-express";
+import { initChatSocket } from "./Notigication/chat";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-
-
-
-// app.use(cors({
-//   origin: '*',
-//   credentials: true,
-// }));
-// ✅ Additional headers (optional but recommended)
 const allowedOrigins = [
   "http://localhost:5173",
   "https://salesvera.com",
@@ -42,7 +36,6 @@ app.use(
   })
 );
 
-// ✅ Additional headers (optional but recommended)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin as string)) {
@@ -60,21 +53,39 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// ✅ Serve uploads folder for images
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.use("/admin", adminRouter);
 app.use("/api", UserRouter);
 
-// ✅ Swagger UI route
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Hello from TypeScript Express!");
 });
 
-app.listen(PORT, () => {
+import { Server } from "socket.io";
+
+// Create HTTP server (IMPORTANT)
+const server = http.createServer(app);
+
+// Initialize socket.io
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+  },
+});
+
+initChatSocket(io);
+
+// Listen for socket connections
+// io.on("connection", (socket) => {
+//   console.log("User connected:", socket.id);
+// });
+
+// Start server (IMPORTANT)
+server.listen(PORT, () => {
   connectDB();
   console.log(`Server is running on http://localhost:${PORT}`);
 });
-
