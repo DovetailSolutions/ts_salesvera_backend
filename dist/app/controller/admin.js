@@ -1312,28 +1312,40 @@ const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         // Validate required fields
         if (!userId || !meetingId || !scheduledTime) {
             (0, errorMessage_1.badRequest)(res, "userId, meetingId and scheduledTime are required");
+            return;
         }
         // Check meeting exists
         const meeting = yield dbConnection_1.Meeting.findOne({ where: { id: meetingId } });
         if (!meeting) {
             (0, errorMessage_1.badRequest)(res, "Meeting not found");
+            return;
         }
-        // If already assigned to another employee and schedule time is conflicted
-        if ((meeting === null || meeting === void 0 ? void 0 : meeting.userId) && new Date(meeting === null || meeting === void 0 ? void 0 : meeting.scheduledTime) > new Date(scheduledTime)) {
-            (0, errorMessage_1.badRequest)(res, "This client is already scheduled for another employee");
+        // If meeting is already assigned & scheduled time conflicts
+        if (meeting.userId) {
+            const existingTime = new Date(meeting.scheduledTime);
+            const newTime = new Date(scheduledTime);
+            if (existingTime.getTime() === newTime.getTime()) {
+                (0, errorMessage_1.badRequest)(res, "This meeting is already scheduled at this time");
+                return;
+            }
         }
-        else {
-            yield dbConnection_1.Meeting.update({
-                userId,
-                scheduledTime,
-                status: "scheduled"
-            }, { where: { id: meetingId } });
-            (0, errorMessage_1.createSuccess)(res, "Meeting scheduled successfully");
-        }
+        // Create new meeting entry (assign to employee)
+        yield dbConnection_1.Meeting.create({
+            companyName: meeting.companyName,
+            personName: meeting.personName,
+            mobileNumber: meeting.mobileNumber,
+            companyEmail: meeting.companyEmail,
+            userId,
+            scheduledTime,
+            status: "scheduled",
+            customerType: "existing"
+        });
+        (0, errorMessage_1.createSuccess)(res, "Meeting scheduled successfully");
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
+        return;
     }
 });
 exports.assignMeeting = assignMeeting;
