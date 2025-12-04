@@ -587,14 +587,11 @@ export const categoryDetails = async (
       badRequest(res, "Category ID is missing");
       return;
     }
-
     const category = await Middleware.getById(Category, Number(id));
-
     if (!category) {
       badRequest(res, "Category not found");
       return;
     }
-
     createSuccess(res, "Category details fetched successfully", category);
   } catch (error) {
     const errorMessage =
@@ -1502,7 +1499,13 @@ export const userExpense = async (req: Request, res: Response) => {
 
 export const userLeave = async (req: Request, res: Response) => {
   try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
     const { userId } = req.query;
+    const finalUserId = userId ? Number(userId) : Number(loggedInId);
+    if(!finalUserId){
+      badRequest(res,"userId is required")
+    }
     if (!userId) return badRequest(res, "UserId is required", 400);
     const { page, limit, offset } = getPagination(req);
     // const dateFilter = getDateFilter(req.query);
@@ -1510,7 +1513,7 @@ export const userLeave = async (req: Request, res: Response) => {
     // if (!user) return badRequest(res, "User not found", 404);
     const { rows, count } = await fetchData(
       Leave,
-      { employee_id: Number(userId) },
+      { employee_id: Number(finalUserId) },
       limit,
       offset
       // dateFilter

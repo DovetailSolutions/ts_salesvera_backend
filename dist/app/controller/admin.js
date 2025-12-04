@@ -1157,14 +1157,20 @@ const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
 exports.userExpense = userExpense;
 const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        const userData = req.userData;
+        const loggedInId = userData.userId;
         const { userId } = req.query;
+        const finalUserId = userId ? Number(userId) : Number(loggedInId);
+        if (!finalUserId) {
+            (0, errorMessage_1.badRequest)(res, "userId is required");
+        }
         if (!userId)
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
         const { page, limit, offset } = getPagination(req);
         // const dateFilter = getDateFilter(req.query);
         // const user = await findUser(Number(userId));
         // if (!user) return badRequest(res, "User not found", 404);
-        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset
+        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(finalUserId) }, limit, offset
         // dateFilter
         );
         (0, errorMessage_1.createSuccess)(res, "User leave fetched successfully", {
