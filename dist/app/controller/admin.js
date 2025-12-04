@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -1157,20 +1157,14 @@ const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
 exports.userExpense = userExpense;
 const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const userData = req.userData;
-        const loggedInId = userData.userId;
         const { userId } = req.query;
-        const finalUserId = userId ? Number(userId) : Number(loggedInId);
-        if (!finalUserId) {
-            (0, errorMessage_1.badRequest)(res, "userId is required");
-        }
         if (!userId)
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
         const { page, limit, offset } = getPagination(req);
         // const dateFilter = getDateFilter(req.query);
         // const user = await findUser(Number(userId));
         // if (!user) return badRequest(res, "User not found", 404);
-        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(finalUserId) }, limit, offset
+        const { rows, count } = yield fetchData(dbConnection_1.Leave, { employee_id: Number(userId) }, limit, offset
         // dateFilter
         );
         (0, errorMessage_1.createSuccess)(res, "User leave fetched successfully", {
@@ -1355,3 +1349,32 @@ const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.assignMeeting = assignMeeting;
+const ownLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const { page, limit, offset } = getPagination(req);
+        const { rows, count } = yield dbConnection_1.Leave.findAndCountAll({
+            where: { employee_id: Number(userData === null || userData === void 0 ? void 0 : userData.userId) },
+            limit,
+            offset,
+            order: [["id", "DESC"]],
+        });
+        if (rows.length === 0) {
+            (0, errorMessage_1.badRequest)(res, "No leaves found");
+        }
+        (0, errorMessage_1.createSuccess)(res, "Leave fetched successfully", {
+            leave: rows,
+            pagination: {
+                totalRecords: count,
+                totalPages: Math.ceil(count / limit),
+                currentPage: page,
+                limit,
+            },
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.ownLeave = ownLeave;

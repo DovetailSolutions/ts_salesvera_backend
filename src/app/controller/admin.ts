@@ -1499,13 +1499,7 @@ export const userExpense = async (req: Request, res: Response) => {
 
 export const userLeave = async (req: Request, res: Response) => {
   try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
     const { userId } = req.query;
-    const finalUserId = userId ? Number(userId) : Number(loggedInId);
-    if(!finalUserId){
-      badRequest(res,"userId is required")
-    }
     if (!userId) return badRequest(res, "UserId is required", 400);
     const { page, limit, offset } = getPagination(req);
     // const dateFilter = getDateFilter(req.query);
@@ -1513,7 +1507,7 @@ export const userLeave = async (req: Request, res: Response) => {
     // if (!user) return badRequest(res, "User not found", 404);
     const { rows, count } = await fetchData(
       Leave,
-      { employee_id: Number(finalUserId) },
+      { employee_id: Number(userId) },
       limit,
       offset
       // dateFilter
@@ -1726,6 +1720,39 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
       error instanceof Error ? error.message : "Something went wrong";
      badRequest(res, errorMessage);
      return
+  }
+};
+
+export const ownLeave = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    const { page, limit, offset } = getPagination(req);
+
+    const { rows, count } = await Leave.findAndCountAll({
+      where: { employee_id: Number(userData?.userId) },
+      limit,
+      offset,
+      order: [["id", "DESC"]],
+    });
+
+    if (rows.length === 0) {
+       badRequest(res, "No leaves found");
+    }
+     createSuccess(res, "Leave fetched successfully", {
+      leave: rows,
+      pagination: {
+        totalRecords: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit,
+      },
+    });
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
   }
 };
 
