@@ -1,7 +1,12 @@
-import {Op} from "sequelize";
+import { Op } from "sequelize";
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
-import { ChatRoom, ChatParticipant, Message,User } from "../config/dbConnection";
+import {
+  ChatRoom,
+  ChatParticipant,
+  Message,
+  User,
+} from "../config/dbConnection";
 import { v4 as uuid } from "uuid";
 
 // export const initChatSocket = (io: Server) => {
@@ -130,7 +135,7 @@ import { v4 as uuid } from "uuid";
 //                       {
 //                         seen: true
 //                       })
-                
+
 //                     io.to(msg.roomId``).emit('seen message', msg)
 //                   })
 
@@ -193,7 +198,6 @@ export const initChatSocket = (io: Server) => {
     const token = socket.handshake.headers.token as string;
 
     if (!token) return next(new Error("Authentication error"));
-
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET!);
       socket.data.user = decoded;
@@ -358,53 +362,89 @@ export const initChatSocket = (io: Server) => {
       }
     });
 
-      // --------------------------------------------------------
+    // --------------------------------------------------------
     //  🟦 join user MESSAGE
     // --------------------------------------------------------
 
+    socket.on("mychats", async (msg) => {
+      try {
+        const page = msg.page || 1;
+        const limit = msg.limit || 10;
+        const search = msg.search || "";
+        const offset = (page - 1) * limit;
 
-socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
+        let searchCondition = {};
+
+        if (search !== "") {
+          searchCondition = {
+            [Op.or]: [
+              { message: { [Op.iLike]: `%${search}%` } }, // message text
+              { type: { [Op.iLike]: `%${search}%` } }, // optional field
+              { senderName: { [Op.iLike]: `%${search}%` } }, // optional
+            ],
+          };
+        }
+
+        const result = await Message.findAndCountAll({
+          where: {
+            chatRoomId: msg.roomId,
+            ...searchCondition, // <-- add search here
+          },
+          offset,
+          limit,
+          raw: true,
+          nest: true,
+          order: [["createdAt", "DESC"]],
+        });
+
+        io.to(socket.id).emit("UserList", {
+          success: true,
+          total: result.count,
+          totalPages: Math.ceil(result.count / limit),
+          currentPage: page,
+          data: result.rows,
+        });
+      } catch (error) {
+        console.log("Error in mychats:", error);
+      }
+    });
+
+    // --------------------------------------------------------
+    //  🟦 join user MESSAGE
+    // --------------------------------------------------------
+
+socket.on("mychats", async (msg) => {
   try {
+    const page = msg.page || 1;
+    const limit = msg.limit || 10;
+    const search = msg.search || "";
     const offset = (page - 1) * limit;
-    search = typeof search === "string" ? search.trim() : "";
 
-    const childIds = await getAllChildUserIds(userId);
-    const validUserIds = [userId, ...childIds];
-
-    console.log(">>>>>>>>>>>>>>>>>xcvjhcvsbhvs",validUserIds)
-
-    let userSearchCondition = {};
+    let searchCondition = {};
 
     if (search !== "") {
-      userSearchCondition = {
+      searchCondition = {
         [Op.or]: [
-          { firstName: { [Op.iLike]: `%${search}%` } },
-          { lastName: { [Op.iLike]: `%${search}%` } },
-          { email: { [Op.iLike]: `%${search}%` } },
+          { message: { [Op.iLike]: `%${search}%` } },  // message text
+          { type: { [Op.iLike]: `%${search}%` } },     // optional field
+          { senderName: { [Op.iLike]: `%${search}%` } } // optional
         ]
       };
     }
 
-    const result = await ChatParticipant.findAndCountAll({
+    const result = await Message.findAndCountAll({
       where: {
-        userId: validUserIds,
-        // ...searchCondition,
+        chatRoomId: msg.roomId,
+        ...searchCondition,   // <-- add search here
       },
-      limit,
       offset,
-      order: [["id", "DESC"]],
-      include: [
-        {
-          model: User,
-          as: "user", 
-          attributes: ["id", "firstName", "lastName", "email", "role","onlineSatus"],
-           where: userSearchCondition, // <-- search applied here
-          required: false,
-        }
-      ]
+      limit,
+      raw: true,
+      nest: true,
+      order: [["createdAt", "DESC"]],
     });
 
-    io.to(socket.id).emit("UserList", {
+    io.to(socket.id).emit("mychats", {
       success: true,
       total: result.count,
       totalPages: Math.ceil(result.count / limit),
@@ -413,11 +453,7 @@ socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
     });
 
   } catch (error) {
-    console.error("UserList Error:", error);
-    socket.emit("UserList", {
-      success: false,
-      error: "Unable to fetch user list",
-    });
+    console.log("Error in mychats:", error);
   }
 });
 
