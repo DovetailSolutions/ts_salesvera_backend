@@ -194,40 +194,29 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         //  🟦 join user MESSAGE
         // --------------------------------------------------------
-        socket.on("UserList", (_a) => __awaiter(void 0, [_a], void 0, function* ({ page = 1, limit = 10, search = "" }) {
+        socket.on("mychats", (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
+                const page = msg.page || 1;
+                const limit = msg.limit || 10;
+                const search = msg.search || "";
                 const offset = (page - 1) * limit;
-                search = typeof search === "string" ? search.trim() : "";
-                const childIds = yield getAllChildUserIds(userId);
-                const validUserIds = [userId, ...childIds];
-                console.log(">>>>>>>>>>>>>>>>>xcvjhcvsbhvs", validUserIds);
-                let userSearchCondition = {};
+                let searchCondition = {};
                 if (search !== "") {
-                    userSearchCondition = {
+                    searchCondition = {
                         [sequelize_1.Op.or]: [
-                            { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                            { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                            { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                        ]
+                            { message: { [sequelize_1.Op.iLike]: `%${search}%` } }, // message text
+                            { type: { [sequelize_1.Op.iLike]: `%${search}%` } }, // optional field
+                            { senderName: { [sequelize_1.Op.iLike]: `%${search}%` } }, // optional
+                        ],
                     };
                 }
-                const result = yield dbConnection_1.ChatParticipant.findAndCountAll({
-                    where: {
-                        userId: validUserIds,
-                        // ...searchCondition,
-                    },
-                    limit,
+                const result = yield dbConnection_1.Message.findAndCountAll({
+                    where: Object.assign({ chatRoomId: msg.roomId }, searchCondition),
                     offset,
-                    order: [["id", "DESC"]],
-                    include: [
-                        {
-                            model: dbConnection_1.User,
-                            as: "user",
-                            attributes: ["id", "firstName", "lastName", "email", "role", "onlineSatus"],
-                            where: userSearchCondition, // <-- search applied here
-                            required: false,
-                        }
-                    ]
+                    limit,
+                    raw: true,
+                    nest: true,
+                    order: [["createdAt", "DESC"]],
                 });
                 io.to(socket.id).emit("UserList", {
                     success: true,
@@ -238,11 +227,46 @@ const initChatSocket = (io) => {
                 });
             }
             catch (error) {
-                console.error("UserList Error:", error);
-                socket.emit("UserList", {
-                    success: false,
-                    error: "Unable to fetch user list",
+                console.log("Error in mychats:", error);
+            }
+        }));
+        // --------------------------------------------------------
+        //  🟦 join user MESSAGE
+        // --------------------------------------------------------
+        socket.on("mychats", (msg) => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                const page = msg.page || 1;
+                const limit = msg.limit || 10;
+                const search = msg.search || "";
+                const offset = (page - 1) * limit;
+                let searchCondition = {};
+                if (search !== "") {
+                    searchCondition = {
+                        [sequelize_1.Op.or]: [
+                            { message: { [sequelize_1.Op.iLike]: `%${search}%` } }, // message text
+                            { type: { [sequelize_1.Op.iLike]: `%${search}%` } }, // optional field
+                            { senderName: { [sequelize_1.Op.iLike]: `%${search}%` } } // optional
+                        ]
+                    };
+                }
+                const result = yield dbConnection_1.Message.findAndCountAll({
+                    where: Object.assign({ chatRoomId: msg.roomId }, searchCondition),
+                    offset,
+                    limit,
+                    raw: true,
+                    nest: true,
+                    order: [["createdAt", "DESC"]],
                 });
+                io.to(socket.id).emit("mychats", {
+                    success: true,
+                    total: result.count,
+                    totalPages: Math.ceil(result.count / limit),
+                    currentPage: page,
+                    data: result.rows,
+                });
+            }
+            catch (error) {
+                console.log("Error in mychats:", error);
             }
         }));
         // --------------------------------------------------------
