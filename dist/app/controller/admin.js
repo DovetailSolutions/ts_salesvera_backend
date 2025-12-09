@@ -50,8 +50,6 @@ const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
-// import csv from "csv-parser";
-// import fs from "fs";
 const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_1 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
@@ -172,51 +170,6 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.Login = Login;
-// export const Login = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const { email, password } = req.body || {};
-//     // ✅ Validate input
-//     if (!email || !password) {
-//       badRequest(res, "Email and password are required");
-//       return;
-//     }
-//     // ✅ Check if user exists
-//     const user = await Middleware.FindByEmail(User, email);
-//     console.log(">>>>user",user)
-//     if (!user || user.get("role") != "sale_person") {
-//    badRequest(res, "Invalid email or password");
-//    return;
-// }
-//     if (user.get("role") != "sale_person") {
-//    badRequest(res, "Invalid email or password");
-//    return;
-// }
-//     // ✅ Validate password
-//     const hashedPassword = user.getDataValue("password");
-//     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
-//     if (!isPasswordValid) {
-//       badRequest(res, "Invalid email or password");
-//     }
-//     // ✅ Create tokens
-//     const { accessToken, refreshToken } = Middleware.CreateToken(
-//       String(user.getDataValue("id")),
-//       String(user.getDataValue("role"))
-//     );
-//     // ✅ Update refresh token in DB
-//     await user.update({ refreshToken, user });
-//     // ✅ Respond
-//     createSuccess(res, "Login successful", {
-//       accessToken,
-//       refreshToken,
-//       user,
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage, error);
-//     return;
-//   }
-// };
 const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;

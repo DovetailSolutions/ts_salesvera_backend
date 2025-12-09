@@ -194,9 +194,6 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         //  🟦 join user MESSAGE
         // -------------------------------------------------------
-        // --------------------------------------------------------
-        //  🟦 join user MESSAGE
-        // --------------------------------------------------------
         socket.on("mychats", (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 const page = msg.page || 1;
@@ -249,29 +246,47 @@ const initChatSocket = (io) => {
                         ],
                     };
                 }
-                const result = yield dbConnection_1.ChatParticipant.findAndCountAll({
-                    where: {
-                        userId: { [sequelize_1.Op.in]: validUserIds },
-                    },
+                console.log(">>>>>>>>>>>>>>>validUserIds", validUserIds);
+                // const result = await ChatParticipant.findAndCountAll({
+                //   where: {
+                //     userId: { [Op.in]: validUserIds },
+                //   },
+                //   limit,
+                //   offset,
+                //   order: [["id", "DESC"]],
+                //   include: [
+                //     {
+                //       model: User,
+                //       as: "user",
+                //       attributes: [
+                //         "id",
+                //         "firstName",
+                //         "lastName",
+                //         "email",
+                //         "role",
+                //         "onlineSatus",
+                //       ],
+                //       where: userSearchCondition,
+                //       required: false,
+                //     },
+                //   ],
+                // });
+                const result = yield dbConnection_1.User.findAndCountAll({
+                    where: Object.assign({ id: {
+                            [sequelize_1.Op.in]: validUserIds,
+                            [sequelize_1.Op.ne]: userId, // ❌ exclude logged-in user
+                        } }, userSearchCondition),
+                    attributes: [
+                        "id",
+                        "firstName",
+                        "lastName",
+                        "email",
+                        "role",
+                        "onlineSatus",
+                    ],
+                    order: [["id", "DESC"]],
                     limit,
                     offset,
-                    order: [["id", "DESC"]],
-                    include: [
-                        {
-                            model: dbConnection_1.User,
-                            as: "user",
-                            attributes: [
-                                "id",
-                                "firstName",
-                                "lastName",
-                                "email",
-                                "role",
-                                "onlineSatus",
-                            ],
-                            where: userSearchCondition,
-                            required: false,
-                        },
-                    ],
                 });
                 io.to(socket.id).emit("UserList", {
                     success: true,

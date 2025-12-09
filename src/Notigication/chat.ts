@@ -366,10 +366,6 @@ export const initChatSocket = (io: Server) => {
     //  🟦 join user MESSAGE
     // -------------------------------------------------------
 
-    // --------------------------------------------------------
-    //  🟦 join user MESSAGE
-    // --------------------------------------------------------
-
 socket.on("mychats", async (msg) => {
   try {
     const page = msg.page || 1;
@@ -410,6 +406,7 @@ socket.on("mychats", async (msg) => {
     console.log("Error in mychats:", error);
   }
 });
+
 socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
   try {
     const offset = (page - 1) * limit;
@@ -430,31 +427,56 @@ socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
       };
     }
 
-    const result = await ChatParticipant.findAndCountAll({
-      where: {
-        userId: { [Op.in]: validUserIds },
-      },
-      limit,
-      offset,
-      order: [["id", "DESC"]],
+    console.log(">>>>>>>>>>>>>>>validUserIds",validUserIds)
 
-      include: [
-        {
-          model: User,
-          as: "user",
-          attributes: [
-            "id",
-            "firstName",
-            "lastName",
-            "email",
-            "role",
-            "onlineSatus",
-          ],
-          where: userSearchCondition,
-          required: false,
-        },
-      ],
-    });
+    // const result = await ChatParticipant.findAndCountAll({
+    //   where: {
+    //     userId: { [Op.in]: validUserIds },
+    //   },
+    //   limit,
+    //   offset,
+    //   order: [["id", "DESC"]],
+
+    //   include: [
+    //     {
+    //       model: User,
+    //       as: "user",
+    //       attributes: [
+    //         "id",
+    //         "firstName",
+    //         "lastName",
+    //         "email",
+    //         "role",
+    //         "onlineSatus",
+    //       ],
+    //       where: userSearchCondition,
+    //       required: false,
+    //     },
+    //   ],
+    // });
+  
+
+const result = await User.findAndCountAll({
+  where: {
+    id: {
+      [Op.in]: validUserIds,
+      [Op.ne]: userId, // ❌ exclude logged-in user
+    },
+    ...userSearchCondition, // Add search conditions
+  },
+  attributes: [
+    "id",
+    "firstName",
+    "lastName",
+    "email",
+    "role",
+    "onlineSatus",
+  ],
+  order: [["id", "DESC"]],
+  limit,
+  offset,
+});
+
 
     io.to(socket.id).emit("UserList", {
       success: true,
