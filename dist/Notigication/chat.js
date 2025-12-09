@@ -35,17 +35,17 @@ function getAllRelatedUserIds(userId_1) {
                     if (processedIds.has(currentId))
                         continue;
                     processedIds.add(currentId);
-                    const user = yield dbConnection_1.User.findByPk(currentId, {
+                    const user = (yield dbConnection_1.User.findByPk(currentId, {
                         include: [
                             {
                                 model: dbConnection_1.User,
-                                as: direction === 'children' ? 'createdUsers' : 'creators',
+                                as: direction === "children" ? "createdUsers" : "creators",
                                 through: { attributes: [] },
                                 attributes: ["id"],
                             },
                         ],
-                    });
-                    const relations = direction === 'children' ? user.createdUsers : user.creators;
+                    }));
+                    const relations = direction === "children" ? user.createdUsers : user.creators;
                     if (!relations)
                         continue;
                     for (const relation of relations) {
@@ -59,8 +59,8 @@ function getAllRelatedUserIds(userId_1) {
         }
         // Fetch both children and parents concurrently
         yield Promise.all([
-            fetchRelations(userId, 'children'),
-            fetchRelations(userId, 'parents')
+            fetchRelations(userId, "children"),
+            fetchRelations(userId, "parents"),
         ]);
         return Array.from(result);
     });
@@ -225,12 +225,16 @@ const initChatSocket = (io) => {
                         [sequelize_1.Op.or]: [
                             { message: { [sequelize_1.Op.iLike]: `%${search}%` } }, // message text
                             { type: { [sequelize_1.Op.iLike]: `%${search}%` } }, // optional field
-                            { senderName: { [sequelize_1.Op.iLike]: `%${search}%` } } // optional
-                        ]
+                            { senderName: { [sequelize_1.Op.iLike]: `%${search}%` } }, // optional
+                        ],
                     };
                 }
+                const chatRoom = yield dbConnection_1.ChatRoom.findOne({
+                    where: { roomId: msg.roomId },
+                    attributes: ["id"],
+                });
                 const result = yield dbConnection_1.Message.findAndCountAll({
-                    where: Object.assign({ chatRoomId: msg.roomId }, searchCondition),
+                    where: Object.assign({ chatRoomId: chatRoom === null || chatRoom === void 0 ? void 0 : chatRoom.id }, searchCondition),
                     offset,
                     limit,
                     raw: true,
