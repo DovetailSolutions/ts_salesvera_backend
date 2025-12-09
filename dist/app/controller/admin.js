@@ -507,6 +507,7 @@ exports.DeleteCategory = DeleteCategory;
 const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
+        const { page = 1, limit = 10, search = "", userId, date, empty, } = req.query;
         const userData = req.userData;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
         const role = userData === null || userData === void 0 ? void 0 : userData.role;
@@ -529,7 +530,6 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 ll = plain.creators[0].id; // parent admin ID
             }
         }
-        const { page = 1, limit = 10, search = "", userId, date, empty, } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
@@ -583,6 +583,7 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             page: pageNum,
             limit: limitNum,
             total: count,
+            totalPages: Math.ceil(count / limitNum),
             rows,
         });
     }

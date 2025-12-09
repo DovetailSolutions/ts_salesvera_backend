@@ -604,6 +604,14 @@ export const getMeeting = async (
   res: Response
 ): Promise<void> => {
   try {
+     const {
+      page = 1,
+      limit = 10,
+      search = "",
+      userId,
+      date,
+      empty,
+    } = req.query;
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
     const role = userData?.role;
@@ -628,14 +636,7 @@ export const getMeeting = async (
         ll = plain.creators[0].id; // parent admin ID
       }
     }
-    const {
-      page = 1,
-      limit = 10,
-      search = "",
-      userId,
-      date,
-      empty,
-    } = req.query;
+   
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -697,6 +698,7 @@ export const getMeeting = async (
       page: pageNum,
       limit: limitNum,
       total: count,
+      totalPages: Math.ceil(count/limitNum),
       rows,
     });
   } catch (error) {
