@@ -166,33 +166,40 @@ type UserWithRelations = any & {
 //   creators?: User[];
 // }
 
-async function getAllRelatedUserIds(userId: number, includeSelf = false): Promise<number[]> {
+async function getAllRelatedUserIds(
+  userId: number,
+  includeSelf = false
+): Promise<number[]> {
   const result = new Set<number>();
   if (includeSelf) result.add(userId);
 
-  async function fetchRelations(id: number, direction: 'children' | 'parents'): Promise<void> {
+  async function fetchRelations(
+    id: number,
+    direction: "children" | "parents"
+  ): Promise<void> {
     const processedIds = new Set<number>();
     const queue: number[] = [id];
 
     while (queue.length > 0) {
       const currentId = queue.shift()!;
-      
+
       if (processedIds.has(currentId)) continue;
       processedIds.add(currentId);
 
-      const user = await User.findByPk(currentId, {
+      const user = (await User.findByPk(currentId, {
         include: [
           {
             model: User,
-            as: direction === 'children' ? 'createdUsers' : 'creators',
+            as: direction === "children" ? "createdUsers" : "creators",
             through: { attributes: [] },
             attributes: ["id"],
           },
         ],
-      }) as UserWithRelations;
+      })) as UserWithRelations;
 
-      const relations = direction === 'children' ? user.createdUsers : user.creators;
-      
+      const relations =
+        direction === "children" ? user.createdUsers : user.creators;
+
       if (!relations) continue;
 
       for (const relation of relations) {
@@ -206,8 +213,8 @@ async function getAllRelatedUserIds(userId: number, includeSelf = false): Promis
 
   // Fetch both children and parents concurrently
   await Promise.all([
-    fetchRelations(userId, 'children'),
-    fetchRelations(userId, 'parents')
+    fetchRelations(userId, "children"),
+    fetchRelations(userId, "parents"),
   ]);
 
   return Array.from(result);
@@ -387,116 +394,108 @@ export const initChatSocket = (io: Server) => {
     //  🟦 join user MESSAGE
     // -------------------------------------------------------
 
-socket.on("mychats", async (msg) => {
-  try {
-    const page = msg.page || 1;
-    const limit = msg.limit || 10;
-    const search = msg.search || "";
-    const offset = (page - 1) * limit;
-    let searchCondition = {};
-    if (search !== "") {
-      searchCondition = {
-        [Op.or]: [
-          { message: { [Op.iLike]: `%${search}%` } },  // message text
-          { type: { [Op.iLike]: `%${search}%` } },     // optional field
-          { senderName: { [Op.iLike]: `%${search}%` } } // optional
-        ]
-      };
-    }
-    const result = await Message.findAndCountAll({
-      where: {
-        chatRoomId: msg.roomId,
-        ...searchCondition,   // <-- add search here
-      },
-      offset,
-      limit,
-      raw: true,
-      nest: true,
-      order: [["createdAt", "DESC"]],
+    socket.on("mychats", async (msg) => {
+      try {
+        const page = msg.page || 1;
+        const limit = msg.limit || 10;
+        const search = msg.search || "";
+        const offset = (page - 1) * limit;
+        let searchCondition = {};
+        if (search !== "") {
+          searchCondition = {
+            [Op.or]: [
+              { message: { [Op.iLike]: `%${search}%` } }, // message text
+              { type: { [Op.iLike]: `%${search}%` } }, // optional field
+              { senderName: { [Op.iLike]: `%${search}%` } }, // optional
+            ],
+          };
+        }
+        const chatRoom = await ChatRoom.findOne({
+          where: { roomId: msg.roomId },
+          attributes: ["id"],
+        });
+        const result = await Message.findAndCountAll({
+          where: {
+            chatRoomId: chatRoom?.id,
+            ...searchCondition, // <-- add search here
+          },
+          offset,
+          limit,
+          raw: true,
+          nest: true,
+          order: [["createdAt", "DESC"]],
+        });
+
+        io.to(socket.id).emit("mychats", {
+          success: true,
+          total: result.count,
+          totalPages: Math.ceil(result.count / limit),
+          currentPage: page,
+          data: result.rows,
+        });
+      } catch (error) {
+        console.log("Error in mychats:", error);
+      }
     });
 
-    io.to(socket.id).emit("mychats", {
-      success: true,
-      total: result.count,
-      totalPages: Math.ceil(result.count / limit),
-      currentPage: page,
-      data: result.rows,
+    socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
+      try {
+        const offset = (page - 1) * limit;
+        const cleanedSearch = typeof search === "string" ? search.trim() : "";
+
+        const childIds = await getAllRelatedUserIds(userId);
+        console.log(">>>>>>>>>>>>>>>>childIds", childIds);
+        const validUserIds = [userId, ...childIds];
+        console.log(">>>>>>>>>>>>>>>>validUserIds", validUserIds);
+
+        let userSearchCondition = {};
+
+        if (cleanedSearch !== "") {
+          userSearchCondition = {
+            [Op.or]: [
+              { firstName: { [Op.iLike]: `%${cleanedSearch}%` } },
+              { lastName: { [Op.iLike]: `%${cleanedSearch}%` } },
+              { email: { [Op.iLike]: `%${cleanedSearch}%` } },
+            ],
+          };
+        }
+
+        const result = await User.findAndCountAll({
+          where: {
+            id: {
+              [Op.in]: validUserIds,
+              [Op.ne]: userId, // ❌ exclude logged-in user
+            },
+            ...userSearchCondition, // Add search conditions
+          },
+          attributes: [
+            "id",
+            "firstName",
+            "lastName",
+            "email",
+            "role",
+            "onlineSatus",
+          ],
+          order: [["id", "DESC"]],
+          limit,
+          offset,
+        });
+
+        io.to(socket.id).emit("UserList", {
+          success: true,
+          total: result.count,
+          totalPages: Math.ceil(result.count / limit),
+          currentPage: page,
+          data: result.rows,
+        });
+      } catch (error) {
+        console.error("UserList Error:", error);
+        socket.emit("UserList", {
+          success: false,
+          error: "Unable to fetch user list",
+        });
+      }
     });
-
-  } catch (error) {
-    console.log("Error in mychats:", error);
-  }
-});
-
-
-
-
-
-
-socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
-  try {
-    const offset = (page - 1) * limit;
-    const cleanedSearch = typeof search === "string" ? search.trim() : "";
-
-    const childIds = await getAllRelatedUserIds(userId);
-    console.log(">>>>>>>>>>>>>>>>childIds",childIds)
-    const validUserIds = [userId, ...childIds];
-    console.log(">>>>>>>>>>>>>>>>validUserIds",validUserIds)
-
-    let userSearchCondition = {};
-
-    if (cleanedSearch !== "") {
-      userSearchCondition = {
-        [Op.or]: [
-          { firstName: { [Op.iLike]: `%${cleanedSearch}%` } },
-          { lastName: { [Op.iLike]: `%${cleanedSearch}%` } },
-          { email: { [Op.iLike]: `%${cleanedSearch}%` } },
-        ],
-      };
-    }
-
-const result = await User.findAndCountAll({
-  where: {
-    id: {
-      [Op.in]: validUserIds,
-      [Op.ne]: userId, // ❌ exclude logged-in user
-    },
-    ...userSearchCondition, // Add search conditions
-  },
-  attributes: [
-    "id",
-    "firstName",
-    "lastName",
-    "email",
-    "role",
-    "onlineSatus",
-  ],
-  order: [["id", "DESC"]],
-  limit,
-  offset,
-});
-
-
-    io.to(socket.id).emit("UserList", {
-      success: true,
-      total: result.count,
-      totalPages: Math.ceil(result.count / limit),
-      currentPage: page,
-      data: result.rows,
-    });
-
-  } catch (error) {
-    console.error("UserList Error:", error);
-    socket.emit("UserList", {
-      success: false,
-      error: "Unable to fetch user list",
-    });
-  }
-});
-
-
-
-
 
     // --------------------------------------------------------
     socket.on("disconnect", () => {
