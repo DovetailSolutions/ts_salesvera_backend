@@ -364,50 +364,7 @@ export const initChatSocket = (io: Server) => {
 
     // --------------------------------------------------------
     //  🟦 join user MESSAGE
-    // --------------------------------------------------------
-
-    socket.on("mychats", async (msg) => {
-      try {
-        const page = msg.page || 1;
-        const limit = msg.limit || 10;
-        const search = msg.search || "";
-        const offset = (page - 1) * limit;
-
-        let searchCondition = {};
-
-        if (search !== "") {
-          searchCondition = {
-            [Op.or]: [
-              { message: { [Op.iLike]: `%${search}%` } }, // message text
-              { type: { [Op.iLike]: `%${search}%` } }, // optional field
-              { senderName: { [Op.iLike]: `%${search}%` } }, // optional
-            ],
-          };
-        }
-
-        const result = await Message.findAndCountAll({
-          where: {
-            chatRoomId: msg.roomId,
-            ...searchCondition, // <-- add search here
-          },
-          offset,
-          limit,
-          raw: true,
-          nest: true,
-          order: [["createdAt", "DESC"]],
-        });
-
-        io.to(socket.id).emit("UserList", {
-          success: true,
-          total: result.count,
-          totalPages: Math.ceil(result.count / limit),
-          currentPage: page,
-          data: result.rows,
-        });
-      } catch (error) {
-        console.log("Error in mychats:", error);
-      }
-    });
+    // -------------------------------------------------------
 
     // --------------------------------------------------------
     //  🟦 join user MESSAGE
@@ -419,9 +376,7 @@ socket.on("mychats", async (msg) => {
     const limit = msg.limit || 10;
     const search = msg.search || "";
     const offset = (page - 1) * limit;
-
     let searchCondition = {};
-
     if (search !== "") {
       searchCondition = {
         [Op.or]: [
@@ -431,7 +386,6 @@ socket.on("mychats", async (msg) => {
         ]
       };
     }
-
     const result = await Message.findAndCountAll({
       where: {
         chatRoomId: msg.roomId,
@@ -456,6 +410,71 @@ socket.on("mychats", async (msg) => {
     console.log("Error in mychats:", error);
   }
 });
+socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
+  try {
+    const offset = (page - 1) * limit;
+    const cleanedSearch = typeof search === "string" ? search.trim() : "";
+
+    const childIds = await getAllChildUserIds(userId);
+    const validUserIds = [userId, ...childIds];
+
+    let userSearchCondition = {};
+
+    if (cleanedSearch !== "") {
+      userSearchCondition = {
+        [Op.or]: [
+          { firstName: { [Op.iLike]: `%${cleanedSearch}%` } },
+          { lastName: { [Op.iLike]: `%${cleanedSearch}%` } },
+          { email: { [Op.iLike]: `%${cleanedSearch}%` } },
+        ],
+      };
+    }
+
+    const result = await ChatParticipant.findAndCountAll({
+      where: {
+        userId: { [Op.in]: validUserIds },
+      },
+      limit,
+      offset,
+      order: [["id", "DESC"]],
+
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: [
+            "id",
+            "firstName",
+            "lastName",
+            "email",
+            "role",
+            "onlineSatus",
+          ],
+          where: userSearchCondition,
+          required: false,
+        },
+      ],
+    });
+
+    io.to(socket.id).emit("UserList", {
+      success: true,
+      total: result.count,
+      totalPages: Math.ceil(result.count / limit),
+      currentPage: page,
+      data: result.rows,
+    });
+
+  } catch (error) {
+    console.error("UserList Error:", error);
+    socket.emit("UserList", {
+      success: false,
+      error: "Unable to fetch user list",
+    });
+  }
+});
+
+
+
 
 
     // --------------------------------------------------------
