@@ -158,36 +158,57 @@ import { v4 as uuid } from "uuid";
 //   });
 // };
 
-type UserWithChildren = any & {
-  createdUsers?: UserWithChildren[];
+type UserWithRelations = any & {
+  createdUsers?: UserWithRelations[];
 };
+// interface UserWithRelations extends User {
+//   createdUsers?: User[];
+//   creators?: User[];
+// }
 
-async function getAllChildUserIds(userId: number): Promise<number[]> {
+async function getAllRelatedUserIds(userId: number, includeSelf = false): Promise<number[]> {
   const result = new Set<number>();
+  if (includeSelf) result.add(userId);
 
-  async function fetchLevel(id: number) {
-    const user = (await User.findByPk(id, {
-      include: [
-        {
-          model: User,
-          as: "createdUsers",
-          attributes: ["id"],
-          through: { attributes: [] },
-        },
-      ],
-    })) as UserWithChildren;
+  async function fetchRelations(id: number, direction: 'children' | 'parents'): Promise<void> {
+    const processedIds = new Set<number>();
+    const queue: number[] = [id];
 
-    if (!user?.createdUsers) return;
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      
+      if (processedIds.has(currentId)) continue;
+      processedIds.add(currentId);
 
-    for (const child of user.createdUsers) {
-      if (!result.has(child.id)) {
-        result.add(child.id);
-        await fetchLevel(child.id); // recursive call
+      const user = await User.findByPk(currentId, {
+        include: [
+          {
+            model: User,
+            as: direction === 'children' ? 'createdUsers' : 'creators',
+            through: { attributes: [] },
+            attributes: ["id"],
+          },
+        ],
+      }) as UserWithRelations;
+
+      const relations = direction === 'children' ? user.createdUsers : user.creators;
+      
+      if (!relations) continue;
+
+      for (const relation of relations) {
+        if (!result.has(relation.id)) {
+          result.add(relation.id);
+          queue.push(relation.id);
+        }
       }
     }
   }
 
-  await fetchLevel(userId);
+  // Fetch both children and parents concurrently
+  await Promise.all([
+    fetchRelations(userId, 'children'),
+    fetchRelations(userId, 'parents')
+  ]);
 
   return Array.from(result);
 }
@@ -407,13 +428,20 @@ socket.on("mychats", async (msg) => {
   }
 });
 
+
+
+
+
+
 socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
   try {
     const offset = (page - 1) * limit;
     const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
-    const childIds = await getAllChildUserIds(userId);
+    const childIds = await getAllRelatedUserIds(userId);
+    console.log(">>>>>>>>>>>>>>>>childIds",childIds)
     const validUserIds = [userId, ...childIds];
+    console.log(">>>>>>>>>>>>>>>>validUserIds",validUserIds)
 
     let userSearchCondition = {};
 
@@ -426,35 +454,6 @@ socket.on("UserList", async ({ page = 1, limit = 10, search = "" }) => {
         ],
       };
     }
-
-    console.log(">>>>>>>>>>>>>>>validUserIds",validUserIds)
-
-    // const result = await ChatParticipant.findAndCountAll({
-    //   where: {
-    //     userId: { [Op.in]: validUserIds },
-    //   },
-    //   limit,
-    //   offset,
-    //   order: [["id", "DESC"]],
-
-    //   include: [
-    //     {
-    //       model: User,
-    //       as: "user",
-    //       attributes: [
-    //         "id",
-    //         "firstName",
-    //         "lastName",
-    //         "email",
-    //         "role",
-    //         "onlineSatus",
-    //       ],
-    //       where: userSearchCondition,
-    //       required: false,
-    //     },
-    //   ],
-    // });
-  
 
 const result = await User.findAndCountAll({
   where: {

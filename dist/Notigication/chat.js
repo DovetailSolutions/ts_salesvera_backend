@@ -17,32 +17,51 @@ const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../config/dbConnection");
 const uuid_1 = require("uuid");
-function getAllChildUserIds(userId) {
-    return __awaiter(this, void 0, void 0, function* () {
+// interface UserWithRelations extends User {
+//   createdUsers?: User[];
+//   creators?: User[];
+// }
+function getAllRelatedUserIds(userId_1) {
+    return __awaiter(this, arguments, void 0, function* (userId, includeSelf = false) {
         const result = new Set();
-        function fetchLevel(id) {
+        if (includeSelf)
+            result.add(userId);
+        function fetchRelations(id, direction) {
             return __awaiter(this, void 0, void 0, function* () {
-                const user = (yield dbConnection_1.User.findByPk(id, {
-                    include: [
-                        {
-                            model: dbConnection_1.User,
-                            as: "createdUsers",
-                            attributes: ["id"],
-                            through: { attributes: [] },
-                        },
-                    ],
-                }));
-                if (!(user === null || user === void 0 ? void 0 : user.createdUsers))
-                    return;
-                for (const child of user.createdUsers) {
-                    if (!result.has(child.id)) {
-                        result.add(child.id);
-                        yield fetchLevel(child.id); // recursive call
+                const processedIds = new Set();
+                const queue = [id];
+                while (queue.length > 0) {
+                    const currentId = queue.shift();
+                    if (processedIds.has(currentId))
+                        continue;
+                    processedIds.add(currentId);
+                    const user = yield dbConnection_1.User.findByPk(currentId, {
+                        include: [
+                            {
+                                model: dbConnection_1.User,
+                                as: direction === 'children' ? 'createdUsers' : 'creators',
+                                through: { attributes: [] },
+                                attributes: ["id"],
+                            },
+                        ],
+                    });
+                    const relations = direction === 'children' ? user.createdUsers : user.creators;
+                    if (!relations)
+                        continue;
+                    for (const relation of relations) {
+                        if (!result.has(relation.id)) {
+                            result.add(relation.id);
+                            queue.push(relation.id);
+                        }
                     }
                 }
             });
         }
-        yield fetchLevel(userId);
+        // Fetch both children and parents concurrently
+        yield Promise.all([
+            fetchRelations(userId, 'children'),
+            fetchRelations(userId, 'parents')
+        ]);
         return Array.from(result);
     });
 }
@@ -234,8 +253,10 @@ const initChatSocket = (io) => {
             try {
                 const offset = (page - 1) * limit;
                 const cleanedSearch = typeof search === "string" ? search.trim() : "";
-                const childIds = yield getAllChildUserIds(userId);
+                const childIds = yield getAllRelatedUserIds(userId);
+                console.log(">>>>>>>>>>>>>>>>childIds", childIds);
                 const validUserIds = [userId, ...childIds];
+                console.log(">>>>>>>>>>>>>>>>validUserIds", validUserIds);
                 let userSearchCondition = {};
                 if (cleanedSearch !== "") {
                     userSearchCondition = {
@@ -246,31 +267,6 @@ const initChatSocket = (io) => {
                         ],
                     };
                 }
-                console.log(">>>>>>>>>>>>>>>validUserIds", validUserIds);
-                // const result = await ChatParticipant.findAndCountAll({
-                //   where: {
-                //     userId: { [Op.in]: validUserIds },
-                //   },
-                //   limit,
-                //   offset,
-                //   order: [["id", "DESC"]],
-                //   include: [
-                //     {
-                //       model: User,
-                //       as: "user",
-                //       attributes: [
-                //         "id",
-                //         "firstName",
-                //         "lastName",
-                //         "email",
-                //         "role",
-                //         "onlineSatus",
-                //       ],
-                //       where: userSearchCondition,
-                //       required: false,
-                //     },
-                //   ],
-                // });
                 const result = yield dbConnection_1.User.findAndCountAll({
                     where: Object.assign({ id: {
                             [sequelize_1.Op.in]: validUserIds,
