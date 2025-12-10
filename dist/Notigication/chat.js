@@ -293,7 +293,12 @@ const initChatSocket = (io) => {
                         {
                             model: dbConnection_1.Message,
                             as: "Messages",
-                            // attributes: ["id", "role"],
+                            where: {
+                                status: "unseen",
+                            },
+                            required: false,
+                            separate: true, // 🔥 important: does not break pagination
+                            attributes: ["id", "status"],
                         },
                     ],
                     order: [["id", "DESC"]],
