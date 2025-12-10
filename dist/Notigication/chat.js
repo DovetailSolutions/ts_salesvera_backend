@@ -183,9 +183,11 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         socket.on("seenMessage", (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
-                yield dbConnection_1.Message.update({ seen: true }, { where: { id: msg.msg_id } } // Sequelize FIXED
-                );
-                io.to(msg.roomId).emit("seenMessage", msg);
+                const [updated] = yield dbConnection_1.Message.update({ status: msg.msg }, { where: { id: msg.msg_id } });
+                if (!updated) {
+                    console.log("Message not found");
+                }
+                io.to(msg.roomId).emit("seenMessage", { success: true, data: updated });
             }
             catch (err) {
                 console.error("Seen message error:", err);
@@ -197,7 +199,10 @@ const initChatSocket = (io) => {
         socket.on("messageToDelete", (data) => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 const deletedMessage = yield dbConnection_1.Message.destroy({
-                    where: { id: data.id },
+                    where: {
+                        id: data.id,
+                        senderId: data.senderId,
+                    },
                 });
                 if (deletedMessage) {
                     io.emit("Deleted", { id: data.id });
@@ -283,6 +288,13 @@ const initChatSocket = (io) => {
                         "email",
                         "role",
                         "onlineSatus",
+                    ],
+                    include: [
+                        {
+                            model: dbConnection_1.Message,
+                            as: "Messages",
+                            // attributes: ["id", "role"],
+                        },
                     ],
                     order: [["id", "DESC"]],
                     limit,
