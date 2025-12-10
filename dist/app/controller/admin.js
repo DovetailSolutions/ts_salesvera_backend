@@ -936,6 +936,7 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     try {
         const userData = req.userData;
         const loggedInId = userData.userId;
+        const search = req.query.search;
         const { page, limit, offset } = getPagination(req);
         const childIds = yield getAllChildUserIds(loggedInId);
         const allUserIds = [loggedInId, ...childIds];
@@ -944,11 +945,20 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const expenseWhere = {
             userId: { [sequelize_1.Op.in]: allUserIds },
         };
+        let userWhere = {};
         if (approvedByAdmin !== undefined) {
             expenseWhere.approvedByAdmin = approvedByAdmin;
         }
         if (approvedBySuperAdmin !== undefined) {
             expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
+        }
+        if (search) {
+            userWhere[sequelize_1.Op.or] = [
+                { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            ];
         }
         const { rows, count } = yield dbConnection_1.Expense.findAndCountAll({
             where: expenseWhere, // 👈 final merged condition
@@ -958,6 +968,7 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                     as: "user",
                     attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
                     required: false,
+                    where: userWhere,
                 },
             ],
             order: [["createdAt", "DESC"]],
