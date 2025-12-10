@@ -361,7 +361,7 @@ export const initChatSocket = (io: Server) => {
     socket.on("seenMessage", async (msg) => {
       try {
         const [updated] = await Message.update(
-          { status: msg.msg },
+          { status:"seen"},
           { where: { id: msg.msg_id } }
         );
 

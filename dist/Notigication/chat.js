@@ -183,7 +183,7 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         socket.on("seenMessage", (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
-                const [updated] = yield dbConnection_1.Message.update({ status: msg.msg }, { where: { id: msg.msg_id } });
+                const [updated] = yield dbConnection_1.Message.update({ status: "seen" }, { where: { id: msg.msg_id } });
                 if (!updated) {
                     console.log("Message not found");
                 }
