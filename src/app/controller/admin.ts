@@ -1206,6 +1206,7 @@ export const GetExpense = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
+    const search = req.query.search
     const { page, limit, offset } = getPagination(req);
     const childIds = await getAllChildUserIds(loggedInId);
     
@@ -1217,6 +1218,7 @@ export const GetExpense = async (
     const expenseWhere: any = {
       userId: { [Op.in]: allUserIds },
     };
+    let userWhere:any = {};
 
     if (approvedByAdmin !== undefined) {
       expenseWhere.approvedByAdmin = approvedByAdmin;
@@ -1224,6 +1226,15 @@ export const GetExpense = async (
 
     if (approvedBySuperAdmin !== undefined) {
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
+    }
+
+    if(search){
+      userWhere[Op.or] = [
+        { firstName: { [Op.iLike]: `%${search}%` } },
+        { lastName: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { phone: { [Op.iLike]: `%${search}%` } },
+      ]
     }
 
     const { rows, count } = await Expense.findAndCountAll({
@@ -1234,6 +1245,7 @@ export const GetExpense = async (
           as: "user",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           required: false,
+           where: userWhere,
         },
       ],
       order: [["createdAt", "DESC"]],
