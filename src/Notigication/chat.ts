@@ -361,7 +361,7 @@ export const initChatSocket = (io: Server) => {
     socket.on("seenMessage", async (msg) => {
       try {
         const [updated] = await Message.update(
-          { status:"seen"},
+          { status: "seen" },
           { where: { id: msg.msg_id } }
         );
 
@@ -369,7 +369,7 @@ export const initChatSocket = (io: Server) => {
           console.log("Message not found");
         }
 
-        io.to(msg.roomId).emit("seenMessage",{ success: true, data: updated});
+        io.to(msg.roomId).emit("seenMessage", { success: true, data: updated });
       } catch (err) {
         console.error("Seen message error:", err);
       }
@@ -487,7 +487,12 @@ export const initChatSocket = (io: Server) => {
             {
               model: Message,
               as: "Messages",
-              // attributes: ["id", "role"],
+              where: {
+                status: "unseen",
+              },
+              required: false,
+              separate: true, // 🔥 important: does not break pagination
+              attributes: ["id", "status"],
             },
           ],
           order: [["id", "DESC"]],
