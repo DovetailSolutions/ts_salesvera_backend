@@ -360,12 +360,16 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     socket.on("seenMessage", async (msg) => {
       try {
-        await Message.update(
-          { seen: true },
-          { where: { id: msg.msg_id } } // Sequelize FIXED
+        const [updated] = await Message.update(
+          { status: msg.msg },
+          { where: { id: msg.msg_id } }
         );
 
-        io.to(msg.roomId).emit("seenMessage", msg);
+        if (!updated) {
+          console.log("Message not found");
+        }
+
+        io.to(msg.roomId).emit("seenMessage",{ success: true, data: updated});
       } catch (err) {
         console.error("Seen message error:", err);
       }
@@ -377,7 +381,10 @@ export const initChatSocket = (io: Server) => {
     socket.on("messageToDelete", async (data) => {
       try {
         const deletedMessage = await Message.destroy({
-          where: { id: data.id },
+          where: {
+            id: data.id,
+            senderId: data.senderId,
+          },
         });
 
         if (deletedMessage) {
@@ -475,6 +482,13 @@ export const initChatSocket = (io: Server) => {
             "email",
             "role",
             "onlineSatus",
+          ],
+          include: [
+            {
+              model: Message,
+              as: "Messages",
+              // attributes: ["id", "role"],
+            },
           ],
           order: [["id", "DESC"]],
           limit,

@@ -1145,12 +1145,14 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
-    const { status } = req.query; // <- status comes from query
+    const { status } = req.query;
+     const { page, limit, offset } = getPagination(req);
+     // <- status comes from query
     const childIds = await getAllChildUserIds(loggedInId);
 
     const allUserIds = [loggedInId, ...childIds];
 
-    const leaves = await User.findAll({
+    const { rows, count } = await User.findAndCountAll({
       where: {
         id: {
           [Op.in]: allUserIds, // include all child users
@@ -1181,7 +1183,13 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({
       success: true,
       message: "Leaves fetched successfully",
-      data: leaves,
+      data: rows,
+      pagination: {
+        totalRecords: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit,
+      },
     });
   } catch (error) {
     const errorMessage =
@@ -1198,7 +1206,9 @@ export const GetExpense = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
+    const { page, limit, offset } = getPagination(req);
     const childIds = await getAllChildUserIds(loggedInId);
+    
     const allUserIds = [loggedInId, ...childIds];
 
     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
@@ -1216,7 +1226,7 @@ export const GetExpense = async (
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
     }
 
-    const leaves = await Expense.findAll({
+    const { rows, count } = await Expense.findAndCountAll({
       where: expenseWhere, // 👈 final merged condition
       include: [
         {
@@ -1229,14 +1239,20 @@ export const GetExpense = async (
       order: [["createdAt", "DESC"]],
     });
 
-    if (leaves.length === 0) {
+    if (rows.length === 0) {
       badRequest(res, "data not found");
     }
 
     res.status(200).json({
       success: true,
       message: "Expense fetched successfully",
-      data: leaves,
+      data: rows,
+      pagination: {
+        totalRecords: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit,
+      },
     });
   } catch (error) {
     const errorMessage =
@@ -1245,6 +1261,74 @@ export const GetExpense = async (
   }
 };
 
+// export const getAttendance = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const loggedInId = userData.userId;
+//     const { page, limit, offset } = getPagination(req);
+
+//     const childIds = await getAllChildUserIds(loggedInId);
+//     const allUserIds = [loggedInId, ...childIds]; // keep full list
+
+//     const todayStart = new Date();
+//     todayStart.setHours(0, 0, 0, 0);
+
+//     const todayEnd = new Date();
+//     todayEnd.setHours(23, 59, 59, 999);
+
+//     const leaves = await User.findAll({
+//       where: {
+//         id: {
+//           [Op.in]: allUserIds, // include all child users
+//           [Op.ne]: loggedInId, // ❌ exclude logged-in user
+//         },
+//       },
+//       attributes: [
+//         "id",
+//         "firstName",
+//         "lastName",
+//         "email",
+//         "phone",
+//         "role",
+//         "createdAt",
+//       ],
+//       include: [
+//         {
+//           model: Attendance,
+//           as: "Attendances",
+//           where: {
+//             punch_in: {
+//               [Op.between]: [todayStart, todayEnd],
+//             },
+//           },
+//           required: false,
+//         },
+//       ],
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Attendance fetched successfully",
+//       data: leaves,
+//       // pagination: {
+//       //   totalRecords: count,
+//       //   totalPages: Math.ceil(count / limit),
+//       //   currentPage: page,
+//       //   limit,
+//       // },
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
 export const getAttendance = async (
   req: Request,
   res: Response
@@ -1252,9 +1336,10 @@ export const getAttendance = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
+    const { page, limit, offset } = getPagination(req);
 
     const childIds = await getAllChildUserIds(loggedInId);
-    const allUserIds = [loggedInId, ...childIds]; // keep full list
+    const allUserIds = [loggedInId, ...childIds];
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -1262,11 +1347,11 @@ export const getAttendance = async (
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const leaves = await User.findAll({
+    const { rows, count } = await User.findAndCountAll({
       where: {
         id: {
-          [Op.in]: allUserIds, // include all child users
-          [Op.ne]: loggedInId, // ❌ exclude logged-in user
+          [Op.in]: allUserIds,
+          [Op.ne]: loggedInId, // exclude logged-in user
         },
       },
       attributes: [
@@ -1290,13 +1375,21 @@ export const getAttendance = async (
           required: false,
         },
       ],
+      offset,
+      limit,
       order: [["createdAt", "DESC"]],
     });
 
     res.status(200).json({
       success: true,
       message: "Attendance fetched successfully",
-      data: leaves,
+      data: rows,
+      pagination: {
+        totalRecords: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page,
+        limit,
+      },
     });
   } catch (error) {
     const errorMessage =
