@@ -16,40 +16,45 @@ const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://salesvera.com",
-  "https://www.salesvera.com",
-  "https://api.salesvera.com",
-];
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://salesvera.com",
+//   "https://www.salesvera.com",
+//   "https://api.salesvera.com",
+// ];
 
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       if (!origin || allowedOrigins.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     credentials: true,
+//   })
+// );
+
+// app.use((req, res, next) => {
+//   const origin = req.headers.origin;
+//   if (allowedOrigins.includes(origin as string)) {
+//     res.header("Access-Control-Allow-Origin", origin as string);
+//   }
+//   res.header("Access-Control-Allow-Credentials", "true");
+//   res.header(
+//     "Access-Control-Allow-Headers",
+//     "Content-Type, Authorization, X-Requested-With"
+//   );
+//   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+//   next();
+// });
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
+    origin: true, // reflect request origin
     credentials: true,
   })
 );
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin as string)) {
-    res.header("Access-Control-Allow-Origin", origin as string);
-  }
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With"
-  );
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  next();
-});
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -72,7 +77,7 @@ const server = http.createServer(app);
 // Initialize socket.io
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: "*",
     credentials: true,
   },
 });
