@@ -17,33 +17,41 @@ const chat_1 = require("./Notigication/chat");
 const swaggerFile = require(path_1.default.join(__dirname, "../swagger-output.json"));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
-const allowedOrigins = [
-    "http://localhost:5173",
-    "https://salesvera.com",
-    "https://www.salesvera.com",
-    "https://api.salesvera.com",
-];
+// const allowedOrigins = [
+//   "http://localhost:5173",
+//   "https://salesvera.com",
+//   "https://www.salesvera.com",
+//   "https://api.salesvera.com",
+// ];
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       if (!origin || allowedOrigins.includes(origin)) {
+//         callback(null, true);
+//       } else {
+//         callback(new Error("Not allowed by CORS"));
+//       }
+//     },
+//     credentials: true,
+//   })
+// );
+// app.use((req, res, next) => {
+//   const origin = req.headers.origin;
+//   if (allowedOrigins.includes(origin as string)) {
+//     res.header("Access-Control-Allow-Origin", origin as string);
+//   }
+//   res.header("Access-Control-Allow-Credentials", "true");
+//   res.header(
+//     "Access-Control-Allow-Headers",
+//     "Content-Type, Authorization, X-Requested-With"
+//   );
+//   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+//   next();
+// });
 app.use((0, cors_1.default)({
-    origin: function (origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        }
-        else {
-            callback(new Error("Not allowed by CORS"));
-        }
-    },
+    origin: true, // reflect request origin
     credentials: true,
 }));
-app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (allowedOrigins.includes(origin)) {
-        res.header("Access-Control-Allow-Origin", origin);
-    }
-    res.header("Access-Control-Allow-Credentials", "true");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    next();
-});
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true, limit: "50mb" }));
 app.use("/uploads", express_1.default.static(path_1.default.join(__dirname, "../uploads")));
@@ -59,7 +67,7 @@ const server = http_1.default.createServer(app);
 // Initialize socket.io
 const io = new socket_io_1.Server(server, {
     cors: {
-        origin: allowedOrigins,
+        origin: "*",
         credentials: true,
     },
 });
