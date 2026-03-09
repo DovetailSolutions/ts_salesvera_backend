@@ -54,7 +54,7 @@ router.post("/endmeeting", jwtVerify2_1.tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", jwtVerify2_1.tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", jwtVerify2_1.tokenCheck, Controller.scheduled);
 router.post("/logout", jwtVerify2_1.tokenCheck, Controller.Logout);
-router.get("/getctegory", jwtVerify2_1.tokenCheck, Controller.getCategory);
+router.get("/getcategory", Controller.getCategory);
 // Attendance Summary
 router.post("/attendance/punch-in", jwtVerify2_1.tokenCheck, Controller.AttendancePunchIn);
 router.post("/attendance/punch-out", jwtVerify2_1.tokenCheck, Controller.AttendancePunchOut);
