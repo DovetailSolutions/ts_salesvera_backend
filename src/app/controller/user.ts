@@ -1,4 +1,5 @@
 import { Op, fn, col, where } from "sequelize";
+import {sequelize} from "../../config/dbConnection"
 
 import fs from "fs";
 import pdfParse from "pdf-parse";
@@ -18,6 +19,9 @@ import {
   Attendance,
   Leave,
   Expense,
+  MeetingImage,
+  MeetingCompany,
+  MeetingUser
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -250,124 +254,124 @@ export const MySalePerson = async (
   }
 };
 
-export const CreateMeeting = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const finalUserId = userData?.userId;
-    const isExist = await Meeting.findOne({
-      where: {
-        userId: finalUserId,
-        status: "in", // You wrote "in" but in schema you used: pending | completed | cancelled
-      },
-    });
+// export const CreateMeeting = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const finalUserId = userData?.userId;
+//     const isExist = await Meeting.findOne({
+//       where: {
+//         userId: finalUserId,
+//         status: "in", // You wrote "in" but in schema you used: pending | completed | cancelled
+//       },
+//     });
 
-    /** ✅ If active meeting exists → Stop */
-    if (isExist) {
-      badRequest(
-        res,
-        `You already have an active meeting started at ${isExist.meetingTimeIn}`
-      );
-      return;
-    }
-    const {
-      companyName,
-      personName,
-      mobileNumber,
-      customerType,
-      companyEmail,
-      meetingPurpose,
-      categoryId,
-      status,
-      latitude_in,
-      longitude_in,
-      meetingTimeIn,
-      scheduledTime,
-    } = req.body || {};
+//     /** ✅ If active meeting exists → Stop */
+//     if (isExist) {
+//       badRequest(
+//         res,
+//         `You already have an active meeting started at ${isExist.meetingTimeIn}`
+//       );
+//       return;
+//     }
+//     const {
+//       companyName,
+//       personName,
+//       mobileNumber,
+//       customerType,
+//       companyEmail,
+//       meetingPurpose,
+//       categoryId,
+//       status,
+//       latitude_in,
+//       longitude_in,
+//       meetingTimeIn,
+//       scheduledTime,
+//     } = req.body || {};
 
-    /** ✅ Required fields validation */
-    const requiredFields: Record<string, any> = {
-      companyName,
-      personName,
-      mobileNumber,
-      customerType,
-      meetingPurpose,
-      categoryId,
-      status,
-      // latitude_in,
-      // longitude_in,
-      // meetingTimeIn,
-    };
+//     /** ✅ Required fields validation */
+//     const requiredFields: Record<string, any> = {
+//       companyName,
+//       personName,
+//       mobileNumber,
+//       customerType,
+//       meetingPurpose,
+//       categoryId,
+//       status,
+//       // latitude_in,
+//       // longitude_in,
+//       // meetingTimeIn,
+//     };
 
-    for (const key in requiredFields) {
-      if (!requiredFields[key]) {
-        badRequest(res, `${key} is required`);
-        return;
-      }
-    }
+//     for (const key in requiredFields) {
+//       if (!requiredFields[key]) {
+//         badRequest(res, `${key} is required`);
+//         return;
+//       }
+//     }
 
-    /** ✅ userId priority: req.body → token */
+//     /** ✅ userId priority: req.body → token */
 
-    if (!finalUserId) {
-      badRequest(res, "userId is required");
-      return;
-    }
+//     if (!finalUserId) {
+//       badRequest(res, "userId is required");
+//       return;
+//     }
 
-    const isExists =  await Meeting.findOne({where:{companyName,personName,mobileNumber,companyEmail}})
+//     const isExists =  await Meeting.findOne({where:{companyName,personName,mobileNumber,companyEmail}})
   
 
-    /** ✅ Prepare payload */
-    const payload: any = {
-      companyName,
-      personName,
-      companyEmail,
-      mobileNumber,
-      customerType,
-      meetingPurpose,
-      categoryId,
-      status,
-      userId: finalUserId,
-    };
+//     /** ✅ Prepare payload */
+//     const payload: any = {
+//       companyName,
+//       personName,
+//       companyEmail,
+//       mobileNumber,
+//       customerType,
+//       meetingPurpose,
+//       categoryId,
+//       status,
+//       userId: finalUserId,
+//     };
 
-    const files = req.files as Express.MulterS3.File[];
+//     const files = req.files as Express.MulterS3.File[];
 
-    if(isExists){
-      payload.customerType = isExists.customerType
-    }
+//     if(isExists){
+//       payload.customerType = isExists.customerType
+//     }
 
-    if (files?.length > 0) {
-      payload.image = files.map((file) => file.location);
-    }
+//     if (files?.length > 0) {
+//       payload.image = files.map((file) => file.location);
+//     }
 
-    if (meetingTimeIn) {
-      payload.meetingTimeIn = meetingTimeIn;
-    }
-    if (latitude_in) {
-      payload.latitude_in = latitude_in;
-    }
-    if (longitude_in) {
-      payload.longitude_in = longitude_in;
-    }
-    if (scheduledTime) {
-      payload.scheduledTime = scheduledTime;
-    }
+//     if (meetingTimeIn) {
+//       payload.meetingTimeIn = meetingTimeIn;
+//     }
+//     if (latitude_in) {
+//       payload.latitude_in = latitude_in;
+//     }
+//     if (longitude_in) {
+//       payload.longitude_in = longitude_in;
+//     }
+//     if (scheduledTime) {
+//       payload.scheduledTime = scheduledTime;
+//     }
 
-    /** ✅ Save data */
-    const item = await Middleware.CreateData(Meeting, payload);
-    if(isExists){
-      createSuccess(res, "Meeting successfully added/user already exist",item);
-    }else{
-      createSuccess(res, "Meeting successfully added", item);
-    }
+//     /** ✅ Save data */
+//     const item = await Middleware.CreateData(Meeting, payload);
+//     if(isExists){
+//       createSuccess(res, "Meeting successfully added/user already exist",item);
+//     }else{
+//       createSuccess(res, "Meeting successfully added", item);
+//     }
     
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
 
 export const getLastMeeting = async (
   req: Request,
@@ -382,26 +386,57 @@ export const getLastMeeting = async (
     const offset = (Number(page) - 1) * Number(limit);
 
     const whereCondition: any = {
-      userId: finalUserId,
+      // Filter out records so it only shows users that actually had meetings with `finalUserId`
+      // We do this dynamically via the nested Include "required" so the global query doesn't fail if the client was met by multiple employees.
     };
 
-    // search logic
+    // Client/MeetingUser search logic
     if (search) {
       whereCondition[Op.or] = [
-        { companyName: { [Op.like]: `%${search}%` } },
-        { personName: { [Op.like]: `%${search}%` } },
-        { companyEmail: { [Op.like]: `%${search}%` } },
-        { mobileNumber: { [Op.like]: `%${search}%` } },
-        // { customerType: { [Op.like]: `%${search}%` } },
-        // { meetingPurpose: { [Op.like]: `%${search}%` } },
+        { name: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { mobile: { [Op.iLike]: `%${search}%` } },
       ];
     }
 
-    const { rows, count } = await Meeting.findAndCountAll({
-      where: whereCondition,
+    // company search logic
+    const companyWhereCondition: any = {};
+    // if (search) {
+    //   companyWhereCondition[Op.or] = [
+    //     { companyName: { [Op.iLike]: `%${search}%` } },
+    //     { personName: { [Op.iLike]: `%${search}%` } },
+    //     { companyEmail: { [Op.iLike]: `%${search}%` } },
+    //     { mobileNumber: { [Op.iLike]: `%${search}%` } },
+    //   ];
+    // }
+
+    // Employee relation tracking
+    const meetingWhereCondition: any = { userId: finalUserId };
+
+    const { rows, count } = await MeetingUser.findAndCountAll({
+      where: Object.keys(whereCondition).length ? whereCondition : undefined,
       limit: Number(limit),
       offset,
       order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: MeetingCompany, // Include their associated companies
+          required: false, 
+          include:[
+            {
+              model: Meeting,
+              where: meetingWhereCondition, // Only fetch meetings that belong to the logged-in employee
+              required: true,
+              include: [
+                {
+                  model: MeetingImage 
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      distinct: true, 
     });
 
     res.status(200).json({
@@ -421,7 +456,198 @@ export const getLastMeeting = async (
   }
 };
 
+export const CreateMeeting = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const transaction = await sequelize.transaction();
 
+  try {
+    const userData = req.userData as JwtPayload;
+    const tokenUserId = userData?.userId;
+
+    let {
+      userName,
+      userMobile,
+      userEmail,
+      companyName,
+      personName,
+      mobileNumber,
+      customerType,
+      companyEmail,
+      meetingPurpose,
+      categoryId,
+      status,
+      latitude_in,
+      longitude_in,
+      meetingTimeIn,
+      scheduledTime,
+    } = req.body || {};
+
+    // Trim all string inputs to avoid trailing space errors in enums
+    if (typeof customerType === "string") customerType = customerType.trim();
+    if (typeof meetingPurpose === "string") meetingPurpose = meetingPurpose.trim();
+    if (typeof status === "string") status = status.trim();
+    if (typeof companyName === "string") companyName = companyName.trim();
+    if (typeof personName === "string") personName = personName.trim();
+    if (typeof mobileNumber === "string") mobileNumber = mobileNumber.trim();
+    if (typeof companyEmail === "string") companyEmail = companyEmail.trim();
+
+    /** Required fields */
+    const requiredFields: Record<string, any> = {
+      // userMobile,  <-- Usually optional if they are a new lead
+      companyName,
+      personName,
+      mobileNumber,
+      meetingPurpose,
+      categoryId,
+      status,
+    };
+
+    for (const key in requiredFields) {
+      if (!requiredFields[key]) {
+        await transaction.rollback();
+        badRequest(res, `${key} is required`);
+        return;
+      }
+    }
+
+    const finalUserId = tokenUserId;
+
+    /** --------------------------
+     * 1️⃣ Check / Store the Person we are meeting (MeetingUser)
+     * This acts as an address book for the Employee's external clients
+     * -------------------------- */
+    let meetingContactUser = null;
+    
+    // Use the explicit userMobile if provided, otherwise fallback to the company mobileNumber
+    const contactMobile = userMobile || mobileNumber;
+    const contactName = userName || personName;
+    const contactEmail = userEmail;
+
+    if (contactMobile) {
+      meetingContactUser = await MeetingUser.findOne({
+        where: { 
+          mobile: contactMobile,
+          ...(contactEmail && { email: contactEmail }),
+          ...(contactName && { name: contactName })
+        },
+      });
+
+      if (!meetingContactUser) {
+        meetingContactUser = await MeetingUser.create(
+          {
+            name: contactName,
+            mobile: contactMobile,
+            email:contactEmail,
+            userId: finalUserId
+          },
+          { transaction }
+        );
+      }
+    }
+
+    /** --------------------------
+     * 2️⃣ Check Active Meeting
+     * -------------------------- */
+    const activeMeeting = await Meeting.findOne({
+      where: {
+        userId: finalUserId,
+        status: "in",
+      },
+    });
+
+    if (activeMeeting) {
+      await transaction.rollback();
+      badRequest(
+        res,
+        `You already have an active meeting started at ${activeMeeting.meetingTimeIn}`
+      );
+      return;
+    }
+
+    /** --------------------------
+     * 3️⃣ Find or Create Company
+     * -------------------------- */
+    let company = await MeetingCompany.findOne({
+      where: {
+        companyName,
+        personName,
+        mobileNumber,
+        companyEmail,
+      },
+    });
+
+    if (!company) {
+      company = await MeetingCompany.create(
+        {
+          companyName,
+          personName,
+          mobileNumber,
+          companyEmail,
+          customerType,
+          meetingUserId: meetingContactUser?.id, // Link to Client
+        },
+        { transaction }
+      );
+    }
+
+    /** --------------------------
+     * 4️⃣ Create Meeting
+     * -------------------------- */
+    // Helper to safely parse dates and avoid "Invalid date" DB crash
+    const parseDateSafely = (dateStr: any) => {
+      if (!dateStr || dateStr === "Invalid date") return undefined;
+      const parsed = new Date(dateStr);
+      return isNaN(parsed.getTime()) ? undefined : parsed;
+    };
+
+    const validMeetingTimeIn = parseDateSafely(meetingTimeIn);
+    const validScheduledTime = parseDateSafely(scheduledTime);
+
+    const meeting = await Meeting.create(
+      {
+        userId: finalUserId,
+        meetingUserId: meetingContactUser?.id,
+        companyId: company.id,
+        meetingPurpose,
+        categoryId,
+        status,
+        meetingTimeIn: validMeetingTimeIn,
+        latitude_in,
+        longitude_in,
+        scheduledTime: validScheduledTime,
+      },
+      { transaction }
+    );
+
+    /** --------------------------
+     * 5️⃣ Save Images
+     * -------------------------- */
+    const files = req.files as Express.MulterS3.File[];
+
+    if (files?.length) {
+      const images = files.map((file) => ({
+        meetingId: meeting.id,
+        meetingUserId: meetingContactUser?.id,  // Link to Client
+        image: file.location,
+      }));
+
+      await MeetingImage.bulkCreate(images, { transaction });
+    }
+
+    await transaction.commit();
+
+    createSuccess(res, "Meeting successfully created", meeting);
+  } catch (error) {
+    await transaction.rollback();
+
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+
+    badRequest(res, errorMessage);
+  }
+};
 
 
 
@@ -433,10 +659,17 @@ export const EndMeeting = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
+
     if (!meetingId) {
       badRequest(res, "meetingId is required");
       return;
     }
+
+    if (!latitude_out || !longitude_out) {
+      badRequest(res, "latitude_out and longitude_out are required to end a meeting");
+      return;
+    }
+
     /** ✅ Check meeting exist for this user & active */
     const isExist = await Meeting.findOne({
       where: {
@@ -445,17 +678,28 @@ export const EndMeeting = async (
         status: "in",
       },
     });
+
     if (!isExist) {
       badRequest(res, "No active meeting found with this meetingId");
       return;
     }
+
+    // Since remarks is on the meeting_companies table (not Meetings), we need to update it there
+    if (remarks) {
+      const company = await MeetingCompany.findByPk(isExist.companyId);
+      if (company) {
+        await company.update({ remarks });
+      }
+    }
+
     /** ✅ Update meeting */
-    isExist.status = "completed";
-    isExist.latitude_out = latitude_out ?? null;
-    isExist.longitude_out = longitude_out ?? null;
+    isExist.status = "out"; // Use 'out' as per schema instead of 'completed'
+    isExist.latitude_out = latitude_out;
+    isExist.longitude_out = longitude_out;
     isExist.meetingTimeOut = new Date();
-    if (remarks) isExist.remarks = remarks;
+    
     await isExist.save();
+
     createSuccess(res, "Meeting ended successfully", isExist);
   } catch (error) {
     const errorMessage =

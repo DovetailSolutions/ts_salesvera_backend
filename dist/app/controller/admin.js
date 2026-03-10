@@ -1381,14 +1381,13 @@ const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         }
         // Create new meeting entry (assign to employee)
         yield dbConnection_1.Meeting.create({
-            companyName: meeting.companyName,
-            personName: meeting.personName,
-            mobileNumber: meeting.mobileNumber,
-            companyEmail: meeting.companyEmail,
             userId,
+            meetingUserId: meeting.meetingUserId,
+            companyId: meeting.companyId,
+            categoryId: meeting.categoryId,
+            meetingPurpose: meeting.meetingPurpose,
             scheduledTime,
             status: "scheduled",
-            customerType: "existing"
         });
         (0, errorMessage_1.createSuccess)(res, "Meeting scheduled successfully");
     }

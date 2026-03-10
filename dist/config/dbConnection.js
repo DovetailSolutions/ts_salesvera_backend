@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -33,6 +33,9 @@ const ChatParticipant_1 = require("../app/model/ChatParticipant");
 Object.defineProperty(exports, "ChatParticipant", { enumerable: true, get: function () { return ChatParticipant_1.ChatParticipant; } });
 const Message_1 = require("../app/model/Message");
 Object.defineProperty(exports, "Message", { enumerable: true, get: function () { return Message_1.Message; } });
+const meetingImage_1 = require("../app/model/meetingImage");
+const meetingCompany_1 = require("../app/model/meetingCompany");
+const meetingUser_1 = require("../app/model/meetingUser");
 const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
@@ -53,7 +56,7 @@ const User = (0, user_1.createUserModel)(sequelize);
 exports.User = User;
 const Category = (0, category_1.CategoryModel)(sequelize);
 exports.Category = Category;
-const Meeting = (0, meeting_1.MeetingTypeModel)(sequelize);
+const Meeting = (0, meeting_1.MeetingModel)(sequelize);
 exports.Meeting = Meeting;
 const Device = (0, device_1.DeviceModel)(sequelize);
 exports.Device = Device;
@@ -63,6 +66,12 @@ exports.Device = Device;
 chatRoom_1.ChatRoom.initModel(sequelize);
 ChatParticipant_1.ChatParticipant.initModel(sequelize);
 Message_1.Message.initModel(sequelize);
+const MeetingImage = (0, meetingImage_1.MeetingImageModel)(sequelize);
+exports.MeetingImage = MeetingImage;
+const MeetingCompany = (0, meetingCompany_1.CompanyModel)(sequelize);
+exports.MeetingCompany = MeetingCompany;
+const MeetingUser = (0, meetingUser_1.UserModel)(sequelize);
+exports.MeetingUser = MeetingUser;
 User.belongsToMany(User, {
     through: "UserCreators",
     as: "creators",
@@ -104,6 +113,30 @@ User.hasMany(ChatParticipant_1.ChatParticipant, {
     as: "chatParticipants"
 });
 ChatParticipant_1.ChatParticipant.belongsTo(User, { foreignKey: "userId", as: "user" });
+// MeetingUser → Meeting (The Client Contact)
+MeetingUser.hasMany(Meeting, { foreignKey: "meetingUserId" });
+Meeting.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
+// MeetingUser → MeetingCompany
+MeetingUser.hasMany(MeetingCompany, { foreignKey: "meetingUserId" });
+MeetingCompany.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
+// MeetingUser → MeetingImage
+MeetingUser.hasMany(MeetingImage, { foreignKey: "meetingUserId" });
+MeetingImage.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
+// Company → Meeting
+MeetingCompany.hasMany(Meeting, { foreignKey: "companyId" });
+Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
+// Meeting → Images
+Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
+MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
+// Main Employee User → Meeting (This is what userId actually maps to!)
+User.hasMany(Meeting, { foreignKey: "userId" });
+Meeting.belongsTo(User, { foreignKey: "userId" });
+// Company → Meeting
+MeetingCompany.hasMany(Meeting, { foreignKey: "companyId" });
+Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
+// Meeting → Images
+Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
+MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("✅ Database connection established successfully");

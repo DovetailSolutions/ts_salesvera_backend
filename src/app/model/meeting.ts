@@ -1,25 +1,12 @@
-import {
-  Sequelize,
-  DataTypes,
-  Model,
-  BelongsToManyGetAssociationsMixin,
-  BelongsToManySetAssociationsMixin,
-  BelongsToManyAddAssociationMixin,
-  BelongsToManyAddAssociationsMixin,
-  BelongsToManyRemoveAssociationMixin,
-  BelongsToManyRemoveAssociationsMixin,
-} from "sequelize";
-
-import { Category } from "./category";
+import { Sequelize, DataTypes, Model } from "sequelize";
 
 export class Meeting extends Model {
   public id!: number;
-  public image!: string[];
+  public userId!: number;
+  public companyId!: number;
+  public meetingUserId!: number;
+  public categoryId!: number;
 
-  public companyName!: string;
-  public personName!: string;
-  public mobileNumber!: string;
-  public customerType!: "new" | "existing" | "followup";
   public meetingPurpose!:
     | "demo"
     | "support"
@@ -28,36 +15,20 @@ export class Meeting extends Model {
     | "newlead"
     | "other"
     | "feedback";
-  public categoryId!: number;
-  public remarks!: string | null;
+
   public status!: "pending" | "completed" | "cancelled" | "in" | "out";
 
-  public latitude_in!: string | null;
-  public longitude_in!: string | null;
-  public latitude_out!: string | null;
-  public longitude_out!: string | null;
-  public companyEmail!: string | null;
-
-  public meetingTimeOut!: Date;
-  public meetingTimeIn!: Date;
-  public userId!: number;
-  public adminId!: number;
-  public managerId!: number;
   public scheduledTime!: Date;
+  public meetingTimeIn!: Date;
+  public meetingTimeOut!: Date;
 
-  // Relationship helpers
-  public getCategories!: BelongsToManyGetAssociationsMixin<Category>;
-  public setCategories!: BelongsToManySetAssociationsMixin<Category, number>;
-  public addCategory!: BelongsToManyAddAssociationMixin<Category, number>;
-  public addCategories!: BelongsToManyAddAssociationsMixin<Category, number>;
-  public removeCategory!: BelongsToManyRemoveAssociationMixin<Category, number>;
-  public removeCategories!: BelongsToManyRemoveAssociationsMixin<
-    Category,
-    number
-  >;
+  public latitude_in!: string;
+  public longitude_in!: string;
+  public latitude_out!: string;
+  public longitude_out!: string;
 }
 
-export const MeetingTypeModel = (sequelize: Sequelize) => {
+export const MeetingModel = (sequelize: Sequelize) => {
   Meeting.init(
     {
       id: {
@@ -66,33 +37,24 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
         primaryKey: true,
       },
 
-      image: {
-        type: DataTypes.ARRAY(DataTypes.STRING),
+      userId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: false,
+      },
+
+      companyId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: false,
+      },
+
+      meetingUserId: {
+        type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
 
-      companyName: {
-        type: DataTypes.STRING,
+      categoryId: {
+        type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
-      },
-
-      personName: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
-
-      mobileNumber: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
-      companyEmail: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
-
-      customerType: {
-        type: DataTypes.ENUM("new", "existing", "followup"),
-        defaultValue: "new",
       },
 
       meetingPurpose: {
@@ -105,17 +67,6 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
           "other",
           "feedback"
         ),
-        allowNull: true,
-      },
-
-      categoryId: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: true,
-      },
-
-      remarks: {
-        type: DataTypes.TEXT,
-        allowNull: true,
       },
 
       status: {
@@ -130,54 +81,23 @@ export const MeetingTypeModel = (sequelize: Sequelize) => {
         defaultValue: "pending",
       },
 
-      scheduledTime: {
-        type: DataTypes.DATE,
-        allowNull: true,
-      },
+      scheduledTime: DataTypes.DATE,
 
-      latitude_in: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
+      meetingTimeIn: DataTypes.DATE,
 
-      longitude_in: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
+      meetingTimeOut: DataTypes.DATE,
 
-      latitude_out: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
-      longitude_out: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
+      latitude_in: DataTypes.STRING,
 
-      meetingTimeIn: {
-        type: DataTypes.DATE,
-        allowNull: true,
-      },
-      meetingTimeOut: {
-        type: DataTypes.DATE,
-        allowNull: true,
-      },
-      userId: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: true,
-      },
-      adminId: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: true,
-      },
-      managerId: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: true,
-      },
+      longitude_in: DataTypes.STRING,
+
+      latitude_out: DataTypes.STRING,
+
+      longitude_out: DataTypes.STRING,
     },
     {
-      tableName: "meeting",
       sequelize,
+      tableName: "meetings",
       timestamps: true,
     }
   );

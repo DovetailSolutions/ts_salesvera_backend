@@ -1741,14 +1741,13 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
 
     // Create new meeting entry (assign to employee)
     await Meeting.create({
-      companyName: meeting.companyName,
-      personName: meeting.personName,
-      mobileNumber: meeting.mobileNumber,
-      companyEmail: meeting.companyEmail,
       userId,
+      meetingUserId: meeting.meetingUserId,
+      companyId: meeting.companyId,
+      categoryId: meeting.categoryId,
+      meetingPurpose: meeting.meetingPurpose,
       scheduledTime,
       status: "scheduled",
-      customerType:"existing"
     });
 
      createSuccess(res, "Meeting scheduled successfully");
