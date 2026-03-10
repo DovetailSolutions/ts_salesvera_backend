@@ -514,22 +514,29 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
     }
 });
 exports.getCategory = getCategory;
+// import { Op } from "sequelize";
 const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, id_1, ...args_1], void 0, function* (model, id, data = {}, searchFields = [], include = []) {
     try {
-        const { page = 1, limit = 10, date, search } = data, filters = __rest(data, ["page", "limit", "date", "search"]);
+        const { page = 1, limit = 10, month, year, search } = data, filters = __rest(data, ["page", "limit", "month", "year", "search"]);
         const whereConditions = {};
         if (id) {
             whereConditions.employee_id = id;
         }
-        // Only keep actual filters, not pagination values
+        // Normal filters
         Object.keys(filters).forEach((key) => {
             if (filters[key] !== undefined && filters[key] !== "") {
                 whereConditions[key] = filters[key];
             }
         });
-        if (date) {
-            whereConditions.date = date;
+        // Month filter
+        if (month && year) {
+            const startDate = new Date(year, month - 1, 1);
+            const endDate = new Date(year, month, 0, 23, 59, 59);
+            whereConditions.date = {
+                [sequelize_1.Op.between]: [startDate, endDate],
+            };
         }
+        // Search
         if (search && searchFields.length > 0) {
             whereConditions[sequelize_1.Op.or] = searchFields.map((field) => ({
                 [field]: { [sequelize_1.Op.iRegexp]: `^${search}` },
@@ -543,8 +550,7 @@ const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, 
             offset,
             order: [["createdAt", "DESC"]],
         });
-        console.log(rows.length);
-        let count = rows.length;
+        const count = rows.length;
         return {
             success: true,
             data: rows,

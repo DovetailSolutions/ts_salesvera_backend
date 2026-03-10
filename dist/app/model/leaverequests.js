@@ -14,6 +14,10 @@ class Leave extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: false,
             },
+            leave_type: {
+                type: sequelize_1.DataTypes.ENUM("sick", "casual", "paid", "unpaid", "short_leave", "half_day"),
+                allowNull: false,
+            },
             from_date: {
                 type: sequelize_1.DataTypes.DATEONLY,
                 allowNull: false,

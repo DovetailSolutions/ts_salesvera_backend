@@ -369,6 +369,62 @@ export const CreateMeeting = async (
   }
 };
 
+export const getLastMeeting = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    const { page = 1, limit = 10, search } = req.query as any;
+
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const whereCondition: any = {
+      userId: finalUserId,
+    };
+
+    // search logic
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { personName: { [Op.like]: `%${search}%` } },
+        { companyEmail: { [Op.like]: `%${search}%` } },
+        { mobileNumber: { [Op.like]: `%${search}%` } },
+        // { customerType: { [Op.like]: `%${search}%` } },
+        // { meetingPurpose: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    const { rows, count } = await Meeting.findAndCountAll({
+      where: whereCondition,
+      limit: Number(limit),
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        totalRecords: count,
+        totalPages: Math.ceil(count / Number(limit)),
+      },
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+
+
+
 export const EndMeeting = async (
   req: Request,
   res: Response
@@ -736,7 +792,7 @@ export const requestLeave = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    const { from_date, to_date, reason } = req.body || {};
+    const { from_date, to_date, reason,leave_type } = req.body || {};
 
     // --------------------
     // ✅ Basic Validation
@@ -768,6 +824,7 @@ export const requestLeave = async (
       to_date: to,
       reason,
       status: "pending",
+      leave_type
     });
 
     // --------------------
@@ -784,6 +841,40 @@ export const requestLeave = async (
     createSuccess(res, "Leave requested successfully", leave);
   } catch (error: any) {
      badRequest(res, error?.message || "Something went wrong");
+  }
+};
+
+
+export const LeaveList = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+
+    const offset = (page - 1) * limit;
+
+    const result = await Leave.findAndCountAll({
+      where: {
+        employee_id: finalUserId,
+      },
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    const response = {
+      totalRecords: result.count,
+      totalPages: Math.ceil(result.count / limit),
+      currentPage: page,
+      data: result.rows,
+    };
+
+    createSuccess(res, "Leave list", response);
+
+  } catch (error: any) {
+    badRequest(res, error?.message || "Something went wrong");
   }
 };
 

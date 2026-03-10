@@ -84,6 +84,8 @@ const initChatSocket = (io) => {
         console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
         const userId = socket.data.user.userId;
         const userRole = socket.data.user.role;
+        console.log(">>>>>>>>>>>>>>userId", userId);
+        console.log(">>>>>>>>>>>>>>userRole", userRole);
         // --------------------------------------------------------
         // 🟦 JOIN ROOM
         // --------------------------------------------------------
@@ -319,6 +321,274 @@ const initChatSocket = (io) => {
                     success: false,
                     error: "Unable to fetch user list",
                 });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 CREATE GROUP
+        // --------------------------------------------------------
+        socket.on("createGroup", (_a) => __awaiter(void 0, [_a], void 0, function* ({ members = [], name = "New Group" }) {
+            try {
+                console.log(">>>>>>>>>>>>>>>members", members);
+                if (!members || members.length === 0) {
+                    return socket.emit("createGroup", { error: "Group members are required" });
+                }
+                const newRoomId = (0, uuid_1.v4)();
+                // Create the group room
+                const room = yield dbConnection_1.ChatRoom.create({
+                    roomId: newRoomId,
+                    type: "group",
+                    groupName: name, // ← Save the group name
+                });
+                const dbRoomId = room.id;
+                // Add the creator
+                yield dbConnection_1.ChatParticipant.create({
+                    chatRoomId: dbRoomId,
+                    userId,
+                });
+                // Add the other members
+                const bulk = members.map((m) => ({
+                    chatRoomId: dbRoomId,
+                    userId: m,
+                }));
+                yield dbConnection_1.ChatParticipant.bulkCreate(bulk, {
+                    ignoreDuplicates: true,
+                });
+                // Join socket.io room
+                socket.join(room.roomId);
+                socket.emit("createGroup", {
+                    roomId: room.roomId,
+                    type: "group",
+                    groupName: room.groupName,
+                    members: [userId, ...members],
+                });
+                console.log(`User ${userId} created group ${room.roomId}`);
+            }
+            catch (error) {
+                console.error("Create group error:", error);
+                socket.emit("errorMessage", { error: "Unable to create group chat" });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 ADD MEMBERS TO GROUP
+        // --------------------------------------------------------
+        socket.on("addGroupMembers", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, newMembers = [] }) {
+            try {
+                if (!newMembers || newMembers.length === 0) {
+                    return socket.emit("addGroupMembers", { error: "No members provided to add." });
+                }
+                const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId, type: "group" } });
+                if (!room) {
+                    return socket.emit("addGroupMembers", { error: "Group room not found." });
+                }
+                // Verify if the requester is part of the group
+                const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: room.id, userId },
+                });
+                if (!isParticipant) {
+                    return socket.emit("addGroupMembers", { error: "You are not a member of this group." });
+                }
+                // Add the new members
+                const bulk = newMembers.map((m) => ({
+                    chatRoomId: room.id,
+                    userId: m,
+                }));
+                yield dbConnection_1.ChatParticipant.bulkCreate(bulk, {
+                    ignoreDuplicates: true,
+                });
+                io.to(roomId).emit("addGroupMembers", {
+                    roomId,
+                    addedMembers: newMembers,
+                    addedBy: userId
+                });
+                // console.log(`User ${userId} added members ${newMembers} to group ${roomId}`);
+            }
+            catch (error) {
+                // console.error("Add members error:", error);
+                socket.emit("addGroupMembers", { error: "Unable to add members to group." });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 REMOVE MEMBER FROM GROUP
+        // --------------------------------------------------------
+        socket.on("removeGroupMember", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, memberIdToRemove }) {
+            try {
+                if (!memberIdToRemove) {
+                    return socket.emit("leaveGroup", { error: "Member ID to remove is required." });
+                }
+                const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId, type: "group" } });
+                if (!room) {
+                    return socket.emit("leaveGroup", { error: "Group room not found." });
+                }
+                // Verify if the requester is part of the group
+                const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: room.id, userId },
+                });
+                if (!isParticipant) {
+                    return socket.emit("leaveGroup", { error: "You are not a member of this group." });
+                }
+                // Remove the member
+                const removed = yield dbConnection_1.ChatParticipant.destroy({
+                    where: { chatRoomId: room.id, userId: memberIdToRemove }
+                });
+                if (removed) {
+                    io.to(roomId).emit("leaveGroup", {
+                        roomId,
+                        removedMember: memberIdToRemove,
+                        removedBy: userId
+                    });
+                    // console.log(`User ${userId} removed member ${memberIdToRemove} from group ${roomId}`);
+                }
+                else {
+                    socket.emit("leaveGroup", { error: "Member not found in group." });
+                }
+            }
+            catch (error) {
+                // console.error("Remove member error:", error);
+                socket.emit("leaveGroup", { error: "Unable to remove member from group." });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 LEAVE GROUP
+        // --------------------------------------------------------
+        socket.on("leaveGroup", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId }) {
+            try {
+                const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId, type: "group" } });
+                if (!room) {
+                    return socket.emit("leaveGroup", { error: "Group room not found." });
+                }
+                // Remove the user from the participants table
+                const removed = yield dbConnection_1.ChatParticipant.destroy({
+                    where: { chatRoomId: room.id, userId }
+                });
+                if (removed) {
+                    // Leave the socket io room
+                    socket.leave(roomId);
+                    // Notify others in the room
+                    io.to(roomId).emit("memberLeft", {
+                        roomId,
+                        leftMember: userId
+                    });
+                    socket.emit("leaveGroup", { roomId });
+                    // console.log(`User ${userId} left group ${roomId}`);
+                }
+                else {
+                    socket.emit("leaveGroup", { error: "You are not a member of this group." });
+                }
+            }
+            catch (error) {
+                socket.emit("leaveGroup", { error: "Unable to leave group." });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 GET GROUP DETAILS
+        // --------------------------------------------------------
+        socket.on("getGroupDetails", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId }) {
+            try {
+                const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId, type: "group" } });
+                if (!room) {
+                    return socket.emit("getGroupDetails", { error: "Group room not found." });
+                }
+                // Verify participant access
+                const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: room.id, userId },
+                });
+                if (!isParticipant) {
+                    return socket.emit("getGroupDetails", { error: "You are not a member of this group." });
+                }
+                // Fetch all participants with their User details
+                const participants = yield dbConnection_1.ChatParticipant.findAll({
+                    where: { chatRoomId: room.id },
+                    include: [
+                        {
+                            model: dbConnection_1.User,
+                            as: "user",
+                            attributes: ["id", "firstName", "lastName", "email", "role", "onlineSatus"] // Adjust based on your User model
+                        }
+                    ]
+                });
+                socket.emit("getGroupDetails", {
+                    roomId,
+                    participants: participants.map((p) => p.user)
+                });
+            }
+            catch (error) {
+                socket.emit("getGroupDetails", { error: "Unable to get group details." });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 GET MY GROUPS
+        // --------------------------------------------------------
+        socket.on("getMyGroups", (...args_1) => __awaiter(void 0, [...args_1], void 0, function* ({ page = 1, limit = 10, search = "" } = {}) {
+            try {
+                const offset = (page - 1) * limit;
+                // 1. Find all ChatRoom IDs that the user is a participant of
+                const userParticipations = yield dbConnection_1.ChatParticipant.findAll({
+                    where: { userId },
+                    attributes: ['chatRoomId']
+                });
+                const chatRoomIds = userParticipations.map(p => p.chatRoomId);
+                if (chatRoomIds.length === 0) {
+                    return socket.emit("getMyGroups", {
+                        success: true,
+                        total: 0,
+                        totalPages: 0,
+                        currentPage: page,
+                        data: [],
+                    });
+                }
+                // 2. Fetch those ChatRoom details, filtering by type="group"
+                const result = yield dbConnection_1.ChatRoom.findAndCountAll({
+                    where: Object.assign({ id: { [sequelize_1.Op.in]: chatRoomIds }, type: "group" }, (search && { groupName: { [sequelize_1.Op.iLike]: `%${search}%` } })),
+                    offset,
+                    limit,
+                    order: [["updatedAt", "DESC"]], // Show newest/most recently active groups first
+                });
+                socket.emit("getMyGroups", {
+                    success: true,
+                    total: result.count,
+                    totalPages: Math.ceil(result.count / limit),
+                    currentPage: page,
+                    data: result.rows,
+                });
+            }
+            catch (error) {
+                console.error("Get my groups error:", error);
+                socket.emit("getMyGroups", { error: "Unable to fetch group list." });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 UPDATE GROUP NAME
+        // --------------------------------------------------------
+        socket.on("updateGroupName", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, newName }) {
+            try {
+                if (!newName || newName.trim() === "") {
+                    return socket.emit("updateGroupName", { error: "Group name cannot be empty." });
+                }
+                const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId, type: "group" } });
+                if (!room) {
+                    return socket.emit("updateGroupName", { error: "Group room not found." });
+                }
+                // Verify if the requester is part of the group
+                const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: room.id, userId },
+                });
+                if (!isParticipant) {
+                    return socket.emit("updateGroupName", { error: "You are not a member of this group." });
+                }
+                // Update the group name
+                room.groupName = newName.trim();
+                yield room.save();
+                // Notify everyone in the group about the name change
+                io.to(roomId).emit("updateGroupName", {
+                    roomId,
+                    newName: room.groupName,
+                    updatedBy: userId
+                });
+                console.log(`User ${userId} updated group ${roomId} name to "${room.groupName}"`);
+            }
+            catch (error) {
+                console.error("Update group name error:", error);
+                socket.emit("updateGroupName", { error: "Unable to update group name." });
             }
         }));
         // --------------------------------------------------------

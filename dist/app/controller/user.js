@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ReFressToken = exports.CreateExpense = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.ReFressToken = exports.CreateExpense = exports.LeaveList = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.getLastMeeting = exports.CreateMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const errorMessage_1 = require("../middlewear/errorMessage");
@@ -320,6 +320,49 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.CreateMeeting = CreateMeeting;
+const getLastMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const { page = 1, limit = 10, search } = req.query;
+        const offset = (Number(page) - 1) * Number(limit);
+        const whereCondition = {
+            userId: finalUserId,
+        };
+        // search logic
+        if (search) {
+            whereCondition[sequelize_1.Op.or] = [
+                { companyName: { [sequelize_1.Op.like]: `%${search}%` } },
+                { personName: { [sequelize_1.Op.like]: `%${search}%` } },
+                { companyEmail: { [sequelize_1.Op.like]: `%${search}%` } },
+                { mobileNumber: { [sequelize_1.Op.like]: `%${search}%` } },
+                // { customerType: { [Op.like]: `%${search}%` } },
+                // { meetingPurpose: { [Op.like]: `%${search}%` } },
+            ];
+        }
+        const { rows, count } = yield dbConnection_1.Meeting.findAndCountAll({
+            where: whereCondition,
+            limit: Number(limit),
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        res.status(200).json({
+            success: true,
+            data: rows,
+            pagination: {
+                page: Number(page),
+                limit: Number(limit),
+                totalRecords: count,
+                totalPages: Math.ceil(count / Number(limit)),
+            },
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.getLastMeeting = getLastMeeting;
 const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -625,7 +668,7 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     try {
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const { from_date, to_date, reason } = req.body || {};
+        const { from_date, to_date, reason, leave_type } = req.body || {};
         // --------------------
         // ✅ Basic Validation
         // --------------------
@@ -652,6 +695,7 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             to_date: to,
             reason,
             status: "pending",
+            leave_type
         });
         // --------------------
         // ✅ Insert Attendance Entry (1 entry per request)
@@ -671,6 +715,34 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.requestLeave = requestLeave;
+const LeaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+        const result = yield dbConnection_1.Leave.findAndCountAll({
+            where: {
+                employee_id: finalUserId,
+            },
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        const response = {
+            totalRecords: result.count,
+            totalPages: Math.ceil(result.count / limit),
+            currentPage: page,
+            data: result.rows,
+        };
+        (0, errorMessage_1.createSuccess)(res, "Leave list", response);
+    }
+    catch (error) {
+        (0, errorMessage_1.badRequest)(res, (error === null || error === void 0 ? void 0 : error.message) || "Something went wrong");
+    }
+});
+exports.LeaveList = LeaveList;
 const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {

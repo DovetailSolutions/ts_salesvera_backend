@@ -20,6 +20,10 @@ class ChatRoom extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.ENUM("private", "group"),
                 allowNull: false,
             },
+            groupName: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
         }, {
             sequelize,
             tableName: "chat_rooms",
