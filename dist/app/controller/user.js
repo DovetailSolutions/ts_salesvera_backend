@@ -626,11 +626,30 @@ const GetMeetingList = (req, res) => __awaiter(void 0, void 0, void 0, function*
             where.status = status;
         }
         /** ✅ Query with pagination + count */
-        const { rows, count } = yield dbConnection_2.Meeting.findAndCountAll({
-            where,
-            limit: limitNum,
+        const { rows, count } = yield dbConnection_2.MeetingUser.findAndCountAll({
+            where: where,
+            limit: Number(limit),
             offset,
             order: [["createdAt", "DESC"]],
+            include: [
+                {
+                    model: dbConnection_2.MeetingCompany, // Include their associated companies
+                    required: false,
+                    include: [
+                        {
+                            model: dbConnection_2.Meeting,
+                            where: where, // Only fetch meetings that belong to the logged-in employee
+                            required: true,
+                            include: [
+                                {
+                                    model: dbConnection_2.MeetingImage
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            distinct: true,
         });
         /** ✅ Pagination Info */
         const pageInfo = {

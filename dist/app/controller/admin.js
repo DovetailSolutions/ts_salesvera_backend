@@ -537,7 +537,7 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const where = {};
         if (empty === "true") {
             where.userId = null;
-            where.adminId = ll; // <-- correctly added to where clause
+            where.userId = ll; // <-- correctly added to where clause
         }
         if (userId)
             where.userId = userId;
@@ -558,18 +558,18 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 [sequelize_1.Op.between]: [start, end],
             };
         }
-        const { rows, count } = yield dbConnection_1.Meeting.findAndCountAll({
-            attributes: [
-                "id",
-                "companyName",
-                "personName",
-                "mobileNumber",
-                "companyEmail",
-                "meetingTimeIn",
-                "meetingTimeOut",
-                "meetingPurpose",
-                "userId",
-            ],
+        const { rows, count } = yield dbConnection_1.MeetingUser.findAndCountAll({
+            // attributes: [
+            //   "id",
+            //   "companyName",
+            //   "personName",
+            //   "mobileNumber",
+            //   "companyEmail",
+            //   "meetingTimeIn",
+            //   "meetingTimeOut",
+            //   "meetingPurpose",
+            //   "userId",
+            // ],
             where,
             offset,
             limit: limitNum,
@@ -1236,42 +1236,28 @@ exports.userLeave = userLeave;
 const createClient = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userId } = req.userData;
-        const { companyName, personName, mobileNumber, companyEmail } = req.body || {};
+        const { name, email, mobile, } = req.body || {};
         // Required fields check
-        if (![companyName, personName, mobileNumber, companyEmail].every(Boolean)) {
+        if (![name, email, mobile,].every(Boolean)) {
             (0, errorMessage_1.badRequest)(res, "All fields are required");
             return;
         }
-        // Check if client already exists (via company name or mobile)
-        const isExist = yield dbConnection_1.MeetingCompany.findOne({
+        // Check if client already exists by email or mobile
+        const isExist = yield dbConnection_1.MeetingUser.findOne({
             where: {
-                [sequelize_1.Op.or]: [{ companyName }, { mobileNumber }],
+                [sequelize_1.Op.or]: [{ email }, { mobile }],
             },
         });
         if (isExist) {
             (0, errorMessage_1.badRequest)(res, "Client already exists");
             return;
         }
-        // Find or create MeetingUser contact
-        let meetingContactUser = yield dbConnection_1.MeetingUser.findOne({
-            where: { mobile: mobileNumber },
-        });
-        if (!meetingContactUser) {
-            meetingContactUser = yield dbConnection_1.MeetingUser.create({
-                name: personName,
-                mobile: mobileNumber,
-                email: companyEmail,
-                userId // Track which admin/manager added them
-            });
-        }
-        // Create new client company
-        yield dbConnection_1.MeetingCompany.create({
-            companyName,
-            personName,
-            mobileNumber,
-            companyEmail,
-            customerType: "existing",
-            meetingUserId: meetingContactUser.id
+        // Create new client information (MeetingUser)
+        yield dbConnection_1.MeetingUser.create({
+            name,
+            email,
+            mobile,
+            userId
         });
         (0, errorMessage_1.createSuccess)(res, "Client created successfully");
     }

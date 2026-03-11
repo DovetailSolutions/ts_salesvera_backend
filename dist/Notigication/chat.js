@@ -189,7 +189,12 @@ const initChatSocket = (io) => {
                 if (!updated) {
                     console.log("Message not found");
                 }
-                io.to(msg.roomId).emit("seenMessage", { success: true, data: updated });
+                io.to(msg.roomId).emit("seenMessage", {
+                    success: true,
+                    data: updated,
+                    msg_id: msg.msg_id,
+                    seenBy: userId
+                });
             }
             catch (err) {
                 console.error("Seen message error:", err);
@@ -589,6 +594,43 @@ const initChatSocket = (io) => {
             catch (error) {
                 console.error("Update group name error:", error);
                 socket.emit("updateGroupName", { error: "Unable to update group name." });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 DELETE GROUP
+        // --------------------------------------------------------
+        socket.on("deleteGroup", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId }) {
+            try {
+                const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId, type: "group" } });
+                if (!room) {
+                    return socket.emit("deleteGroup", { error: "Group room not found." });
+                }
+                // Verify if the requester is part of the group
+                const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: room.id, userId },
+                });
+                if (!isParticipant) {
+                    return socket.emit("deleteGroup", { error: "You are not a member of this group." });
+                }
+                // Delete messages
+                yield dbConnection_1.Message.destroy({ where: { chatRoomId: room.id } });
+                // Delete all participants
+                yield dbConnection_1.ChatParticipant.destroy({ where: { chatRoomId: room.id } });
+                // Delete the room itself
+                yield room.destroy();
+                // Notify everyone in the group before dropping them
+                io.to(roomId).emit("groupDeleted", {
+                    roomId,
+                    message: "Group has been deleted.",
+                    deletedBy: userId
+                });
+                // Force all sockets to leave the room
+                io.in(roomId).socketsLeave(roomId);
+                console.log(`User ${userId} deleted group ${roomId}`);
+            }
+            catch (error) {
+                console.error("Delete group error:", error);
+                socket.emit("deleteGroup", { error: "Unable to delete group." });
             }
         }));
         // --------------------------------------------------------
