@@ -1242,29 +1242,36 @@ const createClient = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             (0, errorMessage_1.badRequest)(res, "All fields are required");
             return;
         }
-        // Check if client already exists
-        const isExist = yield dbConnection_1.Meeting.findOne({
+        // Check if client already exists (via company name or mobile)
+        const isExist = yield dbConnection_1.MeetingCompany.findOne({
             where: {
-                [sequelize_1.Op.or]: [{ adminId: userId }, { managerId: userId }],
-                companyName,
-                personName,
-                mobileNumber,
-                companyEmail,
+                [sequelize_1.Op.or]: [{ companyName }, { mobileNumber }],
             },
         });
         if (isExist) {
             (0, errorMessage_1.badRequest)(res, "Client already exists");
             return;
         }
-        // Create new client
-        yield dbConnection_1.Meeting.create({
+        // Find or create MeetingUser contact
+        let meetingContactUser = yield dbConnection_1.MeetingUser.findOne({
+            where: { mobile: mobileNumber },
+        });
+        if (!meetingContactUser) {
+            meetingContactUser = yield dbConnection_1.MeetingUser.create({
+                name: personName,
+                mobile: mobileNumber,
+                email: companyEmail,
+                userId // Track which admin/manager added them
+            });
+        }
+        // Create new client company
+        yield dbConnection_1.MeetingCompany.create({
             companyName,
             personName,
             mobileNumber,
             companyEmail,
-            adminId: userId,
-            managerId: userId,
             customerType: "existing",
+            meetingUserId: meetingContactUser.id
         });
         (0, errorMessage_1.createSuccess)(res, "Client created successfully");
     }

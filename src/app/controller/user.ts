@@ -746,11 +746,30 @@ export const GetMeetingList = async (
     }
 
     /** ✅ Query with pagination + count */
-    const { rows, count } = await Meeting.findAndCountAll({
-      where,
-      limit: limitNum,
+      const { rows, count } = await MeetingUser.findAndCountAll({
+      where: where,
+      limit: Number(limit),
       offset,
       order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: MeetingCompany, // Include their associated companies
+          required: false, 
+          include:[
+            {
+              model: Meeting,
+              where: where, // Only fetch meetings that belong to the logged-in employee
+              required: true,
+              include: [
+                {
+                  model: MeetingImage 
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      distinct: true, 
     });
 
     /** ✅ Pagination Info */
