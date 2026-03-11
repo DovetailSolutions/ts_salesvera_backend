@@ -23,6 +23,9 @@ router.post(
   meeting.array("image"),
   Controller.CreateMeeting
 );
+
+
+router.get("/clientmeeting",tokenCheck,Controller.getLastMeeting)
 router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", tokenCheck, Controller.scheduled);
@@ -34,6 +37,7 @@ router.post("/attendance/punch-out", tokenCheck, Controller.AttendancePunchOut);
 router.get("/attendance/today", tokenCheck, Controller.getTodayAttendance);
 router.get("/attendancelist", tokenCheck, Controller.AttendanceList);
 router.post("/leave", tokenCheck, Controller.requestLeave);
+router.get("/leave-list", tokenCheck, Controller.LeaveList);
 //Expense
 router.post(
   "/expense",

@@ -4,7 +4,7 @@ import { Sequelize } from "sequelize";
 const env = process.env;
 import { createUserModel } from "../app/model/user";
 import { CategoryModel } from "../app/model/category";
-import { MeetingTypeModel } from "../app/model/meeting";
+import { MeetingModel } from "../app/model/meeting";
 import { DeviceModel } from "../app/model/device";
 import {Attendance} from "../app/model/attendance"
 import {Leave} from '../app/model/leaverequests'
@@ -12,6 +12,12 @@ import {Expense} from '../app/model/expense'
 import{ChatRoom} from '../app/model/chatRoom'
 import{ChatParticipant} from '../app/model/ChatParticipant'
 import{Message} from '../app/model/Message'
+import{MeetingImageModel} from "../app/model/meetingImage"
+import {CompanyModel} from "../app/model/meetingCompany"
+import {UserModel} from "../app/model/meetingUser"
+
+
+
 
 
 const sequelize = new Sequelize(
@@ -38,7 +44,7 @@ Expense.initModel(sequelize)
 
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
-const Meeting = MeetingTypeModel(sequelize);
+const Meeting = MeetingModel(sequelize);
 const Device = DeviceModel(sequelize);
 // const Chat = ChatRoom(sequelize);
 // const Message = Message(sequelize);
@@ -46,6 +52,10 @@ const Device = DeviceModel(sequelize);
 ChatRoom.initModel(sequelize);
 ChatParticipant.initModel(sequelize);
 Message.initModel(sequelize);
+
+const MeetingImage = MeetingImageModel(sequelize);
+const MeetingCompany = CompanyModel(sequelize)
+const MeetingUser =  UserModel(sequelize)
 
 
 
@@ -111,6 +121,39 @@ User.hasMany(ChatParticipant, {
 ChatParticipant.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 
+// MeetingUser → Meeting (The Client Contact)
+MeetingUser.hasMany(Meeting, { foreignKey: "meetingUserId" });
+Meeting.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
+
+// MeetingUser → MeetingCompany
+MeetingUser.hasMany(MeetingCompany, { foreignKey: "meetingUserId" });
+MeetingCompany.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
+
+// MeetingUser → MeetingImage
+MeetingUser.hasMany(MeetingImage, { foreignKey: "meetingUserId" });
+MeetingImage.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
+
+// Company → Meeting
+MeetingCompany.hasMany(Meeting, { foreignKey: "companyId" });
+Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
+
+// Meeting → Images
+Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
+MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
+
+// Main Employee User → Meeting (This is what userId actually maps to!)
+User.hasMany(Meeting, { foreignKey: "userId" });
+Meeting.belongsTo(User, { foreignKey: "userId" });
+
+// Company → Meeting
+MeetingCompany.hasMany(Meeting, { foreignKey: "companyId" });
+Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
+
+// Meeting → Images
+Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
+MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
+
+
 
 
 
@@ -135,5 +178,8 @@ export {
   Expense,
   ChatRoom,
   ChatParticipant,
-  Message
+  Message,
+  MeetingImage,
+  MeetingCompany,
+  MeetingUser
 };

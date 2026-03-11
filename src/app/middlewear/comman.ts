@@ -641,32 +641,42 @@ export const getCategory = async (
 
 
 
+// import { Op } from "sequelize";
+
 export const withuserlogin = async (
   model: any,
-  id:any,
+  id: any,
   data: any = {},
   searchFields: string[] = [],
   include: any[] = []
 ) => {
   try {
-    const { page = 1, limit = 10, date, search, ...filters } = data;
+    const { page = 1, limit = 10, month, year, search, ...filters } = data;
 
     const whereConditions: any = {};
-    if(id){
-      whereConditions.employee_id = id
+
+    if (id) {
+      whereConditions.employee_id = id;
     }
 
-    // Only keep actual filters, not pagination values
+    // Normal filters
     Object.keys(filters).forEach((key) => {
       if (filters[key] !== undefined && filters[key] !== "") {
         whereConditions[key] = filters[key];
       }
     });
 
-    if (date) {
-      whereConditions.date = date;
+    // Month filter
+    if (month && year) {
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59);
+
+      whereConditions.date = {
+        [Op.between]: [startDate, endDate],
+      };
     }
 
+    // Search
     if (search && searchFields.length > 0) {
       whereConditions[Op.or] = searchFields.map((field) => ({
         [field]: { [Op.iRegexp]: `^${search}` },
@@ -675,7 +685,7 @@ export const withuserlogin = async (
 
     const offset = (Number(page) - 1) * Number(limit);
 
-    const  rows  = await model.findAll({
+    const rows = await model.findAll({
       where: whereConditions,
       include,
       limit: Number(limit),
@@ -683,8 +693,7 @@ export const withuserlogin = async (
       order: [["createdAt", "DESC"]],
     });
 
-    console.log(rows.length)
-    let count  = rows.length
+    const count = rows.length;
 
     return {
       success: true,
@@ -701,4 +710,3 @@ export const withuserlogin = async (
     throw error;
   }
 };
-

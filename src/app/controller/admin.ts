@@ -14,6 +14,8 @@ import {
   User,
   Category,
   Meeting,
+  MeetingCompany,
+  MeetingUser,
   Attendance,
   Leave,
   Expense,
@@ -646,7 +648,7 @@ export const getMeeting = async (
 
     if (empty === "true") {
       where.userId = null;
-      where.adminId = ll; // <-- correctly added to where clause
+      where.userId = ll; // <-- correctly added to where clause
     }
 
     if (userId) where.userId = userId;
@@ -672,18 +674,18 @@ export const getMeeting = async (
       };
     }
 
-    const { rows, count } = await Meeting.findAndCountAll({
-      attributes: [
-        "id",
-        "companyName",
-        "personName",
-        "mobileNumber",
-        "companyEmail",
-        "meetingTimeIn",
-        "meetingTimeOut",
-        "meetingPurpose",
-        "userId",
-      ],
+    const { rows, count } = await MeetingUser.findAndCountAll({
+      // attributes: [
+      //   "id",
+      //   "companyName",
+      //   "personName",
+      //   "mobileNumber",
+      //   "companyEmail",
+      //   "meetingTimeIn",
+      //   "meetingTimeOut",
+      //   "meetingPurpose",
+      //   "userId",
+      // ],
       where,
       offset,
       limit: limitNum,
@@ -1574,21 +1576,17 @@ export const createClient = async (
 ): Promise<void> => {
   try {
     const { userId } = req.userData as JwtPayload;
-    const { companyName, personName, mobileNumber, companyEmail } =
+    const { name, email, mobile,  } =
       req.body || {};
     // Required fields check
-    if (![companyName, personName, mobileNumber, companyEmail].every(Boolean)) {
+    if (![name, email, mobile, ].every(Boolean)) {
       badRequest(res, "All fields are required");
       return;
     }
-    // Check if client already exists
-    const isExist = await Meeting.findOne({
+    // Check if client already exists by email or mobile
+    const isExist = await MeetingUser.findOne({
       where: {
-        [Op.or]: [{ adminId: userId }, { managerId: userId }],
-        companyName,
-        personName,
-        mobileNumber,
-        companyEmail,
+        [Op.or]: [{ email }, { mobile }],
       },
     });
 
@@ -1597,16 +1595,14 @@ export const createClient = async (
       return;
     }
 
-    // Create new client
-    await Meeting.create({
-      companyName,
-      personName,
-      mobileNumber,
-      companyEmail,
-      adminId: userId,
-      managerId: userId,
-      customerType: "existing",
+    // Create new client information (MeetingUser)
+    await MeetingUser.create({
+      name,
+      email,
+      mobile,
+      userId
     });
+
     createSuccess(res, "Client created successfully");
   } catch (error) {
     badRequest(
@@ -1741,18 +1737,15 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
 
     // Create new meeting entry (assign to employee)
     await Meeting.create({
-      companyName: meeting.companyName,
-      personName: meeting.personName,
-      mobileNumber: meeting.mobileNumber,
-      companyEmail: meeting.companyEmail,
       userId,
+      meetingUserId: meeting.meetingUserId,
+      companyId: meeting.companyId,
+      categoryId: meeting.categoryId,
+      meetingPurpose: meeting.meetingPurpose,
       scheduledTime,
       status: "scheduled",
-      customerType:"existing"
     });
-
      createSuccess(res, "Meeting scheduled successfully");
-
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

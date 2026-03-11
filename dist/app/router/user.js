@@ -50,6 +50,7 @@ router.get("/getprofile", jwtVerify2_1.tokenCheck, Controller.GetProfile);
 router.patch("/updateprofile", jwtVerify2_1.tokenCheck, profile.single("profile"), Controller.UpdateProfile);
 router.get("/mysaleperson", jwtVerify2_1.tokenCheck, Controller.MySalePerson);
 router.post("/createmeeting", jwtVerify2_1.tokenCheck, meeting.array("image"), Controller.CreateMeeting);
+router.get("/clientmeeting", jwtVerify2_1.tokenCheck, Controller.getLastMeeting);
 router.post("/endmeeting", jwtVerify2_1.tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", jwtVerify2_1.tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", jwtVerify2_1.tokenCheck, Controller.scheduled);
@@ -61,6 +62,7 @@ router.post("/attendance/punch-out", jwtVerify2_1.tokenCheck, Controller.Attenda
 router.get("/attendance/today", jwtVerify2_1.tokenCheck, Controller.getTodayAttendance);
 router.get("/attendancelist", jwtVerify2_1.tokenCheck, Controller.AttendanceList);
 router.post("/leave", jwtVerify2_1.tokenCheck, Controller.requestLeave);
+router.get("/leave-list", jwtVerify2_1.tokenCheck, Controller.LeaveList);
 //Expense
 router.post("/expense", jwtVerify2_1.tokenCheck, expense.array("billImage"), Controller.CreateExpense);
 router.get("/refreshtoken", jwtVerify2_1.tokenCheck, Controller.ReFressToken);

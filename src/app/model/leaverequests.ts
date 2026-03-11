@@ -7,6 +7,7 @@ interface LeaveAttributes {
   to_date: Date;
   reason?: string | null;
   status: "pending" | "approved" | "rejected";
+  leave_type: "sick" | "casual" | "paid" | "unpaid" |"short_leave" |"half_day";
 }
 
 type LeaveCreationAttributes = Optional<
@@ -24,6 +25,7 @@ export class Leave
   public to_date!: Date;
   public reason!: string | null;
   public status!: "pending" | "approved" | "rejected";
+  public leave_type!: "sick" | "casual" | "paid" | "unpaid" |"short_leave" |"half_day";
 
   static initModel(sequelize: Sequelize): typeof Leave {
     Leave.init(
@@ -35,6 +37,10 @@ export class Leave
         },
         employee_id: {
           type: DataTypes.INTEGER,
+          allowNull: false,
+        },
+         leave_type: {
+          type: DataTypes.ENUM("sick", "casual", "paid", "unpaid","short_leave","half_day"),
           allowNull: false,
         },
         from_date: {
@@ -54,6 +60,8 @@ export class Leave
           allowNull: false,
           defaultValue: "pending",
         },
+
+
       },
       {
         sequelize,

@@ -5,6 +5,7 @@ interface ChatRoomAttributes {
   id: number;
   roomId: string;                  // ← REQUIRED
   type: "private" | "group";
+  groupName?: string;              // ← OPTIONAL GROUP NAME
 }
 
 interface ChatRoomCreation extends Optional<ChatRoomAttributes, "id"> {}
@@ -16,6 +17,7 @@ export class ChatRoom
   public id!: number;
   public roomId!: string;          // ← FIXED
   public type!: "private" | "group";
+  public groupName?: string;       // ← ADDED
 
   static initModel(sequelize: Sequelize) {
     ChatRoom.init(
@@ -35,6 +37,10 @@ export class ChatRoom
         type: {
           type: DataTypes.ENUM("private", "group"),
           allowNull: false,
+        },
+        groupName: {
+          type: DataTypes.STRING,
+          allowNull: true,
         },
       },
       {
