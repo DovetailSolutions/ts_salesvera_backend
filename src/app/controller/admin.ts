@@ -725,12 +725,12 @@ export const BulkUploads = async (
   try {
     const userData = req.userData as JwtPayload;
     let loginUser = userData?.userId;
-    // Correct check for multer.array()
-    if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+    // Correct check for multer.single()
+    if (!req.file) {
       badRequest(res, "CSV file is required");
       return;
     }
-    const csvFile = (req.files as MulterS3File[])[0];
+    const csvFile = req.file as MulterS3File;
 
     const s3 = new S3Client({
       region: process.env.AWS_REGION,
@@ -760,20 +760,18 @@ export const BulkUploads = async (
       )
       .on("data", (row) => {
         results.push({
-          companyName: row.companyName?.trim() || "",
-          personName: row.personName?.trim() || "",
-          mobileNumber: row.mobileNumber?.trim() || "",
-          companyEmail: row.companyEmail?.trim() || "",
+          name: row.name?.trim() || "",
+          email: row.email?.trim() || "",
+          mobile: row.mobile?.trim() || "",
           customerType: "existing",
-          adminId: loginUser,
-          managerId: loginUser,
+          userId: loginUser,
         });
       })
       .on("end", async () => {
         try {
           const uniqueRows: any[] = [];
           for (const r of results) {
-            const exists = await Meeting.findOne({
+            const exists = await MeetingUser.findOne({
               where: {
                 [Op.or]: [{ adminId: loginUser }, { managerId: loginUser }],
                 companyName: { [Op.in]: results.map((r) => r.companyName) },
@@ -790,7 +788,7 @@ export const BulkUploads = async (
 
           // Insert ONLY new rows
           if (uniqueRows.length > 0) {
-            await Meeting.bulkCreate(uniqueRows);
+            await MeetingUser.bulkCreate(uniqueRows);
           }
 
           return createSuccess(res, "Bulk upload successful", {

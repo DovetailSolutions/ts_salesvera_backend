@@ -22,7 +22,7 @@ router.get("/getcategory", tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
-router.post("/bulk-upload",tokenCheck,csv.array("csv"),AdminController.BulkUploads)
+router.post("/bulk-upload",tokenCheck,csv.single("csv"),AdminController.BulkUploads)
 router.get("/get-attendance", tokenCheck, AdminController.getAttendance);
 router.patch("/approved-leave",tokenCheck,AdminController.approveLeave);
 router.get("/get-leave-list",tokenCheck,AdminController.leaveList)

@@ -35,7 +35,12 @@ export const UserModel = (sequelize: Sequelize) => {
       userId:{
         type:DataTypes.INTEGER,
         allowNull:true
-      }
+      },
+
+      customerType: {
+        type: DataTypes.ENUM("new", "existing", "followup"),
+        defaultValue: "new",
+      },
 
     //   role: {
     //     type: DataTypes.ENUM("admin", "manager", "employee"),

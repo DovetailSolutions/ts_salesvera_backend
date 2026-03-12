@@ -598,12 +598,12 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     try {
         const userData = req.userData;
         let loginUser = userData === null || userData === void 0 ? void 0 : userData.userId;
-        // Correct check for multer.array()
-        if (!req.files || req.files.length === 0) {
+        // Correct check for multer.single()
+        if (!req.file) {
             (0, errorMessage_1.badRequest)(res, "CSV file is required");
             return;
         }
-        const csvFile = req.files[0];
+        const csvFile = req.file;
         const s3 = new client_s3_1.S3Client({
             region: process.env.AWS_REGION,
             credentials: {
@@ -627,22 +627,20 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             mapHeaders: ({ header }) => header.trim(),
         }))
             .on("data", (row) => {
-            var _a, _b, _c, _d;
+            var _a, _b, _c;
             results.push({
-                companyName: ((_a = row.companyName) === null || _a === void 0 ? void 0 : _a.trim()) || "",
-                personName: ((_b = row.personName) === null || _b === void 0 ? void 0 : _b.trim()) || "",
-                mobileNumber: ((_c = row.mobileNumber) === null || _c === void 0 ? void 0 : _c.trim()) || "",
-                companyEmail: ((_d = row.companyEmail) === null || _d === void 0 ? void 0 : _d.trim()) || "",
+                name: ((_a = row.name) === null || _a === void 0 ? void 0 : _a.trim()) || "",
+                email: ((_b = row.email) === null || _b === void 0 ? void 0 : _b.trim()) || "",
+                mobile: ((_c = row.mobile) === null || _c === void 0 ? void 0 : _c.trim()) || "",
                 customerType: "existing",
-                adminId: loginUser,
-                managerId: loginUser,
+                userId: loginUser,
             });
         })
             .on("end", () => __awaiter(void 0, void 0, void 0, function* () {
             try {
                 const uniqueRows = [];
                 for (const r of results) {
-                    const exists = yield dbConnection_1.Meeting.findOne({
+                    const exists = yield dbConnection_1.MeetingUser.findOne({
                         where: {
                             [sequelize_1.Op.or]: [{ adminId: loginUser }, { managerId: loginUser }],
                             companyName: { [sequelize_1.Op.in]: results.map((r) => r.companyName) },
@@ -658,7 +656,7 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 }
                 // Insert ONLY new rows
                 if (uniqueRows.length > 0) {
-                    yield dbConnection_1.Meeting.bulkCreate(uniqueRows);
+                    yield dbConnection_1.MeetingUser.bulkCreate(uniqueRows);
                 }
                 return (0, errorMessage_1.createSuccess)(res, "Bulk upload successful", {
                     totalCSV: results.length,

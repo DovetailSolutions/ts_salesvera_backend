@@ -58,7 +58,7 @@ router.get("/getcategory", jwtVerify_1.tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", jwtVerify_1.tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", jwtVerify_1.tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", jwtVerify_1.tokenCheck, AdminController.DeleteCategory);
-router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.array("csv"), AdminController.BulkUploads);
+router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.single("csv"), AdminController.BulkUploads);
 router.get("/get-attendance", jwtVerify_1.tokenCheck, AdminController.getAttendance);
 router.patch("/approved-leave", jwtVerify_1.tokenCheck, AdminController.approveLeave);
 router.get("/get-leave-list", jwtVerify_1.tokenCheck, AdminController.leaveList);
