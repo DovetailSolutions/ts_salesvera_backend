@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ReFressToken = exports.CreateExpense = exports.LeaveList = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.getLastMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.ReFressToken = exports.GetExpense = exports.CreateExpense = exports.LeaveList = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.getLastMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const bcrypt_1 = __importDefault(require("bcrypt"));
@@ -960,8 +960,119 @@ const LeaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.LeaveList = LeaveList;
+// export const CreateExpense = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const finalUserId = userData?.userId;
+//     if (!finalUserId) {
+//       badRequest(res, "Invalid user");
+//       return;
+//     }
+//     const { title, total_amount, date, category, amount, description, location } = req.body ?? {};
+//     // Keep title as required for backward compatibility, or you can adjust this
+//     if (!title && !description) {
+//       badRequest(res, "Title or Description is required");
+//       return;
+//     }
+//     const payload: any = {
+//       userId: finalUserId,
+//       title: title || description,
+//       total_amount: total_amount || amount,
+//       date,
+//       category,
+//       amount: amount || total_amount,
+//       description: description || title,
+//       location
+//     };
+//     // ✅ files from multer (S3 upload)
+//     const files = req.files as Express.MulterS3.File[];
+//     if (Array.isArray(files) && files.length > 0) {
+//       payload.billImage = files.map((file) => file.location);
+//     }
+//     // ✅ Create entry
+//     const created = await Expense.create(payload);
+//     createSuccess(res, "Expense added successfully", created);
+//   } catch (error) {
+//     console.error("Error in CreateExpense:", error);
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
 const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
+    const transaction = yield dbConnection_1.sequelize.transaction();
+    try {
+        const userId = (_a = req.userData) === null || _a === void 0 ? void 0 : _a.userId;
+        let expenses = req.body.expenses || req.body;
+        if (typeof expenses === "string") {
+            expenses = JSON.parse(expenses);
+        }
+        if (!Array.isArray(expenses)) {
+            throw new Error("Expenses must be an array");
+        }
+        const files = req.files;
+        const imageMap = {};
+        if (files && files.length > 0) {
+            files.forEach((file) => {
+                const match = file.fieldname.match(/expenses\[(\d+)\]\[billImage\]/);
+                if (match) {
+                    const index = Number(match[1]);
+                    if (!imageMap[index]) {
+                        imageMap[index] = [];
+                    }
+                    imageMap[index].push(file.originalname);
+                }
+            });
+        }
+        const createdExpenses = [];
+        for (let i = 0; i < expenses.length; i++) {
+            const item = expenses[i];
+            const expense = yield dbConnection_2.Expense.create({
+                userId,
+                title: item.title,
+                total_amount: item.total_amount,
+                amount: item.amount,
+                date: item.date,
+                category: item.category,
+                description: item.description,
+                location: item.location
+            }, { transaction });
+            const images = imageMap[i] || [];
+            if (images.length > 0) {
+                const payload = images.map((url) => ({
+                    expenseId: expense.id,
+                    imageUrl: url
+                }));
+                yield dbConnection_2.ExpenseImage.bulkCreate(payload, { transaction });
+            }
+            createdExpenses.push(expense);
+        }
+        yield transaction.commit();
+        res.status(201).json({
+            success: true,
+            message: "Expenses created successfully",
+            data: createdExpenses
+        });
+    }
+    catch (error) {
+        yield transaction.rollback();
+        console.error("============= CREATE EXPENSE ERROR =============");
+        console.error(error);
+        console.error("================================================");
+        res.status(400).json({
+            success: false,
+            message: "Failed to create expenses",
+            error: error instanceof Error ? error.message : error
+        });
+    }
+});
+exports.CreateExpense = CreateExpense;
+const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
@@ -969,33 +1080,40 @@ const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.badRequest)(res, "Invalid user");
             return;
         }
-        const { title, total_amount } = (_a = req.body) !== null && _a !== void 0 ? _a : {};
-        if (!title || title.trim() === "") {
-            (0, errorMessage_1.badRequest)(res, "Title is required");
-            return;
-        }
-        const payload = {
-            userId: finalUserId,
-            title,
-            total_amount,
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+        const result = yield dbConnection_2.Expense.findAndCountAll({
+            where: {
+                userId: finalUserId,
+            },
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+            include: [
+                {
+                    model: dbConnection_2.ExpenseImage,
+                    as: "images",
+                },
+            ],
+            distinct: true,
+        });
+        const response = {
+            totalRecords: result.count,
+            totalPages: Math.ceil(result.count / limit),
+            currentPage: page,
+            data: result.rows,
         };
-        // ✅ files from multer (S3 upload)
-        const files = req.files;
-        if (Array.isArray(files) && files.length > 0) {
-            payload.billImage = files.map((file) => file.location);
-        }
-        // ✅ Create entry
-        const created = yield dbConnection_2.Expense.create(payload);
-        (0, errorMessage_1.createSuccess)(res, "Expense added successfully", created);
+        (0, errorMessage_1.createSuccess)(res, "Expense list", response);
     }
     catch (error) {
-        console.error("Error in CreateExpense:", error);
+        console.error("Error in GetExpense:", error);
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
         return;
     }
 });
-exports.CreateExpense = CreateExpense;
+exports.GetExpense = GetExpense;
 const ReFressToken = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;

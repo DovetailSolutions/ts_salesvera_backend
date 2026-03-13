@@ -21,7 +21,8 @@ import {
   Expense,
   MeetingImage,
   MeetingCompany,
-  MeetingUser
+  MeetingUser,
+  ExpenseImage
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -1142,7 +1143,154 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
 };
 
 
-export const CreateExpense = async (
+// export const CreateExpense = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const finalUserId = userData?.userId;
+
+//     if (!finalUserId) {
+//       badRequest(res, "Invalid user");
+//       return;
+//     }
+
+//     const { title, total_amount, date, category, amount, description, location } = req.body ?? {};
+
+//     // Keep title as required for backward compatibility, or you can adjust this
+//     if (!title && !description) {
+//       badRequest(res, "Title or Description is required");
+//       return;
+//     }
+
+//     const payload: any = {
+//       userId: finalUserId,
+//       title: title || description,
+//       total_amount: total_amount || amount,
+//       date,
+//       category,
+//       amount: amount || total_amount,
+//       description: description || title,
+//       location
+//     };
+
+//     // ✅ files from multer (S3 upload)
+//     const files = req.files as Express.MulterS3.File[];
+//     if (Array.isArray(files) && files.length > 0) {
+//       payload.billImage = files.map((file) => file.location);
+//     }
+
+//     // ✅ Create entry
+//     const created = await Expense.create(payload);
+
+//     createSuccess(res, "Expense added successfully", created);
+//   } catch (error) {
+//     console.error("Error in CreateExpense:", error);
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+
+export const CreateExpense = async (req: Request, res: Response) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const userId = (req as any).userData?.userId;
+
+    let expenses: any = req.body.expenses || req.body;
+
+    if (typeof expenses === "string") {
+      expenses = JSON.parse(expenses);
+    }
+
+    if (!Array.isArray(expenses)) {
+      throw new Error("Expenses must be an array");
+    }
+
+    const files = req.files as Express.Multer.File[];
+
+    const imageMap: Record<number, string[]> = {};
+
+    if (files && files.length > 0) {
+      files.forEach((file) => {
+        const match = file.fieldname.match(/expenses\[(\d+)\]\[billImage\]/);
+
+        if (match) {
+          const index = Number(match[1]);
+
+          if (!imageMap[index]) {
+            imageMap[index] = [];
+          }
+
+          imageMap[index].push(file.originalname);
+        }
+      });
+    }
+
+    const createdExpenses = [];
+
+    for (let i = 0; i < expenses.length; i++) {
+      const item = expenses[i];
+
+      const expense = await Expense.create(
+        {
+          userId,
+          title: item.title,
+          total_amount: item.total_amount,
+          amount: item.amount,
+          date: item.date,
+          category: item.category,
+          description: item.description,
+          location: item.location
+        },
+        { transaction }
+      );
+
+      const images = imageMap[i] || [];
+
+      if (images.length > 0) {
+        const payload = images.map((url) => ({
+          expenseId: expense.id,
+          imageUrl: url
+        }));
+
+        await ExpenseImage.bulkCreate(payload, { transaction });
+      }
+
+      createdExpenses.push(expense);
+    }
+
+    await transaction.commit();
+
+    res.status(201).json({
+      success: true,
+      message: "Expenses created successfully",
+      data: createdExpenses
+    });
+
+  } catch (error) {
+
+    await transaction.rollback();
+
+    console.error("============= CREATE EXPENSE ERROR =============");
+    console.error(error);
+    console.error("================================================");
+
+    res.status(400).json({
+      success: false,
+      message: "Failed to create expenses",
+      error: error instanceof Error ? error.message : error
+    });
+  }
+};
+
+
+
+
+export const GetExpense = async (
   req: Request,
   res: Response
 ): Promise<void> => {
@@ -1155,31 +1303,36 @@ export const CreateExpense = async (
       return;
     }
 
-    const { title,total_amount } = req.body ?? {};
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
 
-    if (!title || title.trim() === "") {
-      badRequest(res, "Title is required");
-      return;
-    }
+    const result = await Expense.findAndCountAll({
+      where: {
+        userId: finalUserId,
+      },
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: ExpenseImage,
+          as: "images",
+        },
+      ],
+      distinct: true,
+    });
 
-    const payload: any = {
-      userId: finalUserId,
-      title,
-      total_amount,
+    const response = {
+      totalRecords: result.count,
+      totalPages: Math.ceil(result.count / limit),
+      currentPage: page,
+      data: result.rows,
     };
 
-    // ✅ files from multer (S3 upload)
-    const files = req.files as Express.MulterS3.File[];
-    if (Array.isArray(files) && files.length > 0) {
-      payload.billImage = files.map((file) => file.location);
-    }
-
-    // ✅ Create entry
-    const created = await Expense.create(payload);
-
-    createSuccess(res, "Expense added successfully", created);
+    createSuccess(res, "Expense list", response);
   } catch (error) {
-    console.error("Error in CreateExpense:", error);
+    console.error("Error in GetExpense:", error);
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);

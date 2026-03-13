@@ -45,6 +45,8 @@ router.post(
   expense.array("billImage"),
   Controller.CreateExpense
 );
+
+router.get("/getexpense",tokenCheck,Controller.GetExpense);
 router.get("/refreshtoken",tokenCheck,Controller.ReFressToken);
 
 export default router;

@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -27,6 +27,8 @@ const leaverequests_1 = require("../app/model/leaverequests");
 Object.defineProperty(exports, "Leave", { enumerable: true, get: function () { return leaverequests_1.Leave; } });
 const expense_1 = require("../app/model/expense");
 Object.defineProperty(exports, "Expense", { enumerable: true, get: function () { return expense_1.Expense; } });
+const expanseImages_1 = require("../app/model/expanseImages");
+Object.defineProperty(exports, "ExpenseImage", { enumerable: true, get: function () { return expanseImages_1.ExpenseImage; } });
 const chatRoom_1 = require("../app/model/chatRoom");
 Object.defineProperty(exports, "ChatRoom", { enumerable: true, get: function () { return chatRoom_1.ChatRoom; } });
 const ChatParticipant_1 = require("../app/model/ChatParticipant");
@@ -52,6 +54,7 @@ exports.sequelize = sequelize;
 attendance_1.Attendance.initModel(sequelize);
 leaverequests_1.Leave.initModel(sequelize);
 expense_1.Expense.initModel(sequelize);
+expanseImages_1.ExpenseImage.initModel(sequelize);
 const User = (0, user_1.createUserModel)(sequelize);
 exports.User = User;
 const Category = (0, category_1.CategoryModel)(sequelize);
@@ -90,6 +93,8 @@ User.hasMany(leaverequests_1.Leave, { foreignKey: "employee_id" });
 leaverequests_1.Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 User.hasMany(expense_1.Expense, { foreignKey: "userId" });
 expense_1.Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
+expense_1.Expense.hasMany(expanseImages_1.ExpenseImage, { foreignKey: "expenseId", as: "images" });
+expanseImages_1.ExpenseImage.belongsTo(expense_1.Expense, { foreignKey: "expenseId" });
 chatRoom_1.ChatRoom.hasMany(ChatParticipant_1.ChatParticipant, {
     foreignKey: "chatRoomId",
     as: "participants",

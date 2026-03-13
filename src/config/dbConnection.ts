@@ -9,6 +9,7 @@ import { DeviceModel } from "../app/model/device";
 import {Attendance} from "../app/model/attendance"
 import {Leave} from '../app/model/leaverequests'
 import {Expense} from '../app/model/expense'
+import {ExpenseImage} from '../app/model/expanseImages'
 import{ChatRoom} from '../app/model/chatRoom'
 import{ChatParticipant} from '../app/model/ChatParticipant'
 import{Message} from '../app/model/Message'
@@ -41,6 +42,7 @@ const sequelize = new Sequelize(
 Attendance.initModel(sequelize);
 Leave.initModel(sequelize)
 Expense.initModel(sequelize)
+ExpenseImage.initModel(sequelize)
 
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
@@ -85,6 +87,9 @@ Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
 User.hasMany(Expense, { foreignKey: "userId" });
 Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+Expense.hasMany(ExpenseImage, { foreignKey: "expenseId", as: "images" });
+ExpenseImage.belongsTo(Expense, { foreignKey: "expenseId" });
 
 
 
@@ -181,5 +186,6 @@ export {
   Message,
   MeetingImage,
   MeetingCompany,
-  MeetingUser
+  MeetingUser,
+  ExpenseImage
 };
