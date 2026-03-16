@@ -60,8 +60,6 @@ export class Leave
           allowNull: false,
           defaultValue: "pending",
         },
-
-
       },
       {
         sequelize,

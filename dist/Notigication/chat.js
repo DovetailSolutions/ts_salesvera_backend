@@ -76,12 +76,15 @@ const initChatSocket = (io) => {
             next(new Error("Authentication failed"));
         }
     });
-    io.on("connection", (socket) => {
+    io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
         console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
         const userId = socket.data.user.userId;
         const userRole = socket.data.user.role;
         console.log(">>>>>>>>>>>>>>userId", userId);
         console.log(">>>>>>>>>>>>>>userRole", userRole);
+        yield dbConnection_1.User.update({ onlineSatus: "online" }, { where: { id: userId } });
+        // 📡 Broadcast this user's online status to ALL connected clients
+        io.emit("userStatusChange", { userId, onlineSatus: "online" });
         // --------------------------------------------------------
         // 🟦 JOIN ROOM
         // --------------------------------------------------------
@@ -315,6 +318,7 @@ const initChatSocket = (io) => {
                     const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
                     return Object.assign(Object.assign({}, userObj), { unreadCount });
                 });
+                console.log(">>>>>>>>usersWithUnreadCounts", usersWithUnreadCounts);
                 io.to(socket.id).emit("UserList", {
                     success: true,
                     total: result.count,
@@ -649,9 +653,12 @@ const initChatSocket = (io) => {
             }
         }));
         // --------------------------------------------------------
-        socket.on("disconnect", () => {
+        socket.on("disconnect", () => __awaiter(void 0, void 0, void 0, function* () {
+            yield dbConnection_1.User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+            // 📡 Broadcast this user's offline status to ALL connected clients
+            io.emit("userStatusChange", { userId, onlineSatus: "offline" });
             console.log("Disconnected:", socket.id);
-        });
-    });
+        }));
+    }));
 };
 exports.initChatSocket = initChatSocket;

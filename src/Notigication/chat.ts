@@ -82,7 +82,7 @@ export const initChatSocket = (io: Server) => {
     }
   });
 
-  io.on("connection", (socket) => {
+  io.on("connection",async (socket) => {
     console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
 
     const userId = socket.data.user.userId;
@@ -91,10 +91,13 @@ export const initChatSocket = (io: Server) => {
 
     console.log(">>>>>>>>>>>>>>userId",userId)
     console.log(">>>>>>>>>>>>>>userRole",userRole)
+
+
+    await User.update({ onlineSatus: "online" }, { where: { id: userId } });
+
+    // 📡 Broadcast this user's online status to ALL connected clients
+    io.emit("userStatusChange", { userId, onlineSatus: "online" });
     
-
-
-
     // --------------------------------------------------------
     // 🟦 JOIN ROOM
     // --------------------------------------------------------
@@ -373,6 +376,8 @@ export const initChatSocket = (io: Server) => {
             unreadCount
           };
         });
+
+        console.log(">>>>>>>>usersWithUnreadCounts",usersWithUnreadCounts)
 
         io.to(socket.id).emit("UserList", {
           success: true,
@@ -766,7 +771,10 @@ export const initChatSocket = (io: Server) => {
     });
 
     // --------------------------------------------------------
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
+      await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+      // 📡 Broadcast this user's offline status to ALL connected clients
+      io.emit("userStatusChange", { userId, onlineSatus: "offline" });
       console.log("Disconnected:", socket.id);
     });
   });
