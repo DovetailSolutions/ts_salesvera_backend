@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -1418,3 +1418,95 @@ const ownLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.ownLeave = ownLeave;
+const addQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { quotationNumber, userId, clientName, clientEmail, clientPhone, totalAmount, validTill, notes } = req.body;
+        // 1️⃣ Basic Validation
+        if (!userId) {
+            (0, errorMessage_1.badRequest)(res, "UserId is required");
+        }
+        if (!clientName) {
+            (0, errorMessage_1.badRequest)(res, "Client name is required");
+        }
+        if (!totalAmount) {
+            (0, errorMessage_1.badRequest)(res, "Total amount is required");
+        }
+        // 2️⃣ Duplicate quotation check
+        if (quotationNumber) {
+            const existingQuotation = yield dbConnection_1.Quotation.findOne({
+                where: { quotationNumber }
+            });
+            if (existingQuotation) {
+                (0, errorMessage_1.badRequest)(res, "Quotation number already exists");
+            }
+        }
+        // 3️⃣ Auto Generate Quotation Number (if not provided)
+        let finalQuotationNumber = quotationNumber;
+        if (!finalQuotationNumber) {
+            const count = yield dbConnection_1.Quotation.count();
+            finalQuotationNumber = `QT-${Date.now()}-${count + 1}`;
+        }
+        // 4️⃣ Create quotation
+        const quotation = yield dbConnection_1.Quotation.create({
+            quotationNumber: finalQuotationNumber,
+            userId,
+            clientName,
+            clientEmail,
+            clientPhone,
+            totalAmount,
+            validTill,
+            notes
+        });
+        // 5️⃣ Success response
+        (0, errorMessage_1.createSuccess)(res, "Quotation created successfully", quotation);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.addQuotation = addQuotation;
+const addSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        if (!loggedInId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const { sub_category_name, amount, tax, CategoryId } = req.body;
+        if (!(sub_category_name === null || sub_category_name === void 0 ? void 0 : sub_category_name.trim())) {
+            (0, errorMessage_1.badRequest)(res, "Sub category name is required");
+            return;
+        }
+        if (!CategoryId) {
+            (0, errorMessage_1.badRequest)(res, "CategoryId is required");
+            return;
+        }
+        const cleanName = sub_category_name.trim();
+        const existingSubCategory = yield dbConnection_1.SubCategory.findOne({
+            where: {
+                sub_category_name: cleanName,
+                CategoryId: CategoryId,
+            },
+        });
+        if (existingSubCategory) {
+            (0, errorMessage_1.badRequest)(res, "Sub category already exists");
+            return;
+        }
+        const subCategory = yield dbConnection_1.SubCategory.create({
+            sub_category_name: cleanName,
+            CategoryId,
+            adminId: loggedInId,
+            managerId: loggedInId,
+            amount: amount !== null && amount !== void 0 ? amount : null,
+            text: tax !== null && tax !== void 0 ? tax : null,
+        });
+        (0, errorMessage_1.createSuccess)(res, "Sub category created successfully", subCategory);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.addSubCategory = addSubCategory;

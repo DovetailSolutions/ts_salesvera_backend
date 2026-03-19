@@ -19,6 +19,8 @@ import {
   Attendance,
   Leave,
   Expense,
+  Quotation,
+  SubCategory
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -1784,6 +1786,122 @@ export const ownLeave = async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const addQuotation = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const {
+      quotationNumber,
+      userId,
+      clientName,
+      clientEmail,
+      clientPhone,
+      totalAmount,
+      validTill,
+      notes
+    } = req.body;
+
+    // 1️⃣ Basic Validation
+    if (!userId) {
+       badRequest(res, "UserId is required");
+    }
+
+    if (!clientName) {
+       badRequest(res, "Client name is required");
+    }
+
+    if (!totalAmount) {
+       badRequest(res, "Total amount is required");
+    }
+
+    // 2️⃣ Duplicate quotation check
+    if (quotationNumber) {
+      const existingQuotation = await Quotation.findOne({
+        where: { quotationNumber }
+      });
+
+      if (existingQuotation) {
+         badRequest(res, "Quotation number already exists");
+      }
+    }
+
+    // 3️⃣ Auto Generate Quotation Number (if not provided)
+    let finalQuotationNumber = quotationNumber;
+
+    if (!finalQuotationNumber) {
+      const count = await Quotation.count();
+      finalQuotationNumber = `QT-${Date.now()}-${count + 1}`;
+    }
+
+    // 4️⃣ Create quotation
+    const quotation = await Quotation.create({
+      quotationNumber: finalQuotationNumber,
+      userId,
+      clientName,
+      clientEmail,
+      clientPhone,
+      totalAmount,
+      validTill,
+      notes
+    });
+
+    // 5️⃣ Success response
+    createSuccess(res, "Quotation created successfully", quotation);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const addSubCategory = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    if (!loggedInId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const { sub_category_name, amount, tax, CategoryId } = req.body;
+    if (!sub_category_name?.trim()) {
+      badRequest(res, "Sub category name is required");
+      return;
+    }
+    if (!CategoryId) {
+      badRequest(res, "CategoryId is required");
+      return;
+    }
+    const cleanName = sub_category_name.trim();
+    const existingSubCategory = await SubCategory.findOne({
+      where: {
+        sub_category_name: cleanName,
+        CategoryId: CategoryId,
+      },
+    });
+    if (existingSubCategory) {
+      badRequest(res, "Sub category already exists");
+      return;
+    }
+    const subCategory = await SubCategory.create({
+      sub_category_name: cleanName,
+      CategoryId,
+      adminId: loggedInId,
+      managerId: loggedInId,
+      amount: amount ?? null,
+      text: tax ?? null,
+    });
+    createSuccess(res, "Sub category created successfully", subCategory);
+  } catch (error) {
+    const errorMessage =
+    error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };

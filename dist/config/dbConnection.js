@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.SubCategory = exports.Quotation = exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -38,6 +38,9 @@ Object.defineProperty(exports, "Message", { enumerable: true, get: function () {
 const meetingImage_1 = require("../app/model/meetingImage");
 const meetingCompany_1 = require("../app/model/meetingCompany");
 const meetingUser_1 = require("../app/model/meetingUser");
+const quotation_1 = require("../app/model/quotation");
+Object.defineProperty(exports, "Quotation", { enumerable: true, get: function () { return quotation_1.Quotation; } });
+const subCategory_1 = require("../app/model/subCategory");
 const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
@@ -55,6 +58,8 @@ attendance_1.Attendance.initModel(sequelize);
 leaverequests_1.Leave.initModel(sequelize);
 expense_1.Expense.initModel(sequelize);
 expanseImages_1.ExpenseImage.initModel(sequelize);
+quotation_1.Quotation.initModel(sequelize);
+// SubCategory.initModel(sequelize)
 const User = (0, user_1.createUserModel)(sequelize);
 exports.User = User;
 const Category = (0, category_1.CategoryModel)(sequelize);
@@ -75,6 +80,8 @@ const MeetingCompany = (0, meetingCompany_1.CompanyModel)(sequelize);
 exports.MeetingCompany = MeetingCompany;
 const MeetingUser = (0, meetingUser_1.UserModel)(sequelize);
 exports.MeetingUser = MeetingUser;
+const SubCategory = (0, subCategory_1.SubCategoryModel)(sequelize);
+exports.SubCategory = SubCategory;
 User.belongsToMany(User, {
     through: "UserCreators",
     as: "creators",
@@ -142,6 +149,14 @@ Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
 // Meeting → Images
 Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
 MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
+Category.hasMany(SubCategory, {
+    foreignKey: "CategoryId",
+    as: "subCategories"
+});
+SubCategory.belongsTo(Category, {
+    foreignKey: "CategoryId",
+    as: "category"
+});
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("✅ Database connection established successfully");

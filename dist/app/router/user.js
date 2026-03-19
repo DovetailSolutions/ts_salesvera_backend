@@ -67,4 +67,6 @@ router.get("/leave-list", jwtVerify2_1.tokenCheck, Controller.LeaveList);
 router.post("/expense", jwtVerify2_1.tokenCheck, expense.array("billImage"), Controller.CreateExpense);
 router.get("/getexpense", jwtVerify2_1.tokenCheck, Controller.GetExpense);
 router.get("/refreshtoken", jwtVerify2_1.tokenCheck, Controller.ReFressToken);
+router.get("/getquotation", jwtVerify2_1.tokenCheck, Controller.getQuotation);
+router.post("/getquotationpdf", Controller.getQuotationPdf);
 exports.default = router;

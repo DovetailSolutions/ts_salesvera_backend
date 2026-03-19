@@ -72,5 +72,8 @@ router.get("/attendance-book", jwtVerify_1.tokenCheck, AdminController.Attendanc
 router.post("/create-client", jwtVerify_1.tokenCheck, AdminController.createClient);
 router.post("/assign-meeting", jwtVerify_1.tokenCheck, AdminController.assignMeeting);
 router.get("/getown-leave", jwtVerify_1.tokenCheck, AdminController.ownLeave);
+router.post("/add/quotation", AdminController.addQuotation);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+router.post("/addSubCategory", jwtVerify_1.tokenCheck, AdminController.addSubCategory);
 // meeting apis 
 exports.default = router;

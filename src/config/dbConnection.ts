@@ -16,6 +16,8 @@ import{Message} from '../app/model/Message'
 import{MeetingImageModel} from "../app/model/meetingImage"
 import {CompanyModel} from "../app/model/meetingCompany"
 import {UserModel} from "../app/model/meetingUser"
+import {Quotation} from "../app/model/quotation";
+import {SubCategoryModel} from "../app/model/subCategory"
 
 
 
@@ -43,6 +45,8 @@ Attendance.initModel(sequelize);
 Leave.initModel(sequelize)
 Expense.initModel(sequelize)
 ExpenseImage.initModel(sequelize)
+Quotation.initModel(sequelize)
+// SubCategory.initModel(sequelize)
 
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
@@ -58,6 +62,7 @@ Message.initModel(sequelize);
 const MeetingImage = MeetingImageModel(sequelize);
 const MeetingCompany = CompanyModel(sequelize)
 const MeetingUser =  UserModel(sequelize)
+const SubCategory = SubCategoryModel(sequelize)
 
 
 
@@ -159,6 +164,17 @@ Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
 MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
 
 
+Category.hasMany(SubCategory, {
+  foreignKey: "CategoryId",
+  as: "subCategories"
+});
+
+SubCategory.belongsTo(Category, {
+  foreignKey: "CategoryId",
+  as: "category"
+});
+
+
 
 
 
@@ -187,5 +203,7 @@ export {
   MeetingImage,
   MeetingCompany,
   MeetingUser,
-  ExpenseImage
+  ExpenseImage,
+  Quotation,
+  SubCategory
 };

@@ -1,6 +1,6 @@
 import { Model,FindOptions,Op,WhereOptions  ,Sequelize ,CreationAttributes,Includeable } from "sequelize";
 import jwt from "jsonwebtoken";
-import { User, Category } from "../../config/dbConnection";
+import { User, Category, SubCategory } from "../../config/dbConnection";
 import { promises } from "dns";
 import { Mode } from "fs";
 interface FindOneWithIncludeParams {
@@ -694,6 +694,53 @@ export const withuserlogin = async (
     });
 
     const count = rows.length;
+
+    return {
+      success: true,
+      data: rows,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        totalRecords: count,
+        totalPages: Math.ceil(count / Number(limit)),
+      },
+    };
+  } catch (error) {
+    console.error("Database Error:", error);
+    throw error;
+  }
+};
+
+export const getAllListCategory = async (model: any, data: any = {}, searchFields: string[] = []) => {
+  try {
+    const { page = 1, limit = 10, date, search, ...filters } = data;
+    const whereConditions: any = { ...filters };
+    if (date) {
+      whereConditions.date = date; 
+    }
+    // 🔍 Add search functionality
+    if (search && searchFields.length > 0) {
+      whereConditions[Op.or] = searchFields.map((field) => ({
+        [field]: { [Op.like]: `%${search}%` }, // Or Op.iLike if Postgres
+      }));
+    }
+    const offset = (Number(page) - 1) * Number(limit);
+    const { count, rows } = await model.findAndCountAll({
+      where: whereConditions,
+       include: [
+    {
+      model: SubCategory,
+      as: "subCategories",
+      required: false
+    }
+  ],
+      limit: Number(limit),
+      offset,
+    });
+
+   if (rows.length === 0) {
+  throw new Error("Company does not exist");
+}
 
     return {
       success: true,

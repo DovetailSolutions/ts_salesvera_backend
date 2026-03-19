@@ -36,6 +36,16 @@ router.get("/attendance-book", tokenCheck, AdminController.AttendanceBook);
 router.post("/create-client", tokenCheck, AdminController.createClient);
 router.post("/assign-meeting", tokenCheck, AdminController.assignMeeting);
 router.get("/getown-leave",tokenCheck,AdminController.ownLeave)
+router.post("/add/quotation",AdminController.addQuotation);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+router.post(
+    "/addSubCategory",
+    tokenCheck,
+    AdminController.addSubCategory
+);
 
 
 
