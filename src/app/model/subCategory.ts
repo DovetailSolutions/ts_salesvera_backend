@@ -28,6 +28,7 @@ export const SubCategoryModel = (sequelize: Sequelize) => {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
       },
+      
 
       adminId: {
         type: DataTypes.INTEGER.UNSIGNED,

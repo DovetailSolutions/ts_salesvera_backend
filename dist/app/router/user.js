@@ -68,5 +68,8 @@ router.post("/expense", jwtVerify2_1.tokenCheck, expense.array("billImage"), Con
 router.get("/getexpense", jwtVerify2_1.tokenCheck, Controller.GetExpense);
 router.get("/refreshtoken", jwtVerify2_1.tokenCheck, Controller.ReFressToken);
 router.get("/getquotation", jwtVerify2_1.tokenCheck, Controller.getQuotation);
-router.post("/getquotationpdf", Controller.getQuotationPdf);
+router.post("/getquotationpdf", jwtVerify2_1.tokenCheck, Controller.getQuotationPdf);
+router.get("/getquotationpdflist", jwtVerify2_1.tokenCheck, Controller.getQuotationPdfList);
+router.get("/downloadquotationpdf/:id", jwtVerify2_1.tokenCheck, Controller.downloadQuotationPdf);
+router.get("/getsubcategory/:id", jwtVerify2_1.tokenCheck, Controller.getSubCategory);
 exports.default = router;

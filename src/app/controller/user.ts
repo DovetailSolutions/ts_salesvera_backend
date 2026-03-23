@@ -25,9 +25,10 @@ import {
   Expense,
   MeetingImage,
   MeetingCompany,
+  SubCategory,
   MeetingUser,
   ExpenseImage,
-  Quotation
+  Quotation,Quotations
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -488,6 +489,9 @@ export const CreateMeeting = async (
       longitude_in,
       meetingTimeIn,
       scheduledTime,
+      state,
+      city,
+      country,
     } = req.body || {};
 
     // Trim all string inputs to avoid trailing space errors in enums
@@ -592,6 +596,9 @@ export const CreateMeeting = async (
           mobileNumber,
           companyEmail,
           customerType,
+          state,
+          city,
+          country,
           meetingUserId: meetingContactUser?.id, // Link to Client
         },
         { transaction }
@@ -1419,6 +1426,11 @@ export const getQuotation = async (req: Request, res: Response): Promise<void> =
 
 export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
   try {
+      const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
     const data = req.body;
 
     // ✅ Helper: read local file → base64 data URI (works with Puppeteer setContent)
@@ -1467,6 +1479,15 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
       finalAmount
     });
 
+    // ✅ SAVE TO DB HERE
+await Quotations.create({
+  userId: Number(userData?.userId),
+  companyId: data.companyId || 0,
+  quotation: data,
+  status: "draft"
+
+});
+
 
 
    
@@ -1499,73 +1520,172 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
   }
 };
 
-// export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const data = req.body;
-//     const userData = (req as any).userData as JwtPayload;
+export const getQuotationPdfList = async(req:Request,res:Response)=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const { count, rows } = await Quotations.findAndCountAll({
+      where: {
+        userId: userData.userId
+      },
+      order: [["createdAt", "DESC"]],
+      limit: limit,
+      offset: offset
+    });
+    createSuccess(res, "Quotation list fetched successfully", {
+      total: count,
+      page: page,
+      totalPages: Math.ceil(count / limit),
+      data: rows
+    });
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}
 
-//     let userImage = `file://${path.join(__dirname, "../../../uploads/logo.png").replace(/\\/g, "/")}`; // default fallback
-//     if (userData && userData.userId) {
-//       const user = await User.findByPk(userData.userId);
-//       if (user && user.profile) {
-//         if (user.profile.startsWith("http")) {
-//           userImage = user.profile; 
-//         } else {
-//           userImage = `file://${path.join(__dirname, "../../../uploads/images", user.profile).replace(/\\/g, "/")}`;
-//         }
-//       }
-//     }
+export const downloadQuotationPdf = async(req:Request,res:Response)=>{
+  try{
+    const { id } = req.params;
 
-//     // Render EJS → HTML
-//     const filePath = path.join(__dirname, "../../ejs/preview.html");
+    // ─── Fetch quotation record ────────────────────────────────────────────
+    const quotation = await Quotations.findByPk(id);
+    if(!quotation){
+      badRequest(res, "Quotation not found");
+      return;
+    }
 
-//     const html = await ejs.renderFile(filePath, {
-//       companyName: data.companyName,
-//       companyAddress: data.address,
-//       gstNumber: data.gstin,
-//       quotationNumber: data.quotationNumber,
-//       meetingDate: data.date,
-//       fromName: data.fromName,
-//       toName: data.toName,
-//       toAddress: data.toAddress,
-//       contactNumber: data.contactNumber,
-//       category: data.category,
-//       subCategory: data.subCategory,
-//       amount: data.amount,
-//       subtotal: data.subtotal,
-//       gstPercent: data.gstRate,
-//       gstAmount: data.gstAmount,
-//       finalAmount: data.finalAmount,
-//       notes: data.notes,
-//       userImage: userImage // Pass user image to template
-//     });
+    const data: any = quotation.quotation;
 
-//     // Launch browser
-//     const browser = await puppeteer.launch({
-//       args: ['--no-sandbox', '--disable-setuid-sandbox']
-//     });
-//     const page = await browser.newPage();
+    // ─── Shared calculations ───────────────────────────────────────────────
+    const subtotal = (data.items ?? []).reduce((sum: number, item: any) => {
+      return sum + Number(item.amount || 0);
+    }, 0);
+    const discount      = Number(data.discount  || 0);
+    const taxableAmount = subtotal - discount;
+    const gstAmount     = (taxableAmount * Number(data.gstRate || 0)) / 100;
+    const finalAmount   = taxableAmount + gstAmount;
 
-//     await page.setContent(html, { waitUntil: "load" });
+    // ─── ?mode=details → return JSON details ──────────────────────────────
+    if (req.query.mode === "details") {
+      createSuccess(res, "Quotation details fetched successfully", {
+        id:        quotation.id,
+        userId:    quotation.userId,
+        companyId: quotation.companyId,
+        status:    quotation.status,
+        createdAt: (quotation as any).createdAt,
+        updatedAt: (quotation as any).updatedAt,
+        quotation: {
+          ...data,
+          subtotal,
+          discount,
+          taxableAmount,
+          gstAmount,
+          finalAmount
+        }
+      });
+      return;
+    }
 
-//     const pdfBuffer = await page.pdf({
-//       format: "a4",
-//       printBackground: true
-//     });
+    // ─── Default → generate & stream PDF ──────────────────────────────────
+    const toBase64 = (filePath: string): string => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const ext  = filePath.split(".").pop()?.toLowerCase();
+          const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+          const buf  = fs.readFileSync(filePath);
+          return `data:${mime};base64,${buf.toString("base64")}`;
+        }
+      } catch (_) {}
+      return "";
+    };
 
-//     await browser.close();
+    const logo      = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
+    const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
+    const stamp     = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
 
-//     res.set({
-//       "Content-Type": "application/pdf",
-//       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`,
-//     });
+    const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+    const html = await ejs.renderFile(filePath, {
+      ...data,
+      logo,
+      signature,
+      stamp,
+      subtotal,
+      discount,
+      taxableAmount,
+      gstAmount,
+      finalAmount
+    });
 
-//     res.send(pdfBuffer);
+    const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    });
+    const page = await browser.newPage();
+    await page.setContent(html as string, { waitUntil: "load" });
 
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
+    const pdfBuffer = await page.pdf({
+      format: "a4",
+      printBackground: true,
+      margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
+    });
+    await browser.close();
 
-//     badRequest(res, errorMessage, error);
-//   }
-// };
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
+    });
+    res.send(pdfBuffer);
+
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}
+
+
+export const getSubCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      badRequest(res, "Category id is required");
+      return;
+    }
+
+    const subCategory = await SubCategory.findAll({
+      where: {
+        CategoryId: id,
+      },
+    });
+
+    // 🔥 Transform "text" → "tax"
+    const formattedData = subCategory.map((item: any) => {
+      const obj = item.toJSON();
+
+      return {
+        ...obj,
+        tax: obj.text,   // rename
+        text: undefined, // remove old field
+      };
+    });
+
+    createSuccess(
+      res,
+      "Sub category list fetched successfully",
+      formattedData
+    );
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};

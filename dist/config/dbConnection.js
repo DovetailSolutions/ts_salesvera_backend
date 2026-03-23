@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SubCategory = exports.Quotation = exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.Quotations = exports.SubCategory = exports.Quotation = exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -41,6 +41,8 @@ const meetingUser_1 = require("../app/model/meetingUser");
 const quotation_1 = require("../app/model/quotation");
 Object.defineProperty(exports, "Quotation", { enumerable: true, get: function () { return quotation_1.Quotation; } });
 const subCategory_1 = require("../app/model/subCategory");
+const quotations_1 = require("../app/model/quotations");
+Object.defineProperty(exports, "Quotations", { enumerable: true, get: function () { return quotations_1.Quotations; } });
 const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
@@ -59,6 +61,7 @@ leaverequests_1.Leave.initModel(sequelize);
 expense_1.Expense.initModel(sequelize);
 expanseImages_1.ExpenseImage.initModel(sequelize);
 quotation_1.Quotation.initModel(sequelize);
+quotations_1.Quotations.initModel(sequelize);
 // SubCategory.initModel(sequelize)
 const User = (0, user_1.createUserModel)(sequelize);
 exports.User = User;
@@ -157,9 +160,22 @@ SubCategory.belongsTo(Category, {
     foreignKey: "CategoryId",
     as: "category"
 });
+//sale quotation
+User.hasMany(quotations_1.Quotations, { foreignKey: "userId" });
+quotations_1.Quotations.belongsTo(User, { foreignKey: "userId" });
+// Sale.hasMany(Quotations, { foreignKey: "saleId" });
+// Quotations.belongsTo(Sale, { foreignKey: "saleId" });
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("✅ Database connection established successfully");
+        // Clean up orphaned quotations rows before sync so the FK constraint can be applied.
+        // Wrapped in try/catch in case the table doesn't exist yet on a fresh DB.
+        try {
+            yield sequelize.query(`DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`);
+        }
+        catch (_) {
+            // table may not exist yet — safe to ignore
+        }
         yield sequelize.sync({ alter: true });
         yield sequelize.authenticate();
     }

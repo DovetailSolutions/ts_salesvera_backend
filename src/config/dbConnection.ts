@@ -17,7 +17,9 @@ import{MeetingImageModel} from "../app/model/meetingImage"
 import {CompanyModel} from "../app/model/meetingCompany"
 import {UserModel} from "../app/model/meetingUser"
 import {Quotation} from "../app/model/quotation";
-import {SubCategoryModel} from "../app/model/subCategory"
+import {SubCategoryModel} from "../app/model/subCategory";
+import {Quotations} from "../app/model/quotations";
+
 
 
 
@@ -46,6 +48,7 @@ Leave.initModel(sequelize)
 Expense.initModel(sequelize)
 ExpenseImage.initModel(sequelize)
 Quotation.initModel(sequelize)
+Quotations.initModel(sequelize)
 // SubCategory.initModel(sequelize)
 
 const User = createUserModel(sequelize);
@@ -175,12 +178,31 @@ SubCategory.belongsTo(Category, {
 });
 
 
+//sale quotation
+User.hasMany(Quotations, { foreignKey: "userId" });
+Quotations.belongsTo(User, { foreignKey: "userId" });
+
+// Sale.hasMany(Quotations, { foreignKey: "saleId" });
+// Quotations.belongsTo(Sale, { foreignKey: "saleId" });
+
+
 
 
 
 export const connectDB = async () => {
   try {
     console.log("✅ Database connection established successfully");
+
+    // Clean up orphaned quotations rows before sync so the FK constraint can be applied.
+    // Wrapped in try/catch in case the table doesn't exist yet on a fresh DB.
+    try {
+      await sequelize.query(
+        `DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`
+      );
+    } catch (_) {
+      // table may not exist yet — safe to ignore
+    }
+
     await sequelize.sync({ alter: true });
     await sequelize.authenticate();
   } catch (err) {
@@ -205,5 +227,6 @@ export {
   MeetingUser,
   ExpenseImage,
   Quotation,
-  SubCategory
+  SubCategory,
+  Quotations
 };
