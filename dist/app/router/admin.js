@@ -75,5 +75,9 @@ router.get("/getown-leave", jwtVerify_1.tokenCheck, AdminController.ownLeave);
 router.post("/add/quotation", AdminController.addQuotation);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.post("/addSubCategory", jwtVerify_1.tokenCheck, AdminController.addSubCategory);
+router.patch("/updateSubCategory/:id", jwtVerify_1.tokenCheck, AdminController.updateSubCategory);
+router.get("/getsubcategory/:id", jwtVerify_1.tokenCheck, AdminController.getSubCategory);
+router.get("/getquotationpdflist", jwtVerify_1.tokenCheck, AdminController.getQuotationPdfList);
+router.get("/downloadquotationpdf/:id", jwtVerify_1.tokenCheck, AdminController.downloadQuotationPdf);
 // meeting apis 
 exports.default = router;

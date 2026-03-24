@@ -45,11 +45,15 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
+const puppeteer_1 = __importDefault(require("puppeteer"));
+const ejs_1 = __importDefault(require("ejs"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
 const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_1 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
@@ -1510,3 +1514,246 @@ const addSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.addSubCategory = addSubCategory;
+const updateSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        if (!loggedInId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const { id } = req.params;
+        if (!id) {
+            (0, errorMessage_1.badRequest)(res, "SubCategory id is required");
+            return;
+        }
+        const { sub_category_name, amount, tax, CategoryId } = req.body;
+        // Check if subcategory exists
+        const existingSubCategory = yield dbConnection_1.SubCategory.findByPk(id);
+        if (!existingSubCategory) {
+            (0, errorMessage_1.badRequest)(res, "Sub category not found");
+            return;
+        }
+        const object = {};
+        if (sub_category_name !== undefined) {
+            object.sub_category_name = sub_category_name.trim();
+        }
+        if (amount !== undefined) {
+            object.amount = amount;
+        }
+        if (tax !== undefined) {
+            object.text = tax; // or text (based on your schema)
+        }
+        if (CategoryId !== undefined) {
+            object.CategoryId = CategoryId;
+        }
+        object.managerId = loggedInId;
+        // Duplicate check ONLY if name is being updated
+        if (sub_category_name !== undefined) {
+            const cleanName = sub_category_name.trim();
+            const duplicate = yield dbConnection_1.SubCategory.findOne({
+                where: {
+                    sub_category_name: cleanName,
+                    CategoryId: CategoryId !== null && CategoryId !== void 0 ? CategoryId : existingSubCategory.CategoryId,
+                    id: { [sequelize_1.Op.ne]: id },
+                },
+            });
+            if (duplicate) {
+                (0, errorMessage_1.badRequest)(res, "Sub category already exists");
+                return;
+            }
+        }
+        // Update using instance (better approach)
+        yield existingSubCategory.update(object);
+        (0, errorMessage_1.createSuccess)(res, "Sub category updated successfully", existingSubCategory);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.updateSubCategory = updateSubCategory;
+const getSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            (0, errorMessage_1.badRequest)(res, "Category id is required");
+            return;
+        }
+        const subCategory = yield dbConnection_1.SubCategory.findAll({
+            where: {
+                CategoryId: id,
+            },
+        });
+        // 🔥 Transform "text" → "tax"
+        const formattedData = subCategory.map((item) => {
+            const obj = item.toJSON();
+            return Object.assign(Object.assign({}, obj), { tax: obj.text, text: undefined });
+        });
+        (0, errorMessage_1.createSuccess)(res, "Sub category list fetched successfully", formattedData);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getSubCategory = getSubCategory;
+const getQuotationPdfList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        console.log("userData", userData);
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+        const { count, rows } = yield dbConnection_1.Quotations.findAndCountAll({
+            where: {
+            // userId: userData.userId
+            },
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "User",
+                    attributes: ["id", "firstName"],
+                    include: [
+                        {
+                            model: dbConnection_1.User,
+                            as: "creators",
+                            attributes: ["id", "firstName"],
+                            required: true, // ✅ IMPORTANT (INNER JOIN)
+                            where: {
+                                id: userData.userId, // ✅ MATCH HERE
+                            },
+                            through: {
+                                attributes: [], // optional (hide pivot)
+                            },
+                        },
+                    ],
+                },
+            ],
+            // include: [
+            //   {
+            //     model: User,
+            //     as: "User",
+            //     attributes: ["id", "firstName"],
+            //     include: [
+            //       {
+            //         model: User,
+            //         as: "creators",
+            //         attributes: ["id", "firstName"],
+            //         include:[
+            //           {
+            //             model: User,
+            //             as: "creators",
+            //             attributes: ["id", "firstName"],
+            //           }
+            //         ]
+            //       },
+            //     ],
+            //   },
+            // ],
+            order: [["createdAt", "DESC"]],
+            limit: limit,
+            offset: offset
+        });
+        (0, errorMessage_1.createSuccess)(res, "Quotation list fetched successfully", {
+            total: count,
+            page: page,
+            totalPages: Math.ceil(count / limit),
+            data: rows
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getQuotationPdfList = getQuotationPdfList;
+const downloadQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        const { id } = req.params;
+        // ─── Fetch quotation record ────────────────────────────────────────────
+        const quotation = yield dbConnection_1.Quotations.findByPk(id);
+        if (!quotation) {
+            (0, errorMessage_1.badRequest)(res, "Quotation not found");
+            return;
+        }
+        const data = quotation.quotation;
+        // ─── Shared calculations ───────────────────────────────────────────────
+        const subtotal = ((_a = data.items) !== null && _a !== void 0 ? _a : []).reduce((sum, item) => {
+            return sum + Number(item.amount || 0);
+        }, 0);
+        const discount = Number(data.discount || 0);
+        const taxableAmount = subtotal - discount;
+        const gstAmount = (taxableAmount * Number(data.gstRate || 0)) / 100;
+        const finalAmount = taxableAmount + gstAmount;
+        // ─── ?mode=details → return JSON details ──────────────────────────────
+        if (req.query.mode === "details") {
+            (0, errorMessage_1.createSuccess)(res, "Quotation details fetched successfully", {
+                id: quotation.id,
+                userId: quotation.userId,
+                companyId: quotation.companyId,
+                status: quotation.status,
+                createdAt: quotation.createdAt,
+                updatedAt: quotation.updatedAt,
+                quotation: Object.assign(Object.assign({}, data), { subtotal,
+                    discount,
+                    taxableAmount,
+                    gstAmount,
+                    finalAmount })
+            });
+            return;
+        }
+        // ─── Default → generate & stream PDF ──────────────────────────────────
+        const toBase64 = (filePath) => {
+            var _a;
+            try {
+                if (fs_1.default.existsSync(filePath)) {
+                    const ext = (_a = filePath.split(".").pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+                    const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+                    const buf = fs_1.default.readFileSync(filePath);
+                    return `data:${mime};base64,${buf.toString("base64")}`;
+                }
+            }
+            catch (_) { }
+            return "";
+        };
+        const logo = toBase64(path_1.default.join(__dirname, "../../../uploads/images/logo.jpeg"));
+        const signature = toBase64(path_1.default.join(__dirname, "../../../uploads/signature.png"));
+        const stamp = toBase64(path_1.default.join(__dirname, "../../../uploads/stamp.png"));
+        const filePath = path_1.default.join(__dirname, "../../ejs/preview.ejs");
+        const html = yield ejs_1.default.renderFile(filePath, Object.assign(Object.assign({}, data), { logo,
+            signature,
+            stamp,
+            subtotal,
+            discount,
+            taxableAmount,
+            gstAmount,
+            finalAmount }));
+        const browser = yield puppeteer_1.default.launch({
+            args: ["--no-sandbox", "--disable-setuid-sandbox"]
+        });
+        const page = yield browser.newPage();
+        yield page.setContent(html, { waitUntil: "load" });
+        const pdfBuffer = yield page.pdf({
+            format: "a4",
+            printBackground: true,
+            margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
+        });
+        yield browser.close();
+        res.set({
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
+        });
+        res.send(pdfBuffer);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.downloadQuotationPdf = downloadQuotationPdf;

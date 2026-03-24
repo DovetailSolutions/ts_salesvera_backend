@@ -67,8 +67,6 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       deviceType,
       deviceId,
     } = req.body || {};
-    console.log(">>>>>>>>>>>>>>>>>>>req.body", req.body);
-
     if (!email || !password) {
       badRequest(res, "Email and password are required");
       return;
@@ -80,11 +78,9 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       badRequest(res, "Invalid email or password");
       return;
     }
-
     // ✅ Validate password
     const hashedPassword = user.getDataValue("password");
     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
-
     if (!isPasswordValid) {
       badRequest(res, "Invalid email or password");
       ReadableStreamDefaultController;
@@ -122,12 +118,22 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         });
       }
     }
+    const userData = user.toJSON();
+    delete userData.password;
+    // delete userData.refreshToken;
+    // delete userData.createdAt;
+    // delete userData.updatedAt;
 
-    // ✅ Respond to client
+    const enrichedUser = {
+  ...userData,
+  city: "Zirakpur",
+  state: "Punjab",
+  country: "India"
+};
     createSuccess(res, "Login successful", {
       accessToken,
       refreshToken,
-      user
+      user:enrichedUser
     });
 
     

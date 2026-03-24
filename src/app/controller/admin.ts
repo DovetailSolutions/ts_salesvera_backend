@@ -1,8 +1,12 @@
-import {Op} from "sequelize";
+import { Op } from "sequelize";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import csv from "csv-parser";
 import bcrypt from "bcrypt";
+import puppeteer from "puppeteer";
+import ejs from "ejs";
+import fs from "fs";
+import path from "path";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { Request, Response } from "express-serve-static-core";
 import {
@@ -20,7 +24,8 @@ import {
   Leave,
   Expense,
   Quotation,
-  SubCategory
+  SubCategory,
+  Quotations
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -608,7 +613,7 @@ export const getMeeting = async (
   res: Response
 ): Promise<void> => {
   try {
-     const {
+    const {
       page = 1,
       limit = 10,
       search = "",
@@ -640,7 +645,7 @@ export const getMeeting = async (
         ll = plain.creators[0].id; // parent admin ID
       }
     }
-   
+
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -702,7 +707,7 @@ export const getMeeting = async (
       page: pageNum,
       limit: limitNum,
       total: count,
-      totalPages: Math.ceil(count/limitNum),
+      totalPages: Math.ceil(count / limitNum),
       rows,
     });
   } catch (error) {
@@ -1148,8 +1153,8 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
     const { status } = req.query;
-     const { page, limit, offset } = getPagination(req);
-     // <- status comes from query
+    const { page, limit, offset } = getPagination(req);
+    // <- status comes from query
     const childIds = await getAllChildUserIds(loggedInId);
 
     const allUserIds = [loggedInId, ...childIds];
@@ -1211,7 +1216,7 @@ export const GetExpense = async (
     const search = req.query.search
     const { page, limit, offset } = getPagination(req);
     const childIds = await getAllChildUserIds(loggedInId);
-    
+
     const allUserIds = [loggedInId, ...childIds];
 
     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
@@ -1220,7 +1225,7 @@ export const GetExpense = async (
     const expenseWhere: any = {
       userId: { [Op.in]: allUserIds },
     };
-    let userWhere:any = {};
+    let userWhere: any = {};
 
     if (approvedByAdmin !== undefined) {
       expenseWhere.approvedByAdmin = approvedByAdmin;
@@ -1230,7 +1235,7 @@ export const GetExpense = async (
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
     }
 
-    if(search){
+    if (search) {
       userWhere[Op.or] = [
         { firstName: { [Op.iLike]: `%${search}%` } },
         { lastName: { [Op.iLike]: `%${search}%` } },
@@ -1247,7 +1252,7 @@ export const GetExpense = async (
           as: "user",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           required: false,
-           where: userWhere,
+          where: userWhere,
         },
       ],
       order: [["createdAt", "DESC"]],
@@ -1576,10 +1581,10 @@ export const createClient = async (
 ): Promise<void> => {
   try {
     const { userId } = req.userData as JwtPayload;
-    const { name, email, mobile,  } =
+    const { name, email, mobile, } =
       req.body || {};
     // Required fields check
-    if (![name, email, mobile, ].every(Boolean)) {
+    if (![name, email, mobile,].every(Boolean)) {
       badRequest(res, "All fields are required");
       return;
     }
@@ -1621,11 +1626,11 @@ const generateDayMap = (totalDays: number) =>
 const buildSearchFilter = (search: string) =>
   search
     ? {
-        [Op.or]: [
-          { firstName: { [Op.iLike]: `%${search}%` } },
-          { lastName: { [Op.iLike]: `%${search}%` } },
-        ],
-      }
+      [Op.or]: [
+        { firstName: { [Op.iLike]: `%${search}%` } },
+        { lastName: { [Op.iLike]: `%${search}%` } },
+      ],
+    }
     : {};
 // =========================== MAIN FUNCTION ===============================
 
@@ -1712,16 +1717,16 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
 
     // Validate required fields
     if (!userId || !meetingId || !scheduledTime) {
-       badRequest(res, "userId, meetingId and scheduledTime are required");
-       return
+      badRequest(res, "userId, meetingId and scheduledTime are required");
+      return
     }
 
     // Check meeting exists
     const meeting = await Meeting.findOne({ where: { id: meetingId } });
 
     if (!meeting) {
-       badRequest(res, "Meeting not found");
-       return
+      badRequest(res, "Meeting not found");
+      return
     }
 
     // If meeting is already assigned & scheduled time conflicts
@@ -1730,13 +1735,13 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
       const newTime = new Date(scheduledTime);
 
       if (existingTime.getTime() === newTime.getTime()) {
-         badRequest(res, "This meeting is already scheduled at this time");
-         return
+        badRequest(res, "This meeting is already scheduled at this time");
+        return
       }
     }
 
 
-    
+
 
     // Create new meeting entry (assign to employee)
     await Meeting.create({
@@ -1748,12 +1753,12 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
       scheduledTime,
       status: "scheduled",
     });
-     createSuccess(res, "Meeting scheduled successfully");
+    createSuccess(res, "Meeting scheduled successfully");
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-     badRequest(res, errorMessage);
-     return
+    badRequest(res, errorMessage);
+    return
   }
 };
 
@@ -1771,9 +1776,9 @@ export const ownLeave = async (req: Request, res: Response): Promise<void> => {
     });
 
     if (rows.length === 0) {
-       badRequest(res, "No leaves found");
+      badRequest(res, "No leaves found");
     }
-     createSuccess(res, "Leave fetched successfully", {
+    createSuccess(res, "Leave fetched successfully", {
       leave: rows,
       pagination: {
         totalRecords: count,
@@ -1806,15 +1811,15 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
 
     // 1️⃣ Basic Validation
     if (!userId) {
-       badRequest(res, "UserId is required");
+      badRequest(res, "UserId is required");
     }
 
     if (!clientName) {
-       badRequest(res, "Client name is required");
+      badRequest(res, "Client name is required");
     }
 
     if (!totalAmount) {
-       badRequest(res, "Total amount is required");
+      badRequest(res, "Total amount is required");
     }
 
     // 2️⃣ Duplicate quotation check
@@ -1824,7 +1829,7 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
       });
 
       if (existingQuotation) {
-         badRequest(res, "Quotation number already exists");
+        badRequest(res, "Quotation number already exists");
       }
     }
 
@@ -1901,9 +1906,305 @@ export const addSubCategory = async (
     createSuccess(res, "Sub category created successfully", subCategory);
   } catch (error) {
     const errorMessage =
-    error instanceof Error ? error.message : "Something went wrong";
+      error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };
+
+export const updateSubCategory = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+
+    if (!loggedInId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      badRequest(res, "SubCategory id is required");
+      return;
+    }
+
+    const { sub_category_name, amount, tax, CategoryId } = req.body;
+
+    // Check if subcategory exists
+    const existingSubCategory = await SubCategory.findByPk(id);
+    if (!existingSubCategory) {
+      badRequest(res, "Sub category not found");
+      return;
+    }
+
+    const object: any = {};
+
+    if (sub_category_name !== undefined) {
+      object.sub_category_name = sub_category_name.trim();
+    }
+
+    if (amount !== undefined) {
+      object.amount = amount;
+    }
+
+    if (tax !== undefined) {
+      object.text = tax; // or text (based on your schema)
+    }
+
+    if (CategoryId !== undefined) {
+      object.CategoryId = CategoryId;
+    }
+
+    object.managerId = loggedInId;
+
+    // Duplicate check ONLY if name is being updated
+    if (sub_category_name !== undefined) {
+      const cleanName = sub_category_name.trim();
+
+      const duplicate = await SubCategory.findOne({
+        where: {
+          sub_category_name: cleanName,
+          CategoryId: CategoryId ?? existingSubCategory.CategoryId,
+          id: { [Op.ne]: id },
+        },
+      });
+
+      if (duplicate) {
+        badRequest(res, "Sub category already exists");
+        return;
+      }
+    }
+
+    // Update using instance (better approach)
+    await existingSubCategory.update(object);
+
+    createSuccess(
+      res,
+      "Sub category updated successfully",
+      existingSubCategory
+    );
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+
+export const getSubCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      badRequest(res, "Category id is required");
+      return;
+    }
+
+    const subCategory = await SubCategory.findAll({
+      where: {
+        CategoryId: id,
+      },
+    });
+
+    // 🔥 Transform "text" → "tax"
+    const formattedData = subCategory.map((item: any) => {
+      const obj = item.toJSON();
+
+      return {
+        ...obj,
+        tax: obj.text,   // rename
+        text: undefined, // remove old field
+      };
+    });
+
+    createSuccess(
+      res,
+      "Sub category list fetched successfully",
+      formattedData
+    );
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getQuotationPdfList = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    console.log("userData", userData);
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const { count, rows } = await Quotations.findAndCountAll({
+      where: {
+        // userId: userData.userId
+      },
+      include: [
+        {
+          model: User,
+          as: "User",
+          attributes: ["id", "firstName"],
+          include: [
+            {
+              model: User,
+              as: "creators",
+              attributes: ["id", "firstName"],
+              required: true, // ✅ IMPORTANT (INNER JOIN)
+              where: {
+                id: userData.userId, // ✅ MATCH HERE
+              },
+              through: {
+                attributes: [], // optional (hide pivot)
+              },
+            },
+          ],
+        },
+      ],
+      // include: [
+      //   {
+      //     model: User,
+      //     as: "User",
+      //     attributes: ["id", "firstName"],
+      //     include: [
+      //       {
+      //         model: User,
+      //         as: "creators",
+      //         attributes: ["id", "firstName"],
+      //         include:[
+      //           {
+      //             model: User,
+      //             as: "creators",
+      //             attributes: ["id", "firstName"],
+      //           }
+      //         ]
+      //       },
+      //     ],
+      //   },
+      // ],
+      order: [["createdAt", "DESC"]],
+      limit: limit,
+      offset: offset
+    });
+    createSuccess(res, "Quotation list fetched successfully", {
+      total: count,
+      page: page,
+      totalPages: Math.ceil(count / limit),
+      data: rows
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}
+
+export const downloadQuotationPdf = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // ─── Fetch quotation record ────────────────────────────────────────────
+    const quotation = await Quotations.findByPk(id);
+    if (!quotation) {
+      badRequest(res, "Quotation not found");
+      return;
+    }
+
+    const data: any = quotation.quotation;
+
+    // ─── Shared calculations ───────────────────────────────────────────────
+    const subtotal = (data.items ?? []).reduce((sum: number, item: any) => {
+      return sum + Number(item.amount || 0);
+    }, 0);
+    const discount = Number(data.discount || 0);
+    const taxableAmount = subtotal - discount;
+    const gstAmount = (taxableAmount * Number(data.gstRate || 0)) / 100;
+    const finalAmount = taxableAmount + gstAmount;
+
+    // ─── ?mode=details → return JSON details ──────────────────────────────
+    if (req.query.mode === "details") {
+      createSuccess(res, "Quotation details fetched successfully", {
+        id: quotation.id,
+        userId: quotation.userId,
+        companyId: quotation.companyId,
+        status: quotation.status,
+        createdAt: (quotation as any).createdAt,
+        updatedAt: (quotation as any).updatedAt,
+        quotation: {
+          ...data,
+          subtotal,
+          discount,
+          taxableAmount,
+          gstAmount,
+          finalAmount
+        }
+      });
+      return;
+    }
+
+    // ─── Default → generate & stream PDF ──────────────────────────────────
+    const toBase64 = (filePath: string): string => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const ext = filePath.split(".").pop()?.toLowerCase();
+          const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+          const buf = fs.readFileSync(filePath);
+          return `data:${mime};base64,${buf.toString("base64")}`;
+        }
+      } catch (_) { }
+      return "";
+    };
+
+    const logo = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
+    const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
+    const stamp = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
+
+    const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+    const html = await ejs.renderFile(filePath, {
+      ...data,
+      logo,
+      signature,
+      stamp,
+      subtotal,
+      discount,
+      taxableAmount,
+      gstAmount,
+      finalAmount
+    });
+
+    const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    });
+    const page = await browser.newPage();
+    await page.setContent(html as string, { waitUntil: "load" });
+
+    const pdfBuffer = await page.pdf({
+      format: "a4",
+      printBackground: true,
+      margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
+    });
+    await browser.close();
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
+    });
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}
+
 
 

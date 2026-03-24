@@ -47,6 +47,17 @@ router.post(
     AdminController.addSubCategory
 );
 
+router.patch(
+    "/updateSubCategory/:id",
+    tokenCheck,
+    AdminController.updateSubCategory
+);
+
+
+router.get("/getsubcategory/:id",tokenCheck,AdminController.getSubCategory)
+router.get("/getquotationpdflist",tokenCheck,AdminController.getQuotationPdfList)
+router.get("/downloadquotationpdf/:id",tokenCheck,AdminController.downloadQuotationPdf)
+
 
 
 

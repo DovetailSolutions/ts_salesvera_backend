@@ -82,7 +82,6 @@ exports.Register = Register;
 const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { email, password, deviceToken, devicemodel, devicename, deviceType, deviceId, } = req.body || {};
-        console.log(">>>>>>>>>>>>>>>>>>>req.body", req.body);
         if (!email || !password) {
             (0, errorMessage_1.badRequest)(res, "Email and password are required");
             return;
@@ -128,11 +127,16 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 });
             }
         }
-        // ✅ Respond to client
+        const userData = user.toJSON();
+        delete userData.password;
+        // delete userData.refreshToken;
+        // delete userData.createdAt;
+        // delete userData.updatedAt;
+        const enrichedUser = Object.assign(Object.assign({}, userData), { city: "Zirakpur", state: "Punjab", country: "India" });
         (0, errorMessage_1.createSuccess)(res, "Login successful", {
             accessToken,
             refreshToken,
-            user
+            user: enrichedUser
         });
     }
     catch (error) {
