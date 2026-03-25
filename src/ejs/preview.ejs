@@ -46,7 +46,6 @@ tr { page-break-inside: avoid; }
 .signature-section img {
   height:60px;
 }
-
 </style>
 </head>
 
@@ -101,11 +100,42 @@ tr { page-break-inside: avoid; }
 <!-- Amount Summary -->
 <div class="amount-box">
 <table>
-<tr><td>Subtotal</td><td>₹ <%= subtotal %></td></tr>
-<tr><td>Discount</td><td>- ₹ <%= discount %></td></tr>
-<tr><td>Taxable</td><td>₹ <%= taxableAmount %></td></tr>
-<tr><td>GST (<%= gstRate %>%)</td><td>₹ <%= gstAmount %></td></tr>
-<tr><td><strong>Total</strong></td><td><strong>₹ <%= finalAmount %></strong></td></tr>
+<tr>
+  <td>Subtotal</td>
+  <td>₹ <%= subtotal %></td>
+</tr>
+
+<tr>
+  <td>Discount</td>
+  <td>- ₹ <%= discount %></td>
+</tr>
+
+<tr>
+  <td>Taxable</td>
+  <td>₹ <%= taxableAmount %></td>
+</tr>
+
+<!-- ✅ GST Split Logic -->
+<% if (cgst > 0 && sgst > 0) { %>
+<tr>
+  <td>CGST (<%= gstRate / 2 %>%)</td>
+  <td>₹ <%= cgst %></td>
+</tr>
+<tr>
+  <td>SGST (<%= gstRate / 2 %>%)</td>
+  <td>₹ <%= sgst %></td>
+</tr>
+<% } else { %>
+<tr>
+  <td>IGST (<%= gstRate %>%)</td>
+  <td>₹ <%= igst %></td>
+</tr>
+<% } %>
+
+<tr>
+  <td><strong>Total</strong></td>
+  <td><strong>₹ <%= finalAmount %></strong></td>
+</tr>
 </table>
 </div>
 

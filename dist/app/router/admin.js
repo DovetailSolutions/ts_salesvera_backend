@@ -79,5 +79,6 @@ router.patch("/updateSubCategory/:id", jwtVerify_1.tokenCheck, AdminController.u
 router.get("/getsubcategory/:id", jwtVerify_1.tokenCheck, AdminController.getSubCategory);
 router.get("/getquotationpdflist", jwtVerify_1.tokenCheck, AdminController.getQuotationPdfList);
 router.get("/downloadquotationpdf/:id", jwtVerify_1.tokenCheck, AdminController.downloadQuotationPdf);
+router.post("/addquotationpdf", jwtVerify_1.tokenCheck, AdminController.addQuotationPdf);
 // meeting apis 
 exports.default = router;

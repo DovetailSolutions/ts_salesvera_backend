@@ -2206,5 +2206,129 @@ export const downloadQuotationPdf = async (req: Request, res: Response) => {
   }
 }
 
+export const addQuotationPdf = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const data = req.body;
+
+    // ✅ Helper: Convert image → base64
+    const toBase64 = (filePath: string): string => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const ext = filePath.split(".").pop()?.toLowerCase();
+          const mime =
+            ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+          const buf = fs.readFileSync(filePath);
+          return `data:${mime};base64,${buf.toString("base64")}`;
+        }
+      } catch (_) {}
+      return "";
+    };
+
+    const logo = toBase64(
+      path.join(__dirname, "../../../uploads/images/logo.jpeg")
+    );
+    const signature = toBase64(
+      path.join(__dirname, "../../../uploads/signature.png")
+    );
+    const stamp = toBase64(
+      path.join(__dirname, "../../../uploads/stamp.png")
+    );
+
+    // ✅ GST State
+    const ownstate = String(data.ownstate || "").toLowerCase();
+    const clientState = String(data.clientState || "").toLowerCase();
+
+    // ✅ Calculations
+    const subtotal = data.items.reduce((sum: number, item: any) => {
+      return sum + Number(item.amount || 0);
+    }, 0);
+
+    const discount = Number(data.discount || 0);
+    const taxableAmount = subtotal - discount;
+
+    const gstRate = Number(data.gstRate || 0);
+    const totalGST = (taxableAmount * gstRate) / 100;
+
+    let cgst = 0;
+    let sgst = 0;
+    let igst = 0;
+
+    // ✅ GST Logic (India)
+    if (ownstate && clientState && ownstate === clientState) {
+      cgst = totalGST / 2;
+      sgst = totalGST / 2;
+    } else {
+      igst = totalGST;
+    }
+
+    const finalAmount = taxableAmount + totalGST;
+
+    // ✅ Render EJS
+    const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+
+    const html = await ejs.renderFile(filePath, {
+      ...data,
+      logo,
+      signature,
+      stamp,
+      subtotal,
+      discount,
+      taxableAmount,
+      gstRate,
+      cgst,
+      sgst,
+      igst,
+      totalGST,
+      finalAmount
+    });
+
+    // ✅ Save to DB
+    await Quotations.create({
+      userId: Number(userData?.userId),
+      companyId: data.companyId || 0,
+      quotation: data,
+      status: "draft"
+    });
+
+    // ✅ Puppeteer
+    const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    });
+
+    const page = await browser.newPage();
+    await page.setContent(html as string, { waitUntil: "load" });
+
+    const pdfBuffer = await page.pdf({
+      format: "a4",
+      printBackground: true,
+      margin: {
+        top: "20mm",
+        bottom: "20mm",
+        left: "15mm",
+        right: "15mm"
+      }
+    });
+
+    await browser.close();
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
+    });
+
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    res.status(400).json({ error: "Something went wrong" });
+  }
+};
+
 
 

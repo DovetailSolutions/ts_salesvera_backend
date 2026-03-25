@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -1757,3 +1757,100 @@ const downloadQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, fun
     }
 });
 exports.downloadQuotationPdf = downloadQuotationPdf;
+const addQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const data = req.body;
+        // ✅ Helper: Convert image → base64
+        const toBase64 = (filePath) => {
+            var _a;
+            try {
+                if (fs_1.default.existsSync(filePath)) {
+                    const ext = (_a = filePath.split(".").pop()) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+                    const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+                    const buf = fs_1.default.readFileSync(filePath);
+                    return `data:${mime};base64,${buf.toString("base64")}`;
+                }
+            }
+            catch (_) { }
+            return "";
+        };
+        const logo = toBase64(path_1.default.join(__dirname, "../../../uploads/images/logo.jpeg"));
+        const signature = toBase64(path_1.default.join(__dirname, "../../../uploads/signature.png"));
+        const stamp = toBase64(path_1.default.join(__dirname, "../../../uploads/stamp.png"));
+        // ✅ GST State
+        const ownstate = String(data.ownstate || "").toLowerCase();
+        const clientState = String(data.clientState || "").toLowerCase();
+        // ✅ Calculations
+        const subtotal = data.items.reduce((sum, item) => {
+            return sum + Number(item.amount || 0);
+        }, 0);
+        const discount = Number(data.discount || 0);
+        const taxableAmount = subtotal - discount;
+        const gstRate = Number(data.gstRate || 0);
+        const totalGST = (taxableAmount * gstRate) / 100;
+        let cgst = 0;
+        let sgst = 0;
+        let igst = 0;
+        // ✅ GST Logic (India)
+        if (ownstate && clientState && ownstate === clientState) {
+            cgst = totalGST / 2;
+            sgst = totalGST / 2;
+        }
+        else {
+            igst = totalGST;
+        }
+        const finalAmount = taxableAmount + totalGST;
+        // ✅ Render EJS
+        const filePath = path_1.default.join(__dirname, "../../ejs/preview.ejs");
+        const html = yield ejs_1.default.renderFile(filePath, Object.assign(Object.assign({}, data), { logo,
+            signature,
+            stamp,
+            subtotal,
+            discount,
+            taxableAmount,
+            gstRate,
+            cgst,
+            sgst,
+            igst,
+            totalGST,
+            finalAmount }));
+        // ✅ Save to DB
+        yield dbConnection_1.Quotations.create({
+            userId: Number(userData === null || userData === void 0 ? void 0 : userData.userId),
+            companyId: data.companyId || 0,
+            quotation: data,
+            status: "draft"
+        });
+        // ✅ Puppeteer
+        const browser = yield puppeteer_1.default.launch({
+            args: ["--no-sandbox", "--disable-setuid-sandbox"]
+        });
+        const page = yield browser.newPage();
+        yield page.setContent(html, { waitUntil: "load" });
+        const pdfBuffer = yield page.pdf({
+            format: "a4",
+            printBackground: true,
+            margin: {
+                top: "20mm",
+                bottom: "20mm",
+                left: "15mm",
+                right: "15mm"
+            }
+        });
+        yield browser.close();
+        res.set({
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
+        });
+        res.send(pdfBuffer);
+    }
+    catch (error) {
+        res.status(400).json({ error: "Something went wrong" });
+    }
+});
+exports.addQuotationPdf = addQuotationPdf;

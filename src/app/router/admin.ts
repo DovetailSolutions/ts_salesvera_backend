@@ -56,7 +56,8 @@ router.patch(
 
 router.get("/getsubcategory/:id",tokenCheck,AdminController.getSubCategory)
 router.get("/getquotationpdflist",tokenCheck,AdminController.getQuotationPdfList)
-router.get("/downloadquotationpdf/:id",tokenCheck,AdminController.downloadQuotationPdf)
+router.get("/downloadquotationpdf/:id",tokenCheck,AdminController.downloadQuotationPdf);
+router.post("/addquotationpdf",tokenCheck,AdminController.addQuotationPdf)
 
 
 
