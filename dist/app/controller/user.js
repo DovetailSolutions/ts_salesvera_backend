@@ -58,6 +58,19 @@ const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_2 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
 const web_1 = require("stream/web");
+function getDistance(lat1, lon1, lat2, lon2) {
+    const toRad = (value) => (value * Math.PI) / 180;
+    const R = 6371; // Earth radius in KM
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) *
+            Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
 const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { phone } = req.body;
@@ -569,15 +582,16 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
         const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
+        // ✅ Validations
         if (!meetingId) {
             (0, errorMessage_1.badRequest)(res, "meetingId is required");
             return;
         }
         if (!latitude_out || !longitude_out) {
-            (0, errorMessage_1.badRequest)(res, "latitude_out and longitude_out are required to end a meeting");
+            (0, errorMessage_1.badRequest)(res, "latitude_out and longitude_out are required");
             return;
         }
-        /** ✅ Check meeting exist for this user & active */
+        // ✅ Check meeting exists and is active
         const isExist = yield dbConnection_2.Meeting.findOne({
             where: {
                 id: meetingId,
@@ -589,20 +603,90 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             (0, errorMessage_1.badRequest)(res, "No active meeting found with this meetingId");
             return;
         }
-        // Since remarks is on the meeting_companies table (not Meetings), we need to update it there
+        // ✅ Update remarks if provided
         if (remarks) {
             const company = yield dbConnection_2.MeetingCompany.findByPk(isExist.companyId);
-            if (company) {
+            if (company)
                 yield company.update({ remarks });
-            }
         }
-        /** ✅ Update meeting */
-        isExist.status = "out"; // Use 'out' as per schema instead of 'completed'
+        // ✅ Mark meeting as ended
+        isExist.status = "out";
         isExist.latitude_out = latitude_out;
         isExist.longitude_out = longitude_out;
         isExist.meetingTimeOut = new Date();
         yield isExist.save();
-        (0, errorMessage_1.createSuccess)(res, "Meeting ended successfully", isExist);
+        // ✅ Day range
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date();
+        endOfDay.setHours(23, 59, 59, 999);
+        // ✅ Get today's attendance (starting point)
+        const attendance = yield dbConnection_2.Attendance.findOne({
+            where: {
+                employee_id: finalUserId,
+                date: { [sequelize_1.Op.between]: [startOfDay, endOfDay] },
+            },
+            attributes: ["id", "latitude_in", "longitude_in"],
+        });
+        // ✅ Get all OTHER completed meetings today (excluding current)
+        const previousMeetings = yield dbConnection_2.Meeting.findAll({
+            where: {
+                userId: finalUserId,
+                status: "out",
+                id: { [sequelize_1.Op.ne]: isExist.id },
+                meetingTimeOut: { [sequelize_1.Op.between]: [startOfDay, endOfDay] },
+            },
+            attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut", "legDistance"],
+            order: [["meetingTimeOut", "ASC"]],
+        });
+        // ✅ Calculate leg distance (previous point → this meeting)
+        let legDistance = 0;
+        if (previousMeetings.length === 0) {
+            // First meeting of the day → distance from attendance check-in
+            if ((attendance === null || attendance === void 0 ? void 0 : attendance.latitude_in) &&
+                (attendance === null || attendance === void 0 ? void 0 : attendance.longitude_in) &&
+                isExist.latitude_out &&
+                isExist.longitude_out) {
+                const lat1 = parseFloat(attendance.latitude_in);
+                const lon1 = parseFloat(attendance.longitude_in);
+                const lat2 = parseFloat(isExist.latitude_out);
+                const lon2 = parseFloat(isExist.longitude_out);
+                if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+                    legDistance = getDistance(lat1, lon1, lat2, lon2);
+                }
+            }
+        }
+        else {
+            // Nth meeting → distance from last completed meeting
+            const lastMeeting = previousMeetings[previousMeetings.length - 1];
+            if (lastMeeting.latitude_out &&
+                lastMeeting.longitude_out &&
+                isExist.latitude_out &&
+                isExist.longitude_out) {
+                const lat1 = parseFloat(lastMeeting.latitude_out);
+                const lon1 = parseFloat(lastMeeting.longitude_out);
+                const lat2 = parseFloat(isExist.latitude_out);
+                const lon2 = parseFloat(isExist.longitude_out);
+                if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+                    legDistance = getDistance(lat1, lon1, lat2, lon2);
+                }
+            }
+        }
+        // ✅ Sum all previous leg distances + current leg = total for the day
+        const previousTotal = previousMeetings.reduce((sum, m) => {
+            const leg = parseFloat(m.legDistance || "0");
+            return sum + (isNaN(leg) ? 0 : leg);
+        }, 0);
+        const totalDistance = previousTotal + legDistance;
+        // ✅ Save leg + total on current meeting
+        isExist.legDistance = legDistance.toFixed(2).toString();
+        isExist.totalDistance = totalDistance.toFixed(2).toString();
+        yield isExist.save();
+        (0, errorMessage_1.createSuccess)(res, "Meeting ended successfully", {
+            meetingId: isExist.id,
+            legDistance: `${isExist.legDistance} km`, // e.g. "7.00 km"  (M1 → M2)
+            totalDistance: `${isExist.totalDistance} km`, // e.g. "12.00 km" (A → M1 → M2)
+        });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
@@ -610,6 +694,211 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.EndMeeting = EndMeeting;
+// export const EndMeeting = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const finalUserId = userData?.userId;
+//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
+//     if (!meetingId) {
+//       badRequest(res, "meetingId is required");
+//       return;
+//     }
+//     if (!latitude_out || !longitude_out) {
+//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
+//       return;
+//     }
+//     /** ✅ Check meeting exist for this user & active */
+//     const isExist = await Meeting.findOne({
+//       where: {
+//         id: meetingId,
+//         userId: finalUserId,
+//         status: "in",
+//       },
+//     });
+//     if (!isExist) {
+//       badRequest(res, "No active meeting found with this meetingId");
+//       return;
+//     }
+//     // Since remarks is on the meeting_companies table (not Meetings), we need to update it there
+//     if (remarks) {
+//       const company = await MeetingCompany.findByPk(isExist.companyId);
+//       if (company) {
+//         await company.update({ remarks });
+//       }
+//     }
+//     // /** ✅ Update meeting */
+//     isExist.status = "out"; // Use 'out' as per schema instead of 'completed'
+//     isExist.latitude_out = latitude_out;
+//     isExist.longitude_out = longitude_out;
+//     isExist.meetingTimeOut = new Date();
+//     await isExist.save();
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0, 0, 0, 0);
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23, 59, 59, 999);
+//     const attendance = await Attendance.findOne({
+//       where: {
+//         employee_id: finalUserId,
+//         date: {
+//           [Op.between]: [startOfDay, endOfDay],
+//         },
+//       },
+//       attributes:["id","latitude_in","longitude_in"]
+//     });
+//     // console.log("attendance",attendance)
+//     const item = await Meeting.findAll({  
+//       where: {
+//         userId: finalUserId,
+//         // status: "in",
+//         createdAt: {
+//           [Op.between]: [startOfDay, endOfDay],
+//         },
+//       },
+//       attributes:["id","latitude_out","longitude_out"]
+//     });
+//   if (!item.length) {
+//      createSuccess(res, "Meeting ended successfully", []);
+//   }
+//       let totalDistance = 0;
+//     for (let i = 1; i < item.length; i++) {
+//       const prev = item[i - 1];
+//       const curr = item[i];
+//       const lat1 = parseFloat(prev.latitude_out);
+//       const lon1 = parseFloat(prev.longitude_out);
+//       const lat2 = parseFloat(curr.latitude_out);
+//       const lon2 = parseFloat(curr.longitude_out);
+//       // skip invalid data
+//       if (!lat1 || !lon1 || !lat2 || !lon2) continue;
+//       const distance = getDistance(lat1, lon1, lat2, lon2);
+//       totalDistance += distance;
+//     }
+//     isExist.totalDistance = totalDistance.toString();
+//     await isExist.save();
+//     createSuccess(res, "Meeting ended successfully", item);
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+// export const EndMeeting = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const finalUserId = userData?.userId;
+//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
+//     if (!meetingId) {
+//       badRequest(res, "meetingId is required");
+//       return;
+//     }
+//     if (!latitude_out || !longitude_out) {
+//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
+//       return;
+//     }
+//     /** ✅ Check meeting exist for this user & active */
+//     const isExist = await Meeting.findOne({
+//       where: {
+//         id: meetingId,
+//         userId: finalUserId,
+//         status: "in",
+//       },
+//     });
+//     if (!isExist) {
+//       badRequest(res, "No active meeting found with this meetingId");
+//       return;
+//     }
+//     // Update remarks on meeting_companies table
+//     if (remarks) {
+//       const company = await MeetingCompany.findByPk(isExist.companyId);
+//       if (company) {
+//         await company.update({ remarks });
+//       }
+//     }
+//     // ✅ Update current meeting as ended
+//     isExist.status = "out";
+//     isExist.latitude_out = latitude_out;
+//     isExist.longitude_out = longitude_out;
+//     isExist.meetingTimeOut = new Date();
+//     await isExist.save();
+//     // ✅ Day range
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0, 0, 0, 0);
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23, 59, 59, 999);
+//     // ✅ Fetch today's attendance (starting point)
+//     const attendance = await Attendance.findOne({
+//       where: {
+//         employee_id: finalUserId,
+//         date: { [Op.between]: [startOfDay, endOfDay] },
+//       },
+//       attributes: ["id", "latitude_in", "longitude_in"],
+//     });
+//     // ✅ Fetch ALL completed meetings today, ordered by time
+//     //    Use findAll (not findOne) so we get an array
+//     const todayMeetings = await Meeting.findAll({
+//       where: {
+//         userId: finalUserId,
+//         status: "out", // only completed meetings have latitude_out
+//         meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
+//       },
+//       attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut"],
+//       order: [["meetingTimeOut", "ASC"]], // sort chronologically
+//     });
+//     if (!todayMeetings.length) {
+//       createSuccess(res, "Meeting ended successfully", []);
+//       return; // ✅ was missing return — code would continue after this
+//     }
+//     let totalDistance = 0;
+//     /**
+//      * Distance chain:
+//      *
+//      *  Attendance (check-in location)
+//      *       ↓
+//      *   Meeting 1 (latitude_out / longitude_out)
+//      *       ↓
+//      *   Meeting 2 (latitude_out / longitude_out)
+//      *       ↓
+//      *   Meeting N ...
+//      *
+//      * If attendance exists → first leg is attendance → meeting1
+//      * Otherwise           → first leg is meeting1 → meeting2
+//      */
+//     if (attendance && attendance.latitude_in && attendance.longitude_in) {
+//       // Leg 0: attendance check-in → first meeting end point
+//       const lat1 = parseFloat(attendance.latitude_in);
+//       const lon1 = parseFloat(attendance.longitude_in);
+//       const lat2 = parseFloat(todayMeetings[0].latitude_out);
+//       const lon2 = parseFloat(todayMeetings[0].longitude_out);
+//       if (lat1 && lon1 && lat2 && lon2) {
+//         totalDistance += getDistance(lat1, lon1, lat2, lon2);
+//       }
+//     }
+//     // Legs between consecutive meetings: meeting[i-1] → meeting[i]
+//     for (let i = 1; i < todayMeetings.length; i++) {
+//       const prev = todayMeetings[i - 1];
+//       const curr = todayMeetings[i];
+//       const lat1 = parseFloat(prev.latitude_out);
+//       const lon1 = parseFloat(prev.longitude_out);
+//       const lat2 = parseFloat(curr.latitude_out);
+//       const lon2 = parseFloat(curr.longitude_out);
+//       if (!lat1 || !lon1 || !lat2 || !lon2) continue; // skip invalid GPS
+//       totalDistance += getDistance(lat1, lon1, lat2, lon2);
+//     }
+//     // ✅ Save total distance on the meeting that was just ended
+//     isExist.totalDistance = totalDistance.toFixed(2).toString(); // e.g. "12.34"
+//     await isExist.save();
+//     createSuccess(res, "Meeting ended successfully", todayMeetings);
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
 const GetMeetingList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { page = 1, limit = 10, search = "", status } = req.query;
@@ -1397,9 +1686,9 @@ const getQuotationPdfList = (req, res) => __awaiter(void 0, void 0, void 0, func
         const offset = (page - 1) * limit;
         const ownstate = String(req.query.ownstate || "").toLowerCase();
         const clientState = String(req.query.clientState || "").toLowerCase();
-        if (!ownstate || !clientState) {
-            return (0, errorMessage_1.badRequest)(res, "ownstate and clientState are required");
-        }
+        // if (!ownstate || !clientState) {
+        //   return badRequest(res, "ownstate and clientState are required");
+        // }
         const { count, rows } = yield dbConnection_2.Quotations.findAndCountAll({
             where: {
                 userId: userData.userId,

@@ -80,5 +80,7 @@ router.get("/getsubcategory/:id", jwtVerify_1.tokenCheck, AdminController.getSub
 router.get("/getquotationpdflist", jwtVerify_1.tokenCheck, AdminController.getQuotationPdfList);
 router.get("/downloadquotationpdf/:id", jwtVerify_1.tokenCheck, AdminController.downloadQuotationPdf);
 router.post("/addquotationpdf", jwtVerify_1.tokenCheck, AdminController.addQuotationPdf);
+router.get("/fuel-expense", jwtVerify_1.tokenCheck, AdminController.getMeetingDistance);
+router.get("/get-fuel-expense", jwtVerify_1.tokenCheck, AdminController.getFuelExpense);
 // meeting apis 
 exports.default = router;

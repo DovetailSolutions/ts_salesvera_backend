@@ -1,4 +1,5 @@
-import { Op } from "sequelize";
+
+import { Op, fn, col, cast } from "sequelize";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import csv from "csv-parser";
@@ -2330,5 +2331,111 @@ export const addQuotationPdf = async (req: Request, res: Response): Promise<void
   }
 };
 
+export const getMeetingDistance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
 
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    // Pagination params
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const userId = Number(req.query.userId)
+    const offset = (page - 1) * limit;
+
+    // Date filters
+    const { startDate, endDate } = req.query;
+
+    const whereCondition: any = {
+      userId: userId,
+    };
+
+    // Apply date filter if provided
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    }
+
+    const { count, rows } = await Meeting.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    createSuccess(res, "Meeting distances fetched successfully", {
+      totalRecords: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      meetings: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getFuelExpense = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const userId = Number(req.query.userId);
+    const { startDate, endDate } = req.query;
+
+    const whereCondition: any = {
+      userId: userId,
+    };
+
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    }
+
+    const data = await Meeting.findAll({
+  where: whereCondition,
+  attributes: [
+    [fn("DATE", col("createdAt")), "date"],
+    [fn("COUNT", col("id")), "totalRecords"],
+    [
+      fn(
+        "COALESCE",
+        fn("SUM", cast(col("legDistance"), "DOUBLE PRECISION")),
+        0
+      ),
+      "totalDistance",
+    ],
+  ],
+  group: [fn("DATE", col("createdAt"))],
+  order: [[fn("DATE", col("createdAt")), "DESC"]],
+});
+
+    createSuccess(res, "Grouped fuel expense by date", data);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
 

@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -1854,3 +1854,89 @@ const addQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function
     }
 });
 exports.addQuotationPdf = addQuotationPdf;
+const getMeetingDistance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        // Pagination params
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const userId = Number(req.query.userId);
+        const offset = (page - 1) * limit;
+        // Date filters
+        const { startDate, endDate } = req.query;
+        const whereCondition = {
+            userId: userId,
+        };
+        // Apply date filter if provided
+        if (startDate && endDate) {
+            whereCondition.createdAt = {
+                [sequelize_1.Op.between]: [
+                    new Date(startDate),
+                    new Date(endDate),
+                ],
+            };
+        }
+        const { count, rows } = yield dbConnection_1.Meeting.findAndCountAll({
+            where: whereCondition,
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        (0, errorMessage_1.createSuccess)(res, "Meeting distances fetched successfully", {
+            totalRecords: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: page,
+            meetings: rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getMeetingDistance = getMeetingDistance;
+const getFuelExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const userId = Number(req.query.userId);
+        const { startDate, endDate } = req.query;
+        const whereCondition = {
+            userId: userId,
+        };
+        if (startDate && endDate) {
+            whereCondition.createdAt = {
+                [sequelize_1.Op.between]: [
+                    new Date(startDate),
+                    new Date(endDate),
+                ],
+            };
+        }
+        const data = yield dbConnection_1.Meeting.findAll({
+            where: whereCondition,
+            attributes: [
+                [(0, sequelize_1.fn)("DATE", (0, sequelize_1.col)("createdAt")), "date"],
+                [(0, sequelize_1.fn)("COUNT", (0, sequelize_1.col)("id")), "totalRecords"],
+                [
+                    (0, sequelize_1.fn)("COALESCE", (0, sequelize_1.fn)("SUM", (0, sequelize_1.cast)((0, sequelize_1.col)("legDistance"), "DOUBLE PRECISION")), 0),
+                    "totalDistance",
+                ],
+            ],
+            group: [(0, sequelize_1.fn)("DATE", (0, sequelize_1.col)("createdAt"))],
+            order: [[(0, sequelize_1.fn)("DATE", (0, sequelize_1.col)("createdAt")), "DESC"]],
+        });
+        (0, errorMessage_1.createSuccess)(res, "Grouped fuel expense by date", data);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getFuelExpense = getFuelExpense;

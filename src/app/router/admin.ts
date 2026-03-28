@@ -60,6 +60,8 @@ router.get("/downloadquotationpdf/:id",tokenCheck,AdminController.downloadQuotat
 router.post("/addquotationpdf",tokenCheck,AdminController.addQuotationPdf)
 
 
+router.get("/fuel-expense", tokenCheck, AdminController.getMeetingDistance);
+router.get("/get-fuel-expense",tokenCheck,AdminController.getFuelExpense)
 
 
 
