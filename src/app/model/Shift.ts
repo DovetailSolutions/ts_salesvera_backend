@@ -9,6 +9,8 @@ interface ShiftAttributes {
   adminId?: number;
   managerId?: number;
   userId?: number;
+  companyId?: number;
+  branchId?: number;
 }
 
 interface ShiftCreationAttributes extends Optional<ShiftAttributes, "id"> {}
@@ -23,6 +25,8 @@ export class Shift extends Model<ShiftAttributes, ShiftCreationAttributes>
   public adminId?: number;
   public managerId?: number;
   public userId?: number;
+  public companyId?: number;
+  public branchId?: number;
 }
 
 export const ShiftModel = (sequelize: Sequelize) => {
@@ -60,6 +64,14 @@ export const ShiftModel = (sequelize: Sequelize) => {
         allowNull: true,
       },
       userId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      },
+      companyId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      },
+      branchId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },

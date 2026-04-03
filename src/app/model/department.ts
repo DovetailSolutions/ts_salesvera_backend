@@ -12,6 +12,8 @@ interface DepartmentAttributes {
   adminId?: number;
   managerId?: number;
   userId?: number;
+  companyId?: number;
+
 }
 
 interface DepartmentCreationAttributes
@@ -31,6 +33,8 @@ export class Department
   public adminId?: number;
   public managerId?: number;
   public userId?: number;
+  public companyId?: number;
+
 }
 
 export const DepartmentModel = (sequelize: Sequelize) => {
@@ -84,6 +88,10 @@ export const DepartmentModel = (sequelize: Sequelize) => {
         allowNull: true,
       },
       userId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      },
+      companyId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },

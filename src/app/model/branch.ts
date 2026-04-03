@@ -24,6 +24,7 @@ interface BranchAttributes {
   adminId?: number;
   managerId?: number;
   userId?: number;
+  companyId?: number;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -61,6 +62,7 @@ export class Branch
   public adminId?: number;
   public managerId?: number;
   public userId?: number;
+  public companyId?: number;
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -155,6 +157,11 @@ export const BranchModel = (sequelize: Sequelize) => {
         allowNull: true,
       },
       userId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      },
+
+      companyId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
