@@ -3,3 +3,5 @@
 .env
 src/Notigication/notification.json
 dist/Notigication/notification.json
+package-lock.json
+

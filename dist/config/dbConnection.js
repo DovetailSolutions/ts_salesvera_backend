@@ -47,11 +47,12 @@ const branch_1 = require("../app/model/branch");
 const Shift_1 = require("../app/model/Shift");
 const department_1 = require("../app/model/department");
 const holiday_1 = require("../app/model/holiday");
-const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
+const sequelize = new sequelize_1.Sequelize(env.DB_NAME, env.DB_USER_NAME, env.DB_PASSWORD, {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
     logging: true,
+    ssl: true,
     dialectOptions: {
         ssl: {
             require: true,
@@ -183,16 +184,8 @@ quotations_1.Quotations.belongsTo(User, { foreignKey: "userId" });
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("✅ Database connection established successfully");
-        // Clean up orphaned quotations rows before sync so the FK constraint can be applied.
-        // Wrapped in try/catch in case the table doesn't exist yet on a fresh DB.
-        try {
-            yield sequelize.query(`DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`);
-        }
-        catch (_) {
-            // table may not exist yet — safe to ignore
-        }
-        yield sequelize.sync({ alter: true });
         yield sequelize.authenticate();
+        yield sequelize.sync({ alter: true });
     }
     catch (err) {
         console.error("❌ DB error:", err);
