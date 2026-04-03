@@ -1,5 +1,5 @@
 
-import { Op, fn, col, cast } from "sequelize";
+import { Op, fn, col, cast,literal} from "sequelize";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import csv from "csv-parser";
@@ -3674,3 +3674,204 @@ export const getHolidayById = async (req: Request, res: Response) => {
     badRequest(res, errorMessage, error);
   }
 };
+
+
+
+export const addQuotation2 = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    // ✅ Auth validation
+    if (!userData || !userData.userId) {
+       badRequest(res, "Unauthorized request");
+       return
+    }
+
+    const data = req.body;
+
+    // ✅ Required field validation
+    if (!data.customerName) {
+       badRequest(res, "Customer name is required");
+       return
+    }
+
+    if (!data.referenceNumber) {
+       badRequest(res, "Reference number is required");
+       return
+    }
+
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+       badRequest(res, "Items are required");
+       return
+    }
+
+    // ✅ Validate each item
+    for (const item of data.items) {
+      if (!item.itemName || !item.quantity || !item.rate) {
+         badRequest(res, "Invalid item data");
+         return
+      }
+    }
+
+    // ✅ Duplicate check (IMPORTANT)
+    const existing = await Quotations.findOne({
+      where: {
+        userId: Number(userData.userId),
+        referenceNumber: data.referenceNumber
+      }
+    });
+
+    if (existing) {
+       badRequest(res, "Quotation already exists with this reference number");
+       return
+    }
+
+    const quotationNumber = await generateQuotationNumber();
+
+    // ✅ Create quotation
+    const quotation = await Quotations.create({
+      userId: Number(userData.userId),
+      quotationNumber: quotationNumber,
+      companyId: data.companyId || 0,
+      customerName: data.customerName,
+      referenceNumber: data.referenceNumber,
+      quotation: data,
+
+      status: "draft"
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Quotation added successfully",
+      data: quotation
+    });
+
+  } catch (error) {
+    console.error("Add Quotation Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+
+
+export const getQuotationPdfList2 = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    // ✅ Pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // ✅ Filters
+    const status = String(req.query.status || "").toLowerCase();
+    const companyName = String(req.query.companyName || "").toLowerCase();
+
+    const ownstate = String(req.query.ownstate || "").toLowerCase();
+    const clientState = String(req.query.clientState || "").toLowerCase();
+
+    // ✅ Validate status
+    const allowedStatus = ["draft", "accepted", "rejected"];
+    if (status && !allowedStatus.includes(status)) {
+      return badRequest(res, "Invalid status value");
+    }
+
+    // ✅ Base where condition
+    let whereCondition: any = {
+      userId: userData.userId,
+    };
+
+    // ✅ Status filter
+    if (status) {
+      whereCondition.status = status;
+    }
+
+    // ✅ Company name filter (PostgreSQL JSON)
+if (companyName) {
+  whereCondition[Op.and] = [
+    literal(
+      `LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`
+    ),
+  ];
+}
+
+    // ✅ Query
+    const { count, rows } = await Quotations.findAndCountAll({
+      where: whereCondition,
+      order: [["createdAt", "ASC"]],
+      limit,
+      offset,
+    });
+
+  const updatedRows = rows.map((item: any, rowIndex: number) => {
+      const data = item.toJSON();
+      const { quotation, ...rest } = data;
+
+      const finalQuotation = quotation?.quotation || quotation;
+
+      // ✅ Add index inside items
+      if (finalQuotation?.items && Array.isArray(finalQuotation.items)) {
+        finalQuotation.items = finalQuotation.items.map(
+          (itm: any, itemIndex: number) => ({
+            index: itemIndex + 1, // item index
+            ...itm,
+          })
+        );
+      }
+
+      return {
+        ...rest,
+        rowIndex: offset + rowIndex + 1, // pagination-aware index
+        quotation: finalQuotation,
+      };
+    });
+
+    return createSuccess(res, "Quotation list fetched successfully", {
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
+      data: updatedRows,
+    });
+
+  } catch (error) {
+    console.error("API Error:", error);
+
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+
+    return badRequest(res, errorMessage);
+  }
+};
+
+
+export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const {id} = req.params;
+    const {status} = req.body||{};
+
+    console.log("id",id,"status",status);
+    if(!id){
+      badRequest(res, "Quotation id is required");
+      return;
+    }
+    const quotationData = await Quotations.findByPk(id);
+    if(!quotationData){
+      badRequest(res, "Quotation not found");
+      return;
+    }
+    quotationData.status = status;
+    await quotationData.save();
+    createSuccess(res, "Quotation updated successfully");
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}

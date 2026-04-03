@@ -41,12 +41,23 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __rest = (this && this.__rest) || function (s, e) {
+    var t = {};
+    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
+        t[p] = s[p];
+    if (s != null && typeof Object.getOwnPropertySymbols === "function")
+        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
+            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
+                t[p[i]] = s[p[i]];
+        }
+    return t;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getHoliday = exports.addHoliday = exports.getDepartmentById = exports.getDepartment = exports.addDepartment = exports.getShiftById = exports.getShift = exports.addShift = exports.getBranchById = exports.getBranch = exports.addBranch = exports.getCompanyById = exports.getCompany = exports.addCompany = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
-exports.getHolidayById = void 0;
+exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.getHolidayById = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -2867,3 +2878,158 @@ const getHolidayById = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.getHolidayById = getHolidayById;
+const addQuotation2 = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        // ✅ Auth validation
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const data = req.body;
+        // ✅ Required field validation
+        if (!data.customerName) {
+            (0, errorMessage_1.badRequest)(res, "Customer name is required");
+            return;
+        }
+        if (!data.referenceNumber) {
+            (0, errorMessage_1.badRequest)(res, "Reference number is required");
+            return;
+        }
+        if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+            (0, errorMessage_1.badRequest)(res, "Items are required");
+            return;
+        }
+        // ✅ Validate each item
+        for (const item of data.items) {
+            if (!item.itemName || !item.quantity || !item.rate) {
+                (0, errorMessage_1.badRequest)(res, "Invalid item data");
+                return;
+            }
+        }
+        // ✅ Duplicate check (IMPORTANT)
+        const existing = yield dbConnection_1.Quotations.findOne({
+            where: {
+                userId: Number(userData.userId),
+                referenceNumber: data.referenceNumber
+            }
+        });
+        if (existing) {
+            (0, errorMessage_1.badRequest)(res, "Quotation already exists with this reference number");
+            return;
+        }
+        const quotationNumber = yield generateQuotationNumber();
+        // ✅ Create quotation
+        const quotation = yield dbConnection_1.Quotations.create({
+            userId: Number(userData.userId),
+            quotationNumber: quotationNumber,
+            companyId: data.companyId || 0,
+            customerName: data.customerName,
+            referenceNumber: data.referenceNumber,
+            quotation: data,
+            status: "draft"
+        });
+        res.status(201).json({
+            success: true,
+            message: "Quotation added successfully",
+            data: quotation
+        });
+    }
+    catch (error) {
+        console.error("Add Quotation Error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+});
+exports.addQuotation2 = addQuotation2;
+const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        // ✅ Pagination
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+        // ✅ Filters
+        const status = String(req.query.status || "").toLowerCase();
+        const companyName = String(req.query.companyName || "").toLowerCase();
+        const ownstate = String(req.query.ownstate || "").toLowerCase();
+        const clientState = String(req.query.clientState || "").toLowerCase();
+        // ✅ Validate status
+        const allowedStatus = ["draft", "accepted", "rejected"];
+        if (status && !allowedStatus.includes(status)) {
+            return (0, errorMessage_1.badRequest)(res, "Invalid status value");
+        }
+        // ✅ Base where condition
+        let whereCondition = {
+            userId: userData.userId,
+        };
+        // ✅ Status filter
+        if (status) {
+            whereCondition.status = status;
+        }
+        // ✅ Company name filter (PostgreSQL JSON)
+        if (companyName) {
+            whereCondition[sequelize_1.Op.and] = [
+                (0, sequelize_1.literal)(`LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`),
+            ];
+        }
+        // ✅ Query
+        const { count, rows } = yield dbConnection_1.Quotations.findAndCountAll({
+            where: whereCondition,
+            order: [["createdAt", "ASC"]],
+            limit,
+            offset,
+        });
+        const updatedRows = rows.map((item, rowIndex) => {
+            const data = item.toJSON();
+            const { quotation } = data, rest = __rest(data, ["quotation"]);
+            const finalQuotation = (quotation === null || quotation === void 0 ? void 0 : quotation.quotation) || quotation;
+            // ✅ Add index inside items
+            if ((finalQuotation === null || finalQuotation === void 0 ? void 0 : finalQuotation.items) && Array.isArray(finalQuotation.items)) {
+                finalQuotation.items = finalQuotation.items.map((itm, itemIndex) => (Object.assign({ index: itemIndex + 1 }, itm)));
+            }
+            return Object.assign(Object.assign({}, rest), { rowIndex: offset + rowIndex + 1, quotation: finalQuotation });
+        });
+        return (0, errorMessage_1.createSuccess)(res, "Quotation list fetched successfully", {
+            total: count,
+            page,
+            totalPages: Math.ceil(count / limit),
+            data: updatedRows,
+        });
+    }
+    catch (error) {
+        console.error("API Error:", error);
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        return (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.getQuotationPdfList2 = getQuotationPdfList2;
+const updateQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { id } = req.params;
+        const { status } = req.body || {};
+        console.log("id", id, "status", status);
+        if (!id) {
+            (0, errorMessage_1.badRequest)(res, "Quotation id is required");
+            return;
+        }
+        const quotationData = yield dbConnection_1.Quotations.findByPk(id);
+        if (!quotationData) {
+            (0, errorMessage_1.badRequest)(res, "Quotation not found");
+            return;
+        }
+        quotationData.status = status;
+        yield quotationData.save();
+        (0, errorMessage_1.createSuccess)(res, "Quotation updated successfully");
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.updateQuotation = updateQuotation;

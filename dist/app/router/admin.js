@@ -106,5 +106,8 @@ router.get("/getholiday", jwtVerify_1.tokenCheck, AdminController.getHoliday);
 router.get("/getholiday/:id", jwtVerify_1.tokenCheck, AdminController.getHolidayById);
 // router.patch("/updateholiday/:id",tokenCheck,AdminController.updateHoliday);
 // router.delete("/deleteholiday/:id",tokenCheck,AdminController.deleteHoliday);
+router.post("/addquotation", jwtVerify_1.tokenCheck, AdminController.addQuotation2);
+router.get("/getquotationlist", jwtVerify_1.tokenCheck, AdminController.getQuotationPdfList2);
+router.post('/updatequotation/:id', jwtVerify_1.tokenCheck, AdminController.updateQuotation);
 // meeting apis 
 exports.default = router;
