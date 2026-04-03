@@ -114,12 +114,14 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             role,
         };
         const item = yield dbConnection_1.User.create(obj);
-        if (role === "sale_person" || role === "manager" || role === "admin") {
+        if ((role === "sale_person" || role === "manager" || role === "admin") && createdBy) {
             const ids = Array.isArray(createdBy)
-                ? createdBy.map(Number)
-                : [Number(createdBy)];
-            // ✅ Connect relations
-            yield item.setCreators(ids);
+                ? createdBy.map((id) => Number(id)).filter((id) => !isNaN(id))
+                : [Number(createdBy)].filter((id) => !isNaN(id));
+            if (ids.length > 0) {
+                // ✅ Connect relations
+                yield item.setCreators(ids);
+            }
         }
         /** ✅ JWT Tokens */
         const { accessToken, refreshToken } = Middleware.CreateToken(String(item.getDataValue("id")), String(item.getDataValue("role")));

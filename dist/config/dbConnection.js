@@ -175,10 +175,6 @@ quotations_1.Quotations.belongsTo(User, { foreignKey: "userId" });
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("✅ Database connection established successfully");
-        try {
-            yield sequelize.query(`DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`);
-        }
-        catch (_) { }
         yield sequelize.sync({ alter: true });
         yield sequelize.authenticate();
     }

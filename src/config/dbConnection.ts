@@ -183,12 +183,6 @@ export const connectDB = async () => {
   try {
     console.log("✅ Database connection established successfully");
 
-    try {
-      await sequelize.query(
-        `DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`
-      );
-    } catch (_) {}
-
     await sequelize.sync({ alter: true });
     await sequelize.authenticate();
   } catch (err) {
