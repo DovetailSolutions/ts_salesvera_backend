@@ -3736,8 +3736,7 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
       customerName: data.customerName,
       referenceNumber: data.referenceNumber,
       quotation: data,
-
-      status: "draft"
+      status: data.status || "draft"
     });
 
     res.status(201).json({
