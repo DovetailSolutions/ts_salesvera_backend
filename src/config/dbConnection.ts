@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 dotenv.config();
-import { Sequelize } from "sequelize";
+import { Sequelize, DataTypes } from "sequelize";
 const env = process.env;
 import { createUserModel } from "../app/model/user";
 import { CategoryModel } from "../app/model/category";
@@ -71,19 +71,33 @@ Message.initModel(sequelize);
 
 
 
-User.belongsToMany(User, {
-  through: "UserCreators",
-  as: "creators",
-  foreignKey: "user_id",
-  otherKey: "created_by_user_id",
-});
+// Self-referencing many-to-many relationship junction table
+const UserCreators = sequelize.define("UserCreators", {
+  user_id: {
+    type: DataTypes.INTEGER,
+    references: { model: "users", key: "id" },
+    onDelete: "CASCADE",
+  },
+  created_by_user_id: {
+    type: DataTypes.INTEGER,
+    references: { model: "users", key: "id" },
+    onDelete: "CASCADE",
+  },
+}, { tableName: "UserCreators", timestamps: true });
 
-User.belongsToMany(User, {
-  through: "UserCreators",
-  as: "createdUsers",
-  foreignKey: "created_by_user_id",
-  otherKey: "user_id",
-});
+// User.belongsToMany(User, {
+//   through: UserCreators,
+//   as: "creators",
+//   foreignKey: "user_id",
+//   otherKey: "created_by_user_id",
+// });
+
+// User.belongsToMany(User, {
+//   through: UserCreators,
+//   as: "createdUsers",
+//   foreignKey: "created_by_user_id",
+//   otherKey: "user_id",
+// });
 
 
 
@@ -199,6 +213,9 @@ export const connectDB = async () => {
     await User.sync({ alter: true });
     await Category.sync({ alter: true });
     await Company.sync({ alter: true });
+
+    // Explicitly sync joining table
+    // await UserCreators.sync({ alter: true });
 
     // Sync all other models
     await sequelize.sync({ alter: true });

@@ -95,18 +95,31 @@ quotations_1.Quotations.initModel(sequelize);
 chatRoom_1.ChatRoom.initModel(sequelize);
 ChatParticipant_1.ChatParticipant.initModel(sequelize);
 Message_1.Message.initModel(sequelize);
-User.belongsToMany(User, {
-    through: "UserCreators",
-    as: "creators",
-    foreignKey: "user_id",
-    otherKey: "created_by_user_id",
-});
-User.belongsToMany(User, {
-    through: "UserCreators",
-    as: "createdUsers",
-    foreignKey: "created_by_user_id",
-    otherKey: "user_id",
-});
+// Self-referencing many-to-many relationship junction table
+const UserCreators = sequelize.define("UserCreators", {
+    user_id: {
+        type: sequelize_1.DataTypes.INTEGER,
+        references: { model: "users", key: "id" },
+        onDelete: "CASCADE",
+    },
+    created_by_user_id: {
+        type: sequelize_1.DataTypes.INTEGER,
+        references: { model: "users", key: "id" },
+        onDelete: "CASCADE",
+    },
+}, { tableName: "UserCreators", timestamps: true });
+// User.belongsToMany(User, {
+//   through: UserCreators,
+//   as: "creators",
+//   foreignKey: "user_id",
+//   otherKey: "created_by_user_id",
+// });
+// User.belongsToMany(User, {
+//   through: UserCreators,
+//   as: "createdUsers",
+//   foreignKey: "created_by_user_id",
+//   otherKey: "user_id",
+// });
 User.hasMany(attendance_1.Attendance, { foreignKey: "employee_id" });
 attendance_1.Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 User.hasMany(leaverequests_1.Leave, { foreignKey: "employee_id" });
@@ -183,6 +196,8 @@ const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
         yield User.sync({ alter: true });
         yield Category.sync({ alter: true });
         yield Company.sync({ alter: true });
+        // Explicitly sync joining table
+        // await UserCreators.sync({ alter: true });
         // Sync all other models
         yield sequelize.sync({ alter: true });
     }
