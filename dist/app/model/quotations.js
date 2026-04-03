@@ -10,6 +10,18 @@ class Quotations extends sequelize_1.Model {
                 autoIncrement: true,
                 primaryKey: true,
             },
+            quotationNumber: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
+            referenceNumber: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
+            customerName: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
             userId: {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,

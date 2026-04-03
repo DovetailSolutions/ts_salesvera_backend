@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Quotations = exports.SubCategory = exports.Quotation = exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.Company = exports.Quotations = exports.SubCategory = exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -38,11 +38,15 @@ Object.defineProperty(exports, "Message", { enumerable: true, get: function () {
 const meetingImage_1 = require("../app/model/meetingImage");
 const meetingCompany_1 = require("../app/model/meetingCompany");
 const meetingUser_1 = require("../app/model/meetingUser");
-const quotation_1 = require("../app/model/quotation");
-Object.defineProperty(exports, "Quotation", { enumerable: true, get: function () { return quotation_1.Quotation; } });
+// import {Quotation} from "../app/model/quotation";
 const subCategory_1 = require("../app/model/subCategory");
 const quotations_1 = require("../app/model/quotations");
 Object.defineProperty(exports, "Quotations", { enumerable: true, get: function () { return quotations_1.Quotations; } });
+const company_1 = require("../app/model/company");
+const branch_1 = require("../app/model/branch");
+const Shift_1 = require("../app/model/Shift");
+const department_1 = require("../app/model/department");
+const holiday_1 = require("../app/model/holiday");
 const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
@@ -60,7 +64,7 @@ attendance_1.Attendance.initModel(sequelize);
 leaverequests_1.Leave.initModel(sequelize);
 expense_1.Expense.initModel(sequelize);
 expanseImages_1.ExpenseImage.initModel(sequelize);
-quotation_1.Quotation.initModel(sequelize);
+// Quotation.initModel(sequelize)
 quotations_1.Quotations.initModel(sequelize);
 // SubCategory.initModel(sequelize)
 const User = (0, user_1.createUserModel)(sequelize);
@@ -85,6 +89,17 @@ const MeetingUser = (0, meetingUser_1.UserModel)(sequelize);
 exports.MeetingUser = MeetingUser;
 const SubCategory = (0, subCategory_1.SubCategoryModel)(sequelize);
 exports.SubCategory = SubCategory;
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+const Company = (0, company_1.CompanyModell)(sequelize);
+exports.Company = Company;
+const Branch = (0, branch_1.BranchModel)(sequelize);
+exports.Branch = Branch;
+const Shift = (0, Shift_1.ShiftModel)(sequelize);
+exports.Shift = Shift;
+const Department = (0, department_1.DepartmentModel)(sequelize);
+exports.Department = Department;
+const Holiday = (0, holiday_1.HolidayModel)(sequelize);
+exports.Holiday = Holiday;
 User.belongsToMany(User, {
     through: "UserCreators",
     as: "creators",

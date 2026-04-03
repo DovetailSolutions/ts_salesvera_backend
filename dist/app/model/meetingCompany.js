@@ -31,6 +31,9 @@ const CompanyModel = (sequelize) => {
             type: sequelize_1.DataTypes.TEXT,
             allowNull: true,
         },
+        address: sequelize_1.DataTypes.TEXT,
+        gstNumber: sequelize_1.DataTypes.STRING,
+        quotationNumber: sequelize_1.DataTypes.STRING,
     }, {
         sequelize,
         tableName: "companies",

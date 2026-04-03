@@ -8,6 +8,7 @@ export class SubCategory extends Model {
   public managerId!: number;
   public amount!: string;
   public text!: string;
+  public hsnCode!: string;
 }
 
 export const SubCategoryModel = (sequelize: Sequelize) => {
@@ -46,6 +47,10 @@ export const SubCategoryModel = (sequelize: Sequelize) => {
       },
 
       text: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      hsnCode: {
         type: DataTypes.STRING,
         allowNull: true,
       },

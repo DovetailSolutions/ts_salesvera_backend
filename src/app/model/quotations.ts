@@ -8,6 +8,9 @@ interface QuotationAttributes {
   companyId: number;
   quotation?: object;
   status: QuotationStatus;
+  quotationNumber: string;
+  referenceNumber: string;
+  customerName: string;
 }
 
 interface QuotationCreationAttributes
@@ -22,6 +25,9 @@ export class Quotations
   public companyId!: number;
   public quotation?: object;
   public status!: QuotationStatus;
+  public quotationNumber!: string;
+  public referenceNumber!: string;
+  public customerName!: string;
 
   static initModel(sequelize: Sequelize) {
     Quotations.init(
@@ -30,6 +36,18 @@ export class Quotations
           type: DataTypes.INTEGER,
           autoIncrement: true,
           primaryKey: true,
+        },
+        quotationNumber:{
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+        referenceNumber:{
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+        customerName:{
+          type: DataTypes.STRING,
+          allowNull: true,
         },
 
         userId: {

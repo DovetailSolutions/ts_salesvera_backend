@@ -57,13 +57,22 @@ app.use(
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+// app.use(express.json());
+// app.use(express.urlencoded({ extended: true }));
 
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.use("/admin", adminRouter);
 app.use("/api", UserRouter);
 
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
+  swaggerOptions: {
+    requestInterceptor: (req: any) => {
+      req.headers["ngrok-skip-browser-warning"] = "true";
+      return req;
+    }
+  }
+}));
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Hello from TypeScript Express!");

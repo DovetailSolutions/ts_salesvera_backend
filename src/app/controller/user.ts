@@ -1,4 +1,4 @@
-import { Op, fn, col, where } from "sequelize";
+import { Op, fn, col, where,cast ,literal} from "sequelize";
 import {sequelize} from "../../config/dbConnection"
 import PDFDocument from "pdfkit";
 import puppeteer from "puppeteer";
@@ -27,8 +27,7 @@ import {
   MeetingCompany,
   SubCategory,
   MeetingUser,
-  ExpenseImage,
-  Quotation,Quotations
+  ExpenseImage,Quotations
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -518,6 +517,7 @@ export const CreateMeeting = async (
       state,
       city,
       country,
+      address
     } = req.body || {};
 
     // Trim all string inputs to avoid trailing space errors in enums
@@ -625,6 +625,7 @@ export const CreateMeeting = async (
           state,
           city,
           country,
+          address,
           meetingUserId: meetingContactUser?.id, // Link to Client
         },
         { transaction }
@@ -1738,42 +1739,42 @@ export const ReFressToken = async (
   }
 };
 
-export const getQuotation = async (req: Request, res: Response): Promise<void> => {
-  try {
-    // const userData = req.userData as JwtPayload;
+// export const getQuotation = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     // const userData = req.userData as JwtPayload;
 
-    // if (!userData || !userData.userId) {
-    //   badRequest(res, "Unauthorized request");
-    //   return;
-    // }
+//     // if (!userData || !userData.userId) {
+//     //   badRequest(res, "Unauthorized request");
+//     //   return;
+//     // }
 
-    const { page = 1, limit = 10 } = req.query;
-    const pageNumber = Number(page);
-    const pageSize = Number(limit);
-    const offset = (pageNumber - 1) * pageSize;
-    const { count, rows } = await Quotation.findAndCountAll({
-      where: {
-        // userId: userData.userId
-      },
-      order: [["createdAt", "DESC"]],
-      limit: pageSize,
-      offset: offset
-    });
+//     const { page = 1, limit = 10 } = req.query;
+//     const pageNumber = Number(page);
+//     const pageSize = Number(limit);
+//     const offset = (pageNumber - 1) * pageSize;
+//     const { count, rows } = await Quotation.findAndCountAll({
+//       where: {
+//         // userId: userData.userId
+//       },
+//       order: [["createdAt", "DESC"]],
+//       limit: pageSize,
+//       offset: offset
+//     });
 
-    createSuccess(res, "Quotation list fetched successfully", {
-      total: count,
-      page: pageNumber,
-      totalPages: Math.ceil(count / pageSize),
-      data: rows
-    });
+//     createSuccess(res, "Quotation list fetched successfully", {
+//       total: count,
+//       page: pageNumber,
+//       totalPages: Math.ceil(count / pageSize),
+//       data: rows
+//     });
 
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
 
-    badRequest(res, errorMessage, error);
-  }
-};
+//     badRequest(res, errorMessage, error);
+//   }
+// };
 
 // export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
 //   try {
@@ -1893,9 +1894,21 @@ export const getQuotation = async (req: Request, res: Response): Promise<void> =
 //   }
 // }
 
+// ✅ Generates a serial 10-digit quotation number (e.g. 0000000001)
+const generateQuotationNumber = async (): Promise<string> => {
+  const count = await Quotations.count();
+  const serial = count + 1;
+  return String(serial).padStart(10, '0');
+};
+
 export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+
+    req.body.name 
+
+
+
 
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
@@ -1903,6 +1916,9 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
     }
 
     const data = req.body;
+
+    // ✅ Auto-generate serial 10-digit quotation number
+    const quotationNumber = await generateQuotationNumber();
 
     // ✅ Helper: Convert image → base64
     const toBase64 = (filePath: string): string => {
@@ -1932,36 +1948,52 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
     const ownstate = String(data.ownstate || "").toLowerCase();
     const clientState = String(data.clientState || "").toLowerCase();
 
-    // ✅ Calculations
-    const subtotal = data.items.reduce((sum: number, item: any) => {
-      return sum + Number(item.amount || 0);
-    }, 0);
+    // ✅ Item-level calculations (India GST compliant)
+    const isService = String(data.type || '').toLowerCase() === 'service';
 
-    const discount = Number(data.discount || 0);
-    const taxableAmount = subtotal - discount;
+    // Step 1: Compute per-item values
+    const itemCalcs = data.items.map((item: any) => {
+      const qty        = Number(item.quantity || item.qty || 1);
+      const rate       = Number(item.rate || 0);
+      const discPct    = Number(item.discount || item.discountPercent || 0);
+      const gstPct     = Number(item.gst || item.gstPercent || 0);
+      // Services → rate is amount for one unit; Items → qty × rate
+      const itemTotal  = isService ? rate : qty * rate;
+      const discAmt    = (itemTotal * discPct) / 100;
+      const taxable    = itemTotal - discAmt;
+      const gstAmt     = (taxable * gstPct) / 100;
+      return { itemTotal, discAmt, taxable, gstAmt };
+    });
 
-    const gstRate = Number(data.gstRate || 0);
-    const totalGST = (taxableAmount * gstRate) / 100;
+    // Step 2: Aggregate summary from item-level values
+    const subtotal      = itemCalcs.reduce((s: number, i: any) => s + i.itemTotal, 0);
+    const totalDiscount = itemCalcs.reduce((s: number, i: any) => s + i.discAmt, 0);
+    const taxableAmount = subtotal - totalDiscount;
+    const totalGST      = itemCalcs.reduce((s: number, i: any) => s + i.gstAmt, 0);
+    const finalAmount   = taxableAmount + totalGST;
 
-    let cgst = 0;
-    let sgst = 0;
-    let igst = 0;
+    // Step 3: CGST / SGST / IGST split
+    const gstRate  = Number(data.gstRate || 0);
+    let cgst = 0, sgst = 0, igst = 0;
 
-    // ✅ GST Logic (India)
     if (ownstate && clientState && ownstate === clientState) {
+      // Intra-state → split equally
       cgst = totalGST / 2;
       sgst = totalGST / 2;
     } else {
+      // Inter-state → IGST
       igst = totalGST;
     }
 
-    const finalAmount = taxableAmount + totalGST;
+    // Alias for EJS template
+    const discount = totalDiscount;
 
     // ✅ Render EJS
     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
 
     const html = await ejs.renderFile(filePath, {
       ...data,
+      quotationNumber,
       logo,
       signature,
       stamp,
@@ -1977,14 +2009,14 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
     });
 
     // ✅ Save to DB
-    await Quotations.create({
-      userId: Number(userData?.userId),
-      companyId: data.companyId || 0,
-      quotation: data,
-      status: "draft"
-    });
+    // await Quotations.create({
+    //   userId: Number(userData?.userId),
+    //   companyId: data.companyId || 0,
+    //   quotation: { ...data, quotationNumber },
+    //   status: "draft"
+    // });
 
-    // ✅ Puppeteer
+    // ✅ Puppeteer — generate PDF
     const browser = await puppeteer.launch({
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
@@ -2005,17 +2037,208 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
 
     await browser.close();
 
-    res.set({
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
-    });
+    // ✅ Save PDF to uploads/pdf/
+    const pdfFileName = `quotation-${quotationNumber}.pdf`;
+    const pdfDir      = path.join(__dirname, "../../../uploads/pdf");
+    const pdfFilePath = path.join(pdfDir, pdfFileName);
 
-    res.send(pdfBuffer);
+    if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true });
+    fs.writeFileSync(pdfFilePath, pdfBuffer);
+
+    // ✅ Build public download URL
+    const baseUrl   = `${req.protocol}://${req.get("host")}`;
+    const pdfUrl    = `/uploads/pdf/${pdfFileName}`;
+
+    // ✅ Return JSON with download link
+    res.status(200).json({
+      success: true,
+      message: "Quotation PDF generated successfully",
+      data: {
+        quotationNumber,
+        pdfUrl,
+        summary: {
+          subtotal:      +subtotal.toFixed(2),
+          discount:      +discount.toFixed(2),
+          taxableAmount: +taxableAmount.toFixed(2),
+          cgst:          +cgst.toFixed(2),
+          sgst:          +sgst.toFixed(2),
+          igst:          +igst.toFixed(2),
+          totalGST:      +totalGST.toFixed(2),
+          finalAmount:   +finalAmount.toFixed(2)
+        }
+      }
+    });
 
   } catch (error) {
     res.status(400).json({ error: "Something went wrong" });
   }
 };
+
+export const addQuotation = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    // ✅ Auth validation
+    if (!userData || !userData.userId) {
+       badRequest(res, "Unauthorized request");
+       return
+    }
+
+    const data = req.body;
+
+    // ✅ Required field validation
+    if (!data.customerName) {
+       badRequest(res, "Customer name is required");
+       return
+    }
+
+    if (!data.referenceNumber) {
+       badRequest(res, "Reference number is required");
+       return
+    }
+
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+       badRequest(res, "Items are required");
+       return
+    }
+
+    // ✅ Validate each item
+    for (const item of data.items) {
+      if (!item.itemName || !item.quantity || !item.rate) {
+         badRequest(res, "Invalid item data");
+         return
+      }
+    }
+
+    // ✅ Duplicate check (IMPORTANT)
+    const existing = await Quotations.findOne({
+      where: {
+        userId: Number(userData.userId),
+        referenceNumber: data.referenceNumber
+      }
+    });
+
+    if (existing) {
+       badRequest(res, "Quotation already exists with this reference number");
+       return
+    }
+
+    const quotationNumber = await generateQuotationNumber();
+
+    // ✅ Create quotation
+    const quotation = await Quotations.create({
+      userId: Number(userData.userId),
+      quotationNumber: quotationNumber,
+      companyId: data.companyId || 0,
+      customerName: data.customerName,
+      referenceNumber: data.referenceNumber,
+      quotation: data,
+
+      status: "draft"
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Quotation added successfully",
+      data: quotation
+    });
+
+  } catch (error) {
+    console.error("Add Quotation Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+
+
+
+
+
+// export const getQuotationPdfList = async (req: Request, res: Response) => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData || !userData.userId) {
+//       return badRequest(res, "Unauthorized request");
+//     }
+
+//     const page = Number(req.query.page) || 1;
+//     const limit = Number(req.query.limit) || 10;
+//     const offset = (page - 1) * limit;
+
+//     const ownstate = String(req.query.ownstate || "").toLowerCase();
+//     const clientState = String(req.query.clientState || "").toLowerCase();
+
+//     // if (!ownstate || !clientState) {
+//     //   return badRequest(res, "ownstate and clientState are required");
+//     // }
+
+//     const { count, rows } = await Quotations.findAndCountAll({
+//       where: {
+//         userId: userData.userId,
+//       },
+//       order: [["createdAt", "DESC"]],
+//       limit,
+//       offset,
+//     });
+
+//     const updatedRows = rows.map((item: any) => {
+//       const data = item.toJSON();
+//       const quotation = data.quotation;
+
+//       // ✅ Calculate total amount
+//       const totalAmount =
+//         quotation?.items?.reduce(
+//           (sum: number, i: any) => sum + Number(i.amount || 0),
+//           0
+//         ) || 0;
+
+//       const gstRate = Number(quotation?.gstRate || 0);
+//       const totalGST = (totalAmount * gstRate) / 100;
+
+//       let cgst = 0;
+//       let sgst = 0;
+//       let igst = 0;
+
+//       // ✅ GST Logic (India)
+//       if (ownstate === clientState) {
+//         cgst = totalGST / 2;
+//         sgst = totalGST / 2;
+//       } else {
+//         igst = totalGST;
+//       }
+
+//       return {
+//         ...data,
+//         gstDetails: {
+//           totalAmount,
+//           gstRate,
+//           cgst,
+//           sgst,
+//           igst,
+//           totalGST,
+//           totalWithGST: totalAmount + totalGST,
+//         },
+//       };
+//     });
+
+//     return createSuccess(res, "Quotation list fetched successfully", {
+//       total: count,
+//       page,
+//       totalPages: Math.ceil(count / limit),
+//       data: updatedRows,
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     return badRequest(res, errorMessage, error);
+//   }
+// };
+
+
 
 export const getQuotationPdfList = async (req: Request, res: Response) => {
   try {
@@ -2025,63 +2248,71 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       return badRequest(res, "Unauthorized request");
     }
 
+    // ✅ Pagination
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
+    // ✅ Filters
+    const status = String(req.query.status || "").toLowerCase();
+    const companyName = String(req.query.companyName || "").toLowerCase();
+
     const ownstate = String(req.query.ownstate || "").toLowerCase();
     const clientState = String(req.query.clientState || "").toLowerCase();
 
-    // if (!ownstate || !clientState) {
-    //   return badRequest(res, "ownstate and clientState are required");
-    // }
+    // ✅ Validate status
+    const allowedStatus = ["draft", "accepted", "rejected"];
+    if (status && !allowedStatus.includes(status)) {
+      return badRequest(res, "Invalid status value");
+    }
 
+    // ✅ Base where condition
+    let whereCondition: any = {
+      userId: userData.userId,
+    };
+
+    // ✅ Status filter
+    if (status) {
+      whereCondition.status = status;
+    }
+
+    // ✅ Company name filter (PostgreSQL JSON)
+if (companyName) {
+  whereCondition[Op.and] = [
+    literal(
+      `LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`
+    ),
+  ];
+}
+
+    // ✅ Query
     const { count, rows } = await Quotations.findAndCountAll({
-      where: {
-        userId: userData.userId,
-      },
-      order: [["createdAt", "DESC"]],
+      where: whereCondition,
+      order: [["createdAt", "ASC"]],
       limit,
       offset,
     });
 
-    const updatedRows = rows.map((item: any) => {
+  const updatedRows = rows.map((item: any, rowIndex: number) => {
       const data = item.toJSON();
-      const quotation = data.quotation;
+      const { quotation, ...rest } = data;
 
-      // ✅ Calculate total amount
-      const totalAmount =
-        quotation?.items?.reduce(
-          (sum: number, i: any) => sum + Number(i.amount || 0),
-          0
-        ) || 0;
+      const finalQuotation = quotation?.quotation || quotation;
 
-      const gstRate = Number(quotation?.gstRate || 0);
-      const totalGST = (totalAmount * gstRate) / 100;
-
-      let cgst = 0;
-      let sgst = 0;
-      let igst = 0;
-
-      // ✅ GST Logic (India)
-      if (ownstate === clientState) {
-        cgst = totalGST / 2;
-        sgst = totalGST / 2;
-      } else {
-        igst = totalGST;
+      // ✅ Add index inside items
+      if (finalQuotation?.items && Array.isArray(finalQuotation.items)) {
+        finalQuotation.items = finalQuotation.items.map(
+          (itm: any, itemIndex: number) => ({
+            index: itemIndex + 1, // item index
+            ...itm,
+          })
+        );
       }
 
       return {
-        ...data,
-        gstDetails: {
-          totalAmount,
-          gstRate,
-          cgst,
-          sgst,
-          igst,
-          totalGST,
-          totalWithGST: totalAmount + totalGST,
-        },
+        ...rest,
+        rowIndex: offset + rowIndex + 1, // pagination-aware index
+        quotation: finalQuotation,
       };
     });
 
@@ -2091,12 +2322,18 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       totalPages: Math.ceil(count / limit),
       data: updatedRows,
     });
+
   } catch (error) {
+    console.error("API Error:", error);
+
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    return badRequest(res, errorMessage, error);
+
+    return badRequest(res, errorMessage);
   }
 };
+
+
 
 export const downloadQuotationPdf = async(req:Request,res:Response)=>{
   try{
@@ -2109,86 +2346,88 @@ export const downloadQuotationPdf = async(req:Request,res:Response)=>{
       return;
     }
 
-    const data: any = quotation.quotation;
+    // const data: any = quotation.quotation;
 
-    // ─── Shared calculations ───────────────────────────────────────────────
-    const subtotal = (data.items ?? []).reduce((sum: number, item: any) => {
-      return sum + Number(item.amount || 0);
-    }, 0);
-    const discount      = Number(data.discount  || 0);
-    const taxableAmount = subtotal - discount;
-    const gstAmount     = (taxableAmount * Number(data.gstRate || 0)) / 100;
-    const finalAmount   = taxableAmount + gstAmount;
+    // // ─── Shared calculations ───────────────────────────────────────────────
+    // const subtotal = (data.items ?? []).reduce((sum: number, item: any) => {
+    //   return sum + Number(item.amount || 0);
+    // }, 0);
+    // const discount      = Number(data.discount  || 0);
+    // const taxableAmount = subtotal - discount;
+    // const gstAmount     = (taxableAmount * Number(data.gstRate || 0)) / 100;
+    // const finalAmount   = taxableAmount + gstAmount;
 
-    // ─── ?mode=details → return JSON details ──────────────────────────────
-    if (req.query.mode === "details") {
-      createSuccess(res, "Quotation details fetched successfully", {
-        id:        quotation.id,
-        userId:    quotation.userId,
-        companyId: quotation.companyId,
-        status:    quotation.status,
-        createdAt: (quotation as any).createdAt,
-        updatedAt: (quotation as any).updatedAt,
-        quotation: {
-          ...data,
-          subtotal,
-          discount,
-          taxableAmount,
-          gstAmount,
-          finalAmount
-        }
-      });
-      return;
-    }
+    // // ─── ?mode=details → return JSON details ──────────────────────────────
+    // if (req.query.mode === "details") {
+    //   createSuccess(res, "Quotation details fetched successfully", {
+    //     id:        quotation.id,
+    //     userId:    quotation.userId,
+    //     companyId: quotation.companyId,
+    //     status:    quotation.status,
+    //     createdAt: (quotation as any).createdAt,
+    //     updatedAt: (quotation as any).updatedAt,
+    //     quotation: {
+    //       ...data,
+    //       subtotal,
+    //       discount,
+    //       taxableAmount,
+    //       gstAmount,
+    //       finalAmount
+    //     }
+    //   });
+    //   return;
+    // }
 
-    // ─── Default → generate & stream PDF ──────────────────────────────────
-    const toBase64 = (filePath: string): string => {
-      try {
-        if (fs.existsSync(filePath)) {
-          const ext  = filePath.split(".").pop()?.toLowerCase();
-          const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
-          const buf  = fs.readFileSync(filePath);
-          return `data:${mime};base64,${buf.toString("base64")}`;
-        }
-      } catch (_) {}
-      return "";
-    };
+    // // ─── Default → generate & stream PDF ──────────────────────────────────
+    // const toBase64 = (filePath: string): string => {
+    //   try {
+    //     if (fs.existsSync(filePath)) {
+    //       const ext  = filePath.split(".").pop()?.toLowerCase();
+    //       const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+    //       const buf  = fs.readFileSync(filePath);
+    //       return `data:${mime};base64,${buf.toString("base64")}`;
+    //     }
+    //   } catch (_) {}
+    //   return "";
+    // };
 
-    const logo      = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
-    const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
-    const stamp     = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
+    // const logo      = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
+    // const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
+    // const stamp     = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
 
-    const filePath = path.join(__dirname, "../../ejs/preview.ejs");
-    const html = await ejs.renderFile(filePath, {
-      ...data,
-      logo,
-      signature,
-      stamp,
-      subtotal,
-      discount,
-      taxableAmount,
-      gstAmount,
-      finalAmount
-    });
+    // const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+    // const html = await ejs.renderFile(filePath, {
+    //   ...data,
+    //   logo,
+    //   signature,
+    //   stamp,
+    //   subtotal,
+    //   discount,
+    //   taxableAmount,
+    //   gstAmount,
+    //   finalAmount
+    // });
 
-    const browser = await puppeteer.launch({
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    });
-    const page = await browser.newPage();
-    await page.setContent(html as string, { waitUntil: "load" });
+    // const browser = await puppeteer.launch({
+    //   args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    // });
+    // const page = await browser.newPage();
+    // await page.setContent(html as string, { waitUntil: "load" });
 
-    const pdfBuffer = await page.pdf({
-      format: "a4",
-      printBackground: true,
-      margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
-    });
-    await browser.close();
+    // const pdfBuffer = await page.pdf({
+    //   format: "a4",
+    //   printBackground: true,
+    //   margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
+    // });
+    // await browser.close();
 
-    res.set({
-      "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
-    });
-    res.send(pdfBuffer);
+    // res.set({
+    //   "Content-Type": "application/pdf",
+    //   "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
+    // });
+    // res.send(pdfBuffer);
+
+
 
   }catch(error){
     const errorMessage =
@@ -2236,3 +2475,30 @@ export const getSubCategory = async (req: Request, res: Response) => {
     badRequest(res, errorMessage, error);
   }
 };
+
+
+
+export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const {id} = req.params;
+    const {status} = req.body||{};
+
+    console.log("id",id,"status",status);
+    if(!id){
+      badRequest(res, "Quotation id is required");
+      return;
+    }
+    const quotationData = await Quotations.findByPk(id);
+    if(!quotationData){
+      badRequest(res, "Quotation not found");
+      return;
+    }
+    quotationData.status = status;
+    await quotationData.save();
+    createSuccess(res, "Quotation updated successfully");
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}

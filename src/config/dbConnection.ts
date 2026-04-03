@@ -16,9 +16,16 @@ import{Message} from '../app/model/Message'
 import{MeetingImageModel} from "../app/model/meetingImage"
 import {CompanyModel} from "../app/model/meetingCompany"
 import {UserModel} from "../app/model/meetingUser"
-import {Quotation} from "../app/model/quotation";
+// import {Quotation} from "../app/model/quotation";
 import {SubCategoryModel} from "../app/model/subCategory";
 import {Quotations} from "../app/model/quotations";
+import {CompanyModell} from "../app/model/company";
+import {BranchModel} from "../app/model/branch";
+import {ShiftModel} from "../app/model/Shift";
+import {DepartmentModel} from "../app/model/department";
+import {HolidayModel} from "../app/model/holiday";
+
+
 
 
 
@@ -47,8 +54,9 @@ Attendance.initModel(sequelize);
 Leave.initModel(sequelize)
 Expense.initModel(sequelize)
 ExpenseImage.initModel(sequelize)
-Quotation.initModel(sequelize)
+// Quotation.initModel(sequelize)
 Quotations.initModel(sequelize)
+
 // SubCategory.initModel(sequelize)
 
 const User = createUserModel(sequelize);
@@ -66,6 +74,13 @@ const MeetingImage = MeetingImageModel(sequelize);
 const MeetingCompany = CompanyModel(sequelize)
 const MeetingUser =  UserModel(sequelize)
 const SubCategory = SubCategoryModel(sequelize)
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+const Company = CompanyModell(sequelize)
+const Branch = BranchModel(sequelize)
+const Shift = ShiftModel(sequelize)
+const Department = DepartmentModel(sequelize)
+const Holiday = HolidayModel(sequelize)
 
 
 
@@ -226,7 +241,12 @@ export {
   MeetingCompany,
   MeetingUser,
   ExpenseImage,
-  Quotation,
+  // Quotation,
   SubCategory,
-  Quotations
+  Quotations,
+  Company,
+  Branch,
+  Shift,
+  Department,
+  Holiday
 };

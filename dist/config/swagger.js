@@ -8,12 +8,24 @@ const path_1 = __importDefault(require("path"));
 const swaggerAutogen = require('swagger-autogen')();
 const doc = {
     info: {
-        title: 'My API',
-        description: 'API documentation with auto-generation',
+        title: 'SalesVera API',
+        description: 'API documentation for SalesVera backend',
     },
-    host: 'api.salesvera',
+    host: 'ghostly-subcompensational-gil.ngrok-free.dev',
     schemes: ['https'],
+    securityDefinitions: {
+        Bearer: {
+            type: 'apiKey',
+            in: 'header',
+            name: 'authorization',
+            description: 'Enter your Bearer token: Bearer <token>'
+        }
+    },
+    security: [{ Bearer: [] }]
 };
 const outputFile = path_1.default.join(__dirname, '../../swagger-output.json');
-const endpointsFiles = ['./src/server.ts']; // your main app file or route entrypoint
+const endpointsFiles = [
+    './src/app/router/admin.ts',
+    './src/app/router/user.ts'
+];
 swaggerAutogen(outputFile, endpointsFiles, doc);

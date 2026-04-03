@@ -41,6 +41,9 @@ export const UserModel = (sequelize: Sequelize) => {
         type: DataTypes.ENUM("new", "existing", "followup"),
         defaultValue: "new",
       },
+      address: DataTypes.TEXT,
+      // gstNumber: DataTypes.STRING,
+      // quotationNumber: DataTypes.STRING,
 
     //   role: {
     //     type: DataTypes.ENUM("admin", "manager", "employee"),

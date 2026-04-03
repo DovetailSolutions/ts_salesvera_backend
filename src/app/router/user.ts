@@ -45,11 +45,14 @@ router.post(
 );
 router.get("/getexpense",tokenCheck,Controller.GetExpense);
 router.get("/refreshtoken",tokenCheck,Controller.ReFressToken);
-router.get("/getquotation",tokenCheck,Controller.getQuotation)
+// router.get("/getquotation",tokenCheck,Controller.getQuotation)
 router.post("/getquotationpdf",tokenCheck,Controller.getQuotationPdf)
 router.get("/getquotationpdflist",tokenCheck,Controller.getQuotationPdfList)
 router.get("/downloadquotationpdf/:id",tokenCheck,Controller.downloadQuotationPdf)
 router.get("/getsubcategory/:id",tokenCheck,Controller.getSubCategory)
+router.post("/addquotation",tokenCheck,Controller.addQuotation)
+
+router.post('/updatequotation/:id',tokenCheck,Controller.updateQuotation)
 
 
 export default router;

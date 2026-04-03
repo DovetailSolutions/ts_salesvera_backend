@@ -1,19 +1,98 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "My API",
-    "description": "API documentation with auto-generation",
+    "title": "SalesVera API",
+    "description": "API documentation for SalesVera backend",
     "version": "1.0.0"
   },
-  "host": "api.salesvera",
+  "host": "ghostly-subcompensational-gil.ngrok-free.dev",
   "basePath": "/",
   "schemes": [
     "https"
   ],
+  "securityDefinitions": {
+    "Bearer": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "authorization",
+      "description": "Enter: Bearer <your_token>"
+    }
+  },
   "paths": {
-    "/": {
-      "get": {
-        "description": "",
+    "/admin/register": {
+      "post": {
+        "tags": [
+          "Admin - Auth"
+        ],
+        "summary": "Register admin",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "example": "admin@example.com"
+                },
+                "password": {
+                  "example": "Admin@123"
+                },
+                "firstName": {
+                  "example": "John"
+                },
+                "lastName": {
+                  "example": "Doe"
+                },
+                "phone": {
+                  "example": "9876543210"
+                },
+                "dob": {
+                  "example": "1990-01-01"
+                },
+                "role": {
+                  "example": "admin"
+                },
+                "createdBy": {
+                  "example": 1
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "description": "Error"
+          }
+        }
+      }
+    },
+    "/admin/login": {
+      "post": {
+        "tags": [
+          "Admin - Auth"
+        ],
+        "summary": "Admin login",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "example": "admin@example.com"
+                },
+                "password": {
+                  "example": "Admin@123"
+                }
+              }
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -21,81 +100,17 @@
         }
       }
     },
-    "/admin/register": {
-      "post": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "email": {
-                  "example": "any"
-                },
-                "password": {
-                  "example": "any"
-                },
-                "firstName": {
-                  "example": "any"
-                },
-                "lastName": {
-                  "example": "any"
-                },
-                "phone": {
-                  "example": "any"
-                },
-                "dob": {
-                  "example": "any"
-                },
-                "role": {
-                  "example": "any"
-                },
-                "createdBy": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "default": {
-            "description": ""
-          }
-        }
-      }
-    },
-    "/admin/login": {
-      "post": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "email": {
-                  "example": "any"
-                },
-                "password": {
-                  "example": "any"
-                }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "default": {
-            "description": ""
-          }
-        }
-      }
-    },
     "/admin/getProfile": {
       "get": {
-        "description": "",
+        "tags": [
+          "Admin - Auth"
+        ],
+        "summary": "Get admin profile",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -104,18 +119,26 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "OK"
+          },
           "401": {
             "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
           }
         }
       }
     },
     "/admin/updatepassword": {
       "patch": {
-        "description": "",
+        "tags": [
+          "Admin - Auth"
+        ],
+        "summary": "Update admin password",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -129,28 +152,158 @@
               "type": "object",
               "properties": {
                 "oldPassword": {
-                  "example": "any"
+                  "example": "OldPass@123"
                 },
                 "newPassword": {
-                  "example": "any"
+                  "example": "NewPass@123"
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mysaleperson": {
+      "get": {
+        "tags": [
+          "Admin - Users"
+        ],
+        "summary": "Get all salespersons",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/assign-salesman": {
+      "post": {
+        "tags": [
+          "Admin - Users"
+        ],
+        "summary": "Assign salesman to client",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
           },
-          "403": {
-            "description": "Forbidden"
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "salesmanId": {
+                  "example": 1
+                },
+                "clientId": {
+                  "example": 2
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getalluser": {
+      "get": {
+        "tags": [
+          "Admin - Users"
+        ],
+        "summary": "Get all users",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getusermeeting": {
+      "get": {
+        "tags": [
+          "Admin - Meeting"
+        ],
+        "summary": "Get user meetings",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/admin/addcategory": {
       "post": {
-        "description": "",
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Add category",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -164,25 +317,30 @@
               "type": "object",
               "properties": {
                 "category_name": {
-                  "example": "any"
+                  "example": "IT Services"
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/admin/getcategory": {
       "get": {
-        "description": "",
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Get all categories",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -191,18 +349,23 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/admin/getcategoy/{id}": {
       "get": {
-        "description": "",
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Get category by ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -217,18 +380,23 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/admin/updatecategory/{id}": {
       "patch": {
-        "description": "",
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Update category",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -248,25 +416,30 @@
               "type": "object",
               "properties": {
                 "category_name": {
-                  "example": "any"
+                  "example": "Updated Category"
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/admin/deletecategory/{id}": {
       "delete": {
-        "description": "",
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Delete category",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "id",
@@ -281,18 +454,727 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/addSubCategory": {
+      "post": {
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Add sub-category",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
           },
-          "403": {
-            "description": "Forbidden"
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "category_id": {
+                  "example": 1
+                },
+                "name": {
+                  "example": "SEO"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/updateSubCategory/{id}": {
+      "patch": {
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Update sub-category",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "example": "Updated SubCat"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getsubcategory/{id}": {
+      "get": {
+        "tags": [
+          "Admin - Category"
+        ],
+        "summary": "Get sub-categories by category ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/bulk-upload": {
+      "post": {
+        "tags": [
+          "Admin - Users"
+        ],
+        "summary": "Bulk upload users via CSV",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "consumes": [
+          "multipart/form-data"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "csv",
+            "in": "formData",
+            "type": "file"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/get-attendance": {
+      "get": {
+        "tags": [
+          "Admin - Attendance"
+        ],
+        "summary": "Get attendance list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/approved-leave": {
+      "patch": {
+        "tags": [
+          "Admin - Leave"
+        ],
+        "summary": "Approve/reject leave",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "leaveId": {
+                  "example": 1
+                },
+                "status": {
+                  "example": "approved"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/get-leave-list": {
+      "get": {
+        "tags": [
+          "Admin - Leave"
+        ],
+        "summary": "Get leave list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/get-expense": {
+      "get": {
+        "tags": [
+          "Admin - Expense"
+        ],
+        "summary": "Get all expenses",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/approved-expense": {
+      "patch": {
+        "tags": [
+          "Admin - Expense"
+        ],
+        "summary": "Approve/reject expense",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "expenseId": {
+                  "example": 1
+                },
+                "status": {
+                  "example": "approved"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/user-attendance": {
+      "get": {
+        "tags": [
+          "Admin - Attendance"
+        ],
+        "summary": "Get user-wise attendance",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/user-leave": {
+      "get": {
+        "tags": [
+          "Admin - Leave"
+        ],
+        "summary": "Get user-wise leave",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/user-expense": {
+      "get": {
+        "tags": [
+          "Admin - Expense"
+        ],
+        "summary": "Get user-wise expense",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/attendance-book": {
+      "get": {
+        "tags": [
+          "Admin - Attendance"
+        ],
+        "summary": "Get attendance book",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/create-client": {
+      "post": {
+        "tags": [
+          "Admin - Client"
+        ],
+        "summary": "Create client",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "example": "Client Corp"
+                },
+                "email": {
+                  "example": "client@corp.com"
+                },
+                "phone": {
+                  "example": "9876543210"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/assign-meeting": {
+      "post": {
+        "tags": [
+          "Admin - Meeting"
+        ],
+        "summary": "Assign meeting to salesperson",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "salesmanId": {
+                  "example": 1
+                },
+                "clientId": {
+                  "example": 2
+                },
+                "date": {
+                  "example": "2026-04-01"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getown-leave": {
+      "get": {
+        "tags": [
+          "Admin - Leave"
+        ],
+        "summary": "Get own leave",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/add/quotation": {
+      "post": {
+        "tags": [
+          "Admin - Quotation"
+        ],
+        "summary": "Add quotation",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "companyName": {
+                  "example": "Dove Pvt Ltd"
+                },
+                "quotationNumber": {
+                  "example": "QT-001"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getquotationpdflist": {
+      "get": {
+        "tags": [
+          "Admin - Quotation"
+        ],
+        "summary": "Get quotation PDF list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/downloadquotationpdf/{id}": {
+      "get": {
+        "tags": [
+          "Admin - Quotation"
+        ],
+        "summary": "Download quotation PDF",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/addquotationpdf": {
+      "post": {
+        "tags": [
+          "Admin - Quotation"
+        ],
+        "summary": "Add quotation PDF",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/fuel-expense": {
+      "get": {
+        "tags": [
+          "Admin - Expense"
+        ],
+        "summary": "Get meeting distance / fuel expense",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/get-fuel-expense": {
+      "get": {
+        "tags": [
+          "Admin - Expense"
+        ],
+        "summary": "Get fuel expense list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/admin-manager": {
+      "get": {
+        "tags": [
+          "Admin - Auth"
+        ],
+        "summary": "Admin manager test",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/register": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Auth"
+        ],
+        "summary": "Register user",
         "parameters": [
           {
             "name": "body",
@@ -301,22 +1183,25 @@
               "type": "object",
               "properties": {
                 "phone": {
-                  "example": "any"
+                  "example": "9876543210"
                 }
               }
             }
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/login": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Auth"
+        ],
+        "summary": "User login",
         "parameters": [
           {
             "name": "body",
@@ -325,40 +1210,48 @@
               "type": "object",
               "properties": {
                 "email": {
-                  "example": "any"
+                  "example": "vishu_sale@gmail.com"
                 },
                 "password": {
-                  "example": "any"
+                  "example": "Super@123"
                 },
                 "deviceToken": {
-                  "example": "any"
+                  "example": "fcm-token-abc"
                 },
                 "devicemodel": {
-                  "example": "any"
+                  "example": "iPhone 15 Pro"
                 },
                 "devicename": {
-                  "example": "any"
+                  "example": "John's iPhone"
                 },
                 "deviceType": {
-                  "example": "any"
+                  "example": "ios"
                 },
                 "deviceId": {
-                  "example": "any"
+                  "example": "device-id-123"
                 }
               }
             }
           }
         ],
         "responses": {
-          "default": {
-            "description": ""
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/getprofile": {
       "get": {
-        "description": "",
+        "tags": [
+          "User - Auth"
+        ],
+        "summary": "Get user profile",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -367,18 +1260,26 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/updateprofile": {
       "patch": {
-        "description": "",
+        "tags": [
+          "User - Auth"
+        ],
+        "summary": "Update user profile",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "consumes": [
+          "multipart/form-data"
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -386,34 +1287,39 @@
             "type": "string"
           },
           {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "firstName": {
-                  "example": "any"
-                },
-                "lastName": {
-                  "example": "any"
-                }
-              }
-            }
+            "name": "firstName",
+            "in": "formData",
+            "type": "string"
+          },
+          {
+            "name": "lastName",
+            "in": "formData",
+            "type": "string"
+          },
+          {
+            "name": "profile",
+            "in": "formData",
+            "type": "file"
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/mysaleperson": {
       "get": {
-        "description": "",
+        "tags": [
+          "User - Auth"
+        ],
+        "summary": "Get my salesperson",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -437,18 +1343,26 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/createmeeting": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Meeting"
+        ],
+        "summary": "Create meeting",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "consumes": [
+          "multipart/form-data"
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -456,31 +1370,59 @@
             "type": "string"
           },
           {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "where": {
-                  "example": "any"
-                }
-              }
-            }
+            "name": "where",
+            "in": "formData",
+            "type": "string"
+          },
+          {
+            "name": "image",
+            "in": "formData",
+            "type": "file"
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/clientmeeting": {
+      "get": {
+        "tags": [
+          "User - Meeting"
+        ],
+        "summary": "Get last meeting",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/endmeeting": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Meeting"
+        ],
+        "summary": "End meeting",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -494,34 +1436,39 @@
               "type": "object",
               "properties": {
                 "meetingId": {
-                  "example": "any"
+                  "example": 1
                 },
                 "latitude_out": {
-                  "example": "any"
+                  "example": 30.7
                 },
                 "longitude_out": {
-                  "example": "any"
+                  "example": 76.7
                 },
                 "remarks": {
-                  "example": "any"
+                  "example": "Meeting done"
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/getmeetinglist": {
       "get": {
-        "description": "",
+        "tags": [
+          "User - Meeting"
+        ],
+        "summary": "Get meeting list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -550,18 +1497,23 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/scheduledupdate": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Meeting"
+        ],
+        "summary": "Scheduled update",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -575,31 +1527,36 @@
               "type": "object",
               "properties": {
                 "meetingId": {
-                  "example": "any"
+                  "example": 1
                 },
                 "latitude_in": {
-                  "example": "any"
+                  "example": 30.7
                 },
                 "longitude_in": {
-                  "example": "any"
+                  "example": 76.7
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/logout": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Auth"
+        ],
+        "summary": "Logout",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -613,45 +1570,44 @@
               "type": "object",
               "properties": {
                 "deviceId": {
-                  "example": "any"
+                  "example": "device-id-123"
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
-    "/api/getctegory": {
+    "/api/getcategory": {
       "get": {
-        "description": "",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "type": "string"
-          }
+        "tags": [
+          "User - Category"
         ],
+        "summary": "Get categories",
+        "parameters": [],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/attendance/punch-in": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Attendance"
+        ],
+        "summary": "Punch in",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -665,31 +1621,36 @@
               "type": "object",
               "properties": {
                 "punch_in": {
-                  "example": "any"
+                  "example": "09:00"
                 },
                 "latitude_in": {
-                  "example": "any"
+                  "example": 30.7
                 },
                 "longitude_in": {
-                  "example": "any"
+                  "example": 76.7
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/attendance/punch-out": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Attendance"
+        ],
+        "summary": "Punch out",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -703,34 +1664,39 @@
               "type": "object",
               "properties": {
                 "punch_out": {
-                  "example": "any"
+                  "example": "18:00"
                 },
                 "AttendanceId": {
-                  "example": "any"
+                  "example": 1
                 },
                 "latitude_out": {
-                  "example": "any"
+                  "example": 30.7
                 },
                 "longitude_out": {
-                  "example": "any"
+                  "example": 76.7
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/attendance/today": {
       "get": {
-        "description": "",
+        "tags": [
+          "User - Attendance"
+        ],
+        "summary": "Today's attendance",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -739,18 +1705,23 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/attendancelist": {
       "get": {
-        "description": "",
+        "tags": [
+          "User - Attendance"
+        ],
+        "summary": "Attendance list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -759,18 +1730,23 @@
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
+          "200": {
+            "description": "OK"
           }
         }
       }
     },
     "/api/leave": {
       "post": {
-        "description": "",
+        "tags": [
+          "User - Leave"
+        ],
+        "summary": "Request leave",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "authorization",
@@ -784,24 +1760,1152 @@
               "type": "object",
               "properties": {
                 "from_date": {
-                  "example": "any"
+                  "example": "2026-04-01"
                 },
                 "to_date": {
-                  "example": "any"
+                  "example": "2026-04-03"
                 },
                 "reason": {
-                  "example": "any"
+                  "example": "Personal work"
+                },
+                "leave_type": {
+                  "example": "casual"
                 }
               }
             }
           }
         ],
         "responses": {
-          "401": {
-            "description": "Unauthorized"
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/leave-list": {
+      "get": {
+        "tags": [
+          "User - Leave"
+        ],
+        "summary": "Get leave list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/expense": {
+      "post": {
+        "tags": [
+          "User - Expense"
+        ],
+        "summary": "Create expense",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "consumes": [
+          "multipart/form-data"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
           },
-          "403": {
-            "description": "Forbidden"
+          {
+            "name": "expenses",
+            "in": "formData",
+            "type": "string",
+            "description": "JSON array of expenses"
+          },
+          {
+            "name": "billImage",
+            "in": "formData",
+            "type": "file"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/getexpense": {
+      "get": {
+        "tags": [
+          "User - Expense"
+        ],
+        "summary": "Get expenses",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/refreshtoken": {
+      "get": {
+        "tags": [
+          "User - Auth"
+        ],
+        "summary": "Refresh token",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/getquotation": {
+      "get": {
+        "tags": [
+          "User - Quotation"
+        ],
+        "summary": "Get quotation list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/getquotationpdf": {
+      "post": {
+        "tags": [
+          "User - Quotation"
+        ],
+        "summary": "Generate quotation PDF (auto serial number)",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "example": "item"
+                },
+                "companyName": {
+                  "example": "Dove Pvt Ltd"
+                },
+                "address": {
+                  "example": "Mohali, Punjab"
+                },
+                "phone": {
+                  "example": "9041006810"
+                },
+                "email": {
+                  "example": "dove@example.com"
+                },
+                "gstin": {
+                  "example": "03ABCDE1234F1Z5"
+                },
+                "date": {
+                  "example": "2026-03-31"
+                },
+                "fromName": {
+                  "example": "Vishupal"
+                },
+                "toName": {
+                  "example": "Client Name"
+                },
+                "toAddress": {
+                  "example": "Chandigarh, Punjab"
+                },
+                "contactNumber": {
+                  "example": "9041006810"
+                },
+                "customerName": {
+                  "example": "Client Name"
+                },
+                "customerAddress": {
+                  "example": "Chandigarh, Punjab"
+                },
+                "billToName": {
+                  "example": "Client Name"
+                },
+                "billToAddress": {
+                  "example": "Chandigarh, Punjab"
+                },
+                "billToState": {
+                  "example": "Punjab"
+                },
+                "billToCountry": {
+                  "example": "India"
+                },
+                "billToPincode": {
+                  "example": "160001"
+                },
+                "shipToName": {
+                  "example": "Client Name"
+                },
+                "shipToAddress": {
+                  "example": "Chandigarh, Punjab"
+                },
+                "shipToState": {
+                  "example": "Punjab"
+                },
+                "shipToCountry": {
+                  "example": "India"
+                },
+                "shipToPincode": {
+                  "example": "160001"
+                },
+                "gstRate": {
+                  "example": 18
+                },
+                "discount": {
+                  "example": 0
+                },
+                "ownstate": {
+                  "example": "Punjab"
+                },
+                "clientState": {
+                  "example": "Punjab"
+                },
+                "notes": {
+                  "example": "Thank you for your business"
+                },
+                "items": {
+                  "example": [
+                    {
+                      "itemName": "Digital Marketing",
+                      "quantity": 2,
+                      "rate": 500,
+                      "gst": 18,
+                      "discount": 5
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF URL returned"
+          }
+        }
+      }
+    },
+    "/api/getquotationpdflist": {
+      "get": {
+        "tags": [
+          "User - Quotation"
+        ],
+        "summary": "Get quotation PDF list",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/downloadquotationpdf/{id}": {
+      "get": {
+        "tags": [
+          "User - Quotation"
+        ],
+        "summary": "Download quotation PDF by ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "type": "string",
+            "description": "Pass mode=details to get JSON instead of PDF"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/getsubcategory/{id}": {
+      "get": {
+        "tags": [
+          "User - Category"
+        ],
+        "summary": "Get sub-categories by category ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/addcompany": {
+      "post": {
+        "tags": [
+          "Admin - Company"
+        ],
+        "summary": "Add company",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "companyName": {
+                  "example": "Test Corp"
+                },
+                "legalName": {
+                  "example": "Test Corporation LLC"
+                },
+                "registrationNo": {
+                  "example": "REG123"
+                },
+                "companyEmail": {
+                  "example": "test@corp.com"
+                },
+                "companyPhone": {
+                  "example": "9988776655"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getcompany": {
+      "get": {
+        "tags": [
+          "Admin - Company"
+        ],
+        "summary": "Get all companies",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getcompany/{id}": {
+      "get": {
+        "tags": [
+          "Admin - Company"
+        ],
+        "summary": "Get company by ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/addbranch": {
+      "post": {
+        "tags": [
+          "Admin - Branch"
+        ],
+        "summary": "Add branch",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "branchName": {
+                  "example": "HQ"
+                },
+                "branchCode": {
+                  "example": "B001"
+                },
+                "branchCity": {
+                  "example": "Mohali"
+                },
+                "branchState": {
+                  "example": "Punjab"
+                },
+                "branchCountry": {
+                  "example": "India"
+                },
+                "postalCode": {
+                  "example": "160055"
+                },
+                "addressLine1": {
+                  "example": "Phase 8"
+                },
+                "branchEmail": {
+                  "example": "hq@corp.com"
+                },
+                "branchPhone": {
+                  "example": "9876543210"
+                },
+                "latitude": {
+                  "example": 30.7
+                },
+                "longitude": {
+                  "example": 76.7
+                },
+                "geoRadius": {
+                  "example": 100
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getbranch": {
+      "get": {
+        "tags": [
+          "Admin - Branch"
+        ],
+        "summary": "Get all branches",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getbranch/{id}": {
+      "get": {
+        "tags": [
+          "Admin - Branch"
+        ],
+        "summary": "Get branch by ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/addshift": {
+      "post": {
+        "tags": [
+          "Admin - Shift"
+        ],
+        "summary": "Add shift",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "shiftName": {
+                  "example": "Morning"
+                },
+                "shiftCode": {
+                  "example": "S1"
+                },
+                "startTime": {
+                  "example": "09:00"
+                },
+                "endTime": {
+                  "example": "18:00"
+                },
+                "branchId": {
+                  "example": 1
+                },
+                "companyId": {
+                  "example": 1
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getshift": {
+      "get": {
+        "tags": [
+          "Admin - Shift"
+        ],
+        "summary": "Get all shifts",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "branchId",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "companyId",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getshift/{id}": {
+      "get": {
+        "tags": [
+          "Admin - Shift"
+        ],
+        "summary": "Get shift by ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/adddepartment": {
+      "post": {
+        "tags": [
+          "Admin - Department"
+        ],
+        "summary": "Add department",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "deptName": {
+                  "example": "Sales"
+                },
+                "deptCode": {
+                  "example": "D1"
+                },
+                "deptHead": {
+                  "example": "John"
+                },
+                "branchId": {
+                  "example": 1
+                },
+                "shiftId": {
+                  "example": 1
+                },
+                "maxHeadcount": {
+                  "example": 50
+                },
+                "halfSaturday": {
+                  "example": false
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getdepartment": {
+      "get": {
+        "tags": [
+          "Admin - Department"
+        ],
+        "summary": "Get all departments",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "branchId",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "companyId",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getdepartment/{id}": {
+      "get": {
+        "tags": [
+          "Admin - Department"
+        ],
+        "summary": "Get department by ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/addholiday": {
+      "post": {
+        "tags": [
+          "Admin - Holiday"
+        ],
+        "summary": "Add holiday",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "holidayName": {
+                  "example": "Diwali"
+                },
+                "holidayDate": {
+                  "example": "2026-11-04"
+                },
+                "holidayType": {
+                  "example": "Public"
+                },
+                "branchId": {
+                  "example": 1
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getholiday": {
+      "get": {
+        "tags": [
+          "Admin - Holiday"
+        ],
+        "summary": "Get all holidays",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "branchId",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "companyId",
+            "in": "query",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/getholiday/{id}": {
+      "get": {
+        "tags": [
+          "Admin - Holiday"
+        ],
+        "summary": "Get holiday by ID",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/addquotation": {
+      "post": {
+        "tags": [
+          "User - Quotation"
+        ],
+        "summary": "Add quotation (draft/json)",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "companyName": {
+                  "example": "ClientCorp"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/updatequotation/{id}": {
+      "post": {
+        "tags": [
+          "User - Quotation"
+        ],
+        "summary": "Update quotation status",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "example": "accepted"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }

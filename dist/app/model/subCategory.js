@@ -36,6 +36,10 @@ const SubCategoryModel = (sequelize) => {
             type: sequelize_1.DataTypes.STRING,
             allowNull: true,
         },
+        hsnCode: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+        },
     }, {
         sequelize,
         tableName: "sub_categories",

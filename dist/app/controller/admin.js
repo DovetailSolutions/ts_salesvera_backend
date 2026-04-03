@@ -45,7 +45,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.getHoliday = exports.addHoliday = exports.getDepartmentById = exports.getDepartment = exports.addDepartment = exports.getShiftById = exports.getShift = exports.addShift = exports.getBranchById = exports.getBranch = exports.addBranch = exports.getCompanyById = exports.getCompany = exports.addCompany = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.getHolidayById = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -1436,33 +1437,33 @@ const addQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             (0, errorMessage_1.badRequest)(res, "Total amount is required");
         }
         // 2️⃣ Duplicate quotation check
-        if (quotationNumber) {
-            const existingQuotation = yield dbConnection_1.Quotation.findOne({
-                where: { quotationNumber }
-            });
-            if (existingQuotation) {
-                (0, errorMessage_1.badRequest)(res, "Quotation number already exists");
-            }
-        }
-        // 3️⃣ Auto Generate Quotation Number (if not provided)
-        let finalQuotationNumber = quotationNumber;
-        if (!finalQuotationNumber) {
-            const count = yield dbConnection_1.Quotation.count();
-            finalQuotationNumber = `QT-${Date.now()}-${count + 1}`;
-        }
+        // if (quotationNumber) {
+        //   const existingQuotation = await Quotation.findOne({
+        //     where: { quotationNumber }
+        //   });
+        //   if (existingQuotation) {
+        //     badRequest(res, "Quotation number already exists");
+        //   }
+        // }
+        // // 3️⃣ Auto Generate Quotation Number (if not provided)
+        // let finalQuotationNumber = quotationNumber;
+        // if (!finalQuotationNumber) {
+        //   const count = await Quotation.count();
+        //   finalQuotationNumber = `QT-${Date.now()}-${count + 1}`;
+        // }
         // 4️⃣ Create quotation
-        const quotation = yield dbConnection_1.Quotation.create({
-            quotationNumber: finalQuotationNumber,
-            userId,
-            clientName,
-            clientEmail,
-            clientPhone,
-            totalAmount,
-            validTill,
-            notes
-        });
+        // const quotation = await Quotation.create({
+        //   quotationNumber: finalQuotationNumber,
+        //   userId,
+        //   clientName,
+        //   clientEmail,
+        //   clientPhone,
+        //   totalAmount,
+        //   validTill,
+        //   notes
+        // });
         // 5️⃣ Success response
-        (0, errorMessage_1.createSuccess)(res, "Quotation created successfully", quotation);
+        // createSuccess(res, "Quotation created successfully", quotation);
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
@@ -1757,6 +1758,113 @@ const downloadQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, fun
     }
 });
 exports.downloadQuotationPdf = downloadQuotationPdf;
+// export const addQuotationPdf = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     if (!userData || !userData.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+//     const data = req.body;
+//     // ✅ Helper: Convert image → base64
+//     const toBase64 = (filePath: string): string => {
+//       try {
+//         if (fs.existsSync(filePath)) {
+//           const ext = filePath.split(".").pop()?.toLowerCase();
+//           const mime =
+//             ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+//           const buf = fs.readFileSync(filePath);
+//           return `data:${mime};base64,${buf.toString("base64")}`;
+//         }
+//       } catch (_) {}
+//       return "";
+//     };
+//     const logo = toBase64(
+//       path.join(__dirname, "../../../uploads/images/logo.jpeg")
+//     );
+//     const signature = toBase64(
+//       path.join(__dirname, "../../../uploads/signature.png")
+//     );
+//     const stamp = toBase64(
+//       path.join(__dirname, "../../../uploads/stamp.png")
+//     );
+//     // ✅ GST State
+//     const ownstate = String(data.ownstate || "").toLowerCase();
+//     const clientState = String(data.clientState || "").toLowerCase();
+//     // ✅ Calculations
+//     const subtotal = data.items.reduce((sum: number, item: any) => {
+//       return sum + Number(item.amount || 0);
+//     }, 0);
+//     const discount = Number(data.discount || 0);
+//     const taxableAmount = subtotal - discount;
+//     const gstRate = Number(data.gstRate || 0);
+//     const totalGST = (taxableAmount * gstRate) / 100;
+//     let cgst = 0;
+//     let sgst = 0;
+//     let igst = 0;
+//     // ✅ GST Logic (India)
+//     if (ownstate && clientState && ownstate === clientState) {
+//       cgst = totalGST / 2;
+//       sgst = totalGST / 2;
+//     } else {
+//       igst = totalGST;
+//     }
+//     const finalAmount = taxableAmount + totalGST;
+//     // ✅ Render EJS
+//     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+//     const html = await ejs.renderFile(filePath, {
+//       ...data,
+//       logo,
+//       signature,
+//       stamp,
+//       subtotal,
+//       discount,
+//       taxableAmount,
+//       gstRate,
+//       cgst,
+//       sgst,
+//       igst,
+//       totalGST,
+//       finalAmount
+//     });
+//     // ✅ Save to DB
+//     await Quotations.create({
+//       userId: Number(userData?.userId),
+//       companyId: data.companyId || 0,
+//       quotation: data,
+//       status: "draft"
+//     });
+//     // ✅ Puppeteer
+//     const browser = await puppeteer.launch({
+//       args: ["--no-sandbox", "--disable-setuid-sandbox"]
+//     });
+//     const page = await browser.newPage();
+//     await page.setContent(html as string, { waitUntil: "load" });
+//     const pdfBuffer = await page.pdf({
+//       format: "a4",
+//       printBackground: true,
+//       margin: {
+//         top: "20mm",
+//         bottom: "20mm",
+//         left: "15mm",
+//         right: "15mm"
+//       }
+//     });
+//     await browser.close();
+//     res.set({
+//       "Content-Type": "application/pdf",
+//       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
+//     });
+//     res.send(pdfBuffer);
+//   } catch (error) {
+//     res.status(400).json({ error: "Something went wrong" });
+//   }
+// };
+const generateQuotationNumber = () => __awaiter(void 0, void 0, void 0, function* () {
+    const count = yield dbConnection_1.Quotations.count();
+    const serial = count + 1;
+    return String(serial).padStart(10, '0');
+});
 const addQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -1765,6 +1873,8 @@ const addQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function
             return;
         }
         const data = req.body;
+        // ✅ Auto-generate serial 10-digit quotation number
+        const quotationNumber = yield generateQuotationNumber();
         // ✅ Helper: Convert image → base64
         const toBase64 = (filePath) => {
             var _a;
@@ -1785,29 +1895,45 @@ const addQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function
         // ✅ GST State
         const ownstate = String(data.ownstate || "").toLowerCase();
         const clientState = String(data.clientState || "").toLowerCase();
-        // ✅ Calculations
-        const subtotal = data.items.reduce((sum, item) => {
-            return sum + Number(item.amount || 0);
-        }, 0);
-        const discount = Number(data.discount || 0);
-        const taxableAmount = subtotal - discount;
+        // ✅ Item-level calculations (India GST compliant)
+        const isService = String(data.type || '').toLowerCase() === 'service';
+        // Step 1: Compute per-item values
+        const itemCalcs = data.items.map((item) => {
+            const qty = Number(item.quantity || item.qty || 1);
+            const rate = Number(item.rate || 0);
+            const discPct = Number(item.discount || item.discountPercent || 0);
+            const gstPct = Number(item.gst || item.gstPercent || 0);
+            // Services → rate is amount for one unit; Items → qty × rate
+            const itemTotal = isService ? rate : qty * rate;
+            const discAmt = (itemTotal * discPct) / 100;
+            const taxable = itemTotal - discAmt;
+            const gstAmt = (taxable * gstPct) / 100;
+            return { itemTotal, discAmt, taxable, gstAmt };
+        });
+        // Step 2: Aggregate summary from item-level values
+        const subtotal = itemCalcs.reduce((s, i) => s + i.itemTotal, 0);
+        const totalDiscount = itemCalcs.reduce((s, i) => s + i.discAmt, 0);
+        const taxableAmount = subtotal - totalDiscount;
+        const totalGST = itemCalcs.reduce((s, i) => s + i.gstAmt, 0);
+        const finalAmount = taxableAmount + totalGST;
+        // Step 3: CGST / SGST / IGST split
         const gstRate = Number(data.gstRate || 0);
-        const totalGST = (taxableAmount * gstRate) / 100;
-        let cgst = 0;
-        let sgst = 0;
-        let igst = 0;
-        // ✅ GST Logic (India)
+        let cgst = 0, sgst = 0, igst = 0;
         if (ownstate && clientState && ownstate === clientState) {
+            // Intra-state → split equally
             cgst = totalGST / 2;
             sgst = totalGST / 2;
         }
         else {
+            // Inter-state → IGST
             igst = totalGST;
         }
-        const finalAmount = taxableAmount + totalGST;
+        // Alias for EJS template
+        const discount = totalDiscount;
         // ✅ Render EJS
         const filePath = path_1.default.join(__dirname, "../../ejs/preview.ejs");
-        const html = yield ejs_1.default.renderFile(filePath, Object.assign(Object.assign({}, data), { logo,
+        const html = yield ejs_1.default.renderFile(filePath, Object.assign(Object.assign({}, data), { quotationNumber,
+            logo,
             signature,
             stamp,
             subtotal,
@@ -1820,13 +1946,13 @@ const addQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function
             totalGST,
             finalAmount }));
         // ✅ Save to DB
-        yield dbConnection_1.Quotations.create({
-            userId: Number(userData === null || userData === void 0 ? void 0 : userData.userId),
-            companyId: data.companyId || 0,
-            quotation: data,
-            status: "draft"
-        });
-        // ✅ Puppeteer
+        // await Quotations.create({
+        //   userId: Number(userData?.userId),
+        //   companyId: data.companyId || 0,
+        //   quotation: { ...data, quotationNumber },
+        //   status: "draft"
+        // });
+        // ✅ Puppeteer — generate PDF
         const browser = yield puppeteer_1.default.launch({
             args: ["--no-sandbox", "--disable-setuid-sandbox"]
         });
@@ -1843,11 +1969,35 @@ const addQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, function
             }
         });
         yield browser.close();
-        res.set({
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
+        // ✅ Save PDF to uploads/pdf/
+        const pdfFileName = `quotation-${quotationNumber}.pdf`;
+        const pdfDir = path_1.default.join(__dirname, "../../../uploads/pdf");
+        const pdfFilePath = path_1.default.join(pdfDir, pdfFileName);
+        if (!fs_1.default.existsSync(pdfDir))
+            fs_1.default.mkdirSync(pdfDir, { recursive: true });
+        fs_1.default.writeFileSync(pdfFilePath, pdfBuffer);
+        // ✅ Build public download URL
+        const baseUrl = `${req.protocol}://${req.get("host")}`;
+        const pdfUrl = `/uploads/pdf/${pdfFileName}`;
+        // ✅ Return JSON with download link
+        res.status(200).json({
+            success: true,
+            message: "Quotation PDF generated successfully",
+            data: {
+                quotationNumber,
+                pdfUrl,
+                summary: {
+                    subtotal: +subtotal.toFixed(2),
+                    discount: +discount.toFixed(2),
+                    taxableAmount: +taxableAmount.toFixed(2),
+                    cgst: +cgst.toFixed(2),
+                    sgst: +sgst.toFixed(2),
+                    igst: +igst.toFixed(2),
+                    totalGST: +totalGST.toFixed(2),
+                    finalAmount: +finalAmount.toFixed(2)
+                }
+            }
         });
-        res.send(pdfBuffer);
     }
     catch (error) {
         res.status(400).json({ error: "Something went wrong" });
@@ -1940,3 +2090,778 @@ const getFuelExpense = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.getFuelExpense = getFuelExpense;
+const addCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const { companyName, legalName, registrationNo, gst, pan, industry, companySize, website, companyEmail, companyPhone, city, timezone, currency, 
+        // Bank
+        bankAccountHolder, bankName, bankAccountNumber, bankIfsc, bankBranchName, bankAccountType, bankMicr, upiId, 
+        // HR Config
+        payrollCycle, lateMarkAfter, autoHalfDayAfter, casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice, compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry, } = req.body;
+        // ================= VALIDATION =================
+        if (!companyName || companyName.trim().length < 2) {
+            (0, errorMessage_1.badRequest)(res, "Company name is required (min 2 chars)");
+            return;
+        }
+        if (!legalName) {
+            (0, errorMessage_1.badRequest)(res, "Legal name is required");
+            return;
+        }
+        if (!registrationNo) {
+            (0, errorMessage_1.badRequest)(res, "Registration number is required");
+            return;
+        }
+        if (!companyEmail || !/^\S+@\S+\.\S+$/.test(companyEmail)) {
+            (0, errorMessage_1.badRequest)(res, "Valid company email is required");
+            return;
+        }
+        if (!companyPhone || companyPhone.length < 8) {
+            (0, errorMessage_1.badRequest)(res, "Valid company phone is required");
+            return;
+        }
+        if (gst && gst.length !== 15) {
+            (0, errorMessage_1.badRequest)(res, "GST must be 15 characters");
+            return;
+        }
+        if (pan && pan.length !== 10) {
+            (0, errorMessage_1.badRequest)(res, "PAN must be 10 characters");
+            return;
+        }
+        if (website && !/^https?:\/\/.+/.test(website)) {
+            (0, errorMessage_1.badRequest)(res, "Website must be a valid URL");
+            return;
+        }
+        if (bankIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc)) {
+            (0, errorMessage_1.badRequest)(res, "Invalid IFSC code");
+            return;
+        }
+        if (upiId && !/^[\w.-]+@[\w.-]+$/.test(upiId)) {
+            (0, errorMessage_1.badRequest)(res, "Invalid UPI ID");
+            return;
+        }
+        // HR numeric validations
+        const numericFields = [
+            { field: lateMarkAfter, name: "lateMarkAfter" },
+            { field: autoHalfDayAfter, name: "autoHalfDayAfter" },
+            { field: casualHolidaysTotal, name: "casualHolidaysTotal" },
+            { field: casualHolidaysPerMonth, name: "casualHolidaysPerMonth" },
+            { field: casualHolidayNotice, name: "casualHolidayNotice" },
+            { field: compOffMinHours, name: "compOffMinHours" },
+            { field: compOffExpiryDays, name: "compOffExpiryDays" },
+            { field: casualCarryForwardLimit, name: "casualCarryForwardLimit" },
+            { field: casualCarryForwardExpiry, name: "casualCarryForwardExpiry" },
+        ];
+        for (const item of numericFields) {
+            if (item.field && isNaN(Number(item.field))) {
+                (0, errorMessage_1.badRequest)(res, `${item.name} must be a number`);
+                return;
+            }
+        }
+        // ================= CREATE =================
+        const company = yield dbConnection_1.Company.create({
+            companyName,
+            legalName,
+            registrationNo,
+            gst,
+            pan,
+            industry,
+            companySize,
+            website,
+            companyEmail,
+            companyPhone,
+            city,
+            timezone,
+            currency,
+            bankAccountHolder,
+            bankName,
+            bankAccountNumber,
+            bankIfsc,
+            bankBranchName,
+            bankAccountType,
+            bankMicr,
+            upiId,
+            payrollCycle,
+            lateMarkAfter,
+            autoHalfDayAfter,
+            casualHolidaysTotal,
+            casualHolidaysPerMonth,
+            casualHolidayNotice,
+            compOffMinHours,
+            compOffExpiryDays,
+            casualCarryForwardLimit,
+            casualCarryForwardExpiry,
+            userId: userData.userId,
+        });
+        (0, errorMessage_1.createSuccess)(res, "Company added successfully", company);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.addCompany = addCompany;
+const getCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        // ✅ Pagination
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+        // ✅ Search
+        const search = req.query.search || "";
+        let whereCondition = {
+            userId: userData.userId,
+        };
+        if (search) {
+            whereCondition = Object.assign(Object.assign({}, whereCondition), { [sequelize_1.Op.or]: [
+                    { companyName: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { legalName: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { companyEmail: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { companyPhone: { [sequelize_1.Op.like]: `%${search}%` } },
+                ] });
+        }
+        // ✅ Query
+        const { count, rows } = yield dbConnection_1.Company.findAndCountAll({
+            where: whereCondition,
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        // ✅ Response
+        (0, errorMessage_1.createSuccess)(res, "Company fetched successfully", {
+            total: count,
+            page,
+            limit,
+            totalPages: Math.ceil(count / limit),
+            data: rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getCompany = getCompany;
+const getCompanyById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!req.params.id) {
+            return (0, errorMessage_1.badRequest)(res, "Company id is required");
+        }
+        if (isNaN(Number(req.params.id))) {
+            return (0, errorMessage_1.badRequest)(res, "Company id must be a number");
+        }
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        const company = yield dbConnection_1.Company.findOne({
+            where: { id: req.params.id, userId: userData.userId },
+        });
+        if (!company) {
+            return (0, errorMessage_1.badRequest)(res, "Company not found");
+        }
+        (0, errorMessage_1.createSuccess)(res, "Company fetched successfully", company);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getCompanyById = getCompanyById;
+const addBranch = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        const { branchName, branchCode, branchCity, branchState, branchCountry, postalCode, addressLine1, addressLine2, branchEmail, branchPhone, latitude, longitude, geoRadius, adminId, managerId, } = req.body;
+        // ================= VALIDATIONS =================
+        if (!branchName || branchName.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Branch name is required (min 2 chars)");
+        }
+        if (!branchCode || branchCode.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Branch code is required");
+        }
+        if (!branchCity) {
+            return (0, errorMessage_1.badRequest)(res, "Branch city is required");
+        }
+        if (!branchState) {
+            return (0, errorMessage_1.badRequest)(res, "Branch state is required");
+        }
+        if (!branchCountry) {
+            return (0, errorMessage_1.badRequest)(res, "Branch country is required");
+        }
+        if (!postalCode || postalCode.length < 4) {
+            return (0, errorMessage_1.badRequest)(res, "Valid postal code is required");
+        }
+        if (!addressLine1) {
+            return (0, errorMessage_1.badRequest)(res, "Address Line 1 is required");
+        }
+        if (!branchEmail || !/^\S+@\S+\.\S+$/.test(branchEmail)) {
+            return (0, errorMessage_1.badRequest)(res, "Valid branch email is required");
+        }
+        if (!branchPhone || branchPhone.length < 8) {
+            return (0, errorMessage_1.badRequest)(res, "Valid branch phone is required");
+        }
+        // Latitude: -90 to 90
+        if (latitude === undefined ||
+            isNaN(Number(latitude)) ||
+            Number(latitude) < -90 ||
+            Number(latitude) > 90) {
+            return (0, errorMessage_1.badRequest)(res, "Latitude must be between -90 and 90");
+        }
+        // Longitude: -180 to 180
+        if (longitude === undefined ||
+            isNaN(Number(longitude)) ||
+            Number(longitude) < -180 ||
+            Number(longitude) > 180) {
+            return (0, errorMessage_1.badRequest)(res, "Longitude must be between -180 and 180");
+        }
+        if (geoRadius === undefined ||
+            isNaN(Number(geoRadius)) ||
+            Number(geoRadius) <= 0) {
+            return (0, errorMessage_1.badRequest)(res, "Geo radius must be a positive number");
+        }
+        if (adminId && isNaN(Number(adminId))) {
+            return (0, errorMessage_1.badRequest)(res, "adminId must be a number");
+        }
+        if (managerId && isNaN(Number(managerId))) {
+            return (0, errorMessage_1.badRequest)(res, "managerId must be a number");
+        }
+        // ================= DUPLICATE CHECK =================
+        const existingBranch = yield dbConnection_1.Branch.findOne({
+            where: { branchCode },
+        });
+        if (existingBranch) {
+            return (0, errorMessage_1.badRequest)(res, "Branch already exists with this code");
+        }
+        // ================= CREATE =================
+        const branch = yield dbConnection_1.Branch.create({
+            branchName,
+            branchCode,
+            branchCity,
+            branchState,
+            branchCountry,
+            postalCode,
+            addressLine1,
+            addressLine2: addressLine2 || null,
+            branchEmail,
+            branchPhone,
+            latitude: Number(latitude),
+            longitude: Number(longitude),
+            geoRadius: Number(geoRadius),
+            adminId: adminId || null,
+            managerId: managerId || null,
+            userId: userData.userId,
+        });
+        (0, errorMessage_1.createSuccess)(res, "Branch added successfully", branch);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.addBranch = addBranch;
+const getBranch = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        // ✅ Pagination
+        const page = Number(req.query.page) || 1;
+        const limit = Number(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+        // ✅ Search
+        const search = req.query.search || "";
+        let whereCondition = {
+            userId: userData.userId,
+        };
+        if (search) {
+            whereCondition = Object.assign(Object.assign({}, whereCondition), { [sequelize_1.Op.or]: [
+                    { branchName: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { branchCode: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { branchCity: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { branchState: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { branchCountry: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { postalCode: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { addressLine1: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { addressLine2: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { branchEmail: { [sequelize_1.Op.like]: `%${search}%` } },
+                    { branchPhone: { [sequelize_1.Op.like]: `%${search}%` } },
+                ] });
+        }
+        // ✅ Query
+        const { count, rows } = yield dbConnection_1.Branch.findAndCountAll({
+            where: whereCondition,
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        // ✅ Response
+        (0, errorMessage_1.createSuccess)(res, "Branch fetched successfully", {
+            total: count,
+            page,
+            limit,
+            totalPages: Math.ceil(count / limit),
+            data: rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getBranch = getBranch;
+const getBranchById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!req.params.id) {
+            return (0, errorMessage_1.badRequest)(res, "Branch id is required");
+        }
+        if (isNaN(Number(req.params.id))) {
+            return (0, errorMessage_1.badRequest)(res, "Branch id must be a number");
+        }
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        const branch = yield dbConnection_1.Branch.findOne({
+            where: { id: req.params.id, userId: userData.userId },
+        });
+        if (!branch) {
+            return (0, errorMessage_1.badRequest)(res, "Branch not found");
+        }
+        (0, errorMessage_1.createSuccess)(res, "Branch fetched successfully", branch);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getBranchById = getBranchById;
+const addShift = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        const { shiftName, shiftCode, startTime, endTime, breakMinutes, workingHours, lateMarkAfter, halfDayAfter, branchId, companyId, } = req.body;
+        // ================= VALIDATION =================
+        if (!shiftName || shiftName.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Shift name is required");
+        }
+        if (!shiftCode || shiftCode.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Shift code is required");
+        }
+        if (!startTime || !endTime) {
+            return (0, errorMessage_1.badRequest)(res, "Start time and end time are required");
+        }
+        if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+            return (0, errorMessage_1.badRequest)(res, "Time must be in HH:mm format");
+        }
+        if (breakMinutes && isNaN(Number(breakMinutes))) {
+            return (0, errorMessage_1.badRequest)(res, "Break minutes must be number");
+        }
+        if (workingHours && isNaN(Number(workingHours))) {
+            return (0, errorMessage_1.badRequest)(res, "Working hours must be number");
+        }
+        if (lateMarkAfter && isNaN(Number(lateMarkAfter))) {
+            return (0, errorMessage_1.badRequest)(res, "lateMarkAfter must be number");
+        }
+        if (halfDayAfter && isNaN(Number(halfDayAfter))) {
+            return (0, errorMessage_1.badRequest)(res, "halfDayAfter must be number");
+        }
+        if (!branchId || isNaN(Number(branchId))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid branchId is required");
+        }
+        if (!companyId || isNaN(Number(companyId))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid companyId is required");
+        }
+        // ================= DUPLICATE =================
+        const existing = yield dbConnection_1.Shift.findOne({
+            where: { shiftCode },
+        });
+        if (existing) {
+            return (0, errorMessage_1.badRequest)(res, "Shift already exists with this code");
+        }
+        // ================= CREATE =================
+        const shift = yield dbConnection_1.Shift.create({
+            shiftName,
+            shiftCode,
+            startTime,
+            endTime,
+            // breakMinutes: breakMinutes || 0,
+            // workingHours: workingHours || 8,
+            // lateMarkAfter: lateMarkAfter || 0,
+            // halfDayAfter: halfDayAfter || 0,
+            // branchId,
+            // companyId,
+            userId: userData.userId,
+        });
+        (0, errorMessage_1.createSuccess)(res, "Shift added successfully", shift);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.addShift = addShift;
+const getShift = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        // ✅ Pagination
+        const page = Number(req.query.page) || 1;
+        const limit = Math.min(Number(req.query.limit) || 10, 50);
+        const offset = (page - 1) * limit;
+        // ✅ Search
+        const search = req.query.search || "";
+        // ✅ Filters (optional but useful)
+        const branchId = req.query.branchId;
+        const companyId = req.query.companyId;
+        let whereCondition = {
+            userId: userData.userId,
+        };
+        // 🔍 Search condition
+        if (search) {
+            whereCondition[sequelize_1.Op.or] = [
+                { shiftName: { [sequelize_1.Op.like]: `%${search}%` } },
+                { shiftCode: { [sequelize_1.Op.like]: `%${search}%` } },
+            ];
+        }
+        // 🎯 Optional filters
+        if (branchId) {
+            whereCondition.branchId = branchId;
+        }
+        if (companyId) {
+            whereCondition.companyId = companyId;
+        }
+        // ✅ Query
+        const { count, rows } = yield dbConnection_1.Shift.findAndCountAll({
+            where: whereCondition,
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        // ✅ Response
+        (0, errorMessage_1.createSuccess)(res, "Shifts fetched successfully", {
+            total: count,
+            page,
+            limit,
+            totalPages: Math.ceil(count / limit),
+            data: rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getShift = getShift;
+const getShiftById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        if (!req.params.id) {
+            return (0, errorMessage_1.badRequest)(res, "Shift id is required");
+        }
+        if (isNaN(Number(req.params.id))) {
+            return (0, errorMessage_1.badRequest)(res, "Shift id must be a number");
+        }
+        const shift = yield dbConnection_1.Shift.findOne({
+            where: { id: req.params.id, userId: userData.userId },
+        });
+        if (!shift) {
+            return (0, errorMessage_1.badRequest)(res, "Shift not found");
+        }
+        (0, errorMessage_1.createSuccess)(res, "Shift fetched successfully", shift);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getShiftById = getShiftById;
+const addDepartment = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        const { deptName, deptCode, deptHead, branchId, shiftId, maxHeadcount, halfSaturday, adminId, managerId, } = req.body;
+        // ================= VALIDATION =================
+        if (!deptName || deptName.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Department name is required");
+        }
+        if (!deptCode || deptCode.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Department code is required");
+        }
+        if (!deptHead || deptHead.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Department head is required");
+        }
+        if (!branchId || isNaN(Number(branchId))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid branchId is required");
+        }
+        if (!shiftId || isNaN(Number(shiftId))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid shiftId is required");
+        }
+        if (!maxHeadcount || isNaN(Number(maxHeadcount))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid maxHeadcount is required");
+        }
+        // if (!adminId || isNaN(Number(adminId))) {
+        //   return badRequest(res, "Valid adminId is required");
+        // }
+        // if (!managerId || isNaN(Number(managerId))) {
+        //   return badRequest(res, "Valid managerId is required");
+        // }
+        // ================= DUPLICATE =================
+        const existing = yield dbConnection_1.Department.findOne({
+            where: { deptCode },
+        });
+        if (existing) {
+            return (0, errorMessage_1.badRequest)(res, "Department already exists with this code");
+        }
+        // ================= CREATE =================
+        const department = yield dbConnection_1.Department.create({
+            deptName,
+            deptCode,
+            deptHead,
+            branchId,
+            shiftId,
+            maxHeadcount,
+            halfSaturday,
+            adminId,
+            managerId,
+            userId: userData.userId,
+        });
+        (0, errorMessage_1.createSuccess)(res, "Department added successfully", department);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.addDepartment = addDepartment;
+const getDepartment = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        // ✅ Pagination
+        const page = Number(req.query.page) || 1;
+        const limit = Math.min(Number(req.query.limit) || 10, 50);
+        const offset = (page - 1) * limit;
+        // ✅ Search
+        const search = req.query.search || "";
+        // ✅ Filters (optional but useful)
+        const branchId = req.query.branchId;
+        const companyId = req.query.companyId;
+        let whereCondition = {
+            userId: userData.userId,
+        };
+        // 🔍 Search condition
+        if (search) {
+            whereCondition[sequelize_1.Op.or] = [
+                { deptName: { [sequelize_1.Op.like]: `%${search}%` } },
+                { deptCode: { [sequelize_1.Op.like]: `%${search}%` } },
+            ];
+        }
+        // 🎯 Optional filters
+        if (branchId) {
+            whereCondition.branchId = branchId;
+        }
+        if (companyId) {
+            whereCondition.companyId = companyId;
+        }
+        // ✅ Query
+        const { count, rows } = yield dbConnection_1.Department.findAndCountAll({
+            where: whereCondition,
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        // ✅ Response
+        (0, errorMessage_1.createSuccess)(res, "Departments fetched successfully", {
+            total: count,
+            page,
+            limit,
+            totalPages: Math.ceil(count / limit),
+            data: rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getDepartment = getDepartment;
+const getDepartmentById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        if (!req.params.id) {
+            return (0, errorMessage_1.badRequest)(res, "Department id is required");
+        }
+        if (isNaN(Number(req.params.id))) {
+            return (0, errorMessage_1.badRequest)(res, "Department id must be a number");
+        }
+        const department = yield dbConnection_1.Department.findOne({
+            where: { id: req.params.id, userId: userData.userId },
+        });
+        if (!department) {
+            return (0, errorMessage_1.badRequest)(res, "Department not found");
+        }
+        (0, errorMessage_1.createSuccess)(res, "Department fetched successfully", department);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getDepartmentById = getDepartmentById;
+const addHoliday = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        const { holidayName, holidayDate, holidayType, branchId, description, adminId, managerId, } = req.body;
+        // ================= VALIDATION =================
+        if (!holidayName || holidayName.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Holiday name is required");
+        }
+        if (!holidayDate || holidayDate.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Holiday date is required");
+        }
+        if (!holidayType || holidayType.trim().length < 2) {
+            return (0, errorMessage_1.badRequest)(res, "Holiday type is required");
+        }
+        if (!branchId || isNaN(Number(branchId))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid branchId is required");
+        }
+        if (!adminId || isNaN(Number(adminId))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid adminId is required");
+        }
+        if (!managerId || isNaN(Number(managerId))) {
+            return (0, errorMessage_1.badRequest)(res, "Valid managerId is required");
+        }
+        // ================= DUPLICATE =================
+        const existing = yield dbConnection_1.Holiday.findOne({
+            where: { holidayDate },
+        });
+        if (existing) {
+            return (0, errorMessage_1.badRequest)(res, "Holiday already exists with this date");
+        }
+        // ================= CREATE =================
+        const holiday = yield dbConnection_1.Holiday.create({
+            holidayName,
+            holidayDate,
+            holidayType,
+            branchId,
+            description,
+            adminId,
+            managerId,
+            userId: userData.userId,
+        });
+        (0, errorMessage_1.createSuccess)(res, "Holiday added successfully", holiday);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.addHoliday = addHoliday;
+const getHoliday = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        // ✅ Pagination
+        const page = Number(req.query.page) || 1;
+        const limit = Math.min(Number(req.query.limit) || 10, 50);
+        const offset = (page - 1) * limit;
+        // ✅ Search
+        const search = req.query.search || "";
+        // ✅ Filters (optional but useful)
+        const branchId = req.query.branchId;
+        const companyId = req.query.companyId;
+        let whereCondition = {
+            userId: userData.userId,
+        };
+        // 🔍 Search condition
+        if (search) {
+            whereCondition[sequelize_1.Op.or] = [
+                { holidayName: { [sequelize_1.Op.like]: `%${search}%` } },
+                { holidayType: { [sequelize_1.Op.like]: `%${search}%` } },
+            ];
+        }
+        // 🎯 Optional filters
+        if (branchId) {
+            whereCondition.branchId = branchId;
+        }
+        if (companyId) {
+            whereCondition.companyId = companyId;
+        }
+        // ✅ Query
+        const { count, rows } = yield dbConnection_1.Holiday.findAndCountAll({
+            where: whereCondition,
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        // ✅ Response
+        (0, errorMessage_1.createSuccess)(res, "Holidays fetched successfully", {
+            total: count,
+            page,
+            limit,
+            totalPages: Math.ceil(count / limit),
+            data: rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getHoliday = getHoliday;
+const getHolidayById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        if (!req.params.id) {
+            return (0, errorMessage_1.badRequest)(res, "Holiday id is required");
+        }
+        if (isNaN(Number(req.params.id))) {
+            return (0, errorMessage_1.badRequest)(res, "Holiday id must be a number");
+        }
+        const holiday = yield dbConnection_1.Holiday.findOne({
+            where: { id: req.params.id, userId: userData.userId },
+        });
+        if (!holiday) {
+            return (0, errorMessage_1.badRequest)(res, "Holiday not found");
+        }
+        (0, errorMessage_1.createSuccess)(res, "Holiday fetched successfully", holiday);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getHolidayById = getHolidayById;
