@@ -45,6 +45,10 @@ const HolidayModel = (sequelize) => {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             allowNull: true,
         },
+        companyId: {
+            type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+            allowNull: true,
+        },
     }, {
         tableName: "holidays",
         timestamps: true,

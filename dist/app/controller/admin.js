@@ -2294,7 +2294,7 @@ const addBranch = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         if (!userData || !userData.userId) {
             return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
         }
-        const { branchName, branchCode, branchCity, branchState, branchCountry, postalCode, addressLine1, addressLine2, branchEmail, branchPhone, latitude, longitude, geoRadius, adminId, managerId, } = req.body;
+        const { branchName, branchCode, branchCity, branchState, branchCountry, postalCode, addressLine1, addressLine2, branchEmail, branchPhone, latitude, longitude, geoRadius, adminId, managerId, companyId, } = req.body;
         // ================= VALIDATIONS =================
         if (!branchName || branchName.trim().length < 2) {
             return (0, errorMessage_1.badRequest)(res, "Branch name is required (min 2 chars)");
@@ -2373,6 +2373,7 @@ const addBranch = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             adminId: adminId || null,
             managerId: managerId || null,
             userId: userData.userId,
+            companyId: companyId || null,
         });
         (0, errorMessage_1.createSuccess)(res, "Branch added successfully", branch);
     }
@@ -2514,8 +2515,8 @@ const addShift = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             // workingHours: workingHours || 8,
             // lateMarkAfter: lateMarkAfter || 0,
             // halfDayAfter: halfDayAfter || 0,
-            // branchId,
-            // companyId,
+            branchId,
+            companyId,
             userId: userData.userId,
         });
         (0, errorMessage_1.createSuccess)(res, "Shift added successfully", shift);
@@ -2612,7 +2613,7 @@ const addDepartment = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         if (!userData || !userData.userId) {
             return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
         }
-        const { deptName, deptCode, deptHead, branchId, shiftId, maxHeadcount, halfSaturday, adminId, managerId, } = req.body;
+        const { deptName, deptCode, deptHead, branchId, shiftId, maxHeadcount, halfSaturday, adminId, managerId, companyId, } = req.body;
         // ================= VALIDATION =================
         if (!deptName || deptName.trim().length < 2) {
             return (0, errorMessage_1.badRequest)(res, "Department name is required");
@@ -2657,6 +2658,7 @@ const addDepartment = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             adminId,
             managerId,
             userId: userData.userId,
+            companyId: companyId || null,
         });
         (0, errorMessage_1.createSuccess)(res, "Department added successfully", department);
     }
@@ -2752,7 +2754,7 @@ const addHoliday = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         if (!userData || !userData.userId) {
             return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
         }
-        const { holidayName, holidayDate, holidayType, branchId, description, adminId, managerId, } = req.body;
+        const { holidayName, holidayDate, holidayType, branchId, description, adminId, managerId, companyId, } = req.body;
         // ================= VALIDATION =================
         if (!holidayName || holidayName.trim().length < 2) {
             return (0, errorMessage_1.badRequest)(res, "Holiday name is required");
@@ -2789,6 +2791,7 @@ const addHoliday = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             adminId,
             managerId,
             userId: userData.userId,
+            companyId: companyId || null,
         });
         (0, errorMessage_1.createSuccess)(res, "Holiday added successfully", holiday);
     }

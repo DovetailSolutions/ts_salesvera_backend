@@ -2910,6 +2910,7 @@ export const addBranch = async (req: Request, res: Response) => {
       geoRadius,
       adminId,
       managerId,
+      companyId,
     } = req.body;
 
     // ================= VALIDATIONS =================
@@ -3015,6 +3016,7 @@ export const addBranch = async (req: Request, res: Response) => {
       adminId: adminId || null,
       managerId: managerId || null,
       userId: userData.userId,
+      companyId: companyId || null,
     });
 
     createSuccess(res, "Branch added successfully", branch);
@@ -3205,8 +3207,8 @@ export const addShift = async (req: Request, res: Response) => {
       // workingHours: workingHours || 8,
       // lateMarkAfter: lateMarkAfter || 0,
       // halfDayAfter: halfDayAfter || 0,
-      // branchId,
-      // companyId,
+      branchId,
+      companyId,
       userId: userData.userId,
     });
 
@@ -3334,6 +3336,7 @@ export const addDepartment = async (req: Request, res: Response) => {
       halfSaturday,
       adminId,
       managerId,
+      companyId,
     } = req.body;
 
     // ================= VALIDATION =================
@@ -3393,6 +3396,7 @@ export const addDepartment = async (req: Request, res: Response) => {
       adminId,
       managerId,
       userId: userData.userId,
+      companyId: companyId || null,
     });
 
     createSuccess(res, "Department added successfully", department);
@@ -3518,6 +3522,7 @@ export const addHoliday = async (req: Request, res: Response) => {
       description,
       adminId,
       managerId,
+      companyId,
     } = req.body;
 
     // ================= VALIDATION =================
@@ -3567,6 +3572,7 @@ export const addHoliday = async (req: Request, res: Response) => {
       adminId,
       managerId,
       userId: userData.userId,
+      companyId: companyId || null,
     });
 
     createSuccess(res, "Holiday added successfully", holiday);

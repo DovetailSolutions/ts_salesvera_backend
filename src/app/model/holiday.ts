@@ -10,6 +10,7 @@ interface HolidayAttributes {
   adminId?: number;
   managerId?: number;
   userId?: number;
+  companyId?: number;
 }
 
 interface HolidayCreationAttributes
@@ -27,6 +28,7 @@ export class Holiday
   public adminId?: number;
   public managerId?: number;
   public userId?: number;
+  public companyId?: number;
 }
 
 export const HolidayModel = (sequelize: Sequelize) => {
@@ -71,6 +73,10 @@ export const HolidayModel = (sequelize: Sequelize) => {
         allowNull: true,
       },
       userId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+      },
+      companyId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
