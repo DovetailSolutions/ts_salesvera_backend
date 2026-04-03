@@ -9,12 +9,24 @@ import { DeviceModel } from "../app/model/device";
 import {Attendance} from "../app/model/attendance"
 import {Leave} from '../app/model/leaverequests'
 import {Expense} from '../app/model/expense'
+import {ExpenseImage} from '../app/model/expanseImages'
 import{ChatRoom} from '../app/model/chatRoom'
 import{ChatParticipant} from '../app/model/ChatParticipant'
 import{Message} from '../app/model/Message'
 import{MeetingImageModel} from "../app/model/meetingImage"
 import {CompanyModel} from "../app/model/meetingCompany"
 import {UserModel} from "../app/model/meetingUser"
+// import {Quotation} from "../app/model/quotation";
+import {SubCategoryModel} from "../app/model/subCategory";
+import {Quotations} from "../app/model/quotations";
+import {CompanyModell} from "../app/model/company";
+import {BranchModel} from "../app/model/branch";
+import {ShiftModel} from "../app/model/Shift";
+import {DepartmentModel} from "../app/model/department";
+import {HolidayModel} from "../app/model/holiday";
+
+
+
 
 
 
@@ -28,12 +40,12 @@ const sequelize = new Sequelize(
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
-    logging: false,
+    logging: true,
     dialectOptions: {
-      // ssl: {
-      //   require: true,
-      //   rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
-      // },
+      ssl: {
+        require: true,
+        rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
+      },
     },
   }
 );
@@ -41,6 +53,11 @@ const sequelize = new Sequelize(
 Attendance.initModel(sequelize);
 Leave.initModel(sequelize)
 Expense.initModel(sequelize)
+ExpenseImage.initModel(sequelize)
+// Quotation.initModel(sequelize)
+Quotations.initModel(sequelize)
+
+// SubCategory.initModel(sequelize)
 
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
@@ -56,6 +73,14 @@ Message.initModel(sequelize);
 const MeetingImage = MeetingImageModel(sequelize);
 const MeetingCompany = CompanyModel(sequelize)
 const MeetingUser =  UserModel(sequelize)
+const SubCategory = SubCategoryModel(sequelize)
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+const Company = CompanyModell(sequelize)
+const Branch = BranchModel(sequelize)
+const Shift = ShiftModel(sequelize)
+const Department = DepartmentModel(sequelize)
+const Holiday = HolidayModel(sequelize)
 
 
 
@@ -85,6 +110,9 @@ Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
 User.hasMany(Expense, { foreignKey: "userId" });
 Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+Expense.hasMany(ExpenseImage, { foreignKey: "expenseId", as: "images" });
+ExpenseImage.belongsTo(Expense, { foreignKey: "expenseId" });
 
 
 
@@ -154,12 +182,42 @@ Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
 MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
 
 
+Category.hasMany(SubCategory, {
+  foreignKey: "CategoryId",
+  as: "subCategories"
+});
+
+SubCategory.belongsTo(Category, {
+  foreignKey: "CategoryId",
+  as: "category"
+});
+
+
+//sale quotation
+User.hasMany(Quotations, { foreignKey: "userId" });
+Quotations.belongsTo(User, { foreignKey: "userId" });
+
+// Sale.hasMany(Quotations, { foreignKey: "saleId" });
+// Quotations.belongsTo(Sale, { foreignKey: "saleId" });
+
+
 
 
 
 export const connectDB = async () => {
   try {
     console.log("✅ Database connection established successfully");
+
+    // Clean up orphaned quotations rows before sync so the FK constraint can be applied.
+    // Wrapped in try/catch in case the table doesn't exist yet on a fresh DB.
+    try {
+      await sequelize.query(
+        `DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`
+      );
+    } catch (_) {
+      // table may not exist yet — safe to ignore
+    }
+
     await sequelize.sync({ alter: true });
     await sequelize.authenticate();
   } catch (err) {
@@ -181,5 +239,14 @@ export {
   Message,
   MeetingImage,
   MeetingCompany,
-  MeetingUser
+  MeetingUser,
+  ExpenseImage,
+  // Quotation,
+  SubCategory,
+  Quotations,
+  Company,
+  Branch,
+  Shift,
+  Department,
+  Holiday
 };

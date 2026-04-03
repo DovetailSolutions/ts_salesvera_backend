@@ -23,7 +23,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.withuserlogin = exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmail = void 0;
+exports.getAllListCategory = exports.withuserlogin = exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmail = void 0;
 const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../../config/dbConnection");
@@ -568,3 +568,49 @@ const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, 
     }
 });
 exports.withuserlogin = withuserlogin;
+const getAllListCategory = (model_1, ...args_1) => __awaiter(void 0, [model_1, ...args_1], void 0, function* (model, data = {}, searchFields = []) {
+    try {
+        const { page = 1, limit = 10, date, search } = data, filters = __rest(data, ["page", "limit", "date", "search"]);
+        const whereConditions = Object.assign({}, filters);
+        if (date) {
+            whereConditions.date = date;
+        }
+        // 🔍 Add search functionality
+        if (search && searchFields.length > 0) {
+            whereConditions[sequelize_1.Op.or] = searchFields.map((field) => ({
+                [field]: { [sequelize_1.Op.like]: `%${search}%` }, // Or Op.iLike if Postgres
+            }));
+        }
+        const offset = (Number(page) - 1) * Number(limit);
+        const { count, rows } = yield model.findAndCountAll({
+            where: whereConditions,
+            include: [
+                {
+                    model: dbConnection_1.SubCategory,
+                    as: "subCategories",
+                    required: false
+                }
+            ],
+            limit: Number(limit),
+            offset,
+        });
+        if (rows.length === 0) {
+            throw new Error("Company does not exist");
+        }
+        return {
+            success: true,
+            data: rows,
+            pagination: {
+                page: Number(page),
+                limit: Number(limit),
+                totalRecords: count,
+                totalPages: Math.ceil(count / Number(limit)),
+            },
+        };
+    }
+    catch (error) {
+        console.error("Database Error:", error);
+        throw error;
+    }
+});
+exports.getAllListCategory = getAllListCategory;

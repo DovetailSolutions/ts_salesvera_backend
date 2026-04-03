@@ -1,5 +1,4 @@
 import { Sequelize, DataTypes, Model } from "sequelize";
-
 export class Company extends Model {
   public id!: number;
   public companyName!: string;
@@ -19,29 +18,28 @@ export const CompanyModel = (sequelize: Sequelize) => {
         autoIncrement: true,
         primaryKey: true,
       },
-
       companyName: DataTypes.STRING,
-
       meetingUserId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
-
       personName: DataTypes.STRING,
-
       mobileNumber: DataTypes.STRING,
-
       companyEmail: DataTypes.STRING,
-
       customerType: {
         type: DataTypes.ENUM("new", "existing", "followup"),
         defaultValue: "new",
       },
-
+      state: DataTypes.STRING,
+      city: DataTypes.STRING,
+      country: DataTypes.STRING,
       remarks: {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      address: DataTypes.TEXT,
+      gstNumber: DataTypes.STRING,
+      quotationNumber: DataTypes.STRING,
     },
     {
       sequelize,

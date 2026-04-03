@@ -24,10 +24,16 @@ const CompanyModel = (sequelize) => {
             type: sequelize_1.DataTypes.ENUM("new", "existing", "followup"),
             defaultValue: "new",
         },
+        state: sequelize_1.DataTypes.STRING,
+        city: sequelize_1.DataTypes.STRING,
+        country: sequelize_1.DataTypes.STRING,
         remarks: {
             type: sequelize_1.DataTypes.TEXT,
             allowNull: true,
         },
+        address: sequelize_1.DataTypes.TEXT,
+        gstNumber: sequelize_1.DataTypes.STRING,
+        quotationNumber: sequelize_1.DataTypes.STRING,
     }, {
         sequelize,
         tableName: "companies",

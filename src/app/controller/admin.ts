@@ -1,8 +1,13 @@
-import {Op} from "sequelize";
+
+import { Op, fn, col, cast } from "sequelize";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import csv from "csv-parser";
 import bcrypt from "bcrypt";
+import puppeteer from "puppeteer";
+import ejs from "ejs";
+import fs from "fs";
+import path from "path";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { Request, Response } from "express-serve-static-core";
 import {
@@ -19,6 +24,13 @@ import {
   Attendance,
   Leave,
   Expense,
+  // Quotation,
+  SubCategory,
+  Quotations,
+  Company,
+  Branch,Shift,
+  Department,
+  Holiday
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -606,7 +618,7 @@ export const getMeeting = async (
   res: Response
 ): Promise<void> => {
   try {
-     const {
+    const {
       page = 1,
       limit = 10,
       search = "",
@@ -638,7 +650,7 @@ export const getMeeting = async (
         ll = plain.creators[0].id; // parent admin ID
       }
     }
-   
+
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -700,7 +712,7 @@ export const getMeeting = async (
       page: pageNum,
       limit: limitNum,
       total: count,
-      totalPages: Math.ceil(count/limitNum),
+      totalPages: Math.ceil(count / limitNum),
       rows,
     });
   } catch (error) {
@@ -725,12 +737,12 @@ export const BulkUploads = async (
   try {
     const userData = req.userData as JwtPayload;
     let loginUser = userData?.userId;
-    // Correct check for multer.array()
-    if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+    // Correct check for multer.single()
+    if (!req.file) {
       badRequest(res, "CSV file is required");
       return;
     }
-    const csvFile = (req.files as MulterS3File[])[0];
+    const csvFile = req.file as MulterS3File;
 
     const s3 = new S3Client({
       region: process.env.AWS_REGION,
@@ -760,20 +772,18 @@ export const BulkUploads = async (
       )
       .on("data", (row) => {
         results.push({
-          companyName: row.companyName?.trim() || "",
-          personName: row.personName?.trim() || "",
-          mobileNumber: row.mobileNumber?.trim() || "",
-          companyEmail: row.companyEmail?.trim() || "",
+          name: row.name?.trim() || "",
+          email: row.email?.trim() || "",
+          mobile: row.mobile?.trim() || "",
           customerType: "existing",
-          adminId: loginUser,
-          managerId: loginUser,
+          userId: loginUser,
         });
       })
       .on("end", async () => {
         try {
           const uniqueRows: any[] = [];
           for (const r of results) {
-            const exists = await Meeting.findOne({
+            const exists = await MeetingUser.findOne({
               where: {
                 [Op.or]: [{ adminId: loginUser }, { managerId: loginUser }],
                 companyName: { [Op.in]: results.map((r) => r.companyName) },
@@ -790,7 +800,7 @@ export const BulkUploads = async (
 
           // Insert ONLY new rows
           if (uniqueRows.length > 0) {
-            await Meeting.bulkCreate(uniqueRows);
+            await MeetingUser.bulkCreate(uniqueRows);
           }
 
           return createSuccess(res, "Bulk upload successful", {
@@ -1148,8 +1158,8 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
     const { status } = req.query;
-     const { page, limit, offset } = getPagination(req);
-     // <- status comes from query
+    const { page, limit, offset } = getPagination(req);
+    // <- status comes from query
     const childIds = await getAllChildUserIds(loggedInId);
 
     const allUserIds = [loggedInId, ...childIds];
@@ -1211,7 +1221,7 @@ export const GetExpense = async (
     const search = req.query.search
     const { page, limit, offset } = getPagination(req);
     const childIds = await getAllChildUserIds(loggedInId);
-    
+
     const allUserIds = [loggedInId, ...childIds];
 
     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
@@ -1220,7 +1230,7 @@ export const GetExpense = async (
     const expenseWhere: any = {
       userId: { [Op.in]: allUserIds },
     };
-    let userWhere:any = {};
+    let userWhere: any = {};
 
     if (approvedByAdmin !== undefined) {
       expenseWhere.approvedByAdmin = approvedByAdmin;
@@ -1230,7 +1240,7 @@ export const GetExpense = async (
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
     }
 
-    if(search){
+    if (search) {
       userWhere[Op.or] = [
         { firstName: { [Op.iLike]: `%${search}%` } },
         { lastName: { [Op.iLike]: `%${search}%` } },
@@ -1247,7 +1257,7 @@ export const GetExpense = async (
           as: "user",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
           required: false,
-           where: userWhere,
+          where: userWhere,
         },
       ],
       order: [["createdAt", "DESC"]],
@@ -1576,10 +1586,10 @@ export const createClient = async (
 ): Promise<void> => {
   try {
     const { userId } = req.userData as JwtPayload;
-    const { name, email, mobile,  } =
+    const { name, email, mobile, } =
       req.body || {};
     // Required fields check
-    if (![name, email, mobile, ].every(Boolean)) {
+    if (![name, email, mobile,].every(Boolean)) {
       badRequest(res, "All fields are required");
       return;
     }
@@ -1621,11 +1631,11 @@ const generateDayMap = (totalDays: number) =>
 const buildSearchFilter = (search: string) =>
   search
     ? {
-        [Op.or]: [
-          { firstName: { [Op.iLike]: `%${search}%` } },
-          { lastName: { [Op.iLike]: `%${search}%` } },
-        ],
-      }
+      [Op.or]: [
+        { firstName: { [Op.iLike]: `%${search}%` } },
+        { lastName: { [Op.iLike]: `%${search}%` } },
+      ],
+    }
     : {};
 // =========================== MAIN FUNCTION ===============================
 
@@ -1712,16 +1722,16 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
 
     // Validate required fields
     if (!userId || !meetingId || !scheduledTime) {
-       badRequest(res, "userId, meetingId and scheduledTime are required");
-       return
+      badRequest(res, "userId, meetingId and scheduledTime are required");
+      return
     }
 
     // Check meeting exists
     const meeting = await Meeting.findOne({ where: { id: meetingId } });
 
     if (!meeting) {
-       badRequest(res, "Meeting not found");
-       return
+      badRequest(res, "Meeting not found");
+      return
     }
 
     // If meeting is already assigned & scheduled time conflicts
@@ -1730,13 +1740,13 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
       const newTime = new Date(scheduledTime);
 
       if (existingTime.getTime() === newTime.getTime()) {
-         badRequest(res, "This meeting is already scheduled at this time");
-         return
+        badRequest(res, "This meeting is already scheduled at this time");
+        return
       }
     }
 
 
-    
+
 
     // Create new meeting entry (assign to employee)
     await Meeting.create({
@@ -1748,12 +1758,12 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
       scheduledTime,
       status: "scheduled",
     });
-     createSuccess(res, "Meeting scheduled successfully");
+    createSuccess(res, "Meeting scheduled successfully");
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-     badRequest(res, errorMessage);
-     return
+    badRequest(res, errorMessage);
+    return
   }
 };
 
@@ -1771,9 +1781,9 @@ export const ownLeave = async (req: Request, res: Response): Promise<void> => {
     });
 
     if (rows.length === 0) {
-       badRequest(res, "No leaves found");
+      badRequest(res, "No leaves found");
     }
-     createSuccess(res, "Leave fetched successfully", {
+    createSuccess(res, "Leave fetched successfully", {
       leave: rows,
       pagination: {
         totalRecords: count,
@@ -1791,3 +1801,1870 @@ export const ownLeave = async (req: Request, res: Response): Promise<void> => {
 };
 
 
+export const addQuotation = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const {
+      quotationNumber,
+      userId,
+      clientName,
+      clientEmail,
+      clientPhone,
+      totalAmount,
+      validTill,
+      notes
+    } = req.body;
+
+    // 1️⃣ Basic Validation
+    if (!userId) {
+      badRequest(res, "UserId is required");
+    }
+
+    if (!clientName) {
+      badRequest(res, "Client name is required");
+    }
+
+    if (!totalAmount) {
+      badRequest(res, "Total amount is required");
+    }
+
+    // 2️⃣ Duplicate quotation check
+    // if (quotationNumber) {
+    //   const existingQuotation = await Quotation.findOne({
+    //     where: { quotationNumber }
+    //   });
+
+    //   if (existingQuotation) {
+    //     badRequest(res, "Quotation number already exists");
+    //   }
+    // }
+
+    // // 3️⃣ Auto Generate Quotation Number (if not provided)
+    // let finalQuotationNumber = quotationNumber;
+
+    // if (!finalQuotationNumber) {
+    //   const count = await Quotation.count();
+    //   finalQuotationNumber = `QT-${Date.now()}-${count + 1}`;
+    // }
+
+    // 4️⃣ Create quotation
+    // const quotation = await Quotation.create({
+    //   quotationNumber: finalQuotationNumber,
+    //   userId,
+    //   clientName,
+    //   clientEmail,
+    //   clientPhone,
+    //   totalAmount,
+    //   validTill,
+    //   notes
+    // });
+
+    // 5️⃣ Success response
+    // createSuccess(res, "Quotation created successfully", quotation);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const addSubCategory = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    if (!loggedInId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const { sub_category_name, amount, tax, CategoryId } = req.body;
+    if (!sub_category_name?.trim()) {
+      badRequest(res, "Sub category name is required");
+      return;
+    }
+    if (!CategoryId) {
+      badRequest(res, "CategoryId is required");
+      return;
+    }
+    const cleanName = sub_category_name.trim();
+    const existingSubCategory = await SubCategory.findOne({
+      where: {
+        sub_category_name: cleanName,
+        CategoryId: CategoryId,
+      },
+    });
+    if (existingSubCategory) {
+      badRequest(res, "Sub category already exists");
+      return;
+    }
+    const subCategory = await SubCategory.create({
+      sub_category_name: cleanName,
+      CategoryId,
+      adminId: loggedInId,
+      managerId: loggedInId,
+      amount: amount ?? null,
+      text: tax ?? null,
+    });
+    createSuccess(res, "Sub category created successfully", subCategory);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const updateSubCategory = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+
+    if (!loggedInId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      badRequest(res, "SubCategory id is required");
+      return;
+    }
+
+    const { sub_category_name, amount, tax, CategoryId } = req.body;
+
+    // Check if subcategory exists
+    const existingSubCategory = await SubCategory.findByPk(id);
+    if (!existingSubCategory) {
+      badRequest(res, "Sub category not found");
+      return;
+    }
+
+    const object: any = {};
+
+    if (sub_category_name !== undefined) {
+      object.sub_category_name = sub_category_name.trim();
+    }
+
+    if (amount !== undefined) {
+      object.amount = amount;
+    }
+
+    if (tax !== undefined) {
+      object.text = tax; // or text (based on your schema)
+    }
+
+    if (CategoryId !== undefined) {
+      object.CategoryId = CategoryId;
+    }
+
+    object.managerId = loggedInId;
+
+    // Duplicate check ONLY if name is being updated
+    if (sub_category_name !== undefined) {
+      const cleanName = sub_category_name.trim();
+
+      const duplicate = await SubCategory.findOne({
+        where: {
+          sub_category_name: cleanName,
+          CategoryId: CategoryId ?? existingSubCategory.CategoryId,
+          id: { [Op.ne]: id },
+        },
+      });
+
+      if (duplicate) {
+        badRequest(res, "Sub category already exists");
+        return;
+      }
+    }
+
+    // Update using instance (better approach)
+    await existingSubCategory.update(object);
+
+    createSuccess(
+      res,
+      "Sub category updated successfully",
+      existingSubCategory
+    );
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+
+export const getSubCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      badRequest(res, "Category id is required");
+      return;
+    }
+
+    const subCategory = await SubCategory.findAll({
+      where: {
+        CategoryId: id,
+      },
+    });
+
+    // 🔥 Transform "text" → "tax"
+    const formattedData = subCategory.map((item: any) => {
+      const obj = item.toJSON();
+
+      return {
+        ...obj,
+        tax: obj.text,   // rename
+        text: undefined, // remove old field
+      };
+    });
+
+    createSuccess(
+      res,
+      "Sub category list fetched successfully",
+      formattedData
+    );
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getQuotationPdfList = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    console.log("userData", userData);
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+    const { count, rows } = await Quotations.findAndCountAll({
+      where: {
+        // userId: userData.userId
+      },
+      include: [
+        {
+          model: User,
+          as: "User",
+          attributes: ["id", "firstName"],
+          include: [
+            {
+              model: User,
+              as: "creators",
+              attributes: ["id", "firstName"],
+              required: true, // ✅ IMPORTANT (INNER JOIN)
+              where: {
+                id: userData.userId, // ✅ MATCH HERE
+              },
+              through: {
+                attributes: [], // optional (hide pivot)
+              },
+            },
+          ],
+        },
+      ],
+      // include: [
+      //   {
+      //     model: User,
+      //     as: "User",
+      //     attributes: ["id", "firstName"],
+      //     include: [
+      //       {
+      //         model: User,
+      //         as: "creators",
+      //         attributes: ["id", "firstName"],
+      //         include:[
+      //           {
+      //             model: User,
+      //             as: "creators",
+      //             attributes: ["id", "firstName"],
+      //           }
+      //         ]
+      //       },
+      //     ],
+      //   },
+      // ],
+      order: [["createdAt", "DESC"]],
+      limit: limit,
+      offset: offset
+    });
+    createSuccess(res, "Quotation list fetched successfully", {
+      total: count,
+      page: page,
+      totalPages: Math.ceil(count / limit),
+      data: rows
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}
+
+export const downloadQuotationPdf = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // ─── Fetch quotation record ────────────────────────────────────────────
+    const quotation = await Quotations.findByPk(id);
+    if (!quotation) {
+      badRequest(res, "Quotation not found");
+      return;
+    }
+
+    const data: any = quotation.quotation;
+
+    // ─── Shared calculations ───────────────────────────────────────────────
+    const subtotal = (data.items ?? []).reduce((sum: number, item: any) => {
+      return sum + Number(item.amount || 0);
+    }, 0);
+    const discount = Number(data.discount || 0);
+    const taxableAmount = subtotal - discount;
+    const gstAmount = (taxableAmount * Number(data.gstRate || 0)) / 100;
+    const finalAmount = taxableAmount + gstAmount;
+
+    // ─── ?mode=details → return JSON details ──────────────────────────────
+    if (req.query.mode === "details") {
+      createSuccess(res, "Quotation details fetched successfully", {
+        id: quotation.id,
+        userId: quotation.userId,
+        companyId: quotation.companyId,
+        status: quotation.status,
+        createdAt: (quotation as any).createdAt,
+        updatedAt: (quotation as any).updatedAt,
+        quotation: {
+          ...data,
+          subtotal,
+          discount,
+          taxableAmount,
+          gstAmount,
+          finalAmount
+        }
+      });
+      return;
+    }
+
+    // ─── Default → generate & stream PDF ──────────────────────────────────
+    const toBase64 = (filePath: string): string => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const ext = filePath.split(".").pop()?.toLowerCase();
+          const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+          const buf = fs.readFileSync(filePath);
+          return `data:${mime};base64,${buf.toString("base64")}`;
+        }
+      } catch (_) { }
+      return "";
+    };
+
+    const logo = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
+    const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
+    const stamp = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
+
+    const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+    const html = await ejs.renderFile(filePath, {
+      ...data,
+      logo,
+      signature,
+      stamp,
+      subtotal,
+      discount,
+      taxableAmount,
+      gstAmount,
+      finalAmount
+    });
+
+    const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    });
+    const page = await browser.newPage();
+    await page.setContent(html as string, { waitUntil: "load" });
+
+    const pdfBuffer = await page.pdf({
+      format: "a4",
+      printBackground: true,
+      margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
+    });
+    await browser.close();
+
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
+    });
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+}
+
+// export const addQuotationPdf = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData || !userData.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const data = req.body;
+
+//     // ✅ Helper: Convert image → base64
+//     const toBase64 = (filePath: string): string => {
+//       try {
+//         if (fs.existsSync(filePath)) {
+//           const ext = filePath.split(".").pop()?.toLowerCase();
+//           const mime =
+//             ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+//           const buf = fs.readFileSync(filePath);
+//           return `data:${mime};base64,${buf.toString("base64")}`;
+//         }
+//       } catch (_) {}
+//       return "";
+//     };
+
+//     const logo = toBase64(
+//       path.join(__dirname, "../../../uploads/images/logo.jpeg")
+//     );
+//     const signature = toBase64(
+//       path.join(__dirname, "../../../uploads/signature.png")
+//     );
+//     const stamp = toBase64(
+//       path.join(__dirname, "../../../uploads/stamp.png")
+//     );
+
+//     // ✅ GST State
+//     const ownstate = String(data.ownstate || "").toLowerCase();
+//     const clientState = String(data.clientState || "").toLowerCase();
+
+//     // ✅ Calculations
+//     const subtotal = data.items.reduce((sum: number, item: any) => {
+//       return sum + Number(item.amount || 0);
+//     }, 0);
+
+//     const discount = Number(data.discount || 0);
+//     const taxableAmount = subtotal - discount;
+
+//     const gstRate = Number(data.gstRate || 0);
+//     const totalGST = (taxableAmount * gstRate) / 100;
+
+//     let cgst = 0;
+//     let sgst = 0;
+//     let igst = 0;
+
+//     // ✅ GST Logic (India)
+//     if (ownstate && clientState && ownstate === clientState) {
+//       cgst = totalGST / 2;
+//       sgst = totalGST / 2;
+//     } else {
+//       igst = totalGST;
+//     }
+
+//     const finalAmount = taxableAmount + totalGST;
+
+//     // ✅ Render EJS
+//     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+
+//     const html = await ejs.renderFile(filePath, {
+//       ...data,
+//       logo,
+//       signature,
+//       stamp,
+//       subtotal,
+//       discount,
+//       taxableAmount,
+//       gstRate,
+//       cgst,
+//       sgst,
+//       igst,
+//       totalGST,
+//       finalAmount
+//     });
+
+//     // ✅ Save to DB
+//     await Quotations.create({
+//       userId: Number(userData?.userId),
+//       companyId: data.companyId || 0,
+//       quotation: data,
+//       status: "draft"
+//     });
+
+//     // ✅ Puppeteer
+//     const browser = await puppeteer.launch({
+//       args: ["--no-sandbox", "--disable-setuid-sandbox"]
+//     });
+
+//     const page = await browser.newPage();
+//     await page.setContent(html as string, { waitUntil: "load" });
+
+//     const pdfBuffer = await page.pdf({
+//       format: "a4",
+//       printBackground: true,
+//       margin: {
+//         top: "20mm",
+//         bottom: "20mm",
+//         left: "15mm",
+//         right: "15mm"
+//       }
+//     });
+
+//     await browser.close();
+
+//     res.set({
+//       "Content-Type": "application/pdf",
+//       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
+//     });
+
+//     res.send(pdfBuffer);
+
+//   } catch (error) {
+//     res.status(400).json({ error: "Something went wrong" });
+//   }
+// };
+
+
+
+const generateQuotationNumber = async (): Promise<string> => {
+  const count = await Quotations.count();
+  const serial = count + 1;
+  return String(serial).padStart(10, '0');
+};
+
+export const addQuotationPdf = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const data = req.body;
+
+    // ✅ Auto-generate serial 10-digit quotation number
+    const quotationNumber = await generateQuotationNumber();
+
+    // ✅ Helper: Convert image → base64
+    const toBase64 = (filePath: string): string => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const ext = filePath.split(".").pop()?.toLowerCase();
+          const mime =
+            ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+          const buf = fs.readFileSync(filePath);
+          return `data:${mime};base64,${buf.toString("base64")}`;
+        }
+      } catch (_) {}
+      return "";
+    };
+
+    const logo = toBase64(
+      path.join(__dirname, "../../../uploads/images/logo.jpeg")
+    );
+    const signature = toBase64(
+      path.join(__dirname, "../../../uploads/signature.png")
+    );
+    const stamp = toBase64(
+      path.join(__dirname, "../../../uploads/stamp.png")
+    );
+
+    // ✅ GST State
+    const ownstate = String(data.ownstate || "").toLowerCase();
+    const clientState = String(data.clientState || "").toLowerCase();
+
+    // ✅ Item-level calculations (India GST compliant)
+    const isService = String(data.type || '').toLowerCase() === 'service';
+
+    // Step 1: Compute per-item values
+    const itemCalcs = data.items.map((item: any) => {
+      const qty        = Number(item.quantity || item.qty || 1);
+      const rate       = Number(item.rate || 0);
+      const discPct    = Number(item.discount || item.discountPercent || 0);
+      const gstPct     = Number(item.gst || item.gstPercent || 0);
+      // Services → rate is amount for one unit; Items → qty × rate
+      const itemTotal  = isService ? rate : qty * rate;
+      const discAmt    = (itemTotal * discPct) / 100;
+      const taxable    = itemTotal - discAmt;
+      const gstAmt     = (taxable * gstPct) / 100;
+      return { itemTotal, discAmt, taxable, gstAmt };
+    });
+
+    // Step 2: Aggregate summary from item-level values
+    const subtotal      = itemCalcs.reduce((s: number, i: any) => s + i.itemTotal, 0);
+    const totalDiscount = itemCalcs.reduce((s: number, i: any) => s + i.discAmt, 0);
+    const taxableAmount = subtotal - totalDiscount;
+    const totalGST      = itemCalcs.reduce((s: number, i: any) => s + i.gstAmt, 0);
+    const finalAmount   = taxableAmount + totalGST;
+
+    // Step 3: CGST / SGST / IGST split
+    const gstRate  = Number(data.gstRate || 0);
+    let cgst = 0, sgst = 0, igst = 0;
+
+    if (ownstate && clientState && ownstate === clientState) {
+      // Intra-state → split equally
+      cgst = totalGST / 2;
+      sgst = totalGST / 2;
+    } else {
+      // Inter-state → IGST
+      igst = totalGST;
+    }
+
+    // Alias for EJS template
+    const discount = totalDiscount;
+
+    // ✅ Render EJS
+    const filePath = path.join(__dirname, "../../ejs/preview.ejs");
+
+    const html = await ejs.renderFile(filePath, {
+      ...data,
+      quotationNumber,
+      logo,
+      signature,
+      stamp,
+      subtotal,
+      discount,
+      taxableAmount,
+      gstRate,
+      cgst,
+      sgst,
+      igst,
+      totalGST,
+      finalAmount
+    });
+
+    // ✅ Save to DB
+    // await Quotations.create({
+    //   userId: Number(userData?.userId),
+    //   companyId: data.companyId || 0,
+    //   quotation: { ...data, quotationNumber },
+    //   status: "draft"
+    // });
+
+    // ✅ Puppeteer — generate PDF
+    const browser = await puppeteer.launch({
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    });
+
+    const page = await browser.newPage();
+    await page.setContent(html as string, { waitUntil: "load" });
+
+    const pdfBuffer = await page.pdf({
+      format: "a4",
+      printBackground: true,
+      margin: {
+        top: "20mm",
+        bottom: "20mm",
+        left: "15mm",
+        right: "15mm"
+      }
+    });
+
+    await browser.close();
+
+    // ✅ Save PDF to uploads/pdf/
+    const pdfFileName = `quotation-${quotationNumber}.pdf`;
+    const pdfDir      = path.join(__dirname, "../../../uploads/pdf");
+    const pdfFilePath = path.join(pdfDir, pdfFileName);
+
+    if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true });
+    fs.writeFileSync(pdfFilePath, pdfBuffer);
+
+    // ✅ Build public download URL
+    const baseUrl   = `${req.protocol}://${req.get("host")}`;
+    const pdfUrl    = `/uploads/pdf/${pdfFileName}`;
+
+    // ✅ Return JSON with download link
+    res.status(200).json({
+      success: true,
+      message: "Quotation PDF generated successfully",
+      data: {
+        quotationNumber,
+        pdfUrl,
+        summary: {
+          subtotal:      +subtotal.toFixed(2),
+          discount:      +discount.toFixed(2),
+          taxableAmount: +taxableAmount.toFixed(2),
+          cgst:          +cgst.toFixed(2),
+          sgst:          +sgst.toFixed(2),
+          igst:          +igst.toFixed(2),
+          totalGST:      +totalGST.toFixed(2),
+          finalAmount:   +finalAmount.toFixed(2)
+        }
+      }
+    });
+
+  } catch (error) {
+    res.status(400).json({ error: "Something went wrong" });
+  }
+};
+
+
+export const getMeetingDistance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    // Pagination params
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const userId = Number(req.query.userId)
+    const offset = (page - 1) * limit;
+
+    // Date filters
+    const { startDate, endDate } = req.query;
+
+    const whereCondition: any = {
+      userId: userId,
+    };
+
+    // Apply date filter if provided
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    }
+
+    const { count, rows } = await Meeting.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    createSuccess(res, "Meeting distances fetched successfully", {
+      totalRecords: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      meetings: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getFuelExpense = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const userId = Number(req.query.userId);
+    const { startDate, endDate } = req.query;
+
+    const whereCondition: any = {
+      userId: userId,
+    };
+
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    }
+
+    const data = await Meeting.findAll({
+  where: whereCondition,
+  attributes: [
+    [fn("DATE", col("createdAt")), "date"],
+    [fn("COUNT", col("id")), "totalRecords"],
+    [
+      fn(
+        "COALESCE",
+        fn("SUM", cast(col("legDistance"), "DOUBLE PRECISION")),
+        0
+      ),
+      "totalDistance",
+    ],
+  ],
+  group: [fn("DATE", col("createdAt"))],
+  order: [[fn("DATE", col("createdAt")), "DESC"]],
+});
+
+    createSuccess(res, "Grouped fuel expense by date", data);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+
+export const addCompany = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const {
+      companyName,
+      legalName,
+      registrationNo,
+      gst,
+      pan,
+      industry,
+      companySize,
+      website,
+      companyEmail,
+      companyPhone,
+      city,
+      timezone,
+      currency,
+
+      // Bank
+      bankAccountHolder,
+      bankName,
+      bankAccountNumber,
+      bankIfsc,
+      bankBranchName,
+      bankAccountType,
+      bankMicr,
+      upiId,
+
+      // HR Config
+      payrollCycle,
+      lateMarkAfter,
+      autoHalfDayAfter,
+      casualHolidaysTotal,
+      casualHolidaysPerMonth,
+      casualHolidayNotice,
+      compOffMinHours,
+      compOffExpiryDays,
+      casualCarryForwardLimit,
+      casualCarryForwardExpiry,
+    } = req.body;
+
+    // ================= VALIDATION =================
+
+    if (!companyName || companyName.trim().length < 2) {
+       badRequest(res, "Company name is required (min 2 chars)");
+       return
+    }
+
+    if (!legalName) {
+       badRequest(res, "Legal name is required");
+       return
+    }
+
+    if (!registrationNo) {
+       badRequest(res, "Registration number is required");
+       return
+    }
+
+    if (!companyEmail || !/^\S+@\S+\.\S+$/.test(companyEmail)) {
+       badRequest(res, "Valid company email is required");
+       return
+    }
+
+    if (!companyPhone || companyPhone.length < 8) {
+       badRequest(res, "Valid company phone is required");
+       return
+    }
+
+    if (gst && gst.length !== 15) {
+       badRequest(res, "GST must be 15 characters");
+       return
+    }
+
+    if (pan && pan.length !== 10) {
+       badRequest(res, "PAN must be 10 characters");
+       return
+    }
+
+    if (website && !/^https?:\/\/.+/.test(website)) {
+         badRequest(res, "Website must be a valid URL");
+         return
+    }
+
+    if (bankIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc)) {
+       badRequest(res, "Invalid IFSC code");
+       return
+    }
+
+    if (upiId && !/^[\w.-]+@[\w.-]+$/.test(upiId)) {
+       badRequest(res, "Invalid UPI ID");
+       return
+    }
+
+    // HR numeric validations
+    const numericFields = [
+      { field: lateMarkAfter, name: "lateMarkAfter" },
+      { field: autoHalfDayAfter, name: "autoHalfDayAfter" },
+      { field: casualHolidaysTotal, name: "casualHolidaysTotal" },
+      { field: casualHolidaysPerMonth, name: "casualHolidaysPerMonth" },
+      { field: casualHolidayNotice, name: "casualHolidayNotice" },
+      { field: compOffMinHours, name: "compOffMinHours" },
+      { field: compOffExpiryDays, name: "compOffExpiryDays" },
+      { field: casualCarryForwardLimit, name: "casualCarryForwardLimit" },
+      { field: casualCarryForwardExpiry, name: "casualCarryForwardExpiry" },
+    ];
+
+    for (const item of numericFields) {
+      if (item.field && isNaN(Number(item.field))) {
+         badRequest(res, `${item.name} must be a number`);
+         return
+      }
+    }
+
+    // ================= CREATE =================
+
+    const company = await Company.create({
+      companyName,
+      legalName,
+      registrationNo,
+      gst,
+      pan,
+      industry,
+      companySize,
+      website,
+      companyEmail,
+      companyPhone,
+      city,
+      timezone,
+      currency,
+
+      bankAccountHolder,
+      bankName,
+      bankAccountNumber,
+      bankIfsc,
+      bankBranchName,
+      bankAccountType,
+      bankMicr,
+      upiId,
+
+      payrollCycle,
+      lateMarkAfter,
+      autoHalfDayAfter,
+      casualHolidaysTotal,
+      casualHolidaysPerMonth,
+      casualHolidayNotice,
+      compOffMinHours,
+      compOffExpiryDays,
+      casualCarryForwardLimit,
+      casualCarryForwardExpiry,
+      userId: userData.userId,
+    });
+
+    createSuccess(res, "Company added successfully", company);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getCompany = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    // ✅ Pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // ✅ Search
+    const search = (req.query.search as string) || "";
+
+    let whereCondition: any = {
+      userId: userData.userId,
+    };
+
+    if (search) {
+      whereCondition = {
+        ...whereCondition,
+        [Op.or]: [
+          { companyName: { [Op.like]: `%${search}%` } },
+          { legalName: { [Op.like]: `%${search}%` } },
+          { companyEmail: { [Op.like]: `%${search}%` } },
+          { companyPhone: { [Op.like]: `%${search}%` } },
+        ],
+      };
+    }
+
+    // ✅ Query
+    const { count, rows } = await Company.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ Response
+    createSuccess(res, "Company fetched successfully", {
+      total: count,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit),
+      data: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const getCompanyById = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if(!req.params.id){
+      return badRequest(res, "Company id is required");
+    }
+
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Company id must be a number");
+    }
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const company = await Company.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+
+    if (!company) {
+      return badRequest(res, "Company not found");
+    }
+
+    createSuccess(res, "Company fetched successfully", company);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const addBranch = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const {
+      branchName,
+      branchCode,
+      branchCity,
+      branchState,
+      branchCountry,
+      postalCode,
+      addressLine1,
+      addressLine2,
+      branchEmail,
+      branchPhone,
+      latitude,
+      longitude,
+      geoRadius,
+      adminId,
+      managerId,
+    } = req.body;
+
+    // ================= VALIDATIONS =================
+
+    if (!branchName || branchName.trim().length < 2) {
+      return badRequest(res, "Branch name is required (min 2 chars)");
+    }
+
+    if (!branchCode || branchCode.trim().length < 2) {
+      return badRequest(res, "Branch code is required");
+    }
+
+    if (!branchCity) {
+      return badRequest(res, "Branch city is required");
+    }
+
+    if (!branchState) {
+      return badRequest(res, "Branch state is required");
+    }
+
+    if (!branchCountry) {
+      return badRequest(res, "Branch country is required");
+    }
+
+    if (!postalCode || postalCode.length < 4) {
+      return badRequest(res, "Valid postal code is required");
+    }
+
+    if (!addressLine1) {
+      return badRequest(res, "Address Line 1 is required");
+    }
+
+    if (!branchEmail || !/^\S+@\S+\.\S+$/.test(branchEmail)) {
+      return badRequest(res, "Valid branch email is required");
+    }
+
+    if (!branchPhone || branchPhone.length < 8) {
+      return badRequest(res, "Valid branch phone is required");
+    }
+
+    // Latitude: -90 to 90
+    if (
+      latitude === undefined ||
+      isNaN(Number(latitude)) ||
+      Number(latitude) < -90 ||
+      Number(latitude) > 90
+    ) {
+      return badRequest(res, "Latitude must be between -90 and 90");
+    }
+
+    // Longitude: -180 to 180
+    if (
+      longitude === undefined ||
+      isNaN(Number(longitude)) ||
+      Number(longitude) < -180 ||
+      Number(longitude) > 180
+    ) {
+      return badRequest(res, "Longitude must be between -180 and 180");
+    }
+
+    if (
+      geoRadius === undefined ||
+      isNaN(Number(geoRadius)) ||
+      Number(geoRadius) <= 0
+    ) {
+      return badRequest(res, "Geo radius must be a positive number");
+    }
+
+    if (adminId && isNaN(Number(adminId))) {
+      return badRequest(res, "adminId must be a number");
+    }
+
+    if (managerId && isNaN(Number(managerId))) {
+      return badRequest(res, "managerId must be a number");
+    }
+
+    // ================= DUPLICATE CHECK =================
+
+    const existingBranch = await Branch.findOne({
+      where: { branchCode },
+    });
+
+    if (existingBranch) {
+      return badRequest(res, "Branch already exists with this code");
+    }
+
+    // ================= CREATE =================
+
+    const branch = await Branch.create({
+      branchName,
+      branchCode,
+      branchCity,
+      branchState,
+      branchCountry,
+      postalCode,
+      addressLine1,
+      addressLine2: addressLine2 || null,
+      branchEmail,
+      branchPhone,
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+      geoRadius: Number(geoRadius),
+      adminId: adminId || null,
+      managerId: managerId || null,
+      userId: userData.userId,
+    });
+
+    createSuccess(res, "Branch added successfully", branch);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+
+export const getBranch = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    // ✅ Pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // ✅ Search
+    const search = (req.query.search as string) || "";
+
+    let whereCondition: any = {
+      userId: userData.userId,
+    };
+
+    if (search) {
+      whereCondition = {
+        ...whereCondition,
+        [Op.or]: [
+          { branchName: { [Op.like]: `%${search}%` } },
+          { branchCode: { [Op.like]: `%${search}%` } },
+          { branchCity: { [Op.like]: `%${search}%` } },
+          { branchState: { [Op.like]: `%${search}%` } },
+          { branchCountry: { [Op.like]: `%${search}%` } },
+          { postalCode: { [Op.like]: `%${search}%` } },
+          { addressLine1: { [Op.like]: `%${search}%` } },
+          { addressLine2: { [Op.like]: `%${search}%` } },
+          { branchEmail: { [Op.like]: `%${search}%` } },
+          { branchPhone: { [Op.like]: `%${search}%` } },
+        ],
+      };
+    }
+
+    // ✅ Query
+    const { count, rows } = await Branch.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ Response
+    createSuccess(res, "Branch fetched successfully", {
+      total: count,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit),
+      data: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getBranchById = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if(!req.params.id){
+      return badRequest(res, "Branch id is required");
+    }
+
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Branch id must be a number");
+    }
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const branch = await Branch.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+
+    if (!branch) {
+      return badRequest(res, "Branch not found");
+    }
+
+    createSuccess(res, "Branch fetched successfully", branch);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const addShift = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const {
+      shiftName,
+      shiftCode,
+      startTime,
+      endTime,
+      breakMinutes,
+      workingHours,
+      lateMarkAfter,
+      halfDayAfter,
+      branchId,
+      companyId,
+    } = req.body;
+
+    // ================= VALIDATION =================
+
+    if (!shiftName || shiftName.trim().length < 2) {
+      return badRequest(res, "Shift name is required");
+    }
+
+    if (!shiftCode || shiftCode.trim().length < 2) {
+      return badRequest(res, "Shift code is required");
+    }
+
+    if (!startTime || !endTime) {
+      return badRequest(res, "Start time and end time are required");
+    }
+
+    if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+      return badRequest(res, "Time must be in HH:mm format");
+    }
+
+    if (breakMinutes && isNaN(Number(breakMinutes))) {
+      return badRequest(res, "Break minutes must be number");
+    }
+
+    if (workingHours && isNaN(Number(workingHours))) {
+      return badRequest(res, "Working hours must be number");
+    }
+
+    if (lateMarkAfter && isNaN(Number(lateMarkAfter))) {
+      return badRequest(res, "lateMarkAfter must be number");
+    }
+
+    if (halfDayAfter && isNaN(Number(halfDayAfter))) {
+      return badRequest(res, "halfDayAfter must be number");
+    }
+
+    if (!branchId || isNaN(Number(branchId))) {
+      return badRequest(res, "Valid branchId is required");
+    }
+
+    if (!companyId || isNaN(Number(companyId))) {
+      return badRequest(res, "Valid companyId is required");
+    }
+
+    // ================= DUPLICATE =================
+
+    const existing = await Shift.findOne({
+      where: { shiftCode },
+    });
+
+    if (existing) {
+      return badRequest(res, "Shift already exists with this code");
+    }
+
+    // ================= CREATE =================
+
+    const shift = await Shift.create({
+      shiftName,
+      shiftCode,
+      startTime,
+      endTime,
+      // breakMinutes: breakMinutes || 0,
+      // workingHours: workingHours || 8,
+      // lateMarkAfter: lateMarkAfter || 0,
+      // halfDayAfter: halfDayAfter || 0,
+      // branchId,
+      // companyId,
+      userId: userData.userId,
+    });
+
+    createSuccess(res, "Shift added successfully", shift);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getShift = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    // ✅ Pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const offset = (page - 1) * limit;
+
+    // ✅ Search
+    const search = (req.query.search as string) || "";
+
+    // ✅ Filters (optional but useful)
+    const branchId = req.query.branchId;
+    const companyId = req.query.companyId;
+
+    let whereCondition: any = {
+      userId: userData.userId,
+    };
+
+    // 🔍 Search condition
+    if (search) {
+      whereCondition[Op.or] = [
+        { shiftName: { [Op.like]: `%${search}%` } },
+        { shiftCode: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 🎯 Optional filters
+    if (branchId) {
+      whereCondition.branchId = branchId;
+    }
+
+    if (companyId) {
+      whereCondition.companyId = companyId;
+    }
+
+    // ✅ Query
+    const { count, rows } = await Shift.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ Response
+    createSuccess(res, "Shifts fetched successfully", {
+      total: count,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit),
+      data: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const getShiftById = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    if(!req.params.id){
+      return badRequest(res, "Shift id is required");
+    }
+
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Shift id must be a number");
+    }
+
+    const shift = await Shift.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+
+    if (!shift) {
+      return badRequest(res, "Shift not found");
+    }
+
+    createSuccess(res, "Shift fetched successfully", shift);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const addDepartment = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const {
+      deptName,
+      deptCode,
+      deptHead,
+      branchId,
+      shiftId,
+      maxHeadcount,
+      halfSaturday,
+      adminId,
+      managerId,
+    } = req.body;
+
+    // ================= VALIDATION =================
+
+    if (!deptName || deptName.trim().length < 2) {
+      return badRequest(res, "Department name is required");
+    }
+
+    if (!deptCode || deptCode.trim().length < 2) {
+      return badRequest(res, "Department code is required");
+    }
+
+    if (!deptHead || deptHead.trim().length < 2) {
+      return badRequest(res, "Department head is required");
+    }
+
+    if (!branchId || isNaN(Number(branchId))) {
+      return badRequest(res, "Valid branchId is required");
+    }
+
+    if (!shiftId || isNaN(Number(shiftId))) {
+      return badRequest(res, "Valid shiftId is required");
+    }
+
+    if (!maxHeadcount || isNaN(Number(maxHeadcount))) {
+      return badRequest(res, "Valid maxHeadcount is required");
+    }
+
+    // if (!adminId || isNaN(Number(adminId))) {
+    //   return badRequest(res, "Valid adminId is required");
+    // }
+
+    // if (!managerId || isNaN(Number(managerId))) {
+    //   return badRequest(res, "Valid managerId is required");
+    // }
+
+    // ================= DUPLICATE =================
+
+    const existing = await Department.findOne({
+      where: { deptCode },
+    });
+
+    if (existing) {
+      return badRequest(res, "Department already exists with this code");
+    }
+
+    // ================= CREATE =================
+
+    const department = await Department.create({
+      deptName,
+      deptCode,
+      deptHead,
+      branchId,
+      shiftId,
+      maxHeadcount,
+      halfSaturday,
+      adminId,
+      managerId,
+      userId: userData.userId,
+    });
+
+    createSuccess(res, "Department added successfully", department);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getDepartment = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    // ✅ Pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const offset = (page - 1) * limit;
+
+    // ✅ Search
+    const search = (req.query.search as string) || "";
+
+    // ✅ Filters (optional but useful)
+    const branchId = req.query.branchId;
+    const companyId = req.query.companyId;
+
+    let whereCondition: any = {
+      userId: userData.userId,
+    };
+
+    // 🔍 Search condition
+    if (search) {
+      whereCondition[Op.or] = [
+        { deptName: { [Op.like]: `%${search}%` } },
+        { deptCode: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 🎯 Optional filters
+    if (branchId) {
+      whereCondition.branchId = branchId;
+    }
+
+    if (companyId) {
+      whereCondition.companyId = companyId;
+    }
+
+    // ✅ Query
+    const { count, rows } = await Department.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ Response
+    createSuccess(res, "Departments fetched successfully", {
+      total: count,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit),
+      data: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getDepartmentById = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    if(!req.params.id){
+      return badRequest(res, "Department id is required");
+    }
+
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Department id must be a number");
+    }
+
+    const department = await Department.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+
+    if (!department) {
+      return badRequest(res, "Department not found");
+    }
+
+    createSuccess(res, "Department fetched successfully", department);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const addHoliday = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const {
+      holidayName,
+      holidayDate,
+      holidayType,
+      branchId,
+      description,
+      adminId,
+      managerId,
+    } = req.body;
+
+    // ================= VALIDATION =================
+
+    if (!holidayName || holidayName.trim().length < 2) {
+      return badRequest(res, "Holiday name is required");
+    }
+
+    if (!holidayDate || holidayDate.trim().length < 2) {
+      return badRequest(res, "Holiday date is required");
+    }
+
+    if (!holidayType || holidayType.trim().length < 2) {
+      return badRequest(res, "Holiday type is required");
+    }
+
+    if (!branchId || isNaN(Number(branchId))) {
+      return badRequest(res, "Valid branchId is required");
+    }
+
+    if (!adminId || isNaN(Number(adminId))) {
+      return badRequest(res, "Valid adminId is required");
+    }
+
+    if (!managerId || isNaN(Number(managerId))) {
+      return badRequest(res, "Valid managerId is required");
+    }
+
+    // ================= DUPLICATE =================
+
+    const existing = await Holiday.findOne({
+      where: { holidayDate },
+    });
+
+    if (existing) {
+      return badRequest(res, "Holiday already exists with this date");
+    }
+
+    // ================= CREATE =================
+
+    const holiday = await Holiday.create({
+      holidayName,
+      holidayDate,
+      holidayType,
+      branchId,
+      description,
+      adminId,
+      managerId,
+      userId: userData.userId,
+    });
+
+    createSuccess(res, "Holiday added successfully", holiday);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getHoliday = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    // ✅ Pagination
+    const page = Number(req.query.page) || 1;
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const offset = (page - 1) * limit;
+
+    // ✅ Search
+    const search = (req.query.search as string) || "";
+
+    // ✅ Filters (optional but useful)
+    const branchId = req.query.branchId;
+    const companyId = req.query.companyId;
+
+    let whereCondition: any = {
+      userId: userData.userId,
+    };
+
+    // 🔍 Search condition
+    if (search) {
+      whereCondition[Op.or] = [
+        { holidayName: { [Op.like]: `%${search}%` } },
+        { holidayType: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 🎯 Optional filters
+    if (branchId) {
+      whereCondition.branchId = branchId;
+    }
+
+    if (companyId) {
+      whereCondition.companyId = companyId;
+    }
+
+    // ✅ Query
+    const { count, rows } = await Holiday.findAndCountAll({
+      where: whereCondition,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ Response
+    createSuccess(res, "Holidays fetched successfully", {
+      total: count,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit),
+      data: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getHolidayById = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    if(!req.params.id){
+      return badRequest(res, "Holiday id is required");
+    }
+
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Holiday id must be a number");
+    }
+
+    const holiday = await Holiday.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+
+    if (!holiday) {
+      return badRequest(res, "Holiday not found");
+    }
+
+    createSuccess(res, "Holiday fetched successfully", holiday);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};

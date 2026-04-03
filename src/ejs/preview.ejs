@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body { font-family: Arial; font-size: 13px; color: #333; margin: 0; padding: 20px; }
+
+/* ── Header ── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #000;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+}
+.logo img { width: 100px; }
+.company { text-align: right; font-size: 13px; }
+
+/* ── Section divider ── */
+hr.divider { border: none; border-top: 1px solid #ccc; margin: 14px 0; }
+
+/* ── Two-column sections ── */
+.two-col { display: flex; gap: 40px; }
+.two-col > div { flex: 1; }
+
+/* ── Labels ── */
+.label { font-weight: bold; }
+.section-title { font-weight: bold; font-size: 14px; margin: 8px 0 6px 0; }
+
+/* ── Table ── */
+table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+th, td { border: 1px solid #aaa; padding: 7px 9px; }
+th { background: #f0f0f0; font-weight: bold; text-align: left; }
+tr { page-break-inside: avoid; }
+
+/* ── Amount box ── */
+.amount-box { width: 320px; margin-left: auto; margin-top: 16px; }
+.amount-box td { padding: 5px 9px; }
+.amount-box td:last-child { text-align: right; }
+
+/* ── Signature ── */
+.signature-section {
+  margin-top: 50px;
+  display: flex;
+  justify-content: space-between;
+}
+.signature-section img { height: 60px; }
+</style>
+</head>
+
+<body>
+
+<!-- ══════════════════════════════════════════
+     HEADER — Logo + Company Name
+════════════════════════════════════════════ -->
+<div class="header">
+  <div class="logo">
+    <% if (logo) { %><img src="<%= logo %>"><% } %>
+  </div>
+  <div class="company">
+    <strong><%= companyName || '' %></strong>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     QUOTATION TITLE
+════════════════════════════════════════════ -->
+<div style="text-align:center; font-size:18px; font-weight:bold; margin-bottom:14px; letter-spacing:2px;">
+  QUOTATION
+</div>
+
+<!-- ══════════════════════════════════════════
+     COMPANY DETAILS
+════════════════════════════════════════════ -->
+<div>
+  <span class="label">Company Name:</span> <%= companyName || '' %> &nbsp;&nbsp;
+  <span class="label">Address:</span> <%= address || '' %>
+</div>
+<div style="margin-top:5px;">
+  <span class="label">Phone:</span> <%= phone || '' %> &nbsp;&nbsp;
+  <span class="label">Email:</span> <%= email || '' %>
+</div>
+<div style="margin-top:5px;">
+  <span class="label">GSTIN:</span> <%= gstin || '' %>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════
+     QUOTATION NO. & DATE
+════════════════════════════════════════════ -->
+<div>
+  <span class="label">Quotation No.:</span> <%= quotationNumber || '' %> &nbsp;&nbsp;&nbsp;
+  <span class="label">Date:</span> <%= date || '' %>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════
+     CUSTOMER DETAILS
+════════════════════════════════════════════ -->
+<div class="section-title">Customer Details</div>
+<div>
+  <span class="label">Customer Name:</span> <%= toName || customerName || '' %>
+</div>
+<div style="margin-top:4px;">
+  <span class="label">Customer Address:</span> <%= toAddress || customerAddress || '' %>
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════
+     BILL TO & SHIP TO — side by side
+════════════════════════════════════════════ -->
+<div class="two-col">
+
+  <!-- Bill To -->
+  <div>
+    <div class="section-title">Bill To Details</div>
+    <div><span class="label">Name:</span> <%= billToName || toName || '' %></div>
+    <div style="margin-top:4px;"><span class="label">Address:</span> <%= billToAddress || toAddress || '' %></div>
+    <div style="margin-top:4px;"><span class="label">State:</span> <%= billToState || ownstate || '' %></div>
+    <div style="margin-top:4px;"><span class="label">Country:</span> <%= billToCountry || '' %></div>
+    <div style="margin-top:4px;"><span class="label">Pincode:</span> <%= billToPincode || '' %></div>
+  </div>
+
+  <!-- Ship To -->
+  <div>
+    <div class="section-title">Ship To Details</div>
+    <div><span class="label">Name:</span> <%= shipToName || toName || '' %></div>
+    <div style="margin-top:4px;"><span class="label">Address:</span> <%= shipToAddress || toAddress || '' %></div>
+    <div style="margin-top:4px;"><span class="label">State:</span> <%= shipToState || clientState || '' %></div>
+    <div style="margin-top:4px;"><span class="label">Country:</span> <%= shipToCountry || '' %></div>
+    <div style="margin-top:4px;"><span class="label">Pincode:</span> <%= shipToPincode || '' %></div>
+  </div>
+
+</div>
+
+<hr class="divider">
+
+<!-- ══════════════════════════════════════════
+     ITEM / SERVICE DETAILS TABLE (conditional)
+════════════════════════════════════════════ -->
+
+<% if (type === 'service') { %>
+
+<!-- ── SERVICE TABLE (no Quantity column) ── -->
+<div class="section-title">Service Details</div>
+<table>
+  <thead>
+    <tr>
+      <th>Sr. No.</th>
+      <th>Service Name</th>
+      <th>Rate</th>
+      <th>GST (%)</th>
+      <th>Discount (%)</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+  <% items.forEach((item, index) => {
+    const rate    = Number(item.rate || 0);
+    const gstPct  = Number(item.gst || item.gstPercent || 0);
+    const discPct = Number(item.discount || item.discountPercent || 0);
+    const discAmt = (rate * discPct) / 100;
+    const taxable = rate - discAmt;
+    const gstAmt  = (taxable * gstPct) / 100;
+    const value   = taxable + gstAmt;
+  %>
+    <tr>
+      <td><%= index + 1 %></td>
+      <td><%= item.itemName || item.name || item.service || item.category || '' %></td>
+      <td>₹ <%= rate.toFixed(2) %></td>
+      <td><%= gstPct %>%</td>
+      <td><%= discPct %>%</td>
+      <td>₹ <%= value.toFixed(2) %></td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+
+<% } else { %>
+
+<!-- ── ITEM TABLE (with Quantity column) ── -->
+<div class="section-title">Item Details</div>
+<table>
+  <thead>
+    <tr>
+      <th>Sr. No.</th>
+      <th>Item Name</th>
+      <th>Quantity</th>
+      <th>Rate</th>
+      <th>GST (%)</th>
+      <th>Discount (%)</th>
+      <th>Value</th>
+    </tr>
+  </thead>
+  <tbody>
+  <% items.forEach((item, index) => {
+    const qty     = Number(item.quantity || item.qty || 0);
+    const rate    = Number(item.rate || 0);
+    const gstPct  = Number(item.gst || item.gstPercent || 0);
+    const discPct = Number(item.discount || item.discountPercent || 0);
+    const base    = qty * rate;
+    const discAmt = (base * discPct) / 100;
+    const gstAmt  = ((base - discAmt) * gstPct) / 100;
+    const value   = base - discAmt + gstAmt;
+  %>
+    <tr>
+      <td><%= index + 1 %></td>
+      <td><%= item.itemName || item.name || item.service || item.category || '' %></td>
+      <td><%= qty %></td>
+      <td>₹ <%= rate.toFixed(2) %></td>
+      <td><%= gstPct %>%</td>
+      <td><%= discPct %>%</td>
+      <td>₹ <%= value.toFixed(2) %></td>
+    </tr>
+  <% }) %>
+  </tbody>
+</table>
+
+<% } %>
+
+<!-- ══════════════════════════════════════════
+     AMOUNT SUMMARY
+════════════════════════════════════════════ -->
+<div class="amount-box">
+  <table>
+    <tr>
+      <td>Subtotal</td>
+      <td>₹ <%= Number(subtotal).toFixed(2) %></td>
+    </tr>
+    <tr>
+      <td>Discount</td>
+      <td>- ₹ <%= Number(discount).toFixed(2) %></td>
+    </tr>
+    <tr>
+      <td>Taxable Amount</td>
+      <td>₹ <%= Number(taxableAmount).toFixed(2) %></td>
+    </tr>
+    <% if (cgst > 0 && sgst > 0) { %>
+    <tr>
+      <td>CGST (<%= gstRate / 2 %>%)</td>
+      <td>₹ <%= Number(cgst).toFixed(2) %></td>
+    </tr>
+    <tr>
+      <td>SGST (<%= gstRate / 2 %>%)</td>
+      <td>₹ <%= Number(sgst).toFixed(2) %></td>
+    </tr>
+    <% } else { %>
+    <tr>
+      <td>IGST (<%= gstRate %>%)</td>
+      <td>₹ <%= Number(igst).toFixed(2) %></td>
+    </tr>
+    <% } %>
+    <tr>
+      <td><strong>Total</strong></td>
+      <td><strong>₹ <%= Number(finalAmount).toFixed(2) %></strong></td>
+    </tr>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════════
+     NOTES
+════════════════════════════════════════════ -->
+<% if (notes) { %>
+<div style="margin-top:24px;">
+  <strong>Notes:</strong>
+  <p style="margin-top:4px;"><%= notes %></p>
+</div>
+<% } %>
+
+<!-- ══════════════════════════════════════════
+     SIGNATURE & STAMP
+════════════════════════════════════════════ -->
+<div class="signature-section">
+  <div>
+    <p>Authorized Signature</p>
+    <% if (signature) { %><img src="<%= signature %>"><% } %>
+  </div>
+  <div>
+    <p>Company Stamp</p>
+    <% if (stamp) { %><img src="<%= stamp %>"><% } %>
+  </div>
+</div>
+
+</body>
+</html>

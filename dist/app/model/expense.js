@@ -6,32 +6,47 @@ class Expense extends sequelize_1.Model {
     static initModel(sequelize) {
         Expense.init({
             id: {
-                type: sequelize_1.DataTypes.INTEGER, // ✅ FIXED
+                type: sequelize_1.DataTypes.INTEGER,
                 autoIncrement: true,
-                primaryKey: true,
+                primaryKey: true
             },
             userId: {
-                type: sequelize_1.DataTypes.INTEGER, // ✅ FIXED
-                allowNull: true,
-            },
-            billImage: {
-                type: sequelize_1.DataTypes.ARRAY(sequelize_1.DataTypes.STRING),
-                allowNull: true,
-                defaultValue: [],
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: false
             },
             approvedByAdmin: {
                 type: sequelize_1.DataTypes.ENUM("accepted", "rejected", "not_clear", "pending"),
-                defaultValue: "pending",
+                defaultValue: "pending"
             },
             approvedBySuperAdmin: {
                 type: sequelize_1.DataTypes.ENUM("accepted", "rejected", "not_clear", "pending"),
-                defaultValue: "pending",
+                defaultValue: "pending"
             },
             title: {
-                type: sequelize_1.DataTypes.TEXT,
-                allowNull: true,
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
             },
             total_amount: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            date: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            category: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            amount: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            description: {
+                type: sequelize_1.DataTypes.TEXT,
+                allowNull: true
+            },
+            location: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true
             }
@@ -39,9 +54,8 @@ class Expense extends sequelize_1.Model {
             sequelize,
             tableName: "expenses",
             modelName: "Expense",
-            timestamps: true,
+            timestamps: true
         });
-        return Expense;
     }
 }
 exports.Expense = Expense;

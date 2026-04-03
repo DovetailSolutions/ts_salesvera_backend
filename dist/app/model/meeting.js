@@ -42,6 +42,8 @@ const MeetingModel = (sequelize) => {
         longitude_in: sequelize_1.DataTypes.STRING,
         latitude_out: sequelize_1.DataTypes.STRING,
         longitude_out: sequelize_1.DataTypes.STRING,
+        totalDistance: sequelize_1.DataTypes.STRING,
+        legDistance: sequelize_1.DataTypes.STRING,
     }, {
         sequelize,
         tableName: "meetings",

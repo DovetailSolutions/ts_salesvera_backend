@@ -54,10 +54,19 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true, limit: "50mb" }));
+// app.use(express.json());
+// app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express_1.default.static(path_1.default.join(__dirname, "../uploads")));
 app.use("/admin", admin_1.default);
 app.use("/api", user_1.default);
-app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile));
+app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile, {
+    swaggerOptions: {
+        requestInterceptor: (req) => {
+            req.headers["ngrok-skip-browser-warning"] = "true";
+            return req;
+        }
+    }
+}));
 app.get("/", (req, res) => {
     res.send("Hello from TypeScript Express!");
 });

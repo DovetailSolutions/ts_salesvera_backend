@@ -17,10 +17,6 @@ const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../config/dbConnection");
 const uuid_1 = require("uuid");
-// interface UserWithRelations extends User {
-//   createdUsers?: User[];
-//   creators?: User[];
-// }
 function getAllRelatedUserIds(userId_1) {
     return __awaiter(this, arguments, void 0, function* (userId, includeSelf = false) {
         const result = new Set();
@@ -80,12 +76,15 @@ const initChatSocket = (io) => {
             next(new Error("Authentication failed"));
         }
     });
-    io.on("connection", (socket) => {
+    io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
         console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
         const userId = socket.data.user.userId;
         const userRole = socket.data.user.role;
         console.log(">>>>>>>>>>>>>>userId", userId);
         console.log(">>>>>>>>>>>>>>userRole", userRole);
+        yield dbConnection_1.User.update({ onlineSatus: "online" }, { where: { id: userId } });
+        // 📡 Broadcast this user's online status to ALL connected clients
+        io.emit("userStatusChange", { userId, onlineSatus: "online" });
         // --------------------------------------------------------
         // 🟦 JOIN ROOM
         // --------------------------------------------------------
@@ -312,12 +311,20 @@ const initChatSocket = (io) => {
                     limit,
                     offset,
                 });
+                // Attach a flat unreadCount mathematically
+                const usersWithUnreadCounts = result.rows.map((user) => {
+                    const userObj = user.get({ plain: true });
+                    // The included Messages array contains only "unseen" messages from this user
+                    const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
+                    return Object.assign(Object.assign({}, userObj), { unreadCount });
+                });
+                console.log(">>>>>>>>usersWithUnreadCounts", usersWithUnreadCounts);
                 io.to(socket.id).emit("UserList", {
                     success: true,
                     total: result.count,
                     totalPages: Math.ceil(result.count / limit),
                     currentPage: page,
-                    data: result.rows,
+                    data: usersWithUnreadCounts,
                 });
             }
             catch (error) {
@@ -548,12 +555,24 @@ const initChatSocket = (io) => {
                     limit,
                     order: [["updatedAt", "DESC"]], // Show newest/most recently active groups first
                 });
+                // 3. Attach unread message counts for each group
+                const groupsWithUnreadCounts = yield Promise.all(result.rows.map((group) => __awaiter(void 0, void 0, void 0, function* () {
+                    const unreadCount = yield dbConnection_1.Message.count({
+                        where: {
+                            chatRoomId: group.id,
+                            status: "unseen",
+                            senderId: { [sequelize_1.Op.ne]: userId } // Don't count my own messages
+                        }
+                    });
+                    // Convert Sequelize instance to POJO and inject unreadCount
+                    return Object.assign(Object.assign({}, group.get({ plain: true })), { unreadCount });
+                })));
                 socket.emit("getMyGroups", {
                     success: true,
                     total: result.count,
                     totalPages: Math.ceil(result.count / limit),
                     currentPage: page,
-                    data: result.rows,
+                    data: groupsWithUnreadCounts,
                 });
             }
             catch (error) {
@@ -634,9 +653,12 @@ const initChatSocket = (io) => {
             }
         }));
         // --------------------------------------------------------
-        socket.on("disconnect", () => {
+        socket.on("disconnect", () => __awaiter(void 0, void 0, void 0, function* () {
+            yield dbConnection_1.User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+            // 📡 Broadcast this user's offline status to ALL connected clients
+            io.emit("userStatusChange", { userId, onlineSatus: "offline" });
             console.log("Disconnected:", socket.id);
-        });
-    });
+        }));
+    }));
 };
 exports.initChatSocket = initChatSocket;

@@ -16,21 +16,19 @@ router.patch(
   Controller.UpdateProfile
 );
 router.get("/mysaleperson", tokenCheck, Controller.MySalePerson);
-
 router.post(
   "/createmeeting",
   tokenCheck,
   meeting.array("image"),
   Controller.CreateMeeting
 );
-
-
 router.get("/clientmeeting",tokenCheck,Controller.getLastMeeting)
 router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", tokenCheck, Controller.scheduled);
 router.post("/logout", tokenCheck, Controller.Logout);
 router.get("/getcategory", Controller.getCategory);
+
 // Attendance Summary
 router.post("/attendance/punch-in", tokenCheck, Controller.AttendancePunchIn);
 router.post("/attendance/punch-out", tokenCheck, Controller.AttendancePunchOut);
@@ -45,6 +43,16 @@ router.post(
   expense.array("billImage"),
   Controller.CreateExpense
 );
+router.get("/getexpense",tokenCheck,Controller.GetExpense);
 router.get("/refreshtoken",tokenCheck,Controller.ReFressToken);
+// router.get("/getquotation",tokenCheck,Controller.getQuotation)
+router.post("/getquotationpdf",tokenCheck,Controller.getQuotationPdf)
+router.get("/getquotationpdflist",tokenCheck,Controller.getQuotationPdfList)
+router.get("/downloadquotationpdf/:id",tokenCheck,Controller.downloadQuotationPdf)
+router.get("/getsubcategory/:id",tokenCheck,Controller.getSubCategory)
+router.post("/addquotation",tokenCheck,Controller.addQuotation)
+
+router.post('/updatequotation/:id',tokenCheck,Controller.updateQuotation)
+
 
 export default router;

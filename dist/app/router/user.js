@@ -65,5 +65,13 @@ router.post("/leave", jwtVerify2_1.tokenCheck, Controller.requestLeave);
 router.get("/leave-list", jwtVerify2_1.tokenCheck, Controller.LeaveList);
 //Expense
 router.post("/expense", jwtVerify2_1.tokenCheck, expense.array("billImage"), Controller.CreateExpense);
+router.get("/getexpense", jwtVerify2_1.tokenCheck, Controller.GetExpense);
 router.get("/refreshtoken", jwtVerify2_1.tokenCheck, Controller.ReFressToken);
+// router.get("/getquotation",tokenCheck,Controller.getQuotation)
+router.post("/getquotationpdf", jwtVerify2_1.tokenCheck, Controller.getQuotationPdf);
+router.get("/getquotationpdflist", jwtVerify2_1.tokenCheck, Controller.getQuotationPdfList);
+router.get("/downloadquotationpdf/:id", jwtVerify2_1.tokenCheck, Controller.downloadQuotationPdf);
+router.get("/getsubcategory/:id", jwtVerify2_1.tokenCheck, Controller.getSubCategory);
+router.post("/addquotation", jwtVerify2_1.tokenCheck, Controller.addQuotation);
+router.post('/updatequotation/:id', jwtVerify2_1.tokenCheck, Controller.updateQuotation);
 exports.default = router;

@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.Company = exports.Quotations = exports.SubCategory = exports.ExpenseImage = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -27,6 +27,8 @@ const leaverequests_1 = require("../app/model/leaverequests");
 Object.defineProperty(exports, "Leave", { enumerable: true, get: function () { return leaverequests_1.Leave; } });
 const expense_1 = require("../app/model/expense");
 Object.defineProperty(exports, "Expense", { enumerable: true, get: function () { return expense_1.Expense; } });
+const expanseImages_1 = require("../app/model/expanseImages");
+Object.defineProperty(exports, "ExpenseImage", { enumerable: true, get: function () { return expanseImages_1.ExpenseImage; } });
 const chatRoom_1 = require("../app/model/chatRoom");
 Object.defineProperty(exports, "ChatRoom", { enumerable: true, get: function () { return chatRoom_1.ChatRoom; } });
 const ChatParticipant_1 = require("../app/model/ChatParticipant");
@@ -36,22 +38,35 @@ Object.defineProperty(exports, "Message", { enumerable: true, get: function () {
 const meetingImage_1 = require("../app/model/meetingImage");
 const meetingCompany_1 = require("../app/model/meetingCompany");
 const meetingUser_1 = require("../app/model/meetingUser");
+// import {Quotation} from "../app/model/quotation";
+const subCategory_1 = require("../app/model/subCategory");
+const quotations_1 = require("../app/model/quotations");
+Object.defineProperty(exports, "Quotations", { enumerable: true, get: function () { return quotations_1.Quotations; } });
+const company_1 = require("../app/model/company");
+const branch_1 = require("../app/model/branch");
+const Shift_1 = require("../app/model/Shift");
+const department_1 = require("../app/model/department");
+const holiday_1 = require("../app/model/holiday");
 const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
-    logging: false,
+    logging: true,
     dialectOptions: {
-    // ssl: {
-    //   require: true,
-    //   rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
-    // },
+        ssl: {
+            require: true,
+            rejectUnauthorized: false, // ✅ Important for AWS/Railway/Render
+        },
     },
 });
 exports.sequelize = sequelize;
 attendance_1.Attendance.initModel(sequelize);
 leaverequests_1.Leave.initModel(sequelize);
 expense_1.Expense.initModel(sequelize);
+expanseImages_1.ExpenseImage.initModel(sequelize);
+// Quotation.initModel(sequelize)
+quotations_1.Quotations.initModel(sequelize);
+// SubCategory.initModel(sequelize)
 const User = (0, user_1.createUserModel)(sequelize);
 exports.User = User;
 const Category = (0, category_1.CategoryModel)(sequelize);
@@ -72,6 +87,19 @@ const MeetingCompany = (0, meetingCompany_1.CompanyModel)(sequelize);
 exports.MeetingCompany = MeetingCompany;
 const MeetingUser = (0, meetingUser_1.UserModel)(sequelize);
 exports.MeetingUser = MeetingUser;
+const SubCategory = (0, subCategory_1.SubCategoryModel)(sequelize);
+exports.SubCategory = SubCategory;
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+const Company = (0, company_1.CompanyModell)(sequelize);
+exports.Company = Company;
+const Branch = (0, branch_1.BranchModel)(sequelize);
+exports.Branch = Branch;
+const Shift = (0, Shift_1.ShiftModel)(sequelize);
+exports.Shift = Shift;
+const Department = (0, department_1.DepartmentModel)(sequelize);
+exports.Department = Department;
+const Holiday = (0, holiday_1.HolidayModel)(sequelize);
+exports.Holiday = Holiday;
 User.belongsToMany(User, {
     through: "UserCreators",
     as: "creators",
@@ -90,6 +118,8 @@ User.hasMany(leaverequests_1.Leave, { foreignKey: "employee_id" });
 leaverequests_1.Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 User.hasMany(expense_1.Expense, { foreignKey: "userId" });
 expense_1.Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
+expense_1.Expense.hasMany(expanseImages_1.ExpenseImage, { foreignKey: "expenseId", as: "images" });
+expanseImages_1.ExpenseImage.belongsTo(expense_1.Expense, { foreignKey: "expenseId" });
 chatRoom_1.ChatRoom.hasMany(ChatParticipant_1.ChatParticipant, {
     foreignKey: "chatRoomId",
     as: "participants",
@@ -137,9 +167,30 @@ Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
 // Meeting → Images
 Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
 MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
+Category.hasMany(SubCategory, {
+    foreignKey: "CategoryId",
+    as: "subCategories"
+});
+SubCategory.belongsTo(Category, {
+    foreignKey: "CategoryId",
+    as: "category"
+});
+//sale quotation
+User.hasMany(quotations_1.Quotations, { foreignKey: "userId" });
+quotations_1.Quotations.belongsTo(User, { foreignKey: "userId" });
+// Sale.hasMany(Quotations, { foreignKey: "saleId" });
+// Quotations.belongsTo(Sale, { foreignKey: "saleId" });
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("✅ Database connection established successfully");
+        // Clean up orphaned quotations rows before sync so the FK constraint can be applied.
+        // Wrapped in try/catch in case the table doesn't exist yet on a fresh DB.
+        try {
+            yield sequelize.query(`DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`);
+        }
+        catch (_) {
+            // table may not exist yet — safe to ignore
+        }
         yield sequelize.sync({ alter: true });
         yield sequelize.authenticate();
     }

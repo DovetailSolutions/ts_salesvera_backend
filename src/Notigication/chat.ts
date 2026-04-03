@@ -12,10 +12,6 @@ import { v4 as uuid } from "uuid";
 type UserWithRelations = any & {
   createdUsers?: UserWithRelations[];
 };
-// interface UserWithRelations extends User {
-//   createdUsers?: User[];
-//   creators?: User[];
-// }
 
 async function getAllRelatedUserIds(
   userId: number,
@@ -86,7 +82,7 @@ export const initChatSocket = (io: Server) => {
     }
   });
 
-  io.on("connection", (socket) => {
+  io.on("connection",async (socket) => {
     console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
 
     const userId = socket.data.user.userId;
@@ -95,10 +91,13 @@ export const initChatSocket = (io: Server) => {
 
     console.log(">>>>>>>>>>>>>>userId",userId)
     console.log(">>>>>>>>>>>>>>userRole",userRole)
+
+
+    await User.update({ onlineSatus: "online" }, { where: { id: userId } });
+
+    // 📡 Broadcast this user's online status to ALL connected clients
+    io.emit("userStatusChange", { userId, onlineSatus: "online" });
     
-
-
-
     // --------------------------------------------------------
     // 🟦 JOIN ROOM
     // --------------------------------------------------------
@@ -365,12 +364,27 @@ export const initChatSocket = (io: Server) => {
           offset,
         });
 
+        // Attach a flat unreadCount mathematically
+        const usersWithUnreadCounts = result.rows.map((user: any) => {
+          const userObj = user.get({ plain: true });
+          
+          // The included Messages array contains only "unseen" messages from this user
+          const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
+          
+          return {
+            ...userObj,
+            unreadCount
+          };
+        });
+
+        console.log(">>>>>>>>usersWithUnreadCounts",usersWithUnreadCounts)
+
         io.to(socket.id).emit("UserList", {
           success: true,
           total: result.count,
           totalPages: Math.ceil(result.count / limit),
           currentPage: page,
-          data: result.rows,
+          data: usersWithUnreadCounts,
         });
       } catch (error) {
         console.error("UserList Error:", error);
@@ -637,12 +651,31 @@ export const initChatSocket = (io: Server) => {
           limit,
           order: [["updatedAt", "DESC"]], // Show newest/most recently active groups first
         });
+
+        // 3. Attach unread message counts for each group
+        const groupsWithUnreadCounts = await Promise.all(
+          result.rows.map(async (group: any) => {
+            const unreadCount = await Message.count({
+              where: {
+                chatRoomId: group.id,
+                status: "unseen",
+                senderId: { [Op.ne]: userId } // Don't count my own messages
+              }
+            });
+            // Convert Sequelize instance to POJO and inject unreadCount
+            return {
+              ...group.get({ plain: true }),
+              unreadCount
+            };
+          })
+        );
+
         socket.emit("getMyGroups", {
           success: true,
           total: result.count,
           totalPages: Math.ceil(result.count / limit),
           currentPage: page,
-          data: result.rows,
+          data: groupsWithUnreadCounts,
         });
 
       } catch (error) {
@@ -738,7 +771,10 @@ export const initChatSocket = (io: Server) => {
     });
 
     // --------------------------------------------------------
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
+      await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+      // 📡 Broadcast this user's offline status to ALL connected clients
+      io.emit("userStatusChange", { userId, onlineSatus: "offline" });
       console.log("Disconnected:", socket.id);
     });
   });

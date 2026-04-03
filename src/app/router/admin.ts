@@ -22,7 +22,7 @@ router.get("/getcategory", tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
-router.post("/bulk-upload",tokenCheck,csv.array("csv"),AdminController.BulkUploads)
+router.post("/bulk-upload",tokenCheck,csv.single("csv"),AdminController.BulkUploads)
 router.get("/get-attendance", tokenCheck, AdminController.getAttendance);
 router.patch("/approved-leave",tokenCheck,AdminController.approveLeave);
 router.get("/get-leave-list",tokenCheck,AdminController.leaveList)
@@ -36,7 +36,68 @@ router.get("/attendance-book", tokenCheck, AdminController.AttendanceBook);
 router.post("/create-client", tokenCheck, AdminController.createClient);
 router.post("/assign-meeting", tokenCheck, AdminController.assignMeeting);
 router.get("/getown-leave",tokenCheck,AdminController.ownLeave)
+router.post("/add/quotation",AdminController.addQuotation);
 
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+router.post(
+    "/addSubCategory",
+    tokenCheck,
+    AdminController.addSubCategory
+);
+
+router.patch(
+    "/updateSubCategory/:id",
+    tokenCheck,
+    AdminController.updateSubCategory
+);
+
+
+router.get("/getsubcategory/:id",tokenCheck,AdminController.getSubCategory)
+router.get("/getquotationpdflist",tokenCheck,AdminController.getQuotationPdfList)
+router.get("/downloadquotationpdf/:id",tokenCheck,AdminController.downloadQuotationPdf);
+router.post("/addquotationpdf",tokenCheck,AdminController.addQuotationPdf)
+
+
+router.get("/fuel-expense", tokenCheck, AdminController.getMeetingDistance);
+router.get("/get-fuel-expense",tokenCheck,AdminController.getFuelExpense)
+
+//>>>>>>>>>>>>>>>>>>>>>>>>add company >>>>>>>>>>>>>>>
+
+
+router.post("/addcompany",tokenCheck,AdminController.addCompany);
+router.get("/getcompany",tokenCheck,AdminController.getCompany);
+router.get("/getcompany/:id",tokenCheck,AdminController.getCompanyById);
+
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+router.post("/addbranch",tokenCheck,AdminController.addBranch);
+router.get("/getbranch",tokenCheck,AdminController.getBranch);
+router.get("/getbranch/:id",tokenCheck,AdminController.getBranchById);
+
+
+router.post("/addshift",tokenCheck,AdminController.addShift);
+router.get("/getshift",tokenCheck,AdminController.getShift);
+router.get("/getshift/:id",tokenCheck,AdminController.getShiftById);
+// router.get("/getshift/:id",tokenCheck,AdminController.getShiftById);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+router.post("/adddepartment",tokenCheck,AdminController.addDepartment);
+router.get("/getdepartment",tokenCheck,AdminController.getDepartment);
+router.get("/getdepartment/:id",tokenCheck,AdminController.getDepartmentById);
+// router.patch("/updatedepartment/:id",tokenCheck,AdminController.updateDepartment);
+// router.delete("/deletedepartment/:id",tokenCheck,AdminController.deleteDepartment);
+
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+router.post("/addholiday",tokenCheck,AdminController.addHoliday);
+router.get("/getholiday",tokenCheck,AdminController.getHoliday);
+router.get("/getholiday/:id",tokenCheck,AdminController.getHolidayById);
+// router.patch("/updateholiday/:id",tokenCheck,AdminController.updateHoliday);
+// router.delete("/deleteholiday/:id",tokenCheck,AdminController.deleteHoliday);
 
 
 

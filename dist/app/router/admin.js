@@ -58,7 +58,7 @@ router.get("/getcategory", jwtVerify_1.tokenCheck, AdminController.getcategory);
 router.get("/getcategoy/:id", jwtVerify_1.tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", jwtVerify_1.tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", jwtVerify_1.tokenCheck, AdminController.DeleteCategory);
-router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.array("csv"), AdminController.BulkUploads);
+router.post("/bulk-upload", jwtVerify_1.tokenCheck, csv.single("csv"), AdminController.BulkUploads);
 router.get("/get-attendance", jwtVerify_1.tokenCheck, AdminController.getAttendance);
 router.patch("/approved-leave", jwtVerify_1.tokenCheck, AdminController.approveLeave);
 router.get("/get-leave-list", jwtVerify_1.tokenCheck, AdminController.leaveList);
@@ -72,5 +72,39 @@ router.get("/attendance-book", jwtVerify_1.tokenCheck, AdminController.Attendanc
 router.post("/create-client", jwtVerify_1.tokenCheck, AdminController.createClient);
 router.post("/assign-meeting", jwtVerify_1.tokenCheck, AdminController.assignMeeting);
 router.get("/getown-leave", jwtVerify_1.tokenCheck, AdminController.ownLeave);
+router.post("/add/quotation", AdminController.addQuotation);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+router.post("/addSubCategory", jwtVerify_1.tokenCheck, AdminController.addSubCategory);
+router.patch("/updateSubCategory/:id", jwtVerify_1.tokenCheck, AdminController.updateSubCategory);
+router.get("/getsubcategory/:id", jwtVerify_1.tokenCheck, AdminController.getSubCategory);
+router.get("/getquotationpdflist", jwtVerify_1.tokenCheck, AdminController.getQuotationPdfList);
+router.get("/downloadquotationpdf/:id", jwtVerify_1.tokenCheck, AdminController.downloadQuotationPdf);
+router.post("/addquotationpdf", jwtVerify_1.tokenCheck, AdminController.addQuotationPdf);
+router.get("/fuel-expense", jwtVerify_1.tokenCheck, AdminController.getMeetingDistance);
+router.get("/get-fuel-expense", jwtVerify_1.tokenCheck, AdminController.getFuelExpense);
+//>>>>>>>>>>>>>>>>>>>>>>>>add company >>>>>>>>>>>>>>>
+router.post("/addcompany", jwtVerify_1.tokenCheck, AdminController.addCompany);
+router.get("/getcompany", jwtVerify_1.tokenCheck, AdminController.getCompany);
+router.get("/getcompany/:id", jwtVerify_1.tokenCheck, AdminController.getCompanyById);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+router.post("/addbranch", jwtVerify_1.tokenCheck, AdminController.addBranch);
+router.get("/getbranch", jwtVerify_1.tokenCheck, AdminController.getBranch);
+router.get("/getbranch/:id", jwtVerify_1.tokenCheck, AdminController.getBranchById);
+router.post("/addshift", jwtVerify_1.tokenCheck, AdminController.addShift);
+router.get("/getshift", jwtVerify_1.tokenCheck, AdminController.getShift);
+router.get("/getshift/:id", jwtVerify_1.tokenCheck, AdminController.getShiftById);
+// router.get("/getshift/:id",tokenCheck,AdminController.getShiftById);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+router.post("/adddepartment", jwtVerify_1.tokenCheck, AdminController.addDepartment);
+router.get("/getdepartment", jwtVerify_1.tokenCheck, AdminController.getDepartment);
+router.get("/getdepartment/:id", jwtVerify_1.tokenCheck, AdminController.getDepartmentById);
+// router.patch("/updatedepartment/:id",tokenCheck,AdminController.updateDepartment);
+// router.delete("/deletedepartment/:id",tokenCheck,AdminController.deleteDepartment);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+router.post("/addholiday", jwtVerify_1.tokenCheck, AdminController.addHoliday);
+router.get("/getholiday", jwtVerify_1.tokenCheck, AdminController.getHoliday);
+router.get("/getholiday/:id", jwtVerify_1.tokenCheck, AdminController.getHolidayById);
+// router.patch("/updateholiday/:id",tokenCheck,AdminController.updateHoliday);
+// router.delete("/deleteholiday/:id",tokenCheck,AdminController.deleteHoliday);
 // meeting apis 
 exports.default = router;
