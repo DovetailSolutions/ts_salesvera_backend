@@ -40,12 +40,12 @@ const sequelize = new Sequelize(
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
-    logging: false,
+    logging: true,
     dialectOptions: {
-      // ssl: {
-      //   require: true,
-      //   rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
-      // },
+      ssl: {
+        require: true,
+        rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
+      },
     },
   }
 );
