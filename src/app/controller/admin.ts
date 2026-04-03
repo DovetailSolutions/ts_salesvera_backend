@@ -3774,14 +3774,9 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     const status = String(req.query.status || "").toLowerCase();
     const companyName = String(req.query.companyName || "").toLowerCase();
 
-    const ownstate = String(req.query.ownstate || "").toLowerCase();
-    const clientState = String(req.query.clientState || "").toLowerCase();
+  
 
-    // ✅ Validate status
-    const allowedStatus = ["draft", "accepted", "rejected"];
-    if (status && !allowedStatus.includes(status)) {
-      return badRequest(res, "Invalid status value");
-    }
+   
 
     // ✅ Base where condition
     let whereCondition: any = {

@@ -2957,13 +2957,6 @@ const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, fun
         // ✅ Filters
         const status = String(req.query.status || "").toLowerCase();
         const companyName = String(req.query.companyName || "").toLowerCase();
-        const ownstate = String(req.query.ownstate || "").toLowerCase();
-        const clientState = String(req.query.clientState || "").toLowerCase();
-        // ✅ Validate status
-        const allowedStatus = ["draft", "accepted", "rejected"];
-        if (status && !allowedStatus.includes(status)) {
-            return (0, errorMessage_1.badRequest)(res, "Invalid status value");
-        }
         // ✅ Base where condition
         let whereCondition = {
             userId: userData.userId,
