@@ -111,13 +111,15 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
     };
     const item = await User.create(obj);
 
-    if (role === "sale_person" || role === "manager" || role === "admin") {
+    if ((role === "sale_person" || role === "manager" || role === "admin") && createdBy) {
       const ids = Array.isArray(createdBy)
-        ? createdBy.map(Number)
-        : [Number(createdBy)];
+        ? createdBy.map((id: any) => Number(id)).filter((id) => !isNaN(id))
+        : [Number(createdBy)].filter((id) => !isNaN(id));
 
-      // ✅ Connect relations
-      await (item as any).setCreators(ids);
+      if (ids.length > 0) {
+        // ✅ Connect relations
+        await (item as any).setCreators(ids);
+      }
     }
 
     /** ✅ JWT Tokens */
