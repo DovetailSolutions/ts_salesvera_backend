@@ -44,37 +44,29 @@ const sequelize = new Sequelize(
   }
 );
 
-Attendance.initModel(sequelize);
-Leave.initModel(sequelize)
-Expense.initModel(sequelize)
-ExpenseImage.initModel(sequelize)
-// Quotation.initModel(sequelize)
-Quotations.initModel(sequelize)
-
-// SubCategory.initModel(sequelize)
-
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
 const Meeting = MeetingModel(sequelize);
 const Device = DeviceModel(sequelize);
-// const Chat = ChatRoom(sequelize);
-// const Message = Message(sequelize);
-// // const Device = DeviceModel(sequelize);
-ChatRoom.initModel(sequelize);
-ChatParticipant.initModel(sequelize);
-Message.initModel(sequelize);
-
 const MeetingImage = MeetingImageModel(sequelize);
 const MeetingCompany = CompanyModel(sequelize)
 const MeetingUser =  UserModel(sequelize)
 const SubCategory = SubCategoryModel(sequelize)
-
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 const Company = CompanyModell(sequelize)
 const Branch = BranchModel(sequelize)
 const Shift = ShiftModel(sequelize)
 const Department = DepartmentModel(sequelize)
 const Holiday = HolidayModel(sequelize)
+
+Attendance.initModel(sequelize);
+Leave.initModel(sequelize)
+Expense.initModel(sequelize)
+ExpenseImage.initModel(sequelize)
+Quotations.initModel(sequelize)
+
+ChatRoom.initModel(sequelize);
+ChatParticipant.initModel(sequelize);
+Message.initModel(sequelize);
 
 
 
@@ -202,6 +194,13 @@ export const connectDB = async () => {
   try {
     console.log("✅ Database connection established successfully");
     await sequelize.authenticate();
+
+    // Explicitly sync parent models first to ensure they exist for FK references
+    await User.sync({ alter: true });
+    await Category.sync({ alter: true });
+    await Company.sync({ alter: true });
+
+    // Sync all other models
     await sequelize.sync({ alter: true });
    
   } catch (err) {
