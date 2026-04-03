@@ -101,6 +101,12 @@ router.get("/getholiday/:id",tokenCheck,AdminController.getHolidayById);
 
 
 
+router.post("/addquotation",tokenCheck,AdminController.addQuotation2)
+router.get("/getquotationlist",tokenCheck,AdminController.getQuotationPdfList2)
+router.post('/updatequotation/:id',tokenCheck,AdminController.updateQuotation)
+
+
+
 
 
 
