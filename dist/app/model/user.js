@@ -69,7 +69,7 @@ const createUserModel = (sequelize) => {
             allowNull: true,
         },
         createdBy: {
-            type: sequelize_1.DataTypes.ARRAY(sequelize_1.DataTypes.INTEGER),
+            type: sequelize_1.DataTypes.INTEGER,
             allowNull: true,
             references: {
                 model: "users", // If FK

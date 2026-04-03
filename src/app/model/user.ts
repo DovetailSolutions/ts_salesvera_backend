@@ -25,7 +25,7 @@ interface UserAttributes {
   status?: "active" | "deActive" | "delete";
   dob?: string;
   profile?: string;
-  createdBy?: number[];
+  createdBy?: number;
   onlineSatus?: "online" | "offline"
 }
 
@@ -134,7 +134,7 @@ export const createUserModel = (sequelize: Sequelize) => {
         allowNull: true,
       },
       createdBy: {
-        type:DataTypes.ARRAY(DataTypes.INTEGER),
+        type: DataTypes.INTEGER,
         allowNull: true,
         references: {
           model: "users", // If FK
