@@ -11,8 +11,8 @@ const doc = {
         title: 'SalesVera API',
         description: 'API documentation for SalesVera backend',
     },
-    host: 'ghostly-subcompensational-gil.ngrok-free.dev',
-    schemes: ['https'],
+    host: '98.81.102.194',
+    schemes: ['http'],
     securityDefinitions: {
         Bearer: {
             type: 'apiKey',

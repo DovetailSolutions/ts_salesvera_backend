@@ -2927,7 +2927,7 @@ const addQuotation2 = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             customerName: data.customerName,
             referenceNumber: data.referenceNumber,
             quotation: data,
-            status: "draft"
+            status: data.status || "draft"
         });
         res.status(201).json({
             success: true,
