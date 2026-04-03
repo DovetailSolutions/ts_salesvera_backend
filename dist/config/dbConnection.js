@@ -61,13 +61,6 @@ const sequelize = new sequelize_1.Sequelize(env.DB_NAME, env.DB_USER_NAME, env.D
     },
 });
 exports.sequelize = sequelize;
-attendance_1.Attendance.initModel(sequelize);
-leaverequests_1.Leave.initModel(sequelize);
-expense_1.Expense.initModel(sequelize);
-expanseImages_1.ExpenseImage.initModel(sequelize);
-// Quotation.initModel(sequelize)
-quotations_1.Quotations.initModel(sequelize);
-// SubCategory.initModel(sequelize)
 const User = (0, user_1.createUserModel)(sequelize);
 exports.User = User;
 const Category = (0, category_1.CategoryModel)(sequelize);
@@ -76,12 +69,6 @@ const Meeting = (0, meeting_1.MeetingModel)(sequelize);
 exports.Meeting = Meeting;
 const Device = (0, device_1.DeviceModel)(sequelize);
 exports.Device = Device;
-// const Chat = ChatRoom(sequelize);
-// const Message = Message(sequelize);
-// // const Device = DeviceModel(sequelize);
-chatRoom_1.ChatRoom.initModel(sequelize);
-ChatParticipant_1.ChatParticipant.initModel(sequelize);
-Message_1.Message.initModel(sequelize);
 const MeetingImage = (0, meetingImage_1.MeetingImageModel)(sequelize);
 exports.MeetingImage = MeetingImage;
 const MeetingCompany = (0, meetingCompany_1.CompanyModel)(sequelize);
@@ -90,7 +77,6 @@ const MeetingUser = (0, meetingUser_1.UserModel)(sequelize);
 exports.MeetingUser = MeetingUser;
 const SubCategory = (0, subCategory_1.SubCategoryModel)(sequelize);
 exports.SubCategory = SubCategory;
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 const Company = (0, company_1.CompanyModell)(sequelize);
 exports.Company = Company;
 const Branch = (0, branch_1.BranchModel)(sequelize);
@@ -101,6 +87,14 @@ const Department = (0, department_1.DepartmentModel)(sequelize);
 exports.Department = Department;
 const Holiday = (0, holiday_1.HolidayModel)(sequelize);
 exports.Holiday = Holiday;
+attendance_1.Attendance.initModel(sequelize);
+leaverequests_1.Leave.initModel(sequelize);
+expense_1.Expense.initModel(sequelize);
+expanseImages_1.ExpenseImage.initModel(sequelize);
+quotations_1.Quotations.initModel(sequelize);
+chatRoom_1.ChatRoom.initModel(sequelize);
+ChatParticipant_1.ChatParticipant.initModel(sequelize);
+Message_1.Message.initModel(sequelize);
 User.belongsToMany(User, {
     through: "UserCreators",
     as: "creators",
@@ -185,6 +179,11 @@ const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
         console.log("✅ Database connection established successfully");
         yield sequelize.authenticate();
+        // Explicitly sync parent models first to ensure they exist for FK references
+        yield User.sync({ alter: true });
+        yield Category.sync({ alter: true });
+        yield Company.sync({ alter: true });
+        // Sync all other models
         yield sequelize.sync({ alter: true });
     }
     catch (err) {
