@@ -1,252 +1,223 @@
 import dotenv from "dotenv";
 dotenv.config();
-import { Sequelize, DataTypes } from "sequelize";
+
+import { Sequelize } from "sequelize";
 const env = process.env;
+
+// ===== MODELS =====
 import { createUserModel } from "../app/model/user";
 import { CategoryModel } from "../app/model/category";
-import { MeetingModel } from "../app/model/meeting";
-import { DeviceModel } from "../app/model/device";
-import {Attendance} from "../app/model/attendance"
-import {Leave} from '../app/model/leaverequests'
-import {Expense} from '../app/model/expense'
-import {ExpenseImage} from '../app/model/expanseImages'
-import{ChatRoom} from '../app/model/chatRoom'
-import{ChatParticipant} from '../app/model/ChatParticipant'
-import{Message} from '../app/model/Message'
-import{MeetingImageModel} from "../app/model/meetingImage"
-import {CompanyModel} from "../app/model/meetingCompany"
-import {UserModel} from "../app/model/meetingUser"
-// import {Quotation} from "../app/model/quotation";
-import {SubCategoryModel} from "../app/model/subCategory";
-import {Quotations} from "../app/model/quotations";
-import {CompanyModell} from "../app/model/company";
-import {BranchModel} from "../app/model/branch";
-import {ShiftModel} from "../app/model/Shift";
-import {DepartmentModel} from "../app/model/department";
-import {HolidayModel} from "../app/model/holiday";
+import { SubCategoryModel } from "../app/model/subCategory";
 
+import { MeetingModel } from "../app/model/meeting";
+import { MeetingImageModel } from "../app/model/meetingImage";
+import { CompanyModel } from "../app/model/meetingCompany";
+import { UserModel } from "../app/model/meetingUser";
+
+import { DeviceModel } from "../app/model/device";
+
+import { Attendance } from "../app/model/attendance";
+import { Leave } from "../app/model/leaverequests";
+
+import { Expense } from "../app/model/expense";
+import { ExpenseImage } from "../app/model/expanseImages";
+
+import { ChatRoom } from "../app/model/chatRoom";
+import { ChatParticipant } from "../app/model/ChatParticipant";
+import { Message } from "../app/model/Message";
+
+import { Quotations } from "../app/model/quotations";
+
+import { CompanyModell } from "../app/model/company";
+import { BranchModel } from "../app/model/branch";
+import { ShiftModel } from "../app/model/Shift";
+import { DepartmentModel } from "../app/model/department";
+import { HolidayModel } from "../app/model/holiday";
+
+// ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
-  env.DB_NAME!,
-  env.DB_USER_NAME!,
-  env.DB_PASSWORD!,
+  env.DB_NAME || "default_db",
+  env.DB_USER_NAME || "default_user",
+  env.DB_PASSWORD || "default_password",
   {
-    host: env.DB_HOST!,
+    host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
     logging: true,
-    ssl:true,
     dialectOptions: {
       ssl: {
         require: true,
-        rejectUnauthorized: false,   // ✅ Important for AWS/Railway/Render
+        rejectUnauthorized: false,
       },
     },
   }
 );
 
+// ===== INIT MODELS =====
+
+// Core
 const User = createUserModel(sequelize);
 const Category = CategoryModel(sequelize);
+const SubCategory = SubCategoryModel(sequelize);
+
+// Meeting
 const Meeting = MeetingModel(sequelize);
-const Device = DeviceModel(sequelize);
 const MeetingImage = MeetingImageModel(sequelize);
-const MeetingCompany = CompanyModel(sequelize)
-const MeetingUser =  UserModel(sequelize)
-const SubCategory = SubCategoryModel(sequelize)
-const Company = CompanyModell(sequelize)
-const Branch = BranchModel(sequelize)
-const Shift = ShiftModel(sequelize)
-const Department = DepartmentModel(sequelize)
-const Holiday = HolidayModel(sequelize)
+const MeetingCompany = CompanyModel(sequelize);
+const MeetingUser = UserModel(sequelize);
 
+// Device
+const Device = DeviceModel(sequelize);
+
+// HR
 Attendance.initModel(sequelize);
-Leave.initModel(sequelize)
-Expense.initModel(sequelize)
-ExpenseImage.initModel(sequelize)
-Quotations.initModel(sequelize)
+Leave.initModel(sequelize);
 
+// Expense
+Expense.initModel(sequelize);
+ExpenseImage.initModel(sequelize);
+
+// Chat
 ChatRoom.initModel(sequelize);
 ChatParticipant.initModel(sequelize);
 Message.initModel(sequelize);
 
+// Sales
+Quotations.initModel(sequelize);
 
+// Company Structure
+const Company = CompanyModell(sequelize);
+const Branch = BranchModel(sequelize);
+const Shift = ShiftModel(sequelize);
+const Department = DepartmentModel(sequelize);
+const Holiday = HolidayModel(sequelize);
 
+// ===== ASSOCIATIONS =====
 
-// Self-referencing many-to-many relationship junction table
-const UserCreators = sequelize.define("UserCreators", {
-  user_id: {
-    type: DataTypes.INTEGER,
-    references: { model: "users", key: "id" },
-    onDelete: "CASCADE",
-  },
-  created_by_user_id: {
-    type: DataTypes.INTEGER,
-    references: { model: "users", key: "id" },
-    onDelete: "CASCADE",
-  },
-}, { tableName: "UserCreators", timestamps: true });
+// User self relation
+User.belongsToMany(User, {
+  through: "UserCreators",
+  as: "creators",
+  foreignKey: "user_id",
+  otherKey: "created_by_user_id",
+});
 
-// User.belongsToMany(User, {
-//   through: UserCreators,
-//   as: "creators",
-//   foreignKey: "user_id",
-//   otherKey: "created_by_user_id",
-// });
+User.belongsToMany(User, {
+  through: "UserCreators",
+  as: "createdUsers",
+  foreignKey: "created_by_user_id",
+  otherKey: "user_id",
+});
 
-// User.belongsToMany(User, {
-//   through: UserCreators,
-//   as: "createdUsers",
-//   foreignKey: "created_by_user_id",
-//   otherKey: "user_id",
-// });
-
-
-
-
+// Attendance / Leave
 User.hasMany(Attendance, { foreignKey: "employee_id" });
 Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
 User.hasMany(Leave, { foreignKey: "employee_id" });
 Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
+// Expense
 User.hasMany(Expense, { foreignKey: "userId" });
 Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 Expense.hasMany(ExpenseImage, { foreignKey: "expenseId", as: "images" });
 ExpenseImage.belongsTo(Expense, { foreignKey: "expenseId" });
 
-
-
-
-
+// Chat
 ChatRoom.hasMany(ChatParticipant, {
   foreignKey: "chatRoomId",
   as: "participants",
 });
+ChatParticipant.belongsTo(ChatRoom, { foreignKey: "chatRoomId" });
 
-ChatParticipant.belongsTo(ChatRoom, {
-  foreignKey: "chatRoomId",
-});
-
-// ChatRoom → Messages
 ChatRoom.hasMany(Message, {
   foreignKey: "chatRoomId",
   as: "messages",
 });
+Message.belongsTo(ChatRoom, { foreignKey: "chatRoomId" });
 
-Message.belongsTo(ChatRoom, {
-  foreignKey: "chatRoomId",
-});
-
-// User → Message
 User.hasMany(Message, { foreignKey: "senderId" });
 Message.belongsTo(User, { foreignKey: "senderId" });
 
 User.hasMany(ChatParticipant, {
   foreignKey: "userId",
-  as: "chatParticipants"
+  as: "chatParticipants",
 });
-
 ChatParticipant.belongsTo(User, { foreignKey: "userId", as: "user" });
 
-
-// MeetingUser → Meeting (The Client Contact)
+// Meeting
 MeetingUser.hasMany(Meeting, { foreignKey: "meetingUserId" });
 Meeting.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
 
-// MeetingUser → MeetingCompany
 MeetingUser.hasMany(MeetingCompany, { foreignKey: "meetingUserId" });
 MeetingCompany.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
 
-// MeetingUser → MeetingImage
 MeetingUser.hasMany(MeetingImage, { foreignKey: "meetingUserId" });
 MeetingImage.belongsTo(MeetingUser, { foreignKey: "meetingUserId" });
 
-// Company → Meeting
 MeetingCompany.hasMany(Meeting, { foreignKey: "companyId" });
 Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
 
-// Meeting → Images
 Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
 MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
 
-// Main Employee User → Meeting (This is what userId actually maps to!)
 User.hasMany(Meeting, { foreignKey: "userId" });
 Meeting.belongsTo(User, { foreignKey: "userId" });
 
-// Company → Meeting
-MeetingCompany.hasMany(Meeting, { foreignKey: "companyId" });
-Meeting.belongsTo(MeetingCompany, { foreignKey: "companyId" });
-
-// Meeting → Images
-Meeting.hasMany(MeetingImage, { foreignKey: "meetingId" });
-MeetingImage.belongsTo(Meeting, { foreignKey: "meetingId" });
-
-
+// Category
 Category.hasMany(SubCategory, {
   foreignKey: "CategoryId",
-  as: "subCategories"
+  as: "subCategories",
 });
-
 SubCategory.belongsTo(Category, {
   foreignKey: "CategoryId",
-  as: "category"
+  as: "category",
 });
 
-
-//sale quotation
+// Quotations
 User.hasMany(Quotations, { foreignKey: "userId" });
 Quotations.belongsTo(User, { foreignKey: "userId" });
 
-// Sale.hasMany(Quotations, { foreignKey: "saleId" });
-// Quotations.belongsTo(Sale, { foreignKey: "saleId" });
-
-
-
-
-
+// ===== DB CONNECTION =====
 export const connectDB = async () => {
   try {
     console.log("✅ Database connection established successfully");
-    await sequelize.authenticate();
 
-    // Explicitly sync parent models first to ensure they exist for FK references
-    await User.sync({ alter: true });
-    await Category.sync({ alter: true });
-    await Company.sync({ alter: true });
+    try {
+      await sequelize.query(
+        `DELETE FROM quotations WHERE "userId" NOT IN (SELECT id FROM users)`
+      );
+    } catch (_) {}
 
-    // Explicitly sync joining table
-    // await UserCreators.sync({ alter: true });
-
-    // Sync all other models
     await sequelize.sync({ alter: true });
-   
+    await sequelize.authenticate();
   } catch (err) {
     console.error("❌ DB error:", err);
   }
 };
 
+// ===== EXPORTS =====
 export {
   sequelize,
   User,
   Category,
+  SubCategory,
   Meeting,
   Device,
   Attendance,
   Leave,
   Expense,
+  ExpenseImage,
   ChatRoom,
   ChatParticipant,
   Message,
   MeetingImage,
   MeetingCompany,
   MeetingUser,
-  ExpenseImage,
-  // Quotation,
-  SubCategory,
   Quotations,
   Company,
   Branch,
   Shift,
   Department,
-  Holiday
+  Holiday,
 };

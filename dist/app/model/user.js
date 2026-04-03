@@ -68,14 +68,14 @@ const createUserModel = (sequelize) => {
             type: sequelize_1.DataTypes.STRING,
             allowNull: true,
         },
-        createdBy: {
-            type: sequelize_1.DataTypes.INTEGER,
-            allowNull: true,
-            references: {
-                model: "users", // If FK
-                key: "id",
-            },
-        },
+        // createdBy: {
+        //   type: DataTypes.INTEGER,
+        //   allowNull: true,
+        //   references: {
+        //     model: "users", // If FK
+        //     key: "id",
+        //   },
+        // },
     }, {
         tableName: "users",
         timestamps: true,
