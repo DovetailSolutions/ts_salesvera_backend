@@ -3565,13 +3565,13 @@ export const addHoliday = async (req: Request, res: Response) => {
         return badRequest(res, "branchId must be a non-empty array");
       }
 
-      if (!adminId || isNaN(Number(adminId))) {
-        return badRequest(res, "Valid adminId is required");
-      }
+      // if (!adminId || isNaN(Number(adminId))) {
+      //   return badRequest(res, "Valid adminId is required");
+      // }
 
-      if (!managerId || isNaN(Number(managerId))) {
-        return badRequest(res, "Valid managerId is required");
-      }
+      // if (!managerId || isNaN(Number(managerId))) {
+      //   return badRequest(res, "Valid managerId is required");
+      // }
 
       // ================= PREPARE =================
 
