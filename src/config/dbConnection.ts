@@ -182,13 +182,42 @@ SubCategory.belongsTo(Category, {
 User.hasMany(Quotations, { foreignKey: "userId" });
 Quotations.belongsTo(User, { foreignKey: "userId" });
 
+/**
+ * 🛠️ MANUAL MIGRATION HELPER
+ * This ensures the 'meeting_user_id' column exists in essential tables. 
+ * This is needed because standard sync({ alter: true }) sometimes fails on AWS 
+ * to add new columns to existing tables.
+ */
+const ensureColumns = async (sequelize: Sequelize) => {
+  const tables = ["companies", "meetings", "meeting_images"];
+  for (const table of tables) {
+    try {
+      // "ADD COLUMN IF NOT EXISTS" is a safe way to ensure the column exists
+      // without throwing an error if it's already there.
+      await sequelize.query(`
+        ALTER TABLE "${table}" 
+        ADD COLUMN IF NOT EXISTS "meeting_user_id" INTEGER;
+      `);
+      console.log(`✅ Checked/Added meeting_user_id to table: ${table}`);
+    } catch (err) {
+      console.error(`❌ Error checking/adding column to ${table}:`, err);
+    }
+  }
+};
+
 // ===== DB CONNECTION =====
+
 export const connectDB = async () => {
   try {
     console.log("✅ Database connection established successfully");
 
+    // 1️⃣ Run manual migration for specific missing columns
+    await ensureColumns(sequelize);
+
+    // 2️⃣ Standard Sequelize sync
     await sequelize.sync({ alter: true });
     await sequelize.authenticate();
+
   } catch (err) {
     console.error("❌ DB error:", err);
   }
