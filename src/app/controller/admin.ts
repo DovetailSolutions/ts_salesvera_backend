@@ -3527,68 +3527,71 @@ export const addHoliday = async (req: Request, res: Response) => {
       return badRequest(res, "Unauthorized request");
     }
 
-    const {
-      holidayName,
-      holidayDate,
-      holidayType,
-      branchId,
-      description,
-      adminId,
-      managerId,
-      companyId,
-    } = req.body;
+    const { holidays, companyId } = req.body;
 
     // ================= VALIDATION =================
 
-    if (!holidayName || holidayName.trim().length < 2) {
-      return badRequest(res, "Holiday name is required");
+    if (!Array.isArray(holidays) || holidays.length === 0) {
+      return badRequest(res, "holidays array is required");
     }
 
-    if (!holidayDate || holidayDate.trim().length < 2) {
-      return badRequest(res, "Holiday date is required");
+    const holidayData: any[] = [];
+
+    for (const item of holidays) {
+      const {
+        holidayName,
+        holidayDate,
+        holidayType,
+        branchId,
+        description,
+        adminId,
+        managerId,
+      } = item;
+
+      if (!holidayName || holidayName.trim().length < 2) {
+        return badRequest(res, "Holiday name is required");
+      }
+
+      if (!holidayDate || String(holidayDate).trim().length < 2) {
+        return badRequest(res, "Holiday date is required");
+      }
+
+      if (!holidayType || holidayType.trim().length < 2) {
+        return badRequest(res, "Holiday type is required");
+      }
+
+      if (!branchId || isNaN(Number(branchId))) {
+        return badRequest(res, "Valid branchId is required");
+      }
+
+      if (!adminId || isNaN(Number(adminId))) {
+        return badRequest(res, "Valid adminId is required");
+      }
+
+      if (!managerId || isNaN(Number(managerId))) {
+        return badRequest(res, "Valid managerId is required");
+      }
+
+      // ================= PREPARE =================
+
+      holidayData.push({
+        holidayName: String(holidayName),
+        holidayDate,
+        holidayType: String(holidayType),
+        branchId: Number(branchId),
+        description: description || null,
+        adminId: Number(adminId),
+        managerId: Number(managerId),
+        userId: Number(userData.userId),
+        companyId: companyId || null,
+      });
     }
 
-    if (!holidayType || holidayType.trim().length < 2) {
-      return badRequest(res, "Holiday type is required");
-    }
+    // ================= BULK CREATE =================
 
-    if (!branchId || isNaN(Number(branchId))) {
-      return badRequest(res, "Valid branchId is required");
-    }
+    const holidaysCreated = await Holiday.bulkCreate(holidayData);
 
-    if (!adminId || isNaN(Number(adminId))) {
-      return badRequest(res, "Valid adminId is required");
-    }
-
-    if (!managerId || isNaN(Number(managerId))) {
-      return badRequest(res, "Valid managerId is required");
-    }
-
-    // ================= DUPLICATE =================
-
-    // const existing = await Holiday.findOne({
-    //   where: { holidayDate },
-    // });
-
-    // if (existing) {
-    //   return badRequest(res, "Holiday already exists with this date");
-    // }
-
-    // ================= CREATE =================
-
-    const holiday = await Holiday.create({
-      holidayName,
-      holidayDate,
-      holidayType,
-      branchId,
-      description,
-      adminId,
-      managerId,
-      userId: userData.userId,
-      companyId: companyId || null,
-    });
-
-    createSuccess(res, "Holiday added successfully", holiday);
+    createSuccess(res, "Holidays added successfully", holidaysCreated);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
