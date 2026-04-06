@@ -154,20 +154,26 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     // Validate input
     if (!email || !password) {
       badRequest(res, "Email and password are required");
+      return;
     }
+
 
     // Find user
     const user = await Middleware.FindByEmail(User, email);
     if (!user) {
       badRequest(res, "Invalid email or password");
+      return;
     }
+
 
     // Allowed roles
     const allowedRoles = ["admin", "manager", "super_admin"];
 
     if (!allowedRoles.includes(user.get("role"))) {
       badRequest(res, "Access restricted. Only admin & manager can login.");
+      return;
     }
+
 
     // Validate password
     const hashedPassword = user.get("password");
@@ -175,7 +181,10 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
 
     if (!isPasswordValid) {
       badRequest(res, "Invalid email or password");
+      return;
     }
+
+
 
     // Create tokens
     const { accessToken, refreshToken } = Middleware.CreateToken(
@@ -1021,6 +1030,9 @@ export const UpdateExpense = async (
     }
 
     badRequest(res, "Invalid role provided");
+    return;
+
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
