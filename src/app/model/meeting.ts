@@ -36,11 +36,15 @@ export const MeetingModel = (sequelize: Sequelize) => {
       userId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
+        field: "user_id",
       },
+
       companyId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: false,
+        field: "company_id",
       },
+
       meetingUserId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
@@ -51,7 +55,9 @@ export const MeetingModel = (sequelize: Sequelize) => {
       categoryId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
+        field: "category_id",
       },
+
       meetingPurpose: {
         type: DataTypes.ENUM(
           "demo",
@@ -62,7 +68,9 @@ export const MeetingModel = (sequelize: Sequelize) => {
           "other",
           "feedback"
         ),
+        field: "meeting_purpose",
       },
+
       status: {
         type: DataTypes.ENUM(
           "pending",
@@ -74,15 +82,35 @@ export const MeetingModel = (sequelize: Sequelize) => {
         ),
         defaultValue: "pending",
       },
-      scheduledTime: DataTypes.DATE,
-      meetingTimeIn: DataTypes.DATE,
-      meetingTimeOut: DataTypes.DATE,
+      scheduledTime: {
+        type: DataTypes.DATE,
+        field: "scheduled_time",
+      },
+
+      meetingTimeIn: {
+        type: DataTypes.DATE,
+        field: "meeting_time_in",
+      },
+
+      meetingTimeOut: {
+        type: DataTypes.DATE,
+        field: "meeting_time_out",
+      },
+
       latitude_in: DataTypes.STRING,
       longitude_in: DataTypes.STRING,
       latitude_out: DataTypes.STRING,
       longitude_out: DataTypes.STRING,
-      totalDistance: DataTypes.STRING,
-      legDistance: DataTypes.STRING,
+      totalDistance: {
+        type: DataTypes.STRING,
+        field: "total_distance",
+      },
+
+      legDistance: {
+        type: DataTypes.STRING,
+        field: "leg_distance",
+      },
+
     },
     {
       sequelize,

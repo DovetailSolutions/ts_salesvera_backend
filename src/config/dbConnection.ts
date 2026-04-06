@@ -189,21 +189,56 @@ Quotations.belongsTo(User, { foreignKey: "userId" });
  * to add new columns to existing tables.
  */
 const ensureColumns = async (sequelize: Sequelize) => {
-  const tables = ["companies", "meetings", "meeting_images"];
-  for (const table of tables) {
-    try {
-      // "ADD COLUMN IF NOT EXISTS" is a safe way to ensure the column exists
-      // without throwing an error if it's already there.
-      await sequelize.query(`
-        ALTER TABLE "${table}" 
-        ADD COLUMN IF NOT EXISTS "meeting_user_id" INTEGER;
-      `);
-      console.log(`✅ Checked/Added meeting_user_id to table: ${table}`);
-    } catch (err) {
-      console.error(`❌ Error checking/adding column to ${table}:`, err);
+  const tableConfigs = [
+    {
+      tableName: "companies",
+      columns: [
+        { name: "meeting_user_id", type: "INTEGER" },
+        { name: "company_name", type: "VARCHAR(255)" },
+        { name: "person_name", type: "VARCHAR(255)" },
+        { name: "mobile_number", type: "VARCHAR(255)" },
+        { name: "company_email", type: "VARCHAR(255)" },
+        { name: "customer_type", type: "VARCHAR(255)" },
+        { name: "gst_number", type: "VARCHAR(255)" },
+        { name: "quotation_number", type: "VARCHAR(255)" },
+      ],
+    },
+    {
+      tableName: "meetings",
+      columns: [
+        { name: "user_id", type: "INTEGER" },
+        { name: "company_id", type: "INTEGER" },
+        { name: "meeting_user_id", type: "INTEGER" },
+        { name: "category_id", type: "INTEGER" },
+        { name: "meeting_purpose", type: "VARCHAR(255)" },
+        { name: "scheduled_time", type: "TIMESTAMP" },
+        { name: "meeting_time_in", type: "TIMESTAMP" },
+        { name: "meeting_time_out", type: "TIMESTAMP" },
+        { name: "total_distance", type: "VARCHAR(255)" },
+        { name: "leg_distance", type: "VARCHAR(255)" },
+      ],
+    },
+    {
+      tableName: "meeting_images",
+      columns: [{ name: "meeting_user_id", type: "INTEGER" }],
+    },
+  ];
+
+  for (const config of tableConfigs) {
+    for (const column of config.columns) {
+      try {
+        await sequelize.query(`
+          ALTER TABLE "${config.tableName}" 
+          ADD COLUMN IF NOT EXISTS "${column.name}" ${column.type};
+        `);
+        console.log(`✅ Checked/Added ${column.name} to table: ${config.tableName}`);
+      } catch (err) {
+        console.error(`❌ Error checking/adding ${column.name} to ${config.tableName}:`, err);
+      }
     }
   }
 };
+
 
 // ===== DB CONNECTION =====
 
