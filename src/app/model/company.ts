@@ -138,7 +138,7 @@ export const CompanyModell = (sequelize: Sequelize) => {
       userId: { type: DataTypes.INTEGER, allowNull: true },
     },
     {
-      tableName: "companiess",
+      tableName: "companies",
       timestamps: true,
     }
   );

@@ -1,5 +1,6 @@
 import { Sequelize, DataTypes, Model } from "sequelize";
-export class Company extends Model {
+// import { MeetingCompany } from "../../config/dbConnection";
+export class MeetingCompany extends Model {
   public id!: number;
   public companyName!: string;
   public meetingUserId!: number;
@@ -10,8 +11,8 @@ export class Company extends Model {
   public remarks!: string;
 }
 
-export const CompanyModel = (sequelize: Sequelize) => {
-  Company.init(
+export const MeetingCompanyModel = (sequelize: Sequelize) => {
+  MeetingCompany.init(
     {
       id: {
         type: DataTypes.INTEGER.UNSIGNED,
@@ -71,10 +72,10 @@ export const CompanyModel = (sequelize: Sequelize) => {
     },
     {
       sequelize,
-      tableName: "companies",
+      tableName: "meeting_companies",
       timestamps: true,
     }
   );
 
-  return Company;
+  return MeetingCompany;
 };
