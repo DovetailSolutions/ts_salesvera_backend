@@ -492,6 +492,8 @@ export const CreateMeeting = async (
   req: Request,
   res: Response
 ): Promise<void> => {
+
+  console.log("req.body create meeting ");
   const transaction = await sequelize.transaction();
 
   try {
