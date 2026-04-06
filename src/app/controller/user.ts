@@ -517,8 +517,11 @@ export const CreateMeeting = async (
       state,
       city,
       country,
-      address
+      address,
+      gstNumber,
+      remarks,
     } = req.body || {};
+
 
     // Trim all string inputs to avoid trailing space errors in enums
     if (typeof customerType === "string") customerType = customerType.trim();
@@ -528,6 +531,8 @@ export const CreateMeeting = async (
     if (typeof personName === "string") personName = personName.trim();
     if (typeof mobileNumber === "string") mobileNumber = mobileNumber.trim();
     if (typeof companyEmail === "string") companyEmail = companyEmail.trim();
+    if (typeof gstNumber === "string") gstNumber = gstNumber.trim();
+    if (typeof remarks === "string") remarks = remarks.trim();
 
     /** Required fields */
     const requiredFields: Record<string, any> = {
@@ -626,16 +631,20 @@ export const CreateMeeting = async (
           city,
           country,
           address,
+          gstNumber,
+          remarks, 
           meetingUserId: meetingContactUser?.id, // Link to Client
         },
         { transaction }
       );
+
     }
     const parseDateSafely = (dateStr: any) => {
-      if (!dateStr || dateStr === "Invalid date") return undefined;
+      if (!dateStr || dateStr === "Invalid date" || dateStr === "") return null;
       const parsed = new Date(dateStr);
-      return isNaN(parsed.getTime()) ? undefined : parsed;
+      return isNaN(parsed.getTime()) ? null : parsed;
     };
+
 
     const validMeetingTimeIn = parseDateSafely(meetingTimeIn);
     const validScheduledTime = parseDateSafely(scheduledTime);

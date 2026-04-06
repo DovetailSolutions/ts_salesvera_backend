@@ -55,12 +55,12 @@ const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
     logging: false,
-    // dialectOptions: {
-    //   ssl: {
-    //     require: true,
-    //     rejectUnauthorized: false,
-    //   },
-    // },
+    dialectOptions: {
+        ssl: {
+            require: true,
+            rejectUnauthorized: false,
+        },
+    },
 });
 exports.sequelize = sequelize;
 // ===== INIT MODELS =====
