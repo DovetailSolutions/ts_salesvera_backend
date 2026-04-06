@@ -30,6 +30,11 @@ import {
   ExpenseImage,
   Quotations,
   Company,
+  Branch,
+  Shift,
+  Department,
+  Holiday,
+  CompanyLeave
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -2573,6 +2578,56 @@ export const getCompany = async (req: Request, res: Response) => {
       totalPages: Math.ceil(count / pageSize),
       data: rows,
     });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const getCompanyDetails = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      badRequest(res, "Company id is required");
+      return;
+    }
+
+    const company = await Company.findByPk(id,{
+      include:[
+        {
+          model:Branch,
+          as:"branches"
+        },
+        {
+          model:Department,
+          as:"departments"
+        },
+        {
+          model:Holiday,
+          as:"holidays"
+        },
+        {
+          model:Shift,
+          as:"shifts"
+        },
+        {
+          model:CompanyLeave,
+          as:"companyLeaves"
+        }
+      ]
+    });
+    if(!company){
+      badRequest(res, "Company not found");
+      return;
+    }
+    createSuccess(
+      res,
+      "Company details fetched successfully",
+      company
+    );
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
