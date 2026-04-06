@@ -90,9 +90,10 @@ Quotations.initModel(sequelize);
 // Company Structure
 const Company = CompanyModell(sequelize);
 const Branch = BranchModel(sequelize);
-const Shift = ShiftModel(sequelize);
+
 const Department = DepartmentModel(sequelize);
 const Holiday = HolidayModel(sequelize);
+const Shift = ShiftModel(sequelize);
 
 CompanyLeave.initModel(sequelize);
 
