@@ -54,7 +54,9 @@ router.post("/addquotation",tokenCheck,Controller.addQuotation)
 
 router.post('/updatequotation/:id',tokenCheck,Controller.updateQuotation)
 
-router.get("/getcompany",tokenCheck,Controller.getCompany)
+router.get("/getcompany",tokenCheck,Controller.getCompany);
+
+router.get("/getcompanydetails/:id",tokenCheck,Controller.getCompanyDetails);
 
 
 

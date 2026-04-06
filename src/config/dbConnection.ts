@@ -183,6 +183,24 @@ SubCategory.belongsTo(Category, {
 User.hasMany(Quotations, { foreignKey: "userId" });
 Quotations.belongsTo(User, { foreignKey: "userId" });
 
+
+Company.hasMany(Branch, { foreignKey: "companyId" });
+Branch.belongsTo(Company, { foreignKey: "companyId" });
+
+Company.hasMany(Department, { foreignKey: "companyId" });
+Department.belongsTo(Company, { foreignKey: "companyId" });
+
+Company.hasMany(Holiday, { foreignKey: "companyId" });
+Holiday.belongsTo(Company, { foreignKey: "companyId" });
+
+Company.hasMany(Shift, { foreignKey: "companyId" });
+Shift.belongsTo(Company, { foreignKey: "companyId" });
+
+Company.hasMany(CompanyLeave, { foreignKey: "companyId" });
+CompanyLeave.belongsTo(Company, { foreignKey: "companyId" });
+
+
+
 /**
  * 🛠️ MANUAL MIGRATION HELPER
  * This ensures the 'meeting_user_id' column exists in essential tables. 
