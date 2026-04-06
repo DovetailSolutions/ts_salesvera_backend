@@ -191,7 +191,8 @@ Quotations.belongsTo(User, { foreignKey: "userId" });
 const ensureColumns = async (sequelize: Sequelize) => {
   const tableConfigs = [
     {
-      tableName: "companies",
+      tableName: "meeting_companies",
+
       columns: [
         { name: "meeting_user_id", type: "INTEGER" },
         { name: "company_name", type: "VARCHAR(255)" },
@@ -232,6 +233,15 @@ const ensureColumns = async (sequelize: Sequelize) => {
       tableName: "meeting_images",
       columns: [{ name: "meeting_user_id", type: "INTEGER" }],
     },
+    {
+      tableName: "meeting_users",
+      columns: [
+        { name: "user_id", type: "INTEGER" },
+        { name: "customer_type", type: "VARCHAR(255)" },
+        { name: "address", type: "TEXT" },
+      ],
+    },
+
   ];
 
   for (const config of tableConfigs) {

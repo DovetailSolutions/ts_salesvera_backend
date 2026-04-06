@@ -32,15 +32,19 @@ export const UserModel = (sequelize: Sequelize) => {
         allowNull: true,
       },
 
-      userId:{
-        type:DataTypes.INTEGER,
-        allowNull:true
+      userId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        field: "user_id",
       },
+
 
       customerType: {
         type: DataTypes.ENUM("new", "existing", "followup"),
         defaultValue: "new",
+        field: "customer_type",
       },
+
       address: DataTypes.TEXT,
       // gstNumber: DataTypes.STRING,
       // quotationNumber: DataTypes.STRING,
