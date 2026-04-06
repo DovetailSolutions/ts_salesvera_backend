@@ -3159,45 +3159,45 @@ export const addShift = async (req: Request, res: Response) => {
 
     // ================= VALIDATION =================
 
-    if (!shiftName || shiftName.trim().length < 2) {
-      return badRequest(res, "Shift name is required");
-    }
+    // if (!shiftName || shiftName.trim().length < 2) {
+    //   return badRequest(res, "Shift name is required");
+    // }
 
-    if (!shiftCode || shiftCode.trim().length < 2) {
-      return badRequest(res, "Shift code is required");
-    }
+    // if (!shiftCode || shiftCode.trim().length < 2) {
+    //   return badRequest(res, "Shift code is required");
+    // }
 
-    if (!startTime || !endTime) {
-      return badRequest(res, "Start time and end time are required");
-    }
+    // if (!startTime || !endTime) {
+    //   return badRequest(res, "Start time and end time are required");
+    // }
 
-    if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
-      return badRequest(res, "Time must be in HH:mm format");
-    }
+    // if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+    //   return badRequest(res, "Time must be in HH:mm format");
+    // }
 
-    if (breakMinutes && isNaN(Number(breakMinutes))) {
-      return badRequest(res, "Break minutes must be number");
-    }
+    // if (breakMinutes && isNaN(Number(breakMinutes))) {
+    //   return badRequest(res, "Break minutes must be number");
+    // }
 
-    if (workingHours && isNaN(Number(workingHours))) {
-      return badRequest(res, "Working hours must be number");
-    }
+    // if (workingHours && isNaN(Number(workingHours))) {
+    //   return badRequest(res, "Working hours must be number");
+    // }
 
-    if (lateMarkAfter && isNaN(Number(lateMarkAfter))) {
-      return badRequest(res, "lateMarkAfter must be number");
-    }
+    // if (lateMarkAfter && isNaN(Number(lateMarkAfter))) {
+    //   return badRequest(res, "lateMarkAfter must be number");
+    // }
 
-    if (halfDayAfter && isNaN(Number(halfDayAfter))) {
-      return badRequest(res, "halfDayAfter must be number");
-    }
+    // if (halfDayAfter && isNaN(Number(halfDayAfter))) {
+    //   return badRequest(res, "halfDayAfter must be number");
+    // }
 
-    if (!branchId || isNaN(Number(branchId))) {
-      return badRequest(res, "Valid branchId is required");
-    }
+    // if (!branchId || isNaN(Number(branchId))) {
+    //   return badRequest(res, "Valid branchId is required");
+    // }
 
-    if (!companyId || isNaN(Number(companyId))) {
-      return badRequest(res, "Valid companyId is required");
-    }
+    // if (!companyId || isNaN(Number(companyId))) {
+    //   return badRequest(res, "Valid companyId is required");
+    // }
 
     // ================= DUPLICATE =================
 
