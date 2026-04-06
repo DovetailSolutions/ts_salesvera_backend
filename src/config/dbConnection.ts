@@ -184,20 +184,21 @@ User.hasMany(Quotations, { foreignKey: "userId" });
 Quotations.belongsTo(User, { foreignKey: "userId" });
 
 
-Company.hasMany(Branch, { foreignKey: "companyId" });
-Branch.belongsTo(Company, { foreignKey: "companyId" });
+Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
+Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
-Company.hasMany(Department, { foreignKey: "companyId" });
-Department.belongsTo(Company, { foreignKey: "companyId" });
+Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
+Department.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
-Company.hasMany(Holiday, { foreignKey: "companyId" });
-Holiday.belongsTo(Company, { foreignKey: "companyId" });
+Company.hasMany(Holiday, { foreignKey: "companyId", as: "holidays" });
+Holiday.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
-Company.hasMany(Shift, { foreignKey: "companyId" });
-Shift.belongsTo(Company, { foreignKey: "companyId" });
+Company.hasMany(Shift, { foreignKey: "companyId", as: "shifts" });
+Shift.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
-Company.hasMany(CompanyLeave, { foreignKey: "companyId" });
-CompanyLeave.belongsTo(Company, { foreignKey: "companyId" });
+Company.hasMany(CompanyLeave, { foreignKey: "companyId", as: "companyLeaves" });
+CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+
 
 
 
