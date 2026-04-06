@@ -19,12 +19,7 @@ export const CompanyModel = (sequelize: Sequelize) => {
         primaryKey: true,
       },
       companyName: DataTypes.STRING,
-      meetingUserId: {
-        type: DataTypes.INTEGER.UNSIGNED,
-        allowNull: true,
-        field: "meeting_user_id",
-      },
-
+      meetingUserId: DataTypes.INTEGER,
       personName: DataTypes.STRING,
       mobileNumber: DataTypes.STRING,
       companyEmail: DataTypes.STRING,
