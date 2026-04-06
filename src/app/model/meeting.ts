@@ -44,7 +44,9 @@ export const MeetingModel = (sequelize: Sequelize) => {
       meetingUserId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
+        field: "meeting_user_id",
       },
+
       categoryId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
