@@ -3002,13 +3002,13 @@ export const addBranch = async (req: Request, res: Response) => {
 
     // ================= DUPLICATE CHECK =================
 
-    const existingBranch = await Branch.findOne({
-      where: { branchCode },
-    });
+    // const existingBranch = await Branch.findOne({
+    //   where: { branchCode },
+    // });
 
-    if (existingBranch) {
-      return badRequest(res, "Branch already exists with this code");
-    }
+    // if (existingBranch) {
+    //   return badRequest(res, "Branch already exists with this code");
+    // }
 
     // ================= CREATE =================
 
@@ -3201,13 +3201,13 @@ export const addShift = async (req: Request, res: Response) => {
 
     // ================= DUPLICATE =================
 
-    const existing = await Shift.findOne({
-      where: { shiftCode },
-    });
+    // const existing = await Shift.findOne({
+    //   where: { shiftCode },
+    // });
 
-    if (existing) {
-      return badRequest(res, "Shift already exists with this code");
-    }
+    // if (existing) {
+    //   return badRequest(res, "Shift already exists with this code");
+    // }
 
     // ================= CREATE =================
 
@@ -3388,13 +3388,13 @@ export const addDepartment = async (req: Request, res: Response) => {
 
     // ================= DUPLICATE =================
 
-    const existing = await Department.findOne({
-      where: { deptCode },
-    });
+    // const existing = await Department.findOne({
+    //   where: { deptCode },
+    // });
 
-    if (existing) {
-      return badRequest(res, "Department already exists with this code");
-    }
+    // if (existing) {
+    //   return badRequest(res, "Department already exists with this code");
+    // }
 
     // ================= CREATE =================
 
@@ -3566,13 +3566,13 @@ export const addHoliday = async (req: Request, res: Response) => {
 
     // ================= DUPLICATE =================
 
-    const existing = await Holiday.findOne({
-      where: { holidayDate },
-    });
+    // const existing = await Holiday.findOne({
+    //   where: { holidayDate },
+    // });
 
-    if (existing) {
-      return badRequest(res, "Holiday already exists with this date");
-    }
+    // if (existing) {
+    //   return badRequest(res, "Holiday already exists with this date");
+    // }
 
     // ================= CREATE =================
 

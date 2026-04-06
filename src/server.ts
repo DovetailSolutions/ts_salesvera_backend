@@ -94,9 +94,9 @@ const io = new Server(server, {
 initChatSocket(io);
 
 // Listen for socket connections
-// io.on("connection", (socket) => {
-//   console.log("User connected:", socket.id);
-// });
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
+});
 
 // Start server (IMPORTANT)
 server.listen(PORT, () => {
