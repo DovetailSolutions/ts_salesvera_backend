@@ -11,7 +11,7 @@ import { SubCategoryModel } from "../app/model/subCategory";
 
 import { MeetingModel } from "../app/model/meeting";
 import { MeetingImageModel } from "../app/model/meetingImage";
-import { CompanyModel } from "../app/model/meetingCompany";
+import { MeetingCompanyModel } from "../app/model/meetingCompany";
 import { UserModel } from "../app/model/meetingUser";
 
 import { DeviceModel } from "../app/model/device";
@@ -65,7 +65,7 @@ const SubCategory = SubCategoryModel(sequelize);
 // Meeting
 const Meeting = MeetingModel(sequelize);
 const MeetingImage = MeetingImageModel(sequelize);
-const MeetingCompany = CompanyModel(sequelize);
+const MeetingCompany = MeetingCompanyModel(sequelize);
 const MeetingUser = UserModel(sequelize);
 
 // Device
