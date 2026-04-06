@@ -261,7 +261,42 @@ const ensureColumns = async (sequelize: Sequelize) => {
 
 
 
+/**
+ * 🛠️ MANUAL CONSTRAINT FIX
+ * Since we moved meeting data to 'meeting_companies', we must update the 
+ * foreign key constraints in your existing tables. 
+ */
+const fixConstraints = async (sequelize: Sequelize) => {
+  try {
+    // 1️⃣ Point 'meetings' to the correct 'meeting_companies' table
+    await sequelize.query(`
+      ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_company_id_fkey";
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_company_id_fkey" 
+      FOREIGN KEY ("company_id") REFERENCES "meeting_companies" ("id") 
+      ON DELETE CASCADE ON UPDATE CASCADE;
+    `);
+
+    // 2️⃣ Ensure 'meetings' points to correct 'users' and 'meeting_users'
+    await sequelize.query(`
+      ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_user_id_fkey";
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_user_id_fkey" 
+      FOREIGN KEY ("user_id") REFERENCES "users" ("id") 
+      ON DELETE CASCADE ON UPDATE CASCADE;
+
+      ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_meeting_user_id_fkey";
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_meeting_user_id_fkey" 
+      FOREIGN KEY ("meeting_user_id") REFERENCES "meeting_users" ("id") 
+      ON DELETE CASCADE ON UPDATE CASCADE;
+    `);
+
+    console.log("✅ Fixed all meeting-related database constraints");
+  } catch (err) {
+    console.error("❌ Error fixing constraints:", err);
+  }
+};
+
 // ===== DB CONNECTION =====
+
 
 export const connectDB = async () => {
   try {
@@ -270,9 +305,13 @@ export const connectDB = async () => {
     // 1️⃣ Run manual migration for specific missing columns
     await ensureColumns(sequelize);
 
-    // 2️⃣ Standard Sequelize sync
+    // 2️⃣ Fix foreign key constraints for meeting tables
+    await fixConstraints(sequelize);
+
+    // 3️⃣ Standard Sequelize sync
     await sequelize.sync({ alter: true });
     await sequelize.authenticate();
+
 
   } catch (err) {
     console.error("❌ DB error:", err);

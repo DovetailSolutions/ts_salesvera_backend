@@ -45,7 +45,6 @@ export const ShiftModel = (sequelize: Sequelize) => {
       shiftCode: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
       },
       startTime: {
         type: DataTypes.TIME, // better than string
