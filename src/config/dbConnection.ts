@@ -201,6 +201,11 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "customer_type", type: "VARCHAR(255)" },
         { name: "gst_number", type: "VARCHAR(255)" },
         { name: "quotation_number", type: "VARCHAR(255)" },
+        { name: "state", type: "VARCHAR(255)" },
+        { name: "city", type: "VARCHAR(255)" },
+        { name: "country", type: "VARCHAR(255)" },
+        { name: "remarks", type: "TEXT" },
+        { name: "address", type: "TEXT" },
       ],
     },
     {
@@ -216,6 +221,11 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "meeting_time_out", type: "TIMESTAMP" },
         { name: "total_distance", type: "VARCHAR(255)" },
         { name: "leg_distance", type: "VARCHAR(255)" },
+        { name: "status", type: "VARCHAR(50)" },
+        { name: "latitude_in", type: "VARCHAR(255)" },
+        { name: "longitude_in", type: "VARCHAR(255)" },
+        { name: "latitude_out", type: "VARCHAR(255)" },
+        { name: "longitude_out", type: "VARCHAR(255)" },
       ],
     },
     {
@@ -238,6 +248,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
     }
   }
 };
+
 
 
 // ===== DB CONNECTION =====
