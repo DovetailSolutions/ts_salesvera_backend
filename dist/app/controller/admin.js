@@ -57,7 +57,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getHoliday = exports.addHoliday = exports.getDepartmentById = exports.getDepartment = exports.addDepartment = exports.getShiftById = exports.getShift = exports.addShift = exports.getBranchById = exports.getBranch = exports.addBranch = exports.getCompanyById = exports.getCompany = exports.addCompany = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
-exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.getHolidayById = void 0;
+exports.getLeaveById = exports.getLeave = exports.addLeave = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.getHolidayById = void 0;
 const sequelize_1 = require("sequelize");
 const client_s3_1 = require("@aws-sdk/client-s3");
 const csv_parser_1 = __importDefault(require("csv-parser"));
@@ -3029,3 +3029,139 @@ const updateQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function
     }
 });
 exports.updateQuotation = updateQuotation;
+const addLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        console.log("userData", userData);
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const { leaveTypes, companyId, branchId } = req.body;
+        // 🔍 Validation
+        if (!Array.isArray(leaveTypes) || leaveTypes.length === 0) {
+            (0, errorMessage_1.badRequest)(res, "leaveTypes array is required");
+            return;
+        }
+        if (!companyId) {
+            (0, errorMessage_1.badRequest)(res, "Company ID is required");
+            return;
+        }
+        if (!branchId) {
+            (0, errorMessage_1.badRequest)(res, "Branch ID is required");
+            return;
+        }
+        // ✅ Prepare bulk data
+        const leaveData = leaveTypes.map((leave) => {
+            if (!leave.leaveName || !leave.leaveCode || !leave.leavesPerYear) {
+                throw new Error("leaveName, leaveCode, leavesPerYear are required in each item");
+            }
+            return {
+                leaveName: String(leave.leaveName),
+                leaveCode: String(leave.leaveCode),
+                leavesPerYear: Number(leave.leavesPerYear),
+                carryForward: Boolean(leave.carryForward),
+                carryForwardLimit: Number(leave.carryForwardLimit || 0),
+                managerApproval: Boolean(leave.managerApproval),
+                companyId: Number(companyId),
+                branchId: Number(branchId),
+                userId: Number(userData.userId),
+            };
+        });
+        // ✅ Bulk insert
+        const leaves = yield dbConnection_1.CompanyLeave.bulkCreate(leaveData);
+        (0, errorMessage_1.createSuccess)(res, "Leaves added successfully", leaves);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.addLeave = addLeave;
+const getLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        // ✅ Query params
+        const { page = "1", limit = "10", search = "", leaveCode, companyId, branchId, managerApproval, } = req.query;
+        const pageNumber = Number(page);
+        const pageSize = Number(limit);
+        const offset = (pageNumber - 1) * pageSize;
+        // ✅ Base filter
+        const whereCondition = {
+            userId: Number(userData.userId),
+        };
+        // ✅ Search (leaveName / leaveCode)
+        if (search) {
+            whereCondition[sequelize_1.Op.or] = [
+                { leaveName: { [sequelize_1.Op.like]: `%${search}%` } },
+                { leaveCode: { [sequelize_1.Op.like]: `%${search}%` } },
+            ];
+        }
+        // ✅ Filters
+        if (leaveCode) {
+            whereCondition.leaveCode = leaveCode;
+        }
+        if (companyId) {
+            whereCondition.companyId = Number(companyId);
+        }
+        if (branchId) {
+            whereCondition.branchId = Number(branchId);
+        }
+        if (managerApproval !== undefined) {
+            whereCondition.managerApproval = managerApproval === "true";
+        }
+        // ✅ Query with count
+        const { rows, count } = yield dbConnection_1.CompanyLeave.findAndCountAll({
+            where: whereCondition,
+            limit: pageSize,
+            offset,
+            order: [["createdAt", "DESC"]],
+        });
+        // ✅ Response
+        (0, errorMessage_1.createSuccess)(res, "Leaves fetched successfully", {
+            total: count,
+            currentPage: pageNumber,
+            totalPages: Math.ceil(count / pageSize),
+            data: rows,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getLeave = getLeave;
+const getLeaveById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const { id } = req.params || {};
+        if (!id) {
+            (0, errorMessage_1.badRequest)(res, "Leave ID is required");
+            return;
+        }
+        const leave = yield dbConnection_1.CompanyLeave.findOne({
+            where: {
+                id: Number(id),
+                userId: Number(userData.userId),
+            },
+        });
+        if (!leave) {
+            (0, errorMessage_1.badRequest)(res, "Leave not found");
+            return;
+        }
+        (0, errorMessage_1.createSuccess)(res, "Leave fetched successfully", leave);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getLeaveById = getLeaveById;

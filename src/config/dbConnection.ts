@@ -34,6 +34,8 @@ import { ShiftModel } from "../app/model/Shift";
 import { DepartmentModel } from "../app/model/department";
 import { HolidayModel } from "../app/model/holiday";
 
+import { CompanyLeave } from "../app/model/Leave";
+
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -43,13 +45,13 @@ const sequelize = new Sequelize(
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
-    logging: true,
-    dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false,
-      },
-    },
+    logging: false,
+    // dialectOptions: {
+    //   ssl: {
+    //     require: true,
+    //     rejectUnauthorized: false,
+    //   },
+    // },
   }
 );
 
@@ -91,6 +93,8 @@ const Branch = BranchModel(sequelize);
 const Shift = ShiftModel(sequelize);
 const Department = DepartmentModel(sequelize);
 const Holiday = HolidayModel(sequelize);
+
+CompanyLeave.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -214,4 +218,5 @@ export {
   Shift,
   Department,
   Holiday,
+  CompanyLeave
 };

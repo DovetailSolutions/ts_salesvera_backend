@@ -106,6 +106,17 @@ router.get("/getquotationlist",tokenCheck,AdminController.getQuotationPdfList2)
 router.post('/updatequotation/:id',tokenCheck,AdminController.updateQuotation)
 
 
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+router.post("/add-leave",tokenCheck, AdminController.addLeave);
+router.get("/get-leave", tokenCheck, AdminController.getLeave);
+router.get("/get-leave/:id", tokenCheck, AdminController.getLeaveById);
+// router.patch("/update-leave/:id", tokenCheck, AdminController.updateLeave);
+// router.delete("/delete-leave/:id", tokenCheck, AdminController.deleteLeave);
+
+
+
 
 
 

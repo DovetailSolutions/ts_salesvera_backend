@@ -631,11 +631,6 @@ export const CreateMeeting = async (
         { transaction }
       );
     }
-
-    /** --------------------------
-     * 4️⃣ Create Meeting
-     * -------------------------- */
-    // Helper to safely parse dates and avoid "Invalid date" DB crash
     const parseDateSafely = (dateStr: any) => {
       if (!dateStr || dateStr === "Invalid date") return undefined;
       const parsed = new Date(dateStr);
@@ -664,27 +659,22 @@ export const CreateMeeting = async (
     /** --------------------------
      * 5️⃣ Save Images
      * -------------------------- */
-    const files = req.files as Express.MulterS3.File[];
-
+    const files = req.files as Express.MulterS3.File[]
     if (files?.length) {
       const images = files.map((file) => ({
         meetingId: meeting.id,
         meetingUserId: meetingContactUser?.id,  // Link to Client
         image: file.location,
       }));
-
       await MeetingImage.bulkCreate(images, { transaction });
     }
-
     await transaction.commit();
 
     createSuccess(res, "Meeting successfully created", meeting);
   } catch (error) {
     await transaction.rollback();
-
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-
     badRequest(res, errorMessage);
   }
 };

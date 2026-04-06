@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -47,18 +47,20 @@ const branch_1 = require("../app/model/branch");
 const Shift_1 = require("../app/model/Shift");
 const department_1 = require("../app/model/department");
 const holiday_1 = require("../app/model/holiday");
+const Leave_1 = require("../app/model/Leave");
+Object.defineProperty(exports, "CompanyLeave", { enumerable: true, get: function () { return Leave_1.CompanyLeave; } });
 // ===== SEQUELIZE INIT =====
 const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
     host: env.DB_HOST,
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
-    logging: true,
-    dialectOptions: {
-        ssl: {
-            require: true,
-            rejectUnauthorized: false,
-        },
-    },
+    logging: false,
+    // dialectOptions: {
+    //   ssl: {
+    //     require: true,
+    //     rejectUnauthorized: false,
+    //   },
+    // },
 });
 exports.sequelize = sequelize;
 // ===== INIT MODELS =====
@@ -104,6 +106,7 @@ const Department = (0, department_1.DepartmentModel)(sequelize);
 exports.Department = Department;
 const Holiday = (0, holiday_1.HolidayModel)(sequelize);
 exports.Holiday = Holiday;
+Leave_1.CompanyLeave.initModel(sequelize);
 // ===== ASSOCIATIONS =====
 // User self relation
 User.belongsToMany(User, {
