@@ -309,8 +309,9 @@ export const connectDB = async () => {
     await fixConstraints(sequelize);
 
     // 3️⃣ Standard Sequelize sync
-    await sequelize.sync({ alter: true });
     await sequelize.authenticate();
+    await sequelize.sync({ alter: true });
+    
 
 
   } catch (err) {
