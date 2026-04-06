@@ -27,7 +27,9 @@ import {
   MeetingCompany,
   SubCategory,
   MeetingUser,
-  ExpenseImage,Quotations
+  ExpenseImage,
+  Quotations,
+  Company,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -2508,3 +2510,72 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
     badRequest(res, errorMessage, error);
   }
 }
+
+
+export const getCompany = async (req: Request, res: Response) => {
+  try {
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      companyName,
+      city,
+      state,
+    } = req.query;
+
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ✅ Dynamic where condition
+    const whereCondition: any = {};
+
+    // 🔍 Global search
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 🎯 Filters
+    if (companyName) {
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
+    }
+
+    if (city) {
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
+    }
+
+    if (state) {
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
+    }
+
+    // ✅ Query with count
+    const { rows, count } = await Company.findAndCountAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ Response
+    createSuccess(res, "Company list fetched successfully", {
+      total: count,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(count / pageSize),
+      data: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
