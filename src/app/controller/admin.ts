@@ -30,7 +30,8 @@ import {
   Company,
   Branch,Shift,
   Department,
-  Holiday
+  Holiday,
+  CompanyLeave
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -3874,4 +3875,177 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
   }
-}
+};
+
+
+export const addLeave = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    console.log("userData",userData);
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { leaveTypes, companyId, branchId } = req.body;
+
+    // 🔍 Validation
+    if (!Array.isArray(leaveTypes) || leaveTypes.length === 0) {
+      badRequest(res, "leaveTypes array is required");
+      return;
+    }
+
+    if (!companyId) {
+      badRequest(res, "Company ID is required");
+      return;
+    }
+
+    if (!branchId) {
+      badRequest(res, "Branch ID is required");
+      return;
+    }
+
+    // ✅ Prepare bulk data
+    const leaveData = leaveTypes.map((leave: any) => {
+      if (!leave.leaveName || !leave.leaveCode || !leave.leavesPerYear) {
+        throw new Error("leaveName, leaveCode, leavesPerYear are required in each item");
+      }
+
+      return {
+        leaveName: String(leave.leaveName),
+        leaveCode: String(leave.leaveCode),
+        leavesPerYear: Number(leave.leavesPerYear),
+        carryForward: Boolean(leave.carryForward),
+        carryForwardLimit: Number(leave.carryForwardLimit || 0),
+        managerApproval: Boolean(leave.managerApproval),
+        companyId: Number(companyId),
+        branchId: Number(branchId),
+        userId: Number(userData.userId),
+      };
+    });
+
+    // ✅ Bulk insert
+    const leaves = await CompanyLeave.bulkCreate(leaveData);
+
+    createSuccess(res, "Leaves added successfully", leaves);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getLeave = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    // ✅ Query params
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      leaveCode,
+      companyId,
+      branchId,
+      managerApproval,
+    } = req.query;
+
+    const pageNumber = Number(page);
+    const pageSize = Number(limit);
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ✅ Base filter
+    const whereCondition: any = {
+      userId: Number(userData.userId),
+    };
+
+    // ✅ Search (leaveName / leaveCode)
+    if (search) {
+      whereCondition[Op.or] = [
+        { leaveName: { [Op.like]: `%${search}%` } },
+        { leaveCode: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // ✅ Filters
+    if (leaveCode) {
+      whereCondition.leaveCode = leaveCode;
+    }
+
+    if (companyId) {
+      whereCondition.companyId = Number(companyId);
+    }
+
+    if (branchId) {
+      whereCondition.branchId = Number(branchId);
+    }
+
+    if (managerApproval !== undefined) {
+      whereCondition.managerApproval = managerApproval === "true";
+    }
+
+    // ✅ Query with count
+    const { rows, count } = await CompanyLeave.findAndCountAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ✅ Response
+    createSuccess(res, "Leaves fetched successfully", {
+      total: count,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(count / pageSize),
+      data: rows,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const getLeaveById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params || {};
+
+    if (!id) {
+      badRequest(res, "Leave ID is required");
+      return;
+    }
+
+    const leave = await CompanyLeave.findOne({
+      where: {
+        id: Number(id),
+        userId: Number(userData.userId),
+      },
+    });
+
+    if (!leave) {
+      badRequest(res, "Leave not found");
+      return;
+    }
+    createSuccess(res, "Leave fetched successfully", leave);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+

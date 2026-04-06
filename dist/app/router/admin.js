@@ -109,5 +109,11 @@ router.get("/getholiday/:id", jwtVerify_1.tokenCheck, AdminController.getHoliday
 router.post("/addquotation", jwtVerify_1.tokenCheck, AdminController.addQuotation2);
 router.get("/getquotationlist", jwtVerify_1.tokenCheck, AdminController.getQuotationPdfList2);
 router.post('/updatequotation/:id', jwtVerify_1.tokenCheck, AdminController.updateQuotation);
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+router.post("/add-leave", jwtVerify_1.tokenCheck, AdminController.addLeave);
+router.get("/get-leave", jwtVerify_1.tokenCheck, AdminController.getLeave);
+router.get("/get-leave/:id", jwtVerify_1.tokenCheck, AdminController.getLeaveById);
+// router.patch("/update-leave/:id", tokenCheck, AdminController.updateLeave);
+// router.delete("/delete-leave/:id", tokenCheck, AdminController.deleteLeave);
 // meeting apis 
 exports.default = router;

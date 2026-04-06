@@ -543,10 +543,6 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 meetingUserId: meetingContactUser === null || meetingContactUser === void 0 ? void 0 : meetingContactUser.id, // Link to Client
             }, { transaction });
         }
-        /** --------------------------
-         * 4️⃣ Create Meeting
-         * -------------------------- */
-        // Helper to safely parse dates and avoid "Invalid date" DB crash
         const parseDateSafely = (dateStr) => {
             if (!dateStr || dateStr === "Invalid date")
                 return undefined;
