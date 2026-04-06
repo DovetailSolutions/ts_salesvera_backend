@@ -593,6 +593,11 @@ export const CreateMeeting = async (
     /** --------------------------
      * 2️⃣ Check Active Meeting
      * -------------------------- */
+
+
+
+    console.log("finalUserId",finalUserId)
+    console.log("meetingContactUser",meetingContactUser)
     const activeMeeting = await Meeting.findOne({
       where: {
         userId: finalUserId,
