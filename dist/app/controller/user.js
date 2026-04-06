@@ -448,7 +448,7 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     try {
         const userData = req.userData;
         const tokenUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        let { userName, userMobile, userEmail, companyName, personName, mobileNumber, customerType, companyEmail, meetingPurpose, categoryId, status, latitude_in, longitude_in, meetingTimeIn, scheduledTime, state, city, country, address } = req.body || {};
+        let { userName, userMobile, userEmail, companyName, personName, mobileNumber, customerType, companyEmail, meetingPurpose, categoryId, status, latitude_in, longitude_in, meetingTimeIn, scheduledTime, state, city, country, address, gstNumber, remarks, } = req.body || {};
         // Trim all string inputs to avoid trailing space errors in enums
         if (typeof customerType === "string")
             customerType = customerType.trim();
@@ -464,6 +464,10 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             mobileNumber = mobileNumber.trim();
         if (typeof companyEmail === "string")
             companyEmail = companyEmail.trim();
+        if (typeof gstNumber === "string")
+            gstNumber = gstNumber.trim();
+        if (typeof remarks === "string")
+            remarks = remarks.trim();
         /** Required fields */
         const requiredFields = {
             // userMobile,  <-- Usually optional if they are a new lead
@@ -540,14 +544,16 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                 city,
                 country,
                 address,
+                gstNumber,
+                remarks,
                 meetingUserId: meetingContactUser === null || meetingContactUser === void 0 ? void 0 : meetingContactUser.id, // Link to Client
             }, { transaction });
         }
         const parseDateSafely = (dateStr) => {
-            if (!dateStr || dateStr === "Invalid date")
-                return undefined;
+            if (!dateStr || dateStr === "Invalid date" || dateStr === "")
+                return null;
             const parsed = new Date(dateStr);
-            return isNaN(parsed.getTime()) ? undefined : parsed;
+            return isNaN(parsed.getTime()) ? null : parsed;
         };
         const validMeetingTimeIn = parseDateSafely(meetingTimeIn);
         const validScheduledTime = parseDateSafely(scheduledTime);
