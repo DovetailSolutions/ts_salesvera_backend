@@ -3560,8 +3560,9 @@ export const addHoliday = async (req: Request, res: Response) => {
         return badRequest(res, "Holiday type is required");
       }
 
-      if (!branchId || isNaN(Number(branchId))) {
-        return badRequest(res, "Valid branchId is required");
+      // ✅ NEW: branchId must be array
+      if (!Array.isArray(branchId) || branchId.length === 0) {
+        return badRequest(res, "branchId must be a non-empty array");
       }
 
       if (!adminId || isNaN(Number(adminId))) {
@@ -3574,17 +3575,23 @@ export const addHoliday = async (req: Request, res: Response) => {
 
       // ================= PREPARE =================
 
-      holidayData.push({
-        holidayName: String(holidayName),
-        holidayDate,
-        holidayType: String(holidayType),
-        branchId: Number(branchId),
-        description: description || null,
-        adminId: Number(adminId),
-        managerId: Number(managerId),
-        userId: Number(userData.userId),
-        companyId: companyId || null,
-      });
+      for (const branch of branchId) {
+        if (isNaN(Number(branch))) {
+          return badRequest(res, "Invalid branchId value");
+        }
+
+        holidayData.push({
+          holidayName: String(holidayName),
+          holidayDate,
+          holidayType: String(holidayType),
+          branchId: Number(branch),
+          description: description || null,
+          adminId: Number(adminId),
+          managerId: Number(managerId),
+          userId: Number(userData.userId),
+          companyId: companyId || null,
+        });
+      }
     }
 
     // ================= BULK CREATE =================
