@@ -242,10 +242,49 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "address", type: "TEXT" },
       ],
     },
-
+    {
+      tableName: "shifts",
+      columns: [
+        { name: "shiftName", type: "VARCHAR(255)" },
+        { name: "shiftCode", type: "VARCHAR(255)" },
+        { name: "startTime", type: "TIME" },
+        { name: "endTime", type: "TIME" },
+        { name: "adminId", type: "INTEGER" },
+        { name: "managerId", type: "INTEGER" },
+        { name: "userId", type: "INTEGER" },
+        { name: "companyId", type: "INTEGER" },
+        { name: "branchId", type: "INTEGER" },
+      ],
+    },
   ];
 
   for (const config of tableConfigs) {
+    // 1️⃣ Ensure Table Exists (Emergency fallback for missing tables)
+    if (config.tableName === "shifts") {
+      try {
+        await sequelize.query(`
+          CREATE TABLE IF NOT EXISTS "shifts" (
+            "id" SERIAL PRIMARY KEY,
+            "shiftName" VARCHAR(255),
+            "shiftCode" VARCHAR(255),
+            "startTime" TIME,
+            "endTime" TIME,
+            "adminId" INTEGER,
+            "managerId" INTEGER,
+            "userId" INTEGER,
+            "companyId" INTEGER,
+            "branchId" INTEGER,
+            "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+          );
+        `);
+        console.log(`✅ Ensured table exists: shifts`);
+      } catch (err) {
+        console.error(`❌ Error creating table shifts:`, err);
+      }
+    }
+
+    // 2️⃣ Ensure Columns Exist
     for (const column of config.columns) {
       try {
         await sequelize.query(`
@@ -258,7 +297,25 @@ const ensureColumns = async (sequelize: Sequelize) => {
       }
     }
   }
+
+  // 3️⃣ Remove Unique Constraints to allow duplicates (as requested)
+  const constraintsToDrop = [
+    { table: "shifts", constraint: "shifts_shiftCode_key" },
+    { table: "branches", constraint: "branches_branchCode_key" },
+    { table: "departments", constraint: "departments_deptCode_key" },
+    { table: "holidays", constraint: "holidays_holidayDate_key" },
+  ];
+
+  for (const item of constraintsToDrop) {
+    try {
+      await sequelize.query(`ALTER TABLE "${item.table}" DROP CONSTRAINT IF EXISTS "${item.constraint}";`);
+      console.log(`✅ Dropped unique constraint ${item.constraint} from ${item.table}`);
+    } catch (err) {
+      // Ignore if doesn't exist
+    }
+  }
 };
+
 
 
 
