@@ -246,7 +246,7 @@ export const GetProfile = async (
         include: [
           {
             model: CompanyBank,
-            as: "banks",
+            as: "companyBanks",
             where: { companyId: col("Company.id") },
             required: false,
           },
