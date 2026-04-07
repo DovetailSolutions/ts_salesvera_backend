@@ -176,24 +176,84 @@ export const GetProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+    const loggedInId = Number(userData.userId);
 
-    // ✅ Fetch user profile along with their parent (creator/manager/admin)
-    const item = await User.findByPk(Number(userData.userId), {
-      include: [
-        {
+    // ✅ Step 1: Fetch the logged-in user's own profile
+    const item = await User.findByPk(loggedInId);
+    if (!item) {
+      badRequest(res, "User not found");
+      return;
+    }
+    const profile = item.get({ plain: true }) as any;
+
+    // ✅ Step 2: Walk UP the hierarchy to find the root admin
+    // Chain: sale_person → manager → admin
+    // We keep going until we find someone with role "admin" or "super_admin"
+    let currentId = loggedInId;
+    let rootAdminId: number | null = null;
+    let parentUser: any = null;       // direct parent of the logged-in user
+    let isFirst = true;               // track first level = direct parent
+
+    while (true) {
+      // Find who created the current user
+      const currentUser = await User.findByPk(currentId, {
+        include: [{
           model: User,
-          as: "creators",           // 👈 finds the parent (who created this user)
+          as: "creators",           // 👈 "creators" = who created this user (parent)
           attributes: ["id", "firstName", "lastName", "email", "role"],
-          through: { attributes: [] }, // hide junction table fields
-        },
-      ],
-    });
+          through: { attributes: [] },
+        }],
+      });
 
-    // ✅ Flatten: extract first creator as "parent"
-    const profile = item?.get({ plain: true }) as any;
-    if (profile) {
-      profile.parent = profile.creators?.[0] || null; // parent = first creator
-      delete profile.creators; // remove raw array, keep it clean
+      const plain = currentUser?.get({ plain: true }) as any;
+      const creator = plain?.creators?.[0] || null;
+
+      // Save direct parent (first iteration only)
+      if (isFirst) {
+        parentUser = creator
+          ? { id: creator.id, firstName: creator.firstName, lastName: creator.lastName, email: creator.email, role: creator.role }
+          : null;
+        isFirst = false;
+      }
+
+      if (!creator) {
+        // No more parents — stop here; current user is the root
+        if (plain?.role === "admin" || plain?.role === "super_admin") {
+          rootAdminId = currentId;
+        }
+        break;
+      }
+
+      // If the creator is an admin / super_admin → they are the root
+      if (creator.role === "admin" || creator.role === "super_admin") {
+        rootAdminId = creator.id;
+        break;
+      }
+
+      // Otherwise go up one more level
+      currentId = creator.id;
+    }
+
+    // ✅ Step 3: Attach the direct parent to the profile
+    profile.parent = parentUser;
+
+    // ✅ Step 4: Fetch the company linked to the root admin
+    // sale_person → manager → admin → company (adminId = admin.id)
+    if (rootAdminId) {
+      const company = await Company.findOne({
+        where: { adminId: rootAdminId }, // 👈 company where adminId = root admin's ID
+      });
+      profile.company = company || null;
+    } else {
+      // If the user IS the admin themselves, find their own company
+      if (userData.role === "admin" || userData.role === "super_admin") {
+        const company = await Company.findOne({
+          where: { adminId: loggedInId },
+        });
+        profile.company = company || null;
+      } else {
+        profile.company = null;
+      }
     }
 
     createSuccess(res, "user details", profile);
@@ -203,6 +263,9 @@ export const GetProfile = async (
     badRequest(res, errorMessage);
   }
 };
+
+
+
 
 
 
