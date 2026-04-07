@@ -348,6 +348,31 @@ const ensureColumns = async (sequelize: Sequelize) => {
       // Ignore if doesn't exist
     }
   }
+
+  // ✅ Ensure company_banks table exists (new table added to model)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "company_banks" (
+        "id" SERIAL PRIMARY KEY,
+        "companyId" INTEGER NOT NULL,
+        "branchId" INTEGER,
+        "userId" INTEGER NOT NULL,
+        "bankAccountHolder" VARCHAR(255) NOT NULL,
+        "bankName" VARCHAR(255) NOT NULL,
+        "bankAccountNumber" VARCHAR(255) NOT NULL,
+        "bankIfsc" VARCHAR(255) NOT NULL,
+        "bankBranchName" VARCHAR(255),
+        "bankAccountType" VARCHAR(255),
+        "bankMicr" VARCHAR(255),
+        "upiId" VARCHAR(255),
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log(`✅ Ensured table exists: company_banks`);
+  } catch (err) {
+    console.error(`❌ Error creating table company_banks:`, err);
+  }
 };
 
 
