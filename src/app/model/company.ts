@@ -37,6 +37,8 @@ interface CompanyAttributes {
   compOffExpiryDays: number;
   casualCarryForwardLimit: number;
   casualCarryForwardExpiry: number;
+  adminId: number;
+  managerId: number;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -85,6 +87,8 @@ export class Company
   public casualCarryForwardLimit!: number;
   public casualCarryForwardExpiry!: number;
   public userId!: number;
+  public adminId!: number;
+  public managerId!: number;
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -136,6 +140,8 @@ export const CompanyModell = (sequelize: Sequelize) => {
       casualCarryForwardLimit: { type: DataTypes.INTEGER, allowNull: true },
       casualCarryForwardExpiry: { type: DataTypes.INTEGER, allowNull: true },
       userId: { type: DataTypes.INTEGER, allowNull: true },
+      adminId: { type: DataTypes.INTEGER, allowNull: true },
+      managerId: { type: DataTypes.INTEGER, allowNull: true },
     },
     {
       tableName: "companies",

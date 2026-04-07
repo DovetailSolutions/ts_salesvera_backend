@@ -2689,6 +2689,8 @@ export const addCompany = async (
       compOffExpiryDays,
       casualCarryForwardLimit,
       casualCarryForwardExpiry,
+      adminId,
+      managerId,
     } = req.body;
 
     // ================= VALIDATION =================
@@ -2800,6 +2802,8 @@ export const addCompany = async (
       casualCarryForwardLimit,
       casualCarryForwardExpiry,
       userId: userData.userId,
+      adminId:adminId || null,
+      managerId:managerId || null
     });
 
     createSuccess(res, "Company added successfully", company);
