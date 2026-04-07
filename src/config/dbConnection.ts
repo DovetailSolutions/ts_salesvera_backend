@@ -203,7 +203,8 @@ Shift.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(CompanyLeave, { foreignKey: "companyId", as: "companyLeaves" });
 CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
-
+Company.hasMany(CompanyBank, { foreignKey: "companyId", as: "companyBanks" });
+CompanyBank.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
 
 /**

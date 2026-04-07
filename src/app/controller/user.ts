@@ -34,7 +34,8 @@ import {
   Shift,
   Department,
   Holiday,
-  CompanyLeave
+  CompanyLeave,
+  CompanyBank
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -241,7 +242,16 @@ export const GetProfile = async (
     // sale_person → manager → admin → company (adminId = admin.id)
     if (rootAdminId) {
       const company = await Company.findOne({
-        where: { adminId: rootAdminId }, // 👈 company where adminId = root admin's ID
+        where: { adminId: rootAdminId },
+        include: [
+          {
+            model: CompanyBank,
+            as: "banks",
+            where: { companyId: col("Company.id") },
+            required: false,
+          },
+        ],
+         // 👈 company where adminId = root admin's ID
       });
       profile.company = company || null;
     } else {
