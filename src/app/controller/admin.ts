@@ -31,7 +31,8 @@ import {
   Branch,Shift,
   Department,
   Holiday,
-  CompanyLeave
+  CompanyLeave,
+  CompanyBank
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -4121,3 +4122,44 @@ export const getLeaveById = async (req: Request, res: Response): Promise<void> =
   }
 };
 
+
+export const addCompanyBank = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const { companyId, banks } = req.body;
+
+    if (!companyId) {
+      return badRequest(res, "companyId is required");
+    }
+
+    if (!Array.isArray(banks) || banks.length === 0) {
+      return badRequest(res, "banks array is required");
+    }
+
+    const bankData = banks.map((b: any) => ({
+      companyId: Number(companyId),
+      branchId: b.branchId ? Number(b.branchId) : null, // ✅ optional
+      userId: Number(userData.userId),
+
+      bankAccountHolder: b.bankAccountHolder,
+      bankName: b.bankName,
+      bankAccountNumber: b.bankAccountNumber,
+      bankIfsc: b.bankIfsc,
+      bankBranchName: b.bankBranchName || null,
+      bankAccountType: b.bankAccountType || null,
+      bankMicr: b.bankMicr || null,
+      upiId: b.upiId || null,
+    }));
+
+    const result = await CompanyBank.bulkCreate(bankData);
+
+    return createSuccess(res, "Bank details added successfully", result);
+  } catch (error) {
+    return badRequest(res, "Error adding bank details", error);
+  }
+};

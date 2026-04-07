@@ -116,6 +116,13 @@ router.get("/get-leave/:id", tokenCheck, AdminController.getLeaveById);
 // router.delete("/delete-leave/:id", tokenCheck, AdminController.deleteLeave);
 
 
+router.post("/add-bank",tokenCheck,AdminController.addCompanyBank);
+// router.get("/get-bank",tokenCheck,AdminController.getBank);
+// router.get("/get-bank/:id",tokenCheck,AdminController.getBankById);
+// router.patch("/update-bank/:id",tokenCheck,AdminController.updateBank);
+// router.delete("/delete-bank/:id",tokenCheck,AdminController.deleteBank);
+
+
 
 
 

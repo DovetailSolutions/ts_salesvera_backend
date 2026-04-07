@@ -36,6 +36,8 @@ import { HolidayModel } from "../app/model/holiday";
 
 import { CompanyLeave } from "../app/model/Leave";
 
+import { CompanyBankModel } from "../app/model/bank";
+
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -96,6 +98,8 @@ const Holiday = HolidayModel(sequelize);
 const Shift = ShiftModel(sequelize);
 
 CompanyLeave.initModel(sequelize);
+
+const CompanyBank = CompanyBankModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -431,5 +435,6 @@ export {
   Shift,
   Department,
   Holiday,
-  CompanyLeave
+  CompanyLeave,
+  CompanyBank
 };
