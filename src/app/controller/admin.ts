@@ -3820,7 +3820,12 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
       }]
     });
 
+
+    console.log("directReports",directReports)
+
     const reportIds = ((directReports as any)?.creators || []).map((u: any) => u.id);
+
+    console.log("reportIds",reportIds)
 
     // 2️⃣ Get users created by those managers (Manager > Sales Person)
     let salesPersonIds: number[] = [];
@@ -3835,13 +3840,17 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
       });
 
       secondLevel.forEach((u: any) => {
-        const subUsers = u.createdUsers || [];
+        const subUsers = u.creators || [];
         subUsers.forEach((su: any) => salesPersonIds.push(su.id));
       });
     }
 
+    console.log("salesPersonIds",salesPersonIds)
+
     // 3️⃣ Combine all IDs (Self + Managers + Sales Persons)
     const teamUserIds = Array.from(new Set([userData.userId, ...reportIds, ...salesPersonIds]));
+
+    console.log("teamUserIds",teamUserIds)
 
     // ✅ Base where condition for Quotations
     // Now we filter by all IDs in the hierarchy
