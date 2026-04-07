@@ -3793,6 +3793,7 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
 export const getQuotationPdfList2 = async (req: Request, res: Response) => {
   try {
     const userData = req.userData as JwtPayload;
+    
 
     if (!userData || !userData.userId) {
       return badRequest(res, "Unauthorized request");
@@ -3806,15 +3807,48 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     // ✅ Filters
     const status = String(req.query.status || "").toLowerCase();
     const companyName = String(req.query.companyName || "").toLowerCase();
+    // 🟢 HIERARCHY LOGIC 🟢
+    // Admin > Manager > Sales Person
+    // We fetch all sub-users created by the logged-in user, and their sub-users too.
+    
+    // 1️⃣ Get users created by the logged-in user
+    const directReports = await User.findByPk(userData.userId, {
+      include: [{
+        model: User,
+        as: "creators",
+        attributes: ["id", "role"]
+      }]
+    });
 
-  
+    const reportIds = ((directReports as any)?.creators || []).map((u: any) => u.id);
 
-   
+    // 2️⃣ Get users created by those managers (Manager > Sales Person)
+    let salesPersonIds: number[] = [];
+    if (reportIds.length > 0) {
+      const secondLevel = await User.findAll({
+        where: { id: { [Op.in]: reportIds } },
+        include: [{
+          model: User,
+          as: "creators",
+          attributes: ["id", "role"]
+        }]
+      });
 
-    // ✅ Base where condition
+      secondLevel.forEach((u: any) => {
+        const subUsers = u.createdUsers || [];
+        subUsers.forEach((su: any) => salesPersonIds.push(su.id));
+      });
+    }
+
+    // 3️⃣ Combine all IDs (Self + Managers + Sales Persons)
+    const teamUserIds = Array.from(new Set([userData.userId, ...reportIds, ...salesPersonIds]));
+
+    // ✅ Base where condition for Quotations
+    // Now we filter by all IDs in the hierarchy
     let whereCondition: any = {
-      userId: userData.userId,
+      userId: { [Op.in]: teamUserIds },
     };
+
 
     // ✅ Status filter
     if (status) {
