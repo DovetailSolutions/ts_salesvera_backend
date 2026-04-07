@@ -275,7 +275,18 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "branchId", type: "INTEGER" },
       ],
     },
+    {
+      // ✅ Companies table: ensure 'adminId' and 'managerId' columns exist
+      // These were added to the model but the AWS DB doesn't have them yet
+      // because Sequelize's alter:true sync failed to add them automatically.
+      tableName: "companies",
+      columns: [
+        { name: "adminId", type: "INTEGER" },
+        { name: "managerId", type: "INTEGER" },
+      ],
+    },
   ];
+
 
   for (const config of tableConfigs) {
     // 1️⃣ Ensure Table Exists (Emergency fallback for missing tables)
