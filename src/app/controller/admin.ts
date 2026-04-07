@@ -3811,52 +3811,50 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     // Admin > Manager > Sales Person
     // We fetch all sub-users created by the logged-in user, and their sub-users too.
     
-    // 1️⃣ Get users created by the logged-in user
-    const directReports = await User.findByPk(userData.userId, {
-      include: [{
-        model: User,
-        as: "creators",
-        attributes: ["id", "role"]
-      }]
-    });
+    // 🟢 DEEP HIERARCHY LOGIC (Recursive Descendants) 🟢
+    // Starts with the logged-in user and recursively finds all children, grandchildren, etc.
+    // This supports chains like: Admin(1) > Manager(15) > Manager(16) > Sales Person(17)
+    
+    let teamUserIds: any[] = [userData.userId]; 
+    let currentParentIds: any[] = [userData.userId];
 
-
-    console.log("directReports",directReports)
-
-    const reportIds = ((directReports as any)?.creators || []).map((u: any) => u.id);
-
-    console.log("reportIds",reportIds)
-
-    // 2️⃣ Get users created by those managers (Manager > Sales Person)
-    let salesPersonIds: number[] = [];
-    if (reportIds.length > 0) {
-      const secondLevel = await User.findAll({
-        where: { id: { [Op.in]: reportIds } },
+    // 🔄 Loop until no more children are found at the next level
+    while (currentParentIds.length > 0) {
+      // Find all users created by the current batch of parents
+      const subUsers = await User.findAll({
+        where: { id: { [Op.in]: currentParentIds } },
         include: [{
           model: User,
-          as: "creators",
-          attributes: ["id", "role"]
+          as: "createdUsers", // 👈 "createdUsers" finds CHILDREN (not creators/parents)
+          attributes: ["id"]
         }]
       });
 
-      secondLevel.forEach((u: any) => {
-        const subUsers = u.creators || [];
-        subUsers.forEach((su: any) => salesPersonIds.push(su.id));
+      let nextLevelParentIds: any[] = [];
+      
+      subUsers.forEach((u: any) => {
+        const children = (u as any).createdUsers || [];
+        children.forEach((child: any) => {
+          // If we haven't seen this user yet, add them to the team and search their children next
+          if (!teamUserIds.includes(child.id)) {
+            teamUserIds.push(child.id);
+            nextLevelParentIds.push(child.id);
+          }
+        });
       });
+
+      // Move to the next generation
+      currentParentIds = nextLevelParentIds;
     }
 
-    console.log("salesPersonIds",salesPersonIds)
-
-    // 3️⃣ Combine all IDs (Self + Managers + Sales Persons)
-    const teamUserIds = Array.from(new Set([userData.userId, ...reportIds, ...salesPersonIds]));
-
-    console.log("teamUserIds",teamUserIds)
+    console.log("Final Team User IDs (Recursive):", teamUserIds);
 
     // ✅ Base where condition for Quotations
-    // Now we filter by all IDs in the hierarchy
+    // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
     };
+
 
 
     // ✅ Status filter
