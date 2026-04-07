@@ -3548,6 +3548,8 @@ export const addHoliday = async (req: Request, res: Response) => {
         managerId,
       } = item;
 
+      // ---------- FIELD VALIDATION ----------
+
       if (!holidayName || holidayName.trim().length < 2) {
         return badRequest(res, "Holiday name is required");
       }
@@ -3560,20 +3562,11 @@ export const addHoliday = async (req: Request, res: Response) => {
         return badRequest(res, "Holiday type is required");
       }
 
-      // ✅ NEW: branchId must be array
       if (!Array.isArray(branchId) || branchId.length === 0) {
         return badRequest(res, "branchId must be a non-empty array");
       }
 
-      // if (!adminId || isNaN(Number(adminId))) {
-      //   return badRequest(res, "Valid adminId is required");
-      // }
-
-      // if (!managerId || isNaN(Number(managerId))) {
-      //   return badRequest(res, "Valid managerId is required");
-      // }
-
-      // ================= PREPARE =================
+      // ---------- PREPARE MULTI-BRANCH DATA ----------
 
       for (const branch of branchId) {
         if (isNaN(Number(branch))) {
@@ -3586,23 +3579,35 @@ export const addHoliday = async (req: Request, res: Response) => {
           holidayType: String(holidayType),
           branchId: Number(branch),
           description: description || null,
-          adminId: Number(adminId),
-          managerId: Number(managerId),
+
+          // ✅ FIX: Avoid NaN
+          adminId: adminId ? Number(adminId) : null,
+          managerId: managerId ? Number(managerId) : null,
+
           userId: Number(userData.userId),
-          companyId: companyId || null,
+          companyId: companyId ? Number(companyId) : null,
         });
       }
     }
+
+    // ================= DEBUG (optional) =================
+    // console.log(JSON.stringify(holidayData, null, 2));
 
     // ================= BULK CREATE =================
 
     const holidaysCreated = await Holiday.bulkCreate(holidayData);
 
-    createSuccess(res, "Holidays added successfully", holidaysCreated);
+    return createSuccess(
+      res,
+      "Holidays added successfully",
+      holidaysCreated
+    );
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+
+    return badRequest(res, errorMessage, error);
   }
 };
 
