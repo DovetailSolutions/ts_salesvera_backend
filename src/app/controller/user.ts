@@ -247,7 +247,6 @@ export const GetProfile = async (
           {
             model: CompanyBank,
             as: "companyBanks",
-            where: { companyId: col("Company.id") },
             required: false,
           },
         ],
