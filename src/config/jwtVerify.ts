@@ -61,11 +61,11 @@ export const tokenCheck = async (
       User.findOne({
         where: {
           id,
-          [Op.or]: [{ role: "admin" }, { role: "super_admin" },{role:"manager"}],
+          [Op.or]: [{ role: "admin" }, { role: "super_admin" },{role:"manager"},{role:"sale_person"}],
         },
       }),
     ]);
-    if ((item && item?.role === "admin") || item?.role === "super_admin" ||item?.role === "manager") {
+    if ((item && item?.role === "admin") || item?.role === "super_admin" ||item?.role === "manager"||item?.role === "sale_person") {
       return next();
     }
     return res.status(403).json({
