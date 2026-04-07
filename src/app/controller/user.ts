@@ -176,7 +176,7 @@ export const GetProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const item = await Middleware.getById(User, Number(userData.userId));
+    const item = await User.findByPk(Number(userData.userId));
     createSuccess(res, "user details", item);
   } catch (error) {
     const errorMessage =
