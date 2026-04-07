@@ -176,14 +176,35 @@ export const GetProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const item = await User.findByPk(Number(userData.userId));
-    createSuccess(res, "user details", item);
+
+    // ✅ Fetch user profile along with their parent (creator/manager/admin)
+    const item = await User.findByPk(Number(userData.userId), {
+      include: [
+        {
+          model: User,
+          as: "creators",           // 👈 finds the parent (who created this user)
+          attributes: ["id", "firstName", "lastName", "email", "role"],
+          through: { attributes: [] }, // hide junction table fields
+        },
+      ],
+    });
+
+    // ✅ Flatten: extract first creator as "parent"
+    const profile = item?.get({ plain: true }) as any;
+    if (profile) {
+      profile.parent = profile.creators?.[0] || null; // parent = first creator
+      delete profile.creators; // remove raw array, keep it clean
+    }
+
+    createSuccess(res, "user details", profile);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };
+
+
 
 export const UpdateProfile = async (
   req: Request,
