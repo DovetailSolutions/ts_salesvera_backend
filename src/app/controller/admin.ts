@@ -3790,96 +3790,213 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
 
 
 
+// export const getQuotationPdfList2 = async (req: Request, res: Response) => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+    
+
+//     if (!userData || !userData.userId) {
+//       return badRequest(res, "Unauthorized request");
+//     }
+
+//     // ✅ Pagination
+//     const page = Number(req.query.page) || 1;
+//     const limit = Number(req.query.limit) || 10;
+//     const offset = (page - 1) * limit;
+
+//     // ✅ Filters
+//     const status = String(req.query.status || "").toLowerCase();
+//     const companyName = String(req.query.companyName || "").toLowerCase();
+//     // 🟢 HIERARCHY LOGIC 🟢
+//     // Admin > Manager > Sales Person
+//     // We fetch all sub-users created by the logged-in user, and their sub-users too.
+    
+//     // 🟢 DEEP HIERARCHY LOGIC (Recursive Descendants) 🟢
+//     // Starts with the logged-in user and recursively finds all children, grandchildren, etc.
+//     // This supports chains like: Admin(1) > Manager(15) > Manager(16) > Sales Person(17)
+    
+//     let teamUserIds: any[] = [userData.userId]; 
+//     let currentParentIds: any[] = [userData.userId];
+
+//     // 🔄 Loop until no more children are found at the next level
+//     while (currentParentIds.length > 0) {
+//       // Find all users created by the current batch of parents
+//       const subUsers = await User.findAll({
+//         where: { id: { [Op.in]: currentParentIds } },
+//         include: [{
+//           model: User,
+//           as: "createdUsers", // 👈 "createdUsers" finds CHILDREN (not creators/parents)
+//           attributes: ["id"]
+//         }]
+//       });
+
+//       let nextLevelParentIds: any[] = [];
+      
+//       subUsers.forEach((u: any) => {
+//         const children = (u as any).createdUsers || [];
+//         children.forEach((child: any) => {
+//           // If we haven't seen this user yet, add them to the team and search their children next
+//           if (!teamUserIds.includes(child.id)) {
+//             teamUserIds.push(child.id);
+//             nextLevelParentIds.push(child.id);
+//           }
+//         });
+//       });
+
+//       // Move to the next generation
+//       currentParentIds = nextLevelParentIds;
+//     }
+
+//     console.log("Final Team User IDs (Recursive):", teamUserIds);
+
+//     // ✅ Base where condition for Quotations
+//     // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
+//     let whereCondition: any = {
+//       userId: { [Op.in]: teamUserIds },
+//     };
+
+
+
+//     // ✅ Status filter
+//     if (status) {
+//       whereCondition.status = status;
+//     }
+
+//     // ✅ Company name filter (PostgreSQL JSON)
+// if (companyName) {
+//   whereCondition[Op.and] = [
+//     literal(
+//       `LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`
+//     ),
+//   ];
+// }
+
+//     // ✅ Query
+//     const { count, rows } = await Quotations.findAndCountAll({
+//       where: whereCondition,
+//       order: [["createdAt", "ASC"]],
+//       limit,
+//       offset,
+//     });
+
+//   const updatedRows = rows.map((item: any, rowIndex: number) => {
+//       const data = item.toJSON();
+//       const { quotation, ...rest } = data;
+
+//       const finalQuotation = quotation?.quotation || quotation;
+
+//       // ✅ Add index inside items
+//       if (finalQuotation?.items && Array.isArray(finalQuotation.items)) {
+//         finalQuotation.items = finalQuotation.items.map(
+//           (itm: any, itemIndex: number) => ({
+//             index: itemIndex + 1, // item index
+//             ...itm,
+//           })
+//         );
+//       }
+
+//       return {
+//         ...rest,
+//         rowIndex: offset + rowIndex + 1, // pagination-aware index
+//         quotation: finalQuotation,
+//       };
+//     });
+
+//     return createSuccess(res, "Quotation list fetched successfully", {
+//       total: count,
+//       page,
+//       totalPages: Math.ceil(count / limit),
+//       data: updatedRows,
+//     });
+
+//   } catch (error) {
+//     console.error("API Error:", error);
+
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+
+//     return badRequest(res, errorMessage);
+//   }
+// };
 export const getQuotationPdfList2 = async (req: Request, res: Response) => {
   try {
     const userData = req.userData as JwtPayload;
-    
 
     if (!userData || !userData.userId) {
       return badRequest(res, "Unauthorized request");
     }
 
-    // ✅ Pagination
+    // ================= PAGINATION =================
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    // ✅ Filters
+    // ================= FILTERS =================
     const status = String(req.query.status || "").toLowerCase();
     const companyName = String(req.query.companyName || "").toLowerCase();
-    // 🟢 HIERARCHY LOGIC 🟢
-    // Admin > Manager > Sales Person
-    // We fetch all sub-users created by the logged-in user, and their sub-users too.
-    
-    // 🟢 DEEP HIERARCHY LOGIC (Recursive Descendants) 🟢
-    // Starts with the logged-in user and recursively finds all children, grandchildren, etc.
-    // This supports chains like: Admin(1) > Manager(15) > Manager(16) > Sales Person(17)
-    
-    let teamUserIds: any[] = [userData.userId]; 
-    let currentParentIds: any[] = [userData.userId];
 
-    // 🔄 Loop until no more children are found at the next level
-    while (currentParentIds.length > 0) {
-      // Find all users created by the current batch of parents
-      const subUsers = await User.findAll({
-        where: { id: { [Op.in]: currentParentIds } },
-        include: [{
-          model: User,
-          as: "createdUsers", // 👈 "createdUsers" finds CHILDREN (not creators/parents)
-          attributes: ["id"]
-        }]
-      });
+    // ================= 🔥 OPTIMIZED HIERARCHY =================
+    const userId = userData.userId;
 
-      let nextLevelParentIds: any[] = [];
-      
-      subUsers.forEach((u: any) => {
-        const children = (u as any).createdUsers || [];
-        children.forEach((child: any) => {
-          // If we haven't seen this user yet, add them to the team and search their children next
-          if (!teamUserIds.includes(child.id)) {
-            teamUserIds.push(child.id);
-            nextLevelParentIds.push(child.id);
-          }
-        });
-      });
+    const result: any = await sequelize.query(
+      `
+      WITH RECURSIVE user_tree AS (
+        SELECT id
+        FROM "Users"
+        WHERE id = :userId
 
-      // Move to the next generation
-      currentParentIds = nextLevelParentIds;
-    }
+        UNION
 
-    console.log("Final Team User IDs (Recursive):", teamUserIds);
+        SELECT uc."childId"
+        FROM "UserCreates" uc
+        INNER JOIN user_tree ut ON ut.id = uc."parentId"
+      )
+      SELECT id FROM user_tree;
+      `,
+      {
+        replacements: { userId },
+        type: QueryTypes.SELECT,
+      }
+    );
 
-    // ✅ Base where condition for Quotations
-    // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
+    const teamUserIds = result.map((r: any) => r.id);
+
+    // ================= WHERE CONDITION =================
     let whereCondition: any = {
-      userId: { [Op.in]: teamUserIds },
+      userId: {
+        [Op.in]: teamUserIds,
+      },
     };
-
-
 
     // ✅ Status filter
     if (status) {
       whereCondition.status = status;
     }
 
-    // ✅ Company name filter (PostgreSQL JSON)
-if (companyName) {
-  whereCondition[Op.and] = [
-    literal(
-      `LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`
-    ),
-  ];
-}
+    // ✅ Company name filter (JSON field)
+    if (companyName) {
+      whereCondition[Op.and] = [
+        literal(
+          `"quotation"->'quotation'->>'companyName' ILIKE '%${companyName.replace(
+            /'/g,
+            "''"
+          )}%'`
+        ),
+      ];
+    }
 
-    // ✅ Query
+    // ================= QUERY =================
     const { count, rows } = await Quotations.findAndCountAll({
       where: whereCondition,
       order: [["createdAt", "ASC"]],
       limit,
       offset,
+      // optional performance optimization:
+      // attributes: ["id", "quotation", "createdAt", "userId"]
     });
 
-  const updatedRows = rows.map((item: any, rowIndex: number) => {
+    // ================= RESPONSE FORMAT =================
+    const updatedRows = rows.map((item: any, rowIndex: number) => {
       const data = item.toJSON();
       const { quotation, ...rest } = data;
 
@@ -3889,7 +4006,7 @@ if (companyName) {
       if (finalQuotation?.items && Array.isArray(finalQuotation.items)) {
         finalQuotation.items = finalQuotation.items.map(
           (itm: any, itemIndex: number) => ({
-            index: itemIndex + 1, // item index
+            index: itemIndex + 1,
             ...itm,
           })
         );
@@ -3897,7 +4014,7 @@ if (companyName) {
 
       return {
         ...rest,
-        rowIndex: offset + rowIndex + 1, // pagination-aware index
+        rowIndex: offset + rowIndex + 1,
         quotation: finalQuotation,
       };
     });
@@ -3918,7 +4035,6 @@ if (companyName) {
     return badRequest(res, errorMessage);
   }
 };
-
 
 export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
   try{
