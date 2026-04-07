@@ -40,8 +40,9 @@ export const tokenCheck = async (
     try {
       decoded = jwt.verify(
         token,
-        process.env.JWT_SECRET as string
+        process.env.JWT_SECRET || "dovetailPharma"  // ✅ Must match CreateToken fallback
       ) as JwtPayload;
+
     } catch (err) {
       return res.status(401).json({
         code: "401",
