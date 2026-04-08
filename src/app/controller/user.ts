@@ -2736,8 +2736,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
   try {
     const userData = req.userData as JwtPayload;
 
-    // ✅ Auth check
-    if (!userData || !userData.userId || !userData.companyId) {
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
