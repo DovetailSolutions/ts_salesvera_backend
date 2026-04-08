@@ -54,6 +54,10 @@ export const SubCategoryModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      status: {
+          type: DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
+          defaultValue: "draft",
+        },
     },
     {
       sequelize,
