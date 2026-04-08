@@ -2801,3 +2801,61 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     badRequest(res, errorMessage);
   }
 };
+
+
+export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if(!userData || !userData.userId){
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const {page = "1",limit = "10",search = "",companyName,city,state,} = req.query;
+
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ✅ Dynamic where condition
+    const whereCondition: any = {};
+
+    // 🔍 Global search
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 🎯 Filters
+    if (companyName) {
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
+    }
+
+    if (city) {
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
+    }
+
+    if (state) {
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
+    }   
+    const invoiceData = await Invoices.findAll({
+      where:{
+        userId:userData.userId,
+        // companyId:userData.companyId || 0
+      }
+    });
+    createSuccess(res, "Invoice list fetched successfully", invoiceData);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
