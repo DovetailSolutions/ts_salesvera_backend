@@ -4171,3 +4171,44 @@ export const addCompanyBank = async (req: Request, res: Response) => {
     return badRequest(res, "Error adding bank details", error);
   }
 };
+
+
+export const getClient = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    // ✅ Auth validation
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    // ✅ Pagination (optional but recommended)
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // ✅ Fetch data
+    const { count, rows } = await MeetingUser.findAndCountAll({
+      where: {
+        userId: Number(userData.userId), // 🔥 match logged-in user
+      },
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+    });
+
+    // ✅ Response
+    createSuccess(res, "Leave list fetched successfully", {
+      total: count,
+      currentPage: page,
+      totalPages: Math.ceil(count / limit),
+      data: rows,
+    });
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
