@@ -378,6 +378,30 @@ const ensureColumns = async (sequelize: Sequelize) => {
   } catch (err) {
     console.error(`❌ Error creating table company_banks:`, err);
   }
+
+  // ✅ Ensure invoices table exists (auto sync sometimes fails)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "invoices" (
+        "id" SERIAL PRIMARY KEY,
+        "userId" INTEGER NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "quotationId" INTEGER,
+        "invoice" JSON,
+        "status" VARCHAR(50) DEFAULT 'draft',
+        "invoiceNumber" VARCHAR(255) NOT NULL,
+        "customerName" VARCHAR(255),
+        "quotationNumber" VARCHAR(255),
+        "quotationDate" TIMESTAMP WITH TIME ZONE,
+        "dueDate" TIMESTAMP WITH TIME ZONE,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log(`✅ Ensured table exists: invoices`);
+  } catch (err) {
+    console.error(`❌ Error creating table invoices:`, err);
+  }
 };
 
 
