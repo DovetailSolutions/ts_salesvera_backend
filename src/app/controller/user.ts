@@ -35,7 +35,8 @@ import {
   Department,
   Holiday,
   CompanyLeave,
-  CompanyBank
+  CompanyBank,
+  Invoices
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -2182,6 +2183,7 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
 
 export const addQuotation = async (req: Request, res: Response): Promise<void> => {
   try {
+
     const userData = req.userData as JwtPayload;
 
     // ✅ Auth validation
@@ -2189,6 +2191,7 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
        badRequest(res, "Unauthorized request");
        return
     }
+   
 
     const data = req.body;
 
@@ -2725,5 +2728,66 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const addInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    // ✅ Auth check
+    if (!userData || !userData.userId || !userData.companyId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const data = req.body;
+
+    if (!data.tallyInvoiceNumber) {
+      badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
+      return;
+    }
+
+    if (!data.customerName) {
+      badRequest(res, "Customer name is required");
+      return;
+    }
+
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      badRequest(res, "Items are required");
+      return;
+    }
+
+    // ✅ Validate each item
+    for (const item of data.items) {
+      if (!item.itemName || !item.quantity || !item.rate) {
+         badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
+         return;
+      }
+    }
+
+    // ✅ Prepare DB object
+    const invoicePayload: any = {
+      userId: userData.userId,
+      companyId: userData.companyId || 0,
+      invoiceNumber: data.tallyInvoiceNumber,
+      customerName: data.customerName,
+      status: data.status || "draft",
+      quotationNumber: data.QuotationNumber || null,
+      quotationDate: data.QuotationDate ? new Date(data.QuotationDate) : null,
+      dueDate: data.date ? new Date(data.date) : null,
+      invoice: data, // full JSON stored here
+    };
+
+    // ✅ Create invoice
+    const invoiceData = await Invoices.create(invoicePayload);
+
+    createSuccess(res, "Invoice added successfully", invoiceData);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
   }
 };
