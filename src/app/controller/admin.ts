@@ -568,7 +568,7 @@ export const UpdateCategory = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { category_name } = req.body || {};
+    const { category_name,status } = req.body || {};
     if (!id) {
       badRequest(res, "Category ID is missing");
       return;
@@ -578,7 +578,7 @@ export const UpdateCategory = async (
       badRequest(res, "Category name is missing");
       return;
     }
-
+     
     // ✅ Check if category with same name already exists
     const isCategoryExist = await Middleware.FindByField(
       Category,
@@ -2041,17 +2041,23 @@ export const updateSubCategory = async (req: Request, res: Response) => {
 
 export const getSubCategory = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const { id } = req.params || {};
 
     if (!id) {
       badRequest(res, "Category id is required");
       return;
     }
 
+    const where:any = {
+      CategoryId: id,
+    }
+
+    if(req.query.status){
+      where.status = req.query.status;
+    }
+
     const subCategory = await SubCategory.findAll({
-      where: {
-        CategoryId: id,
-      },
+      where,
     });
 
     // 🔥 Transform "text" → "tax"
@@ -4270,6 +4276,82 @@ export const updateClient = async (req: Request, res: Response): Promise<void> =
       return;
     }
     createSuccess(res, "Client fetched successfully", client);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const CategoryStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params || {};
+
+    if (!id) {
+      badRequest(res, "Category ID is required");
+      return;
+    }
+
+    const category = await Category.findOne({
+      where: {
+        id: Number(id),
+      },
+    });
+
+    if (!category) {
+      badRequest(res, "Category not found");
+      return;
+    }
+    category.status = req.body.status;
+    await category.save();
+
+    createSuccess(res, "Category updated successfully", category);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const SubCategoryStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params || {};
+
+    if (!id) {
+      badRequest(res, "Sub Category ID is required");
+      return;
+    }
+
+    const subCategory = await SubCategory.findOne({
+      where: {
+        id: Number(id),
+      },
+    });
+
+    if (!subCategory) {
+      badRequest(res, "Sub Category not found");
+      return;
+    }
+    subCategory.status = req.body.status;
+    await subCategory.save();
+
+    createSuccess(res, "Sub Category updated successfully", subCategory);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
