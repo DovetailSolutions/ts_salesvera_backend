@@ -1606,10 +1606,10 @@ export const createClient = async (
 ): Promise<void> => {
   try {
     const { userId } = req.userData as JwtPayload;
-    const { name, email, mobile, } =
+    const { name, email, mobile,companyName,state,customerType,city,pincode,country,address,gstNumber } =
       req.body || {};
     // Required fields check
-    if (![name, email, mobile,].every(Boolean)) {
+    if (![name, email, mobile,companyName,state,city,pincode,country,address,gstNumber].every(Boolean)) {
       badRequest(res, "All fields are required");
       return;
     }
@@ -1630,7 +1630,15 @@ export const createClient = async (
       name,
       email,
       mobile,
-      userId
+      userId,
+      companyName,
+      customerType,
+      state,
+      city,
+      pincode,
+      country,
+      address,
+      gstNumber,
     });
 
     createSuccess(res, "Client created successfully");

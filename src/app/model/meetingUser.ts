@@ -5,6 +5,18 @@ export class User extends Model {
   public name!: string;
   public email?: string;
   public mobile!: string;
+  public companyId!: number;
+  public userId!: number;
+  public customerType!: "new" | "existing" | "followup";
+  public state!: string;
+  public city!: string;
+  public pincode!: string;
+  public country!: string;
+  public address!: string;
+  public gstNumber!: string;
+  public companyName!: string;
+  public status!: "draft" | "sent" | "accepted" | "rejected";
+  // public companyId!: number;
   public role!: "admin" | "manager" | "employee";
 }
 
@@ -44,15 +56,18 @@ export const UserModel = (sequelize: Sequelize) => {
         defaultValue: "new",
         field: "customer_type",
       },
+      state: DataTypes.STRING,
+      city: DataTypes.STRING,
+      pincode: DataTypes.STRING,
+      country: DataTypes.STRING,
 
       address: DataTypes.TEXT,
-      // gstNumber: DataTypes.STRING,
-      // quotationNumber: DataTypes.STRING,
-
-    //   role: {
-    //     type: DataTypes.ENUM("admin", "manager", "employee"),
-    //     defaultValue: "employee",
-    //   },
+      gstNumber: DataTypes.STRING,
+      companyName: DataTypes.STRING,
+      status: {
+          type: DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
+          defaultValue: "draft",
+        },
     },
     {
       sequelize,
