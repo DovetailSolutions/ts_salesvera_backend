@@ -4183,16 +4183,24 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const { status } = req.query;
+
     // ✅ Pagination (optional but recommended)
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
+    const obj : any = {
+      userId: Number(userData.userId),
+    };
+
+    if (status) {
+      obj.status = status;
+    }
+
     // ✅ Fetch data
     const { count, rows } = await MeetingUser.findAndCountAll({
-      where: {
-        userId: Number(userData.userId), // 🔥 match logged-in user
-      },
+      where: obj,
       order: [["createdAt", "DESC"]],
       limit,
       offset,
@@ -4206,6 +4214,48 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       data: rows,
     });
 
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const updateClient = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params || {};
+
+    if (!id) {
+      badRequest(res, "Client ID is required");
+      return;
+    }
+
+    const client = await MeetingUser.findOne({
+      where: {
+        id: Number(id),
+        userId: Number(userData.userId),
+      },
+    });
+
+    if (!client) {
+      badRequest(res, "Client not found");
+      return;
+    }
+    client.status = req.body.status;
+    await client.save();
+
+    if (!client) {
+      badRequest(res, "Client not found");
+      return;
+    }
+    createSuccess(res, "Client fetched successfully", client);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
