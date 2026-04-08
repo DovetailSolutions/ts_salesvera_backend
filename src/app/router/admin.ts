@@ -124,7 +124,7 @@ router.post("/add-bank",tokenCheck,AdminController.addCompanyBank);
 
 
 
-
+router.get("/get-client",tokenCheck,AdminController.getClient);
 
 
 
