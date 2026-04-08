@@ -15,6 +15,7 @@ export class User extends Model {
   public address!: string;
   public gstNumber!: string;
   public companyName!: string;
+  public panNumber!: string;
   public status!: "draft" | "sent" | "accepted" | "rejected";
   // public companyId!: number;
   public role!: "admin" | "manager" | "employee";
@@ -64,6 +65,7 @@ export const UserModel = (sequelize: Sequelize) => {
       address: DataTypes.TEXT,
       gstNumber: DataTypes.STRING,
       companyName: DataTypes.STRING,
+      panNumber: DataTypes.STRING,
       status: {
           type: DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
           defaultValue: "draft",
