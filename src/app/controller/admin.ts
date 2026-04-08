@@ -220,14 +220,6 @@ export const GetProfile = async (
         {
           model: Company,
           as: "company",
-          // include: [
-          //   { model: Branch, as: "branches" },
-          //   { model: Shift, as: "shifts" },
-          //   { model: Department, as: "departments" },
-          //   { model: Holiday, as: "holidays" },
-          //   { model: CompanyLeave, as: "companyLeaves" },
-          //   { model: CompanyBank, as: "companyBanks" },
-          // ],
         },
       ],
     });
