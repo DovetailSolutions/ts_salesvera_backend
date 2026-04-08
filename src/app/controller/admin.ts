@@ -465,7 +465,7 @@ export const AddCategory = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
-    const { category_name } = req.body || {};
+    const { category_name,status } = req.body || {};
     if (!category_name) {
       badRequest(res, "category name is missing");
       return;
@@ -484,6 +484,7 @@ export const AddCategory = async (
       category_name,
       adminId: loggedInId,
       managerId: loggedInId,
+      status: status || "draft",
     });
     createSuccess(res, "category create successfully");
   } catch (error) {
@@ -1606,23 +1607,33 @@ export const createClient = async (
 ): Promise<void> => {
   try {
     const { userId } = req.userData as JwtPayload;
-    const { name, email, mobile,companyName,panNumber,state,customerType,city,pincode,country,address,gstNumber } =
-      req.body || {};
-    // Required fields check
-    if (![name, email, mobile,companyName,panNumber,state,city,pincode,country,address,gstNumber].every(Boolean)) {
-      badRequest(res, "All fields are required");
+    const { 
+      name, email, mobile, companyName, panNumber, status, 
+      state, customerType, city, pincode, country, address, gstNumber 
+    } = req.body || {};
+
+    // Only name, state, country, companyName are mandatory
+    if (!name || !state || !country || !companyName) {
+      badRequest(res, "name, state, country, and companyName are required");
       return;
     }
-    // Check if client already exists by email or mobile
-    const isExist = await MeetingUser.findOne({
-      where: {
-        [Op.or]: [{ email }, { mobile }],
-      },
-    });
 
-    if (isExist) {
-      badRequest(res, "Client already exists");
-      return;
+    // Duplicate check: only if email or mobile is provided
+    const duplicateChecks: any[] = [];
+    if (email) duplicateChecks.push({ email });
+    if (mobile) duplicateChecks.push({ mobile });
+
+    if (duplicateChecks.length > 0) {
+      const isExist = await MeetingUser.findOne({
+        where: {
+          [Op.or]: duplicateChecks,
+        },
+      });
+
+      if (isExist) {
+        badRequest(res, "Client already exists with this email or mobile");
+        return;
+      }
     }
 
     // Create new client information (MeetingUser)
@@ -1632,7 +1643,7 @@ export const createClient = async (
       mobile,
       userId,
       companyName,
-      customerType,
+      customerType: customerType || "new",
       state,
       city,
       pincode,
@@ -1640,6 +1651,7 @@ export const createClient = async (
       address,
       gstNumber,
       panNumber,
+      status: status || "draft"
     });
 
     createSuccess(res, "Client created successfully");
@@ -1909,7 +1921,7 @@ export const addSubCategory = async (
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { sub_category_name, amount, tax, CategoryId } = req.body;
+    const { sub_category_name, amount, tax,status, CategoryId } = req.body;
     if (!sub_category_name?.trim()) {
       badRequest(res, "Sub category name is required");
       return;
@@ -1936,6 +1948,7 @@ export const addSubCategory = async (
       managerId: loggedInId,
       amount: amount ?? null,
       text: tax ?? null,
+      status: status || "draft",
     });
     createSuccess(res, "Sub category created successfully", subCategory);
   } catch (error) {

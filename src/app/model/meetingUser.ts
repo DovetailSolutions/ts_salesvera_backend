@@ -7,7 +7,7 @@ export class User extends Model {
   public mobile!: string;
   public companyId!: number;
   public userId!: number;
-  public customerType!: "new" | "existing" | "followup";
+  public customerType!: string;
   public state!: string;
   public city!: string;
   public pincode!: string;
@@ -53,7 +53,7 @@ export const UserModel = (sequelize: Sequelize) => {
 
 
       customerType: {
-        type: DataTypes.ENUM("new", "existing", "followup"),
+        type: DataTypes.STRING,
         defaultValue: "new",
         field: "customer_type",
       },

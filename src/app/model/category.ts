@@ -4,6 +4,7 @@ export class Category extends Model{
   public category_name!:string;
   public adminId!: number;
   public managerId!:number
+  public status!: string;
 }
 export const CategoryModel = (sequelize: Sequelize) => {
   const Category = sequelize.define(
@@ -25,6 +26,10 @@ export const CategoryModel = (sequelize: Sequelize) => {
        managerId: {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
+      },
+      status: {
+        type: DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
+        defaultValue: "draft",
       },
     },
     {
