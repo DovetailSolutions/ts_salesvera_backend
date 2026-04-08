@@ -38,6 +38,8 @@ import { CompanyLeave } from "../app/model/Leave";
 
 import { CompanyBankModel } from "../app/model/bank";
 
+import { Invoices } from "../app/model/Invoice";
+
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -100,6 +102,8 @@ const Shift = ShiftModel(sequelize);
 CompanyLeave.initModel(sequelize);
 
 const CompanyBank = CompanyBankModel(sequelize);
+
+Invoices.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -462,5 +466,6 @@ export {
   Department,
   Holiday,
   CompanyLeave,
-  CompanyBank
+  CompanyBank,
+  Invoices
 };
