@@ -191,6 +191,9 @@ SubCategory.belongsTo(Category, {
 User.hasMany(Quotations, { foreignKey: "userId" });
 Quotations.belongsTo(User, { foreignKey: "userId" });
 
+// User / Company
+User.hasOne(Company, { foreignKey: "adminId", as: "company" });
+Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
 
 Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
 Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
