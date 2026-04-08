@@ -215,7 +215,22 @@ export const GetProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const user = await Middleware.getById(User, Number(userData.userId));
+    const user = await User.findByPk(Number(userData.userId), {
+      include: [
+        {
+          model: Company,
+          as: "company",
+          include: [
+            { model: Branch, as: "branches" },
+            { model: Shift, as: "shifts" },
+            { model: Department, as: "departments" },
+            { model: Holiday, as: "holidays" },
+            { model: CompanyLeave, as: "companyLeaves" },
+            { model: CompanyBank, as: "companyBanks" },
+          ],
+        },
+      ],
+    });
     createSuccess(res, "User profile fetched successfully", user);
   } catch (error) {
     const errorMessage =
