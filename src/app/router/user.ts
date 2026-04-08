@@ -58,7 +58,8 @@ router.get("/getcompany",tokenCheck,Controller.getCompany);
 
 router.get("/getcompanydetails/:id",tokenCheck,Controller.getCompanyDetails);
 
-router.post("/addinvoice",tokenCheck,Controller.addInvoice)
+router.post("/addinvoice",tokenCheck,Controller.addInvoice);
+router.get("/getinvoice",tokenCheck,Controller.getInvoice);
 
 
 
