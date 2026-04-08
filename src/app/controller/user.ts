@@ -2766,17 +2766,28 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       }
     }
 
+    // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
+    const {
+      tallyInvoiceNumber,
+      customerName,
+      status,
+      QuotationNumber,
+      QuotationDate,
+      date,
+      ...restData
+    } = data;
+
     // ✅ Prepare DB object
     const invoicePayload: any = {
       userId: userData.userId,
       companyId: userData.companyId || 0,
-      invoiceNumber: data.tallyInvoiceNumber,
-      customerName: data.customerName,
-      status: data.status || "draft",
-      quotationNumber: data.QuotationNumber || null,
-      quotationDate: data.QuotationDate ? new Date(data.QuotationDate) : null,
-      dueDate: data.date ? new Date(data.date) : null,
-      invoice: data, // full JSON stored here
+      invoiceNumber: tallyInvoiceNumber,
+      customerName: customerName,
+      status: status || "draft",
+      quotationNumber: QuotationNumber || null,
+      quotationDate: QuotationDate ? new Date(QuotationDate) : null,
+      dueDate: date ? new Date(date) : null,
+      invoice: restData, // remaining JSON properties stored here
     };
 
     // ✅ Create invoice
