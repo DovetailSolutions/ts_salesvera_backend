@@ -657,12 +657,16 @@ export const getCategory = async (
 ): Promise<{
   rows: any[];
   totalItems: number;
+  currentPage: number;
+  totalPages: number;
+  limit: number;
 }> => {
   try {
     const { page = 1, limit = 10, search = "", category_id } = data;
 
+    // ✅ Pagination calculation
     const pageNum = Number(page);
-    const limitNum = Number(limit);
+    const limitNum = Math.min(Number(limit), 50); // safety limit
     const offset = (pageNum - 1) * limitNum;
 
     // -------------------------
@@ -670,10 +674,10 @@ export const getCategory = async (
     // -------------------------
     const where: any = {};
 
-    // 🔍 Search
+    // 🔍 Search (case-insensitive)
     if (search) {
       where.name = {
-        [Op.iLike]: `%${search}%`, // case-insensitive (Postgres)
+        [Op.iLike]: `%${search}%`,
       };
     }
 
@@ -684,9 +688,13 @@ export const getCategory = async (
 
     // 🔐 Admin / Manager access
     if (login) {
-      where[Op.or] = [
-        { adminId: login },
-        { managerId: login },
+      where[Op.and] = [
+        {
+          [Op.or]: [
+            { adminId: login },
+            { managerId: login },
+          ],
+        },
       ];
     }
 
@@ -711,7 +719,7 @@ export const getCategory = async (
     }
 
     // -------------------------
-    // FETCH DATA + COUNT (single query)
+    // FETCH DATA + COUNT
     // -------------------------
     const { rows, count } = await Model.findAndCountAll({
       where,
@@ -719,15 +727,18 @@ export const getCategory = async (
       limit: limitNum,
       offset,
       order: [["createdAt", "DESC"]],
-      distinct: true, // important with include
+      distinct: true, // important when using include
     });
 
     // -------------------------
-    // RESPONSE (NO pagination object)
+    // RESPONSE
     // -------------------------
     return {
       rows,
       totalItems: count,
+      currentPage: pageNum,
+      totalPages: Math.ceil(count / limitNum),
+      limit: limitNum,
     };
 
   } catch (error) {
