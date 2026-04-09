@@ -520,7 +520,7 @@ export const AddCategory = async (
       managerId: loggedInId,
       status: status || "draft",
     });
-    createSuccess(res, "category create successfully");
+    createSuccess(res, "category create successfully",item);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
