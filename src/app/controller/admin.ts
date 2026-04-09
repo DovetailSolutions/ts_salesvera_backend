@@ -234,10 +234,10 @@ export const GetProfile = async (
               model:Department,
               as:"departments"
             },
-            {
-              model:Holiday,
-              as:"holidays"
-            },
+            // {
+            //   model:Holiday,
+            //   as:"holidays"
+            // },
             {
               model:CompanyLeave,
               as:"companyLeaves"
