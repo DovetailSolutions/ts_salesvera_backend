@@ -2770,6 +2770,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     const {
       tallyInvoiceNumber,
       customerName,
+      quotationId,
       status,
       QuotationNumber,
       QuotationDate,
@@ -2783,6 +2784,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       companyId: userData.companyId || 0,
       invoiceNumber: tallyInvoiceNumber,
       customerName: customerName,
+      quotationId: quotationId || null,
       status: status || "draft",
       quotationNumber: QuotationNumber || null,
       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
@@ -2859,3 +2861,42 @@ export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
     badRequest(res, errorMessage);
   }
 }
+
+
+
+// export const quotationToInvoice = async(req:Request,res:Response):Promise<void>=>{
+//   try{
+//     const userData = req.userData as JwtPayload;
+//     if(!userData || !userData.userId){
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+//     const {id} = req.params;
+//     if(!id){
+//       badRequest(res, "Quotation id is required");
+//       return;
+//     }
+//     const quotationData = await Quotations.findByPk(id);
+//     if(!quotationData){
+//       badRequest(res, "Quotation not found");
+//       return;
+//     }
+//     const invoicePayload: any = {
+//       userId: userData.userId,
+//       companyId: userData.companyId || 0,
+//       invoiceNumber: quotationData.quotationNumber,
+//       customerName: quotationData.customerName,
+//       status: quotationData.status,
+//       quotationNumber: quotationData.quotationNumber,
+//       quotationDate: quotationData.quotationDate,
+//       dueDate: quotationData.dueDate,
+//       invoice: quotationData.invoice,
+//     };
+//     const invoiceData = await Invoices.create(invoicePayload);
+//     createSuccess(res, "Invoice added successfully", invoiceData);
+//   }catch(error){
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// }
