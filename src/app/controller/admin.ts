@@ -4236,7 +4236,7 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { status } = req.query;
+    const { status,search } = req.query;
 
     // ✅ Pagination (optional but recommended)
     const page = Number(req.query.page) || 1;
@@ -4249,6 +4249,17 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
 
     if (status) {
       obj.status = status;
+    }
+
+    if(search){
+      obj[Op.or] = [
+        { name: { [Op.like]: `%${search}%` } },
+        { email: { [Op.like]: `%${search}%` } },
+        { mobile: { [Op.like]: `%${search}%` } },
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
     }
 
     // ✅ Fetch data
