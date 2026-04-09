@@ -444,6 +444,39 @@ const fixConstraints = async (sequelize: Sequelize) => {
   }
 };
 
+/**
+ * 🛠️ DATA INTEGRITY HELPER
+ * Ensures that all 'companyId' references in child tables are valid.
+ * If a 'companyId' points to a non-existent company, it sets it to NULL.
+ * This prevents Foreign Key constraint violations during sync.
+ */
+const ensureDataIntegrity = async (sequelize: Sequelize) => {
+  const tables = ["departments", "branches", "shifts", "holidays"];
+
+  for (const table of tables) {
+    try {
+      // 1️⃣ Check if table and companyId column exist before running update
+      const [results]: any = await sequelize.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = '${table}' AND column_name = 'companyId';
+      `);
+
+      if (results.length > 0) {
+        await sequelize.query(`
+          UPDATE "${table}" 
+          SET "companyId" = NULL 
+          WHERE "companyId" IS NOT NULL 
+          AND "companyId" NOT IN (SELECT "id" FROM "companies");
+        `);
+        console.log(`✅ Ensured data integrity for table: ${table}`);
+      }
+    } catch (err) {
+      console.error(`❌ Error during data integrity check for ${table}:`, err);
+    }
+  }
+};
+
 // ===== DB CONNECTION =====
 
 
@@ -457,7 +490,10 @@ export const connectDB = async () => {
     // 2️⃣ Fix foreign key constraints for meeting tables
     await fixConstraints(sequelize);
 
-    // 3️⃣ Standard Sequelize sync
+    // 3️⃣ Ensure data integrity (orphaned companyId cleanup)
+    await ensureDataIntegrity(sequelize);
+
+    // 4️⃣ Standard Sequelize sync
     await sequelize.authenticate();
     await sequelize.sync({ alter: true });
     
