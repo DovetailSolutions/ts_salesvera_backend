@@ -32,7 +32,8 @@ import {
   Department,
   Holiday,
   CompanyLeave,
-  CompanyBank
+  CompanyBank,
+  Invoices
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -4402,3 +4403,134 @@ export const SubCategoryStatus = async (req: Request, res: Response): Promise<vo
     badRequest(res, errorMessage, error);
   }
 };
+
+
+export const addInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const data = req.body;
+
+    if (!data.tallyInvoiceNumber) {
+      badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
+      return;
+    }
+
+    if (!data.customerName) {
+      badRequest(res, "Customer name is required");
+      return;
+    }
+
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      badRequest(res, "Items are required");
+      return;
+    }
+
+    // ✅ Validate each item
+    for (const item of data.items) {
+      if (!item.itemName || !item.quantity || !item.rate) {
+         badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
+         return;
+      }
+    }
+
+    // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
+    const {
+      tallyInvoiceNumber,
+      customerName,
+      quotationId,
+      status,
+      QuotationNumber,
+      QuotationDate,
+      date,
+      ...restData
+    } = data;
+
+    // ✅ Prepare DB object
+    const invoicePayload: any = {
+      userId: userData.userId,
+      companyId: userData.companyId || 0,
+      invoiceNumber: tallyInvoiceNumber,
+      customerName: customerName,
+      quotationId: quotationId || null,
+      status: status || "draft",
+      quotationNumber: QuotationNumber || null,
+      quotationDate: QuotationDate ? new Date(QuotationDate) : null,
+      dueDate: date ? new Date(date) : null,
+      invoice: restData, // remaining JSON properties stored here
+    };
+
+    // ✅ Create invoice
+    const invoiceData = await Invoices.create(invoicePayload);
+
+    createSuccess(res, "Invoice added successfully", invoiceData);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if(!userData || !userData.userId){
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const {page = "1",limit = "10",search = "",companyName,city,state,} = req.query;
+
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ✅ Dynamic where condition
+    const whereCondition: any = {};
+
+    // 🔍 Global search
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 🎯 Filters
+    if (companyName) {
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
+    }
+
+    if (city) {
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
+    }
+
+    if (state) {
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
+    }   
+    const invoiceData = await Invoices.findAll({
+      where:{
+        userId:userData.userId,
+        // companyId:userData.companyId || 0
+      }
+    });
+    createSuccess(res, "Invoice list fetched successfully", invoiceData);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
