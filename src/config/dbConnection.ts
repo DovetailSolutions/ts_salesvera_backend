@@ -451,7 +451,7 @@ const fixConstraints = async (sequelize: Sequelize) => {
  * This prevents Foreign Key constraint violations during sync.
  */
 const ensureDataIntegrity = async (sequelize: Sequelize) => {
-  const tables = ["departments", "branches", "shifts", "holidays"];
+  const tables = ["departments", "branches", "shifts", "holidays", "invoices"];
 
   for (const table of tables) {
     try {
@@ -469,7 +469,31 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
           WHERE "companyId" IS NOT NULL 
           AND "companyId" NOT IN (SELECT "id" FROM "companies");
         `);
-        console.log(`✅ Ensured data integrity for table: ${table}`);
+        console.log(`✅ Ensured data integrity (companyId) for table: ${table}`);
+      }
+
+      // 2️⃣ Handle Invoices specific data integrity (status ENUM conversion)
+      if (table === "invoices") {
+        const [statusCols]: any = await sequelize.query(`
+          SELECT column_name, data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'status';
+        `);
+
+        if (statusCols.length > 0) {
+          // If the status column is not already an ENUM, sanitize it
+          // In Postgres, ENUM types often show up as 'USER-DEFINED' in information_schema
+          const colInfo = statusCols[0];
+          if (colInfo.data_type === 'character varying' || colInfo.data_type === 'text') {
+            await sequelize.query(`
+              UPDATE "invoices" 
+              SET "status" = 'draft' 
+              WHERE "status" IS NULL 
+              OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected');
+            `);
+            console.log(`✅ Sanitized Invoice status values for ENUM conversion`);
+          }
+        }
       }
     } catch (err) {
       console.error(`❌ Error during data integrity check for ${table}:`, err);
