@@ -541,19 +541,122 @@ export const findOneByCondition = async (
   }
 };
 
+// export const getCategory = async (
+//   Model: any,
+//   data: { page?: number; limit?: number; search?: string; category_id?: number },
+//   id = "",
+//   login = ""
+// ): Promise<{
+//   rows: any[];
+//   pagination: {
+//     totalItems: number;
+//     currentPage: number;
+//     totalPages: number;
+//     limit: number;
+//   };
+// }> => {
+//   try {
+//     const { page = 1, limit = 10, search = "", category_id } = data;
+
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+
+//     console.log(">>>>>>>>>>>>>>>>>> login:", login);
+
+//     // -------------------------
+//     // MAIN WHERE
+//     // -------------------------
+//     const where: any = {};
+
+//     if (search) {
+//       where.name = { [Op.iLike]: `%${search}%` };
+//     }
+
+//     if (id) {
+//       where.user_id = id;
+//     }
+
+//     // 🔥 FIXED: OR condition for admin/manager
+//     if (login) {
+//       where[Op.or] = [
+//         { adminId: login },
+//         { managerId: login }
+//       ];
+//     }
+
+//     // -------------------------
+//     // INCLUDE CATEGORY FILTER
+//     // -------------------------
+//     const include: any[] = [];
+
+//     if (category_id) {
+//       include.push({
+//         model: Category,
+//         as: "categories",
+//         where: {
+//           id: Number(category_id),
+//           [Op.or]: [
+//             { adminId: login },
+//             { managerId: login }
+//           ]
+//         },
+//         through: { attributes: [] },
+//       });
+//     }
+
+//     // -------------------------
+//     // COUNT
+//     // -------------------------
+//     const totalItems = await Model.count({
+//       where,
+//       include: include.length ? include : undefined,
+//       distinct: true,
+//     });
+
+//     // -------------------------
+//     // FETCH ROWS
+//     // -------------------------
+//     const rows = await Model.findAll({
+//       where,
+//       include: include.length ? include : undefined,
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     return {
+//       rows,
+//       pagination: {
+//         totalItems,
+//         currentPage: pageNum,
+//         totalPages: Math.ceil(totalItems / limitNum),
+//         limit: limitNum,
+//       },
+//     };
+//   } catch (error) {
+//     throw error;
+//   }
+// };
+
+
+
+// import { Op } from "sequelize";
+
+
 export const getCategory = async (
   Model: any,
-  data: { page?: number; limit?: number; search?: string; category_id?: number },
+  data: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    category_id?: number;
+  },
   id = "",
   login = ""
 ): Promise<{
   rows: any[];
-  pagination: {
-    totalItems: number;
-    currentPage: number;
-    totalPages: number;
-    limit: number;
-  };
+  totalItems: number;
 }> => {
   try {
     const { page = 1, limit = 10, search = "", category_id } = data;
@@ -562,26 +665,28 @@ export const getCategory = async (
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    console.log(">>>>>>>>>>>>>>>>>> login:", login);
-
     // -------------------------
     // MAIN WHERE
     // -------------------------
     const where: any = {};
 
+    // 🔍 Search
     if (search) {
-      where.name = { [Op.iLike]: `%${search}%` };
+      where.name = {
+        [Op.iLike]: `%${search}%`, // case-insensitive (Postgres)
+      };
     }
 
+    // 👤 User filter
     if (id) {
       where.user_id = id;
     }
 
-    // 🔥 FIXED: OR condition for admin/manager
+    // 🔐 Admin / Manager access
     if (login) {
       where[Op.or] = [
         { adminId: login },
-        { managerId: login }
+        { managerId: login },
       ];
     }
 
@@ -598,50 +703,38 @@ export const getCategory = async (
           id: Number(category_id),
           [Op.or]: [
             { adminId: login },
-            { managerId: login }
-          ]
+            { managerId: login },
+          ],
         },
         through: { attributes: [] },
       });
     }
 
     // -------------------------
-    // COUNT
+    // FETCH DATA + COUNT (single query)
     // -------------------------
-    const totalItems = await Model.count({
-      where,
-      include: include.length ? include : undefined,
-      distinct: true,
-    });
-
-    // -------------------------
-    // FETCH ROWS
-    // -------------------------
-    const rows = await Model.findAll({
+    const { rows, count } = await Model.findAndCountAll({
       where,
       include: include.length ? include : undefined,
       limit: limitNum,
       offset,
       order: [["createdAt", "DESC"]],
+      distinct: true, // important with include
     });
 
+    // -------------------------
+    // RESPONSE (NO pagination object)
+    // -------------------------
     return {
       rows,
-      pagination: {
-        totalItems,
-        currentPage: pageNum,
-        totalPages: Math.ceil(totalItems / limitNum),
-        limit: limitNum,
-      },
+      totalItems: count,
     };
+
   } catch (error) {
     throw error;
   }
 };
 
-
-
-// import { Op } from "sequelize";
 
 export const withuserlogin = async (
   model: any,
