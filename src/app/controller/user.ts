@@ -2743,10 +2743,10 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 
     const data = req.body;
 
-    if (!data.tallyInvoiceNumber) {
-      badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
-      return;
-    }
+    // if (!data.tallyInvoiceNumber) {
+    //   badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
+    //   return;
+    // }
 
     if (!data.customerName) {
       badRequest(res, "Customer name is required");
@@ -2768,7 +2768,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 
     // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
     const {
-      tallyInvoiceNumber,
+      tallyInvoiceNumber = "web",
       customerName,
       quotationId,
       status,

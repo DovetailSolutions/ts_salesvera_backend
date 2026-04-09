@@ -61,7 +61,7 @@ router.get("/getcompanydetails/:id",tokenCheck,Controller.getCompanyDetails);
 router.post("/addinvoice",tokenCheck,Controller.addInvoice);
 router.get("/getinvoice",tokenCheck,Controller.getInvoice);
 
-// router.post("/quotationToInvoice/:id",tokenCheck,Controller.quotationToInvoice);
+//  router.post("/quotationToInvoice/:id",tokenCheck,Controller.quotationToInvoice);
 
 
 
