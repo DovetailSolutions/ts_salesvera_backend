@@ -131,7 +131,8 @@ router.post("/category/:id",tokenCheck,AdminController.CategoryStatus);
 router.post("/sub-category/:id",tokenCheck,AdminController.SubCategoryStatus);
 
 
-
+router.post("/addinvoice",tokenCheck,AdminController.addInvoice);
+router.get("/getinvoice",tokenCheck,AdminController.getInvoice);
 
 
 
