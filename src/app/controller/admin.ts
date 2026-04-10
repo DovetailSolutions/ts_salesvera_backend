@@ -2965,6 +2965,74 @@ export const getCompanyById = async (req: Request, res: Response) => {
   }
 };
 
+export const updateCompany = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if(!req.params.id){
+      return badRequest(res, "Company id is required");
+    }
+
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Company id must be a number");
+    }
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const company = await Company.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+
+    if (!company) {
+      return badRequest(res, "Company not found");
+    }
+
+    const updatedCompany = await company.update(req.body);
+
+    createSuccess(res, "Company updated successfully", updatedCompany);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const deleteCompany = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if(!req.params.id){
+      return badRequest(res, "Company id is required");
+    }
+
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Company id must be a number");
+    }
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const company = await Company.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+
+    if (!company) {
+      return badRequest(res, "Company not found");
+    }
+
+    await company.destroy();
+
+    createSuccess(res, "Company deleted successfully");
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
 
 export const addBranch = async (req: Request, res: Response) => {
   try {
@@ -3202,6 +3270,19 @@ export const getBranchById = async (req: Request, res: Response) => {
     badRequest(res, errorMessage, error);
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export const addShift = async (req: Request, res: Response) => {
   try {
@@ -4227,6 +4308,8 @@ export const addCompanyBank = async (req: Request, res: Response) => {
 };
 
 
+
+
 export const getClient = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -4478,21 +4561,33 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 };
 
 
-export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const getInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    if(!userData || !userData.userId){
+
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    const {page = "1",limit = "10",search = "",companyName,city,state,} = req.query;
+
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      companyName,
+      city,
+      state,
+      status, // ✅ added status filter
+    } = req.query;
 
     const pageNumber = Number(page);
-    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const pageSize = Math.min(Number(limit), 50);
     const offset = (pageNumber - 1) * pageSize;
 
     // ✅ Dynamic where condition
-    const whereCondition: any = {};
+    const whereCondition: any = {
+      userId: userData.userId, // always filter by user
+    };
 
     // 🔍 Global search
     if (search) {
@@ -4520,17 +4615,32 @@ export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
       whereCondition.state = {
         [Op.like]: `%${state}%`,
       };
-    }   
-    const invoiceData = await Invoices.findAll({
-      where:{
-        userId:userData.userId,
-        // companyId:userData.companyId || 0
-      }
+    }
+
+    // ✅ Status filter
+    if (status) {
+      whereCondition.status = status;
+    }
+
+    // ✅ Query with pagination
+    const { rows, count } = await Invoices.findAndCountAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset: offset,
+      order: [["createdAt", "DESC"]], // optional but recommended
     });
-    createSuccess(res, "Invoice list fetched successfully", invoiceData);
-  }catch(error){
+
+    createSuccess(res, "Invoice list fetched successfully", {
+      totalItems: count,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(count / pageSize),
+      pageSize,
+      data: rows,
+    });
+
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
-}
+};
