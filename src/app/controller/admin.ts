@@ -4544,7 +4544,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       status: status || "draft",
       quotationNumber: QuotationNumber || null,
       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
-      dueDate: date ? new Date(date) : null,
+      invoiceDate: date ? new Date(date) : null,
       invoice: restData, // remaining JSON properties stored here
     };
 

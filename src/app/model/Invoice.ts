@@ -12,7 +12,7 @@ interface InvoiceAttributes {
   customerName: string;
   quotationNumber?: string;
   quotationDate?: Date;
-  dueDate?: Date;
+  invoiceDate?: Date;
 }
 
 interface InvoiceCreationAttributes
@@ -30,7 +30,7 @@ export class Invoices
   public status!: InvoiceStatus;
   public invoiceNumber!: string;
   public customerName!: string;
-  public dueDate?: Date;
+  public invoiceDate?: Date;
   public quotationDate?: Date;
   public quotationNumber?: string;
   
@@ -83,7 +83,7 @@ export class Invoices
           allowNull: true,
         },
 
-        dueDate: {
+        invoiceDate: {
           type: DataTypes.DATE,
           allowNull: true,
         },
