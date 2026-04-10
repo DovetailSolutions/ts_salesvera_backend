@@ -36,7 +36,8 @@ import {
   Holiday,
   CompanyLeave,
   CompanyBank,
-  Invoices
+  Invoices,
+  RecordSales
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -2900,3 +2901,161 @@ export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
 //     badRequest(res, errorMessage);
 //   }
 // }
+
+
+export const recordSale = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if(!userData || !userData.userId){
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const data = req.body;
+    if(!data.customerName){
+      badRequest(res, "Customer name is required");
+      return;
+    }
+    if(!data.productDescription){
+      badRequest(res, "Product description is required");
+      return;
+    }
+    if(!data.saleAmount){
+      badRequest(res, "Sale amount is required");
+      return;
+    }
+    const recordSalePayload: any = {
+      userId: userData.userId,
+      companyId: userData.companyId || 0,
+      customerName: data.customerName,
+      productDescription: data.productDescription,
+      saleAmount: data.saleAmount,
+      remarks: data.remarks,
+      paymentReceived: data.paymentReceived,
+    };
+    const recordSaleData = await RecordSales.create(recordSalePayload);
+    createSuccess(res, "Record sale added successfully", recordSaleData);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
+
+export const getRecordSale = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if(!userData || !userData.userId){
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const recordSaleData = await RecordSales.findAll({
+      where:{
+        userId:userData.userId,
+      }
+    });
+    createSuccess(res, "Record sale list fetched successfully", recordSaleData);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
+
+export const getRecordSaleById = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if(!userData || !userData.userId){
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const {id} = req.params;
+    if(!id){
+      badRequest(res, "Record sale id is required");
+      return;
+    }
+    const recordSaleData = await RecordSales.findByPk(id);
+    if(!recordSaleData){
+      badRequest(res, "Record sale not found");
+      return;
+    }
+    createSuccess(res, "Record sale fetched successfully", recordSaleData);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
+
+export const updateRecordSale = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if(!userData || !userData.userId){
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const {id} = req.params;
+    if(!id){
+      badRequest(res, "Record sale id is required");
+      return;
+    }
+    const recordSaleData = await RecordSales.findByPk(id);
+    if(!recordSaleData){
+      badRequest(res, "Record sale not found");
+      return;
+    }
+    const data = req.body;
+    if(!data.customerName){
+      badRequest(res, "Customer name is required");
+      return;
+    }
+    if(!data.productDescription){
+      badRequest(res, "Product description is required");
+      return;
+    }
+    if(!data.saleAmount){
+      badRequest(res, "Sale amount is required");
+      return;
+    }
+    const recordSalePayload: any = {
+      userId: userData.userId,
+      companyId: userData.companyId || 0,
+      customerName: data.customerName,
+      productDescription: data.productDescription,
+      saleAmount: data.saleAmount,
+      remarks: data.remarks,
+      paymentReceived: data.paymentReceived,
+    };
+    const updateResult = await RecordSales.update(recordSalePayload,{where:{id}});
+    createSuccess(res, "Record sale updated successfully", updateResult);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
+
+export const deleteRecordSale = async(req:Request,res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+    if(!userData || !userData.userId){
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const {id} = req.params;
+    if(!id){
+      badRequest(res, "Record sale id is required");
+      return;
+    }
+    const recordSaleData = await RecordSales.findByPk(id);
+    if(!recordSaleData){
+      badRequest(res, "Record sale not found");
+      return;
+    }
+    const deleteResult = await RecordSales.destroy({where:{id}});
+    createSuccess(res, "Record sale deleted successfully", deleteResult);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
