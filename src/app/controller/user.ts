@@ -3018,26 +3018,9 @@ export const updateRecordSale = async(req:Request,res:Response):Promise<void>=>{
       return;
     }
     const data = req.body;
-    if(!data.customerName){
-      badRequest(res, "Customer name is required");
-      return;
-    }
-    if(!data.productDescription){
-      badRequest(res, "Product description is required");
-      return;
-    }
-    if(!data.saleAmount){
-      badRequest(res, "Sale amount is required");
-      return;
-    }
     const recordSalePayload: any = {
-      userId: userData.userId,
-      companyId: userData.companyId || 0,
-      customerName: data.customerName,
-      productDescription: data.productDescription,
-      saleAmount: data.saleAmount,
-      remarks: data.remarks,
-      paymentReceived: data.paymentReceived,
+      ...data, // Spread body fields to make them all optional
+      userId: userData.userId, // Ensure userId remains consistent
     };
     const updateResult = await RecordSales.update(recordSalePayload,{where:{id}});
     createSuccess(res, "Record sale updated successfully", updateResult);
