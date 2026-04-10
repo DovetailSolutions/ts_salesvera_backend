@@ -69,6 +69,8 @@ router.get("/get-fuel-expense",tokenCheck,AdminController.getFuelExpense)
 router.post("/addcompany",tokenCheck,AdminController.addCompany);
 router.get("/getcompany",tokenCheck,AdminController.getCompany);
 router.get("/getcompany/:id",tokenCheck,AdminController.getCompanyById);
+router.patch("/updatecompany/:id",tokenCheck,AdminController.updateCompany);
+router.delete("/deletecompany/:id",tokenCheck,AdminController.deleteCompany);
 
 
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -76,12 +78,15 @@ router.get("/getcompany/:id",tokenCheck,AdminController.getCompanyById);
 router.post("/addbranch",tokenCheck,AdminController.addBranch);
 router.get("/getbranch",tokenCheck,AdminController.getBranch);
 router.get("/getbranch/:id",tokenCheck,AdminController.getBranchById);
+// router.patch("/updatebranch/:id",tokenCheck,AdminController.updateBranch);
+// router.delete("/deletebranch/:id",tokenCheck,AdminController.deleteBranch);
 
 
 router.post("/addshift",tokenCheck,AdminController.addShift);
 router.get("/getshift",tokenCheck,AdminController.getShift);
 router.get("/getshift/:id",tokenCheck,AdminController.getShiftById);
-// router.get("/getshift/:id",tokenCheck,AdminController.getShiftById);
+
+
 
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
