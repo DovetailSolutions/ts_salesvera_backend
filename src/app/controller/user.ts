@@ -1424,13 +1424,14 @@ export const AttendancePunchOut = async (
 
     const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
 
-    // ✅ Find today's punch-in record
+    // ✅ Find today's punch-in record (AttendanceId is optional now)
     const attendance = await Attendance.findOne({
       where: {
         employee_id: finalUserId,
         date: today,
-        id: AttendanceId,
+        ...(AttendanceId && { id: AttendanceId }),
       },
+      order: [["createdAt", "DESC"]], // Get the most recent one if multiple exist
     });
 
     if (!attendance) {
@@ -1451,6 +1452,7 @@ export const AttendancePunchOut = async (
       badRequest(res, "Punch-out must be after punch-in");
       return;
     }
+
     // ✅ Calculate working hours
     const diffMs = punchOutTime.getTime() - punchInTime.getTime();
     const workingHours = diffMs / (1000 * 60 * 60); // ms → hours
@@ -1469,9 +1471,10 @@ export const AttendancePunchOut = async (
     attendance.overtime = overtime;
     attendance.latitude_out = latitude_out;
     attendance.longitude_out = longitude_out;
+    attendance.status = "present"; // ✅ Explicitly set status to prevent "pending" issues
     await attendance.save();
 
-    createSuccess(res, "Punch-out completed");
+    createSuccess(res, "Punch-out completed", attendance);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -3015,26 +3018,9 @@ export const updateRecordSale = async(req:Request,res:Response):Promise<void>=>{
       return;
     }
     const data = req.body;
-    if(!data.customerName){
-      badRequest(res, "Customer name is required");
-      return;
-    }
-    if(!data.productDescription){
-      badRequest(res, "Product description is required");
-      return;
-    }
-    if(!data.saleAmount){
-      badRequest(res, "Sale amount is required");
-      return;
-    }
     const recordSalePayload: any = {
-      userId: userData.userId,
-      companyId: userData.companyId || 0,
-      customerName: data.customerName,
-      productDescription: data.productDescription,
-      saleAmount: data.saleAmount,
-      remarks: data.remarks,
-      paymentReceived: data.paymentReceived,
+      ...data, // Spread body fields to make them all optional
+      userId: userData.userId, // Ensure userId remains consistent
     };
     const updateResult = await RecordSales.update(recordSalePayload,{where:{id}});
     createSuccess(res, "Record sale updated successfully", updateResult);
