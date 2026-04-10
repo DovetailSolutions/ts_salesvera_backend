@@ -689,7 +689,14 @@ export const CreateMeeting = async (
             name: contactName,
             mobile: contactMobile,
             email:contactEmail,
-            userId: finalUserId
+            userId: finalUserId,
+              state,
+          city,
+          country,
+          address,
+          gstNumber,
+          remarks, 
+          // meetingUserId: meetingContactUser?.id,
           },
           { transaction }
         );
