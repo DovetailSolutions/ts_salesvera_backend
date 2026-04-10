@@ -4644,3 +4644,41 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     badRequest(res, errorMessage);
   }
 };
+
+export const updateInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params || {};
+
+    if (!id) {
+      badRequest(res, "Invoice ID is required");
+      return;
+    }
+
+    const invoice = await Invoices.findOne({
+      where: {
+        id: Number(id),
+        userId: Number(userData.userId),
+      },
+    });
+
+    if (!invoice) {
+      badRequest(res, "Invoice not found");
+      return;
+    }
+    invoice.status = req.body.status;
+    await invoice.save();
+
+    createSuccess(res, "Invoice updated successfully", invoice);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
