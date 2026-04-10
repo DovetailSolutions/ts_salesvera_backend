@@ -40,6 +40,8 @@ import { CompanyBankModel } from "../app/model/bank";
 
 import { Invoices } from "../app/model/Invoice";
 
+import { RecordSales } from "../app/model/saleRecord";
+
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -104,6 +106,8 @@ CompanyLeave.initModel(sequelize);
 const CompanyBank = CompanyBankModel(sequelize);
 
 Invoices.initModel(sequelize);
+
+RecordSales.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -554,5 +558,6 @@ export {
   Holiday,
   CompanyLeave,
   CompanyBank,
-  Invoices
+  Invoices,
+  RecordSales
 };

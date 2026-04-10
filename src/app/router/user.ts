@@ -63,7 +63,12 @@ router.get("/getinvoice",tokenCheck,Controller.getInvoice);
 
 //  router.post("/quotationToInvoice/:id",tokenCheck,Controller.quotationToInvoice);
 
-
+// record  sale
+router.post("/recordsale",tokenCheck,Controller.recordSale);
+router.get("/getrecordsale",tokenCheck,Controller.getRecordSale);
+router.get("/getrecordsale/:id",tokenCheck,Controller.getRecordSaleById);
+router.patch("/updaterecordsale/:id",tokenCheck,Controller.updateRecordSale);
+router.delete("/deleterecordsale/:id",tokenCheck,Controller.deleteRecordSale);
 
 
 export default router;
