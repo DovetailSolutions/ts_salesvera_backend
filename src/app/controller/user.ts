@@ -627,6 +627,10 @@ export const CreateMeeting = async (
     } = req.body || {};
 
 
+
+    console.log("req.body create meeting ",req.body);
+
+
     // Trim all string inputs to avoid trailing space errors in enums
     if (typeof customerType === "string") customerType = customerType.trim();
     if (typeof meetingPurpose === "string") meetingPurpose = meetingPurpose.trim();
@@ -685,7 +689,14 @@ export const CreateMeeting = async (
             name: contactName,
             mobile: contactMobile,
             email:contactEmail,
-            userId: finalUserId
+            userId: finalUserId,
+              state,
+          city,
+          country,
+          address,
+          gstNumber,
+          remarks, 
+          // meetingUserId: meetingContactUser?.id,
           },
           { transaction }
         );

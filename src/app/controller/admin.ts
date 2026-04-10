@@ -33,7 +33,8 @@ import {
   Holiday,
   CompanyLeave,
   CompanyBank,
-  Invoices
+  Invoices,
+  RecordSales
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -4676,6 +4677,91 @@ export const updateInvoice = async (req: Request, res: Response): Promise<void> 
     await invoice.save();
 
     createSuccess(res, "Invoice updated successfully", invoice);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const getRecordSale = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { 
+      page = "1",
+      limit = "10",
+      search = "",
+      companyName,
+      city,
+      state,
+      status, // ✅ added status filter
+    } = req.query;
+
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50);
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ✅ Dynamic where condition
+    const whereCondition: any = {
+      userId: userData.userId, // always filter by user
+    };
+
+    // 🔍 Global search
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    }
+
+    // 🎯 Filters
+    if (companyName) {
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
+    }
+
+    if (city) {
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
+    }
+
+    if (state) {
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
+    }
+
+    // ✅ Status filter
+    if (status) {
+      whereCondition.status = status;
+    }
+
+    // ✅ Query with pagination
+    const { rows, count } = await Invoices.findAndCountAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset: offset,
+      order: [["createdAt", "DESC"]], // optional but recommended
+    });
+
+    createSuccess(res, "Invoice list fetched successfully", {
+      totalItems: count,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(count / pageSize),
+      pageSize,
+      data: rows,
+    });
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

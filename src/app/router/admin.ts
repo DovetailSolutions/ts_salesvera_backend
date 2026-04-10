@@ -140,6 +140,8 @@ router.post("/addinvoice",tokenCheck,AdminController.addInvoice);
 router.get("/getinvoice",tokenCheck,AdminController.getInvoice);
 router.post("/updateinvoice/:id",tokenCheck,AdminController.updateInvoice);
 
+router.get("/get-record-sale",tokenCheck,AdminController.getRecordSale);
+
 
 
 
