@@ -409,6 +409,27 @@ const ensureColumns = async (sequelize: Sequelize) => {
   } catch (err) {
     console.error(`❌ Error creating table invoices:`, err);
   }
+
+  // ✅ Ensure record_sales table exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "record_sales" (
+        "id" SERIAL PRIMARY KEY,
+        "customerName" VARCHAR(255) NOT NULL,
+        "productDescription" TEXT NOT NULL,
+        "saleAmount" FLOAT NOT NULL,
+        "remarks" TEXT,
+        "paymentReceived" BOOLEAN DEFAULT FALSE,
+        "userId" INTEGER NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log(`✅ Ensured table exists: record_sales`);
+  } catch (err) {
+    console.error(`❌ Error creating table record_sales:`, err);
+  }
 };
 
 

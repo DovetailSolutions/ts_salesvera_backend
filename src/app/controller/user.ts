@@ -2925,7 +2925,7 @@ export const recordSale = async(req:Request,res:Response):Promise<void>=>{
     }
     const recordSalePayload: any = {
       userId: userData.userId,
-      companyId: userData.companyId || 0,
+      companyId:  data.companyId|| 0,
       customerName: data.customerName,
       productDescription: data.productDescription,
       saleAmount: data.saleAmount,
