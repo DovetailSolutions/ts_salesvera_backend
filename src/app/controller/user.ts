@@ -1,5 +1,5 @@
-import { Op, fn, col, where,cast ,literal} from "sequelize";
-import {sequelize} from "../../config/dbConnection"
+import { Op, fn, col, where, cast, literal } from "sequelize";
+import { sequelize } from "../../config/dbConnection"
 import PDFDocument from "pdfkit";
 import puppeteer from "puppeteer";
 import ejs from "ejs";
@@ -53,9 +53,9 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+    Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
@@ -154,18 +154,18 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     // delete userData.updatedAt;
 
     const enrichedUser = {
-  ...userData,
-  city: "Zirakpur",
-  state: "Punjab",
-  country: "India"
-};
+      ...userData,
+      city: "Zirakpur",
+      state: "Punjab",
+      country: "India"
+    };
     createSuccess(res, "Login successful", {
       accessToken,
       refreshToken,
-      user:enrichedUser
+      user: enrichedUser
     });
 
-    
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -252,7 +252,7 @@ export const GetProfile = async (
             required: false,
           },
         ],
-         // 👈 company where adminId = root admin's ID
+        // 👈 company where adminId = root admin's ID
       });
       profile.company = company || null;
     } else {
@@ -454,7 +454,7 @@ export const MySalePerson = async (
 //     }
 
 //     const isExists =  await Meeting.findOne({where:{companyName,personName,mobileNumber,companyEmail}})
-  
+
 
 //     /** ✅ Prepare payload */
 //     const payload: any = {
@@ -499,7 +499,7 @@ export const MySalePerson = async (
 //     }else{
 //       createSuccess(res, "Meeting successfully added", item);
 //     }
-    
+
 //   } catch (error) {
 //     const errorMessage =
 //       error instanceof Error ? error.message : "Something went wrong";
@@ -555,22 +555,22 @@ export const getLastMeeting = async (
       include: [
         {
           model: MeetingCompany, // Include their associated companies
-          required: false, 
-          include:[
+          required: false,
+          include: [
             {
               model: Meeting,
               where: meetingWhereCondition, // Only fetch meetings that belong to the logged-in employee
               required: true,
               include: [
                 {
-                  model: MeetingImage 
+                  model: MeetingImage
                 }
               ]
             }
           ]
         }
       ],
-      distinct: true, 
+      distinct: true,
     });
 
     res.status(200).json({
@@ -602,6 +602,18 @@ export const CreateMeeting = async (
     const userData = req.userData as JwtPayload;
     const tokenUserId = userData?.userId;
 
+    const attendance = await Attendance.findOne({
+      where: {
+        employee_id: tokenUserId,
+        status: "out",
+      },
+    });
+
+    if (attendance) {
+      badRequest(res, "You already punched out");
+      return;
+    }
+
     let {
       userName,
       userMobile,
@@ -628,7 +640,7 @@ export const CreateMeeting = async (
 
 
 
-    console.log("req.body create meeting ",req.body);
+    console.log("req.body create meeting ", req.body);
 
 
     // Trim all string inputs to avoid trailing space errors in enums
@@ -668,7 +680,7 @@ export const CreateMeeting = async (
      * This acts as an address book for the Employee's external clients
      * -------------------------- */
     let meetingContactUser = null;
-    
+
     // Use the explicit userMobile if provided, otherwise fallback to the company mobileNumber
     const contactMobile = userMobile || mobileNumber;
     const contactName = userName || personName;
@@ -676,7 +688,7 @@ export const CreateMeeting = async (
 
     if (contactMobile) {
       meetingContactUser = await MeetingUser.findOne({
-        where: { 
+        where: {
           mobile: contactMobile,
           ...(contactEmail && { email: contactEmail }),
           ...(contactName && { name: contactName })
@@ -688,15 +700,15 @@ export const CreateMeeting = async (
           {
             name: contactName,
             mobile: contactMobile,
-            email:contactEmail,
+            email: contactEmail,
             userId: finalUserId,
-              state,
-          city,
-          country,
-          address,
-          gstNumber,
-          remarks, 
-          // meetingUserId: meetingContactUser?.id,
+            state,
+            city,
+            country,
+            address,
+            gstNumber,
+            remarks,
+            // meetingUserId: meetingContactUser?.id,
           },
           { transaction }
         );
@@ -709,8 +721,8 @@ export const CreateMeeting = async (
 
 
 
-    console.log("finalUserId",finalUserId)
-    console.log("meetingContactUser",meetingContactUser)
+    console.log("finalUserId", finalUserId)
+    console.log("meetingContactUser", meetingContactUser)
     const activeMeeting = await Meeting.findOne({
       where: {
         userId: finalUserId,
@@ -752,7 +764,7 @@ export const CreateMeeting = async (
           country,
           address,
           gstNumber,
-          remarks, 
+          remarks,
           meetingUserId: meetingContactUser?.id, // Link to Client
         },
         { transaction }
@@ -1230,7 +1242,7 @@ export const GetMeetingList = async (
     }
 
     /** ✅ Query with pagination + count */
-      const { rows, count } = await MeetingUser.findAndCountAll({
+    const { rows, count } = await MeetingUser.findAndCountAll({
       where: where,
       limit: Number(limit),
       offset,
@@ -1238,22 +1250,22 @@ export const GetMeetingList = async (
       include: [
         {
           model: MeetingCompany, // Include their associated companies
-          required: false, 
-          include:[
+          required: false,
+          include: [
             {
               model: Meeting,
               where: where, // Only fetch meetings that belong to the logged-in employee
               required: true,
               include: [
                 {
-                  model: MeetingImage 
+                  model: MeetingImage
                 }
               ]
             }
           ]
         }
       ],
-      distinct: true, 
+      distinct: true,
     });
 
     /** ✅ Pagination Info */
@@ -1367,7 +1379,7 @@ export const AttendancePunchIn = async (
     const already = await Attendance.findOne({
       where: {
         employee_id: finalUserId,
-        date: today,
+        status: "present",
       },
     });
 
@@ -1469,6 +1481,7 @@ export const AttendancePunchOut = async (
     attendance.overtime = overtime;
     attendance.latitude_out = latitude_out;
     attendance.longitude_out = longitude_out;
+    attendance.status = "out";
     await attendance.save();
 
     createSuccess(res, "Punch-out completed");
@@ -1539,27 +1552,27 @@ export const requestLeave = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    const { from_date, to_date, reason,leave_type } = req.body || {};
+    const { from_date, to_date, reason, leave_type } = req.body || {};
 
     // --------------------
     // ✅ Basic Validation
     // --------------------
     if (!from_date || !to_date || !reason) {
-       badRequest(res, "from_date, to_date & reason are required");
-       return
+      badRequest(res, "from_date, to_date & reason are required");
+      return
     }
 
     const from = new Date(from_date);
     const to = new Date(to_date);
 
     if (isNaN(from.getTime()) || isNaN(to.getTime())) {
-        badRequest(res, "Invalid date format");
-        return
+      badRequest(res, "Invalid date format");
+      return
     }
 
     if (to < from) {
-       badRequest(res, "to_date must be after from_date");
-       return
+      badRequest(res, "to_date must be after from_date");
+      return
     }
 
     // --------------------
@@ -1587,7 +1600,7 @@ export const requestLeave = async (
     }
     createSuccess(res, "Leave requested successfully", leave);
   } catch (error: any) {
-     badRequest(res, error?.message || "Something went wrong");
+    badRequest(res, error?.message || "Something went wrong");
   }
 };
 
@@ -2024,7 +2037,7 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
   try {
     const userData = req.userData as JwtPayload;
 
-    req.body.name 
+    req.body.name
 
 
 
@@ -2049,7 +2062,7 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
           const buf = fs.readFileSync(filePath);
           return `data:${mime};base64,${buf.toString("base64")}`;
         }
-      } catch (_) {}
+      } catch (_) { }
       return "";
     };
 
@@ -2072,27 +2085,27 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
 
     // Step 1: Compute per-item values
     const itemCalcs = data.items.map((item: any) => {
-      const qty        = Number(item.quantity || item.qty || 1);
-      const rate       = Number(item.rate || 0);
-      const discPct    = Number(item.discount || item.discountPercent || 0);
-      const gstPct     = Number(item.gst || item.gstPercent || 0);
+      const qty = Number(item.quantity || item.qty || 1);
+      const rate = Number(item.rate || 0);
+      const discPct = Number(item.discount || item.discountPercent || 0);
+      const gstPct = Number(item.gst || item.gstPercent || 0);
       // Services → rate is amount for one unit; Items → qty × rate
-      const itemTotal  = isService ? rate : qty * rate;
-      const discAmt    = (itemTotal * discPct) / 100;
-      const taxable    = itemTotal - discAmt;
-      const gstAmt     = (taxable * gstPct) / 100;
+      const itemTotal = isService ? rate : qty * rate;
+      const discAmt = (itemTotal * discPct) / 100;
+      const taxable = itemTotal - discAmt;
+      const gstAmt = (taxable * gstPct) / 100;
       return { itemTotal, discAmt, taxable, gstAmt };
     });
 
     // Step 2: Aggregate summary from item-level values
-    const subtotal      = itemCalcs.reduce((s: number, i: any) => s + i.itemTotal, 0);
+    const subtotal = itemCalcs.reduce((s: number, i: any) => s + i.itemTotal, 0);
     const totalDiscount = itemCalcs.reduce((s: number, i: any) => s + i.discAmt, 0);
     const taxableAmount = subtotal - totalDiscount;
-    const totalGST      = itemCalcs.reduce((s: number, i: any) => s + i.gstAmt, 0);
-    const finalAmount   = taxableAmount + totalGST;
+    const totalGST = itemCalcs.reduce((s: number, i: any) => s + i.gstAmt, 0);
+    const finalAmount = taxableAmount + totalGST;
 
     // Step 3: CGST / SGST / IGST split
-    const gstRate  = Number(data.gstRate || 0);
+    const gstRate = Number(data.gstRate || 0);
     let cgst = 0, sgst = 0, igst = 0;
 
     if (ownstate && clientState && ownstate === clientState) {
@@ -2158,15 +2171,15 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
 
     // ✅ Save PDF to uploads/pdf/
     const pdfFileName = `quotation-${quotationNumber}.pdf`;
-    const pdfDir      = path.join(__dirname, "../../../uploads/pdf");
+    const pdfDir = path.join(__dirname, "../../../uploads/pdf");
     const pdfFilePath = path.join(pdfDir, pdfFileName);
 
     if (!fs.existsSync(pdfDir)) fs.mkdirSync(pdfDir, { recursive: true });
     fs.writeFileSync(pdfFilePath, pdfBuffer);
 
     // ✅ Build public download URL
-    const baseUrl   = `${req.protocol}://${req.get("host")}`;
-    const pdfUrl    = `/uploads/pdf/${pdfFileName}`;
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const pdfUrl = `/uploads/pdf/${pdfFileName}`;
 
     // ✅ Return JSON with download link
     res.status(200).json({
@@ -2176,14 +2189,14 @@ export const getQuotationPdf = async (req: Request, res: Response): Promise<void
         quotationNumber,
         pdfUrl,
         summary: {
-          subtotal:      +subtotal.toFixed(2),
-          discount:      +discount.toFixed(2),
+          subtotal: +subtotal.toFixed(2),
+          discount: +discount.toFixed(2),
           taxableAmount: +taxableAmount.toFixed(2),
-          cgst:          +cgst.toFixed(2),
-          sgst:          +sgst.toFixed(2),
-          igst:          +igst.toFixed(2),
-          totalGST:      +totalGST.toFixed(2),
-          finalAmount:   +finalAmount.toFixed(2)
+          cgst: +cgst.toFixed(2),
+          sgst: +sgst.toFixed(2),
+          igst: +igst.toFixed(2),
+          totalGST: +totalGST.toFixed(2),
+          finalAmount: +finalAmount.toFixed(2)
         }
       }
     });
@@ -2200,34 +2213,34 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
 
     // ✅ Auth validation
     if (!userData || !userData.userId) {
-       badRequest(res, "Unauthorized request");
-       return
+      badRequest(res, "Unauthorized request");
+      return
     }
-   
+
 
     const data = req.body;
 
     // ✅ Required field validation
     if (!data.customerName) {
-       badRequest(res, "Customer name is required");
-       return
+      badRequest(res, "Customer name is required");
+      return
     }
 
     if (!data.referenceNumber) {
-       badRequest(res, "Reference number is required");
-       return
+      badRequest(res, "Reference number is required");
+      return
     }
 
     if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
-       badRequest(res, "Items are required");
-       return
+      badRequest(res, "Items are required");
+      return
     }
 
     // ✅ Validate each item
     for (const item of data.items) {
       if (!item.itemName || !item.quantity || !item.rate) {
-         badRequest(res, "Invalid item data");
-         return
+        badRequest(res, "Invalid item data");
+        return
       }
     }
 
@@ -2240,8 +2253,8 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     });
 
     if (existing) {
-       badRequest(res, "Quotation already exists with this reference number");
-       return
+      badRequest(res, "Quotation already exists with this reference number");
+      return
     }
 
     const quotationNumber = await generateQuotationNumber();
@@ -2398,13 +2411,13 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
     }
 
     // ✅ Company name filter (PostgreSQL JSON)
-if (companyName) {
-  whereCondition[Op.and] = [
-    literal(
-      `LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`
-    ),
-  ];
-}
+    if (companyName) {
+      whereCondition[Op.and] = [
+        literal(
+          `LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`
+        ),
+      ];
+    }
 
     // ✅ Query
     const { count, rows } = await Quotations.findAndCountAll({
@@ -2414,7 +2427,7 @@ if (companyName) {
       offset,
     });
 
-  const updatedRows = rows.map((item: any, rowIndex: number) => {
+    const updatedRows = rows.map((item: any, rowIndex: number) => {
       const data = item.toJSON();
       const { quotation, ...rest } = data;
 
@@ -2456,13 +2469,13 @@ if (companyName) {
 
 
 
-export const downloadQuotationPdf = async(req:Request,res:Response)=>{
-  try{
+export const downloadQuotationPdf = async (req: Request, res: Response) => {
+  try {
     const { id } = req.params;
 
     // ─── Fetch quotation record ────────────────────────────────────────────
     const quotation = await Quotations.findByPk(id);
-    if(!quotation){
+    if (!quotation) {
       badRequest(res, "Quotation not found");
       return;
     }
@@ -2550,7 +2563,7 @@ export const downloadQuotationPdf = async(req:Request,res:Response)=>{
 
 
 
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
@@ -2599,25 +2612,25 @@ export const getSubCategory = async (req: Request, res: Response) => {
 
 
 
-export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
-  try{
-    const {id} = req.params;
-    const {status} = req.body||{};
+export const updateQuotation = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body || {};
 
-    console.log("id",id,"status",status);
-    if(!id){
+    console.log("id", id, "status", status);
+    if (!id) {
       badRequest(res, "Quotation id is required");
       return;
     }
     const quotationData = await Quotations.findByPk(id);
-    if(!quotationData){
+    if (!quotationData) {
       badRequest(res, "Quotation not found");
       return;
     }
     quotationData.status = status;
     await quotationData.save();
     createSuccess(res, "Quotation updated successfully");
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
@@ -2702,31 +2715,31 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
       return;
     }
 
-    const company = await Company.findByPk(id,{
-      include:[
+    const company = await Company.findByPk(id, {
+      include: [
         {
-          model:Branch,
-          as:"branches"
+          model: Branch,
+          as: "branches"
         },
         {
-          model:Department,
-          as:"departments"
+          model: Department,
+          as: "departments"
         },
         {
-          model:Holiday,
-          as:"holidays"
+          model: Holiday,
+          as: "holidays"
         },
         {
-          model:Shift,
-          as:"shifts"
+          model: Shift,
+          as: "shifts"
         },
         {
-          model:CompanyLeave,
-          as:"companyLeaves"
+          model: CompanyLeave,
+          as: "companyLeaves"
         }
       ]
     });
-    if(!company){
+    if (!company) {
       badRequest(res, "Company not found");
       return;
     }
@@ -2773,8 +2786,8 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     // ✅ Validate each item
     for (const item of data.items) {
       if (!item.itemName || !item.quantity || !item.rate) {
-         badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
-         return;
+        badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
+        return;
       }
     }
 
@@ -2817,14 +2830,14 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 };
 
 
-export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const getInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    if(!userData || !userData.userId){
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    const {page = "1",limit = "10",search = "",companyName,city,state,} = req.query;
+    const { page = "1", limit = "10", search = "", companyName, city, state, } = req.query;
 
     const pageNumber = Number(page);
     const pageSize = Math.min(Number(limit), 50); // safety limit
@@ -2859,15 +2872,15 @@ export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
       whereCondition.state = {
         [Op.like]: `%${state}%`,
       };
-    }   
+    }
     const invoiceData = await Invoices.findAll({
-      where:{
-        userId:userData.userId,
+      where: {
+        userId: userData.userId,
         // companyId:userData.companyId || 0
       }
     });
     createSuccess(res, "Invoice list fetched successfully", invoiceData);
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
@@ -2914,29 +2927,29 @@ export const getInvoice = async(req:Request,res:Response):Promise<void>=>{
 // }
 
 
-export const recordSale = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const recordSale = async (req: Request, res: Response): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    if(!userData || !userData.userId){
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
     const data = req.body;
-    if(!data.customerName){
+    if (!data.customerName) {
       badRequest(res, "Customer name is required");
       return;
     }
-    if(!data.productDescription){
+    if (!data.productDescription) {
       badRequest(res, "Product description is required");
       return;
     }
-    if(!data.saleAmount){
+    if (!data.saleAmount) {
       badRequest(res, "Sale amount is required");
       return;
     }
     const recordSalePayload: any = {
       userId: userData.userId,
-      companyId:  data.companyId|| 0,
+      companyId: data.companyId || 0,
       customerName: data.customerName,
       productDescription: data.productDescription,
       saleAmount: data.saleAmount,
@@ -2945,85 +2958,85 @@ export const recordSale = async(req:Request,res:Response):Promise<void>=>{
     };
     const recordSaleData = await RecordSales.create(recordSalePayload);
     createSuccess(res, "Record sale added successfully", recordSaleData);
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 }
 
-export const getRecordSale = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const getRecordSale = async (req: Request, res: Response): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    if(!userData || !userData.userId){
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
     const recordSaleData = await RecordSales.findAll({
-      where:{
-        userId:userData.userId,
+      where: {
+        userId: userData.userId,
       }
     });
     createSuccess(res, "Record sale list fetched successfully", recordSaleData);
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 }
 
-export const getRecordSaleById = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const getRecordSaleById = async (req: Request, res: Response): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    if(!userData || !userData.userId){
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    const {id} = req.params;
-    if(!id){
+    const { id } = req.params;
+    if (!id) {
       badRequest(res, "Record sale id is required");
       return;
     }
     const recordSaleData = await RecordSales.findByPk(id);
-    if(!recordSaleData){
+    if (!recordSaleData) {
       badRequest(res, "Record sale not found");
       return;
     }
     createSuccess(res, "Record sale fetched successfully", recordSaleData);
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 }
 
-export const updateRecordSale = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const updateRecordSale = async (req: Request, res: Response): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    if(!userData || !userData.userId){
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    const {id} = req.params;
-    if(!id){
+    const { id } = req.params;
+    if (!id) {
       badRequest(res, "Record sale id is required");
       return;
     }
     const recordSaleData = await RecordSales.findByPk(id);
-    if(!recordSaleData){
+    if (!recordSaleData) {
       badRequest(res, "Record sale not found");
       return;
     }
     const data = req.body;
-    if(!data.customerName){
+    if (!data.customerName) {
       badRequest(res, "Customer name is required");
       return;
     }
-    if(!data.productDescription){
+    if (!data.productDescription) {
       badRequest(res, "Product description is required");
       return;
     }
-    if(!data.saleAmount){
+    if (!data.saleAmount) {
       badRequest(res, "Sale amount is required");
       return;
     }
@@ -3036,35 +3049,35 @@ export const updateRecordSale = async(req:Request,res:Response):Promise<void>=>{
       remarks: data.remarks,
       paymentReceived: data.paymentReceived,
     };
-    const updateResult = await RecordSales.update(recordSalePayload,{where:{id}});
+    const updateResult = await RecordSales.update(recordSalePayload, { where: { id } });
     createSuccess(res, "Record sale updated successfully", updateResult);
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 }
 
-export const deleteRecordSale = async(req:Request,res:Response):Promise<void>=>{
-  try{
+export const deleteRecordSale = async (req: Request, res: Response): Promise<void> => {
+  try {
     const userData = req.userData as JwtPayload;
-    if(!userData || !userData.userId){
+    if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    const {id} = req.params;
-    if(!id){
+    const { id } = req.params;
+    if (!id) {
       badRequest(res, "Record sale id is required");
       return;
     }
     const recordSaleData = await RecordSales.findByPk(id);
-    if(!recordSaleData){
+    if (!recordSaleData) {
       badRequest(res, "Record sale not found");
       return;
     }
-    const deleteResult = await RecordSales.destroy({where:{id}});
+    const deleteResult = await RecordSales.destroy({ where: { id } });
     createSuccess(res, "Record sale deleted successfully", deleteResult);
-  }catch(error){
+  } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
