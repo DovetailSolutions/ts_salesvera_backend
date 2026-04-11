@@ -1446,13 +1446,13 @@ export const AttendancePunchOut = async (
     const attendance = await Attendance.findOne({
       where: {
         employee_id: finalUserId,
-        // date: today,
+        date: today,
         status: "out",
         id: AttendanceId,
       },
     });
 
-    
+
 
 
     if (!attendance) {
