@@ -636,6 +636,7 @@ export const CreateMeeting = async (
       address,
       gstNumber,
       remarks,
+      pincode,
     } = req.body || {};
 
 
@@ -748,6 +749,7 @@ export const CreateMeeting = async (
         personName,
         mobileNumber,
         companyEmail,
+        
       },
     });
 
@@ -765,6 +767,7 @@ export const CreateMeeting = async (
           address,
           gstNumber,
           remarks,
+          pincode,
           meetingUserId: meetingContactUser?.id, // Link to Client
         },
         { transaction }
@@ -792,6 +795,7 @@ export const CreateMeeting = async (
         meetingTimeIn: validMeetingTimeIn,
         latitude_in,
         longitude_in,
+        pincode,
         scheduledTime: validScheduledTime,
       },
       { transaction }

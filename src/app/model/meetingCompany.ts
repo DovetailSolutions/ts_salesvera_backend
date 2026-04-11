@@ -9,6 +9,7 @@ export class MeetingCompany extends Model {
   public companyEmail!: string;
   public customerType!: "new" | "existing" | "followup";
   public remarks!: string;
+  public pincode!: string;
 }
 
 export const MeetingCompanyModel = (sequelize: Sequelize) => {
@@ -68,6 +69,7 @@ export const MeetingCompanyModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         field: "quotation_number",
       },
+      pincode: DataTypes.STRING,
 
     },
     {
