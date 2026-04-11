@@ -1366,9 +1366,6 @@ export const AttendancePunchIn = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-
-    console.log("finalUserId", finalUserId);
-
     const { punch_in, latitude_in, longitude_in } = req.body || {};
 
     if (!punch_in) {
@@ -1376,34 +1373,40 @@ export const AttendancePunchIn = async (
       return;
     }
 
-    // 1) ✅ Check if already punched in today
     const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
 
-    const already = await Attendance.findOne({
+    // 1) ✅ Check if already have an active session (status: present)
+    const activeSession = await Attendance.findOne({
       where: {
         employee_id: finalUserId,
         status: "present",
       },
     });
 
-
-    console.log("already", already);
-
-    if (!already) {
-      badRequest(res, "You have already punched-in today");
+    if (activeSession) {
+      badRequest(res, "You have already punched-in. Please punch-out first.");
       return;
     }
 
-    // 2) ✅ Calculate Late
-    const officeTime = new Date(`${today} 09:30:00`);
-    const punchInTime = new Date(punch_in);
+    // 2) ✅ Check if this is the first punch of the day to determine "late" status
+    const existingRecordsForToday = await Attendance.findOne({
+      where: {
+        employee_id: finalUserId,
+        date: today,
+      },
+    });
 
     let late = false;
-    if (punchInTime > officeTime) {
-      late = true;
+    if (!existingRecordsForToday) {
+      const officeTime = new Date(`${today} 09:30:00`);
+      const punchInTime = new Date(punch_in);
+      if (punchInTime > officeTime) {
+        late = true;
+      }
     }
 
     // 3) ✅ Create attendance record
+    const punchInTime = new Date(punch_in);
     const obj: any = {
       employee_id: finalUserId,
       date: today,
@@ -1440,31 +1443,24 @@ export const AttendancePunchOut = async (
       return;
     }
 
-    const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
+    // Find the current active session
+    let whereClause: any = {
+      employee_id: finalUserId,
+      status: "present",
+    };
 
-    // ✅ Find today's punch-in record
-    const attendance = await Attendance.findOne({
-      where: {
-        employee_id: finalUserId,
-        date: today,
-        status: "present",
-        id: AttendanceId,
-      },
-    });
-
-
-
-
-
-
-    if (!attendance) {
-      badRequest(res, "No punch-in record found today");
-      return;
+    // Use specific ID if provided, otherwise find latest active
+    if (AttendanceId) {
+      whereClause.id = AttendanceId;
     }
 
-    // ✅ Check if already punched-out
-    if (attendance.punch_out) {
-      badRequest(res, "Already punched-out today");
+    const attendance = await Attendance.findOne({
+      where: whereClause,
+      order: [["id", "DESC"]],
+    });
+
+    if (!attendance) {
+      badRequest(res, "No active punch-in record found. Please punch-in first.");
       return;
     }
 
@@ -1475,19 +1471,20 @@ export const AttendancePunchOut = async (
       badRequest(res, "Punch-out must be after punch-in");
       return;
     }
-    // ✅ Calculate working hours
+
+    // ✅ Calculate working hours for this session
     const diffMs = punchOutTime.getTime() - punchInTime.getTime();
     const workingHours = diffMs / (1000 * 60 * 60); // ms → hours
     const workingHoursRounded = Number(workingHours.toFixed(2));
 
-    // ✅ Overtime (optional)
-    const officeHours = 8; // Standard
+    // ✅ Overtime calculation (Standard 8h)
+    const officeHours = 8;
     const overtime =
       workingHoursRounded > officeHours
         ? Number((workingHoursRounded - officeHours).toFixed(2))
         : 0;
 
-    // ✅ Update DB
+    // ✅ Update session to closed (status: out)
     attendance.punch_out = punchOutTime;
     attendance.working_hours = workingHoursRounded;
     attendance.overtime = overtime;
@@ -1496,7 +1493,7 @@ export const AttendancePunchOut = async (
     attendance.status = "out";
     await attendance.save();
 
-    createSuccess(res, "Punch-out completed");
+    createSuccess(res, "Punch-out recorded successfully", attendance);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -1520,8 +1517,9 @@ export const getTodayAttendance = async (
     const record = await Attendance.findOne({
       where: {
         employee_id: finalUserId,
-        [Op.and]: where(fn("DATE", col("date")), today),
+        date: today,
       },
+      order: [["id", "DESC"]], // Get latest entry
     });
 
     if (!record) {
@@ -1529,7 +1527,7 @@ export const getTodayAttendance = async (
       return;
     }
 
-    createSuccess(res, "Today attendance fetched", record);
+    createSuccess(res, "Today attendance fetched successfully", record);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
