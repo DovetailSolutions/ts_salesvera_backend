@@ -24,6 +24,7 @@ export class Meeting extends Model {
   public longitude_out!: string;
   public totalDistance!: string;
   public legDistance!: string;
+  public pincode!: string;
 }
 export const MeetingModel = (sequelize: Sequelize) => {
   Meeting.init(
@@ -110,6 +111,7 @@ export const MeetingModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         field: "leg_distance",
       },
+      pincode: DataTypes.STRING,
 
     },
     {
