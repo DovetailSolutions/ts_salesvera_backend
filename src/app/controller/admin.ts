@@ -4566,6 +4566,9 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
   try {
     const userData = req.userData as JwtPayload;
 
+
+    console.log("userDatagetInvoice",userData);
+
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
@@ -4578,16 +4581,50 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       companyName,
       city,
       state,
-      status, // ✅ added status filter
+      status,
     } = req.query;
 
     const pageNumber = Number(page);
     const pageSize = Math.min(Number(limit), 50);
     const offset = (pageNumber - 1) * pageSize;
 
-    // ✅ Dynamic where condition
-    const whereCondition: any = {
-      userId: userData.userId, // always filter by user
+    // ✅ Recursive team users
+    let teamUserIds: any[] = [userData.userId];
+    let currentParentIds: any[] = [userData.userId];
+
+    while (currentParentIds.length > 0) {
+      const subUsers = await User.findAll({
+        where: { id: { [Op.in]: currentParentIds } },
+        include: [
+          {
+            model: User,
+            as: "createdUsers",
+            attributes: ["id"],
+          },
+        ],
+      });
+
+      let nextLevelParentIds: any[] = [];
+
+      subUsers.forEach((u: any) => {
+        const children = u.createdUsers || [];
+
+        children.forEach((child: any) => {
+          if (!teamUserIds.includes(child.id)) {
+            teamUserIds.push(child.id);
+            nextLevelParentIds.push(child.id);
+          }
+        });
+      });
+
+      currentParentIds = nextLevelParentIds;
+    }
+
+    console.log("Final Team User IDs (Recursive):", teamUserIds);
+
+    // ✅ FIX: Use ONLY ONE whereCondition
+    let whereCondition: any = {
+      userId: { [Op.in]: teamUserIds },
     };
 
     // 🔍 Global search
@@ -4618,19 +4655,19 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       };
     }
 
-    // ✅ Status filter
     if (status) {
       whereCondition.status = status;
     }
 
-    // ✅ Query with pagination
+    // ✅ Query
     const { rows, count } = await Invoices.findAndCountAll({
       where: whereCondition,
       limit: pageSize,
       offset: offset,
-      order: [["createdAt", "DESC"]], // optional but recommended
+      order: [["createdAt", "DESC"]],
     });
 
+    // ✅ DO NOT CHANGE RESPONSE STRUCTURE
     createSuccess(res, "Invoice list fetched successfully", {
       totalItems: count,
       currentPage: pageNumber,
@@ -4649,6 +4686,8 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
 export const updateInvoice = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+
+
 
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
