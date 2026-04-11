@@ -4704,7 +4704,7 @@ export const updateInvoice = async (req: Request, res: Response): Promise<void> 
     const invoice = await Invoices.findOne({
       where: {
         id: Number(id),
-        userId: Number(userData.userId),
+        // userId: Number(userData.userId),
       },
     });
 
