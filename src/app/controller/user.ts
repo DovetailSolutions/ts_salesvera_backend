@@ -602,17 +602,17 @@ export const CreateMeeting = async (
     const userData = req.userData as JwtPayload;
     const tokenUserId = userData?.userId;
 
-    const attendance = await Attendance.findOne({
-      where: {
-        employee_id: tokenUserId,
-        status: "out",
-      },
-    });
+    // const attendance = await Attendance.findOne({
+    //   where: {
+    //     employee_id: tokenUserId,
+    //     status: "out",
+    //   },
+    // });
 
-    if (attendance) {
-      badRequest(res, "You already punched out");
-      return;
-    }
+    // if (attendance) {
+    //   badRequest(res, "You already punched out");
+    //   return;
+    // }
 
     let {
       userName,
