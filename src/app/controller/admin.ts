@@ -4689,30 +4689,68 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
   try {
     const userData = req.userData as JwtPayload;
 
-    if (!userData || !userData.userId) {
+    if (!userData?.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { 
+
+    const {
       page = "1",
       limit = "10",
       search = "",
       companyName,
       city,
       state,
-      status, // ✅ added status filter
-    } = req.query;
+      status,
+    } = req.query as any;
 
-    const pageNumber = Number(page);
-    const pageSize = Math.min(Number(limit), 50);
+    // ✅ Safe pagination parsing
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Number(limit) || 10, 50);
     const offset = (pageNumber - 1) * pageSize;
 
-    // ✅ Dynamic where condition
+    /** --------------------------
+     * 🔁 Get Team Users (Recursive)
+     * -------------------------- */
+    let teamUserIds: number[] = [userData.userId];
+    let currentParentIds: number[] = [userData.userId];
+
+    while (currentParentIds.length > 0) {
+      const subUsers = await User.findAll({
+        where: { id: { [Op.in]: currentParentIds } },
+        include: [
+          {
+            model: User,
+            as: "createdUsers",
+            attributes: ["id"],
+          },
+        ],
+      });
+
+      let nextLevelParentIds: number[] = [];
+
+      subUsers.forEach((u: any) => {
+        const children = u.createdUsers || [];
+
+        children.forEach((child: any) => {
+          if (!teamUserIds.includes(child.id)) {
+            teamUserIds.push(child.id);
+            nextLevelParentIds.push(child.id);
+          }
+        });
+      });
+
+      currentParentIds = nextLevelParentIds;
+    }
+
+    /** --------------------------
+     * 🔍 Filters
+     * -------------------------- */
     const whereCondition: any = {
-      userId: userData.userId, // always filter by user
+      userId: { [Op.in]: teamUserIds },
     };
 
-    // 🔍 Global search
+    // Global search
     if (search) {
       whereCondition[Op.or] = [
         { companyName: { [Op.like]: `%${search}%` } },
@@ -4721,44 +4759,66 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       ];
     }
 
-    // 🎯 Filters
     if (companyName) {
-      whereCondition.companyName = {
-        [Op.like]: `%${companyName}%`,
-      };
+      whereCondition.companyName = { [Op.like]: `%${companyName}%` };
     }
 
     if (city) {
-      whereCondition.city = {
-        [Op.like]: `%${city}%`,
-      };
+      whereCondition.city = { [Op.like]: `%${city}%` };
     }
 
     if (state) {
-      whereCondition.state = {
-        [Op.like]: `%${state}%`,
-      };
+      whereCondition.state = { [Op.like]: `%${state}%` };
     }
 
-    // ✅ Status filter
     if (status) {
       whereCondition.status = status;
     }
 
-    // ✅ Query with pagination
-    const { rows, count } = await RecordSales.findAndCountAll({
+    /** --------------------------
+     * 📦 Fetch Data
+     * -------------------------- */
+    const { count, rows } = await RecordSales.findAndCountAll({
       where: whereCondition,
-      limit: pageSize,
-      offset: offset,
-      order: [["createdAt", "DESC"]], // optional but recommended
+      order: [["createdAt", "DESC"]], // ✅ latest first
+      limit: pageSize,                // ✅ fixed
+      offset,
     });
 
+    /** --------------------------
+     * 🧠 Transform Data
+     * -------------------------- */
+    const updatedRows = rows.map((item: any, rowIndex: number) => {
+      const data = item.toJSON();
+      const { quotation, ...rest } = data;
+
+      const finalQuotation = quotation?.quotation || quotation;
+
+      if (finalQuotation?.items && Array.isArray(finalQuotation.items)) {
+        finalQuotation.items = finalQuotation.items.map(
+          (itm: any, itemIndex: number) => ({
+            index: itemIndex + 1,
+            ...itm,
+          })
+        );
+      }
+
+      return {
+        ...rest,
+        rowIndex: offset + rowIndex + 1,
+        quotation: finalQuotation,
+      };
+    });
+
+    /** --------------------------
+     * ✅ Response
+     * -------------------------- */
     createSuccess(res, "Invoice list fetched successfully", {
       totalItems: count,
       currentPage: pageNumber,
       totalPages: Math.ceil(count / pageSize),
       pageSize,
-      data: rows,
+      data: updatedRows, // ✅ FIXED (was rows)
     });
 
   } catch (error) {
