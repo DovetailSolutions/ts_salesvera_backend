@@ -1218,6 +1218,8 @@ export const GetMeetingList = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
+    console.log("finalUserId", finalUserId);
+
     if (!finalUserId) {
       badRequest(res, "UserId not found");
       return;
