@@ -20,6 +20,7 @@ async function getAllRelatedUserIds(
   const result = new Set<number>();
   if (includeSelf) result.add(userId);
 
+  // 1. Fetch recursively UP (parents) and DOWN (children)
   async function fetchRelations(
     id: number,
     direction: "children" | "parents"
@@ -58,10 +59,42 @@ async function getAllRelatedUserIds(
     }
   }
 
-  // Fetch both children and parents concurrently
+  // 2. Fetch Horizontal Peers (Siblings - users created by the same parents)
+  async function fetchPeers(id: number): Promise<void> {
+    const user = (await User.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: "creators",
+          through: { attributes: [] },
+          include: [
+            {
+              model: User,
+              as: "createdUsers",
+              through: { attributes: [] },
+              attributes: ["id"],
+            },
+          ],
+        },
+      ],
+    })) as any;
+
+    if (user?.creators) {
+      for (const creator of user.creators) {
+        if (creator.createdUsers) {
+          for (const peer of creator.createdUsers) {
+            result.add(peer.id);
+          }
+        }
+      }
+    }
+  }
+
+  // Execute all logic
   await Promise.all([
     fetchRelations(userId, "children"),
     fetchRelations(userId, "parents"),
+    fetchPeers(userId),
   ]);
 
   return Array.from(result);
