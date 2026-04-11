@@ -1379,20 +1379,20 @@ export const AttendancePunchIn = async (
     // 1) ✅ Check if already punched in today
     const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
 
-    // const already = await Attendance.findOne({
-    //   where: {
-    //     employee_id: finalUserId,
-    //     status: "present",
-    //   },
-    // });
+    const already = await Attendance.findOne({
+      where: {
+        employee_id: finalUserId,
+        status: "present",
+      },
+    });
 
 
-    // console.log("already", already);
+    console.log("already", already);
 
-    // if (!already) {
-    //   badRequest(res, "You have already punched-in today");
-    //   return;
-    // }
+    if (!already) {
+      badRequest(res, "You have already punched-in today");
+      return;
+    }
 
     // 2) ✅ Calculate Late
     const officeTime = new Date(`${today} 09:30:00`);
@@ -1452,7 +1452,7 @@ export const AttendancePunchOut = async (
       },
     });
 
-    
+
 
 
 
