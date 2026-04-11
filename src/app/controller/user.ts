@@ -1366,6 +1366,9 @@ export const AttendancePunchIn = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
+
+    console.log("finalUserId", finalUserId);
+
     const { punch_in, latitude_in, longitude_in } = req.body || {};
 
     if (!punch_in) {
@@ -1382,6 +1385,9 @@ export const AttendancePunchIn = async (
         status: "present",
       },
     });
+
+
+    console.log("already", already);
 
     if (already) {
       badRequest(res, "You have already punched-in today");
