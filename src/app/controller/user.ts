@@ -1447,7 +1447,7 @@ export const AttendancePunchOut = async (
       where: {
         employee_id: finalUserId,
         date: today,
-        status: "out",
+        status: "present",
         id: AttendanceId,
       },
     });
