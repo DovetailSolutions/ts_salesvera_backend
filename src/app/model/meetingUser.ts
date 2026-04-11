@@ -19,6 +19,7 @@ export class User extends Model {
   public status!: "draft" | "sent" | "accepted" | "rejected";
   // public companyId!: number;
   public role!: "admin" | "manager" | "employee";
+  // public pincode!: string;
 }
 
 export const UserModel = (sequelize: Sequelize) => {
@@ -70,6 +71,7 @@ export const UserModel = (sequelize: Sequelize) => {
           type: DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
           defaultValue: "draft",
         },
+      // pincode: DataTypes.STRING,
     },
     {
       sequelize,

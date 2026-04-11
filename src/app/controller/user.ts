@@ -709,6 +709,7 @@ export const CreateMeeting = async (
             address,
             gstNumber,
             remarks,
+            pincode,
             // meetingUserId: meetingContactUser?.id,
           },
           { transaction }
