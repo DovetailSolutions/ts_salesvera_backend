@@ -71,4 +71,7 @@ router.patch("/updaterecordsale/:id",tokenCheck,Controller.updateRecordSale);
 router.delete("/deleterecordsale/:id",tokenCheck,Controller.deleteRecordSale);
 
 
+
+
+
 export default router;

@@ -4693,7 +4693,6 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       badRequest(res, "Unauthorized request");
       return;
     }
-
     const { 
       page = "1",
       limit = "10",
@@ -4747,7 +4746,7 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
     }
 
     // ✅ Query with pagination
-    const { rows, count } = await Invoices.findAndCountAll({
+    const { rows, count } = await RecordSales.findAndCountAll({
       where: whereCondition,
       limit: pageSize,
       offset: offset,
