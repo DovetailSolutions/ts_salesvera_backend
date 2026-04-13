@@ -4956,7 +4956,7 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
 
     // ✅ Status filter
     if (status) {
-      whereCondition.status = status;
+      whereCondition.paymentReceived = status;
     }
 
     // ✅ Date filter (createdAt)
