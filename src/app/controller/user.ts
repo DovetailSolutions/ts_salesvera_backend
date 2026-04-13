@@ -525,13 +525,15 @@ export const getLastMeeting = async (
     };
 
     // Client/MeetingUser search logic
-    if (search) {
-      whereCondition[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } },
-        { mobile: { [Op.like]: `%${search}%` } },
-      ];
-    }
+   if (search) {
+  whereCondition[Op.or] = [
+    {
+      name: {
+        [Op.iLike]: `${search}%`, // ✅ case-insensitive
+      },
+    },
+  ];
+}
 
     // company search logic
     const companyWhereCondition: any = {};
