@@ -1890,6 +1890,57 @@ export const ReFressToken = async (
   }
 };
 
+export const UpdatePassword = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const { oldPassword, newPassword } = req.body || {};
+    if (!oldPassword || !newPassword) {
+      badRequest(res, "Please provide old password and new password");
+      return;
+    }
+
+    if (oldPassword === newPassword) {
+      badRequest(res, "New password must be different from the old password");
+      return;
+    }
+
+    // ✅ Fetch user
+    const user = await Middleware.getById(User, Number(userData.userId));
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    // ✅ Now TypeScript knows `user` is not null
+    const isPasswordValid = await bcrypt.compare(
+      oldPassword,
+      user.get("password") as string
+    );
+
+    if (!isPasswordValid) {
+      badRequest(res, "Old password is incorrect");
+      return;
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const newHashedPassword = await bcrypt.hash(newPassword, salt);
+
+    await Middleware.Update(User, Number(userData.userId), {
+      password: newHashedPassword,
+    });
+
+    createSuccess(res, "Password updated successfully");
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+    return;
+  }
+};
+
 // export const getQuotation = async (req: Request, res: Response): Promise<void> => {
 //   try {
 //     // const userData = req.userData as JwtPayload;
