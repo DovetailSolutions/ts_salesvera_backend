@@ -4724,6 +4724,148 @@ export const updateInvoice = async (req: Request, res: Response): Promise<void> 
 };
 
 
+// export const getRecordSale = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData?.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const {
+//       page = "1",
+//       limit = "10",
+//       search = "",
+//       companyName,
+//       city,
+//       state,
+//       status,
+//     } = req.query as any;
+
+//     // ✅ Safe pagination parsing
+//     const pageNumber = Math.max(Number(page) || 1, 1);
+//     const pageSize = Math.min(Number(limit) || 10, 50);
+//     const offset = (pageNumber - 1) * pageSize;
+
+//     /** --------------------------
+//      * 🔁 Get Team Users (Recursive)
+//      * -------------------------- */
+//     let teamUserIds: number[] = [userData.userId];
+//     let currentParentIds: number[] = [userData.userId];
+
+//     while (currentParentIds.length > 0) {
+//       const subUsers = await User.findAll({
+//         where: { id: { [Op.in]: currentParentIds } },
+//         include: [
+//           {
+//             model: User,
+//             as: "createdUsers",
+//             attributes: ["id"],
+//           },
+//         ],
+//       });
+
+//       let nextLevelParentIds: number[] = [];
+
+//       subUsers.forEach((u: any) => {
+//         const children = u.createdUsers || [];
+
+//         children.forEach((child: any) => {
+//           if (!teamUserIds.includes(child.id)) {
+//             teamUserIds.push(child.id);
+//             nextLevelParentIds.push(child.id);
+//           }
+//         });
+//       });
+
+//       currentParentIds = nextLevelParentIds;
+//     }
+
+//     /** --------------------------
+//      * 🔍 Filters
+//      * -------------------------- */
+//     const whereCondition: any = {
+//       userId: { [Op.in]: teamUserIds },
+//     };
+
+//     // Global search
+//     if (search) {
+//       whereCondition[Op.or] = [
+//         { companyName: { [Op.like]: `%${search}%` } },
+//         { city: { [Op.like]: `%${search}%` } },
+//         { state: { [Op.like]: `%${search}%` } },
+//       ];
+//     }
+
+//     if (companyName) {
+//       whereCondition.companyName = { [Op.like]: `%${companyName}%` };
+//     }
+
+//     if (city) {
+//       whereCondition.city = { [Op.like]: `%${city}%` };
+//     }
+
+//     if (state) {
+//       whereCondition.state = { [Op.like]: `%${state}%` };
+//     }
+
+//     if (status) {
+//       whereCondition.status = status;
+//     }
+
+//     /** --------------------------
+//      * 📦 Fetch Data
+//      * -------------------------- */
+//     const { count, rows } = await RecordSales.findAndCountAll({
+//       where: whereCondition,
+//       order: [["createdAt", "DESC"]], // ✅ latest first
+//       limit: pageSize,                // ✅ fixed
+//       offset,
+//     });
+
+//     /** --------------------------
+//      * 🧠 Transform Data
+//      * -------------------------- */
+//     const updatedRows = rows.map((item: any, rowIndex: number) => {
+//       const data = item.toJSON();
+//       const { quotation, ...rest } = data;
+
+//       const finalQuotation = quotation?.quotation || quotation;
+
+//       if (finalQuotation?.items && Array.isArray(finalQuotation.items)) {
+//         finalQuotation.items = finalQuotation.items.map(
+//           (itm: any, itemIndex: number) => ({
+//             index: itemIndex + 1,
+//             ...itm,
+//           })
+//         );
+//       }
+
+//       return {
+//         ...rest,
+//         rowIndex: offset + rowIndex + 1,
+//         quotation: finalQuotation,
+//       };
+//     });
+
+//     /** --------------------------
+//      * ✅ Response
+//      * -------------------------- */
+//     createSuccess(res, "Invoice list fetched successfully", {
+//       totalItems: count,
+//       currentPage: pageNumber,
+//       totalPages: Math.ceil(count / pageSize),
+//       pageSize,
+//       data: updatedRows, // ✅ FIXED (was rows)
+//     });
+
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
 export const getRecordSale = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -4741,6 +4883,8 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       city,
       state,
       status,
+      startDate,   // ✅ added
+      endDate,     // ✅ added
     } = req.query as any;
 
     // ✅ Safe pagination parsing
@@ -4789,7 +4933,7 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       userId: { [Op.in]: teamUserIds },
     };
 
-    // Global search
+    // 🔍 Global search
     if (search) {
       whereCondition[Op.or] = [
         { companyName: { [Op.like]: `%${search}%` } },
@@ -4810,8 +4954,27 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       whereCondition.state = { [Op.like]: `%${state}%` };
     }
 
+    // ✅ Status filter
     if (status) {
       whereCondition.status = status;
+    }
+
+    // ✅ Date filter (createdAt)
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate + "T00:00:00.000Z"),
+          new Date(endDate + "T23:59:59.999Z"),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+      };
     }
 
     /** --------------------------
@@ -4819,8 +4982,8 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
      * -------------------------- */
     const { count, rows } = await RecordSales.findAndCountAll({
       where: whereCondition,
-      order: [["createdAt", "DESC"]], // ✅ latest first
-      limit: pageSize,                // ✅ fixed
+      order: [["createdAt", "DESC"]],
+      limit: pageSize,
       offset,
     });
 
@@ -4850,14 +5013,14 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
     });
 
     /** --------------------------
-     * ✅ Response
+     * ✅ Response (UNCHANGED)
      * -------------------------- */
     createSuccess(res, "Invoice list fetched successfully", {
       totalItems: count,
       currentPage: pageNumber,
       totalPages: Math.ceil(count / pageSize),
       pageSize,
-      data: updatedRows, // ✅ FIXED (was rows)
+      data: updatedRows,
     });
 
   } catch (error) {
