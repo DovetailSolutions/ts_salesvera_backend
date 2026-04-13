@@ -2410,7 +2410,8 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
 
     const ownstate = String(req.query.ownstate || "").toLowerCase();
     const clientState = String(req.query.clientState || "").toLowerCase();
-
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
     // ✅ Validate status
     const allowedStatus = ["draft", "accepted", "rejected"];
     if (status && !allowedStatus.includes(status)) {
@@ -2434,6 +2435,23 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
           `LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`
         ),
       ];
+    }
+
+     if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate + "T00:00:00.000Z"),
+          new Date(endDate + "T23:59:59.999Z"),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+      };
     }
 
     // ✅ Query
@@ -2854,14 +2872,17 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { page = "1", limit = "10", search = "", companyName, city, state, } = req.query;
+    const { page = "1", limit = "10", search = "", companyName, city, state,startDate,  // ✅ new
+      endDate  } = req.query;
 
     const pageNumber = Number(page);
     const pageSize = Math.min(Number(limit), 50); // safety limit
     const offset = (pageNumber - 1) * pageSize;
 
     // ✅ Dynamic where condition
-    const whereCondition: any = {};
+    const whereCondition: any = {
+      userId: userData.userId,
+    };
 
     // 🔍 Global search
     if (search) {
@@ -2890,11 +2911,29 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
         [Op.like]: `%${state}%`,
       };
     }
+
+      if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate as string),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate as string),
+      };
+    }
+
     const invoiceData = await Invoices.findAll({
-      where: {
-        userId: userData.userId,
-        // companyId:userData.companyId || 0
-      }
+      where: whereCondition,
+      limit: pageSize,
+      offset: offset,
+      order: [["createdAt", "DESC"]],
     });
     createSuccess(res, "Invoice list fetched successfully", invoiceData);
   } catch (error) {
