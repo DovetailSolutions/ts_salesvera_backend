@@ -9,6 +9,11 @@ const expense = getUploadMiddleware("expense");
 router.post("/register", Controller.Register);
 router.post("/login", Controller.Login);
 router.get("/getprofile", tokenCheck, Controller.GetProfile);
+
+
+
+
+
 router.patch(
   "/updateprofile",
   tokenCheck,
