@@ -45,6 +45,7 @@ router.post(
 );
 router.get("/getexpense",tokenCheck,Controller.GetExpense);
 router.get("/refreshtoken",tokenCheck,Controller.ReFressToken);
+router.patch("/updatepassword", tokenCheck, Controller.UpdatePassword);
 // router.get("/getquotation",tokenCheck,Controller.getQuotation)
 router.post("/getquotationpdf",tokenCheck,Controller.getQuotationPdf)
 router.get("/getquotationpdflist",tokenCheck,Controller.getQuotationPdfList)
