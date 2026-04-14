@@ -1230,6 +1230,24 @@ export const GetMeetingList = async (
       return;
     }
 
+    // ✅ Auto-Cancel Overdue Meetings (older than 24h)
+    // Runs before fetching to ensure the list is up to date
+    try {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      await Meeting.update(
+        { status: "cancelled" },
+        {
+          where: {
+            status: { [Op.in]: ["scheduled", "pending"] },
+            scheduledTime: { [Op.lt]: twentyFourHoursAgo },
+          },
+        }
+      );
+    } catch (cancelError) {
+      console.error("Auto-cancel meetings error:", cancelError);
+      // Continue fetching even if auto-cancel fails
+    }
+
     /** ✅ Search condition */
     const where: any = {
       userId: finalUserId,

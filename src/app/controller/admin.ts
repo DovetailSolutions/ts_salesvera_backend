@@ -34,7 +34,9 @@ import {
   CompanyLeave,
   CompanyBank,
   Invoices,
-  RecordSales
+  RecordSales,
+  Permission,
+  UserPermission
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -160,7 +162,6 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-
     // Find user
     const user = await Middleware.FindByEmail(User, email);
     if (!user) {
@@ -168,18 +169,17 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-
     // Allowed roles
-    const allowedRoles = ["admin", "manager", "super_admin"];
+    const allowedRoles = ["admin", "manager", "super_admin", "sale_person"];
+    const userRole = user.get("role") as string;
 
-    if (!allowedRoles.includes(user.get("role"))) {
-      badRequest(res, "Access restricted. Only admin & manager can login.");
+    if (!allowedRoles.includes(userRole)) {
+      badRequest(res, "Access restricted. Only admin, manager & sales can login.");
       return;
     }
 
-
     // Validate password
-    const hashedPassword = user.get("password");
+    const hashedPassword = user.get("password") as string;
     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
 
     if (!isPasswordValid) {
@@ -187,21 +187,78 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const userId = user.get("id") as number;
 
+    // ── Resolve companyId for the JWT ─────────────────────────────────
+    let companyId: number | null = null;
 
-    // Create tokens
+    if (userRole === "admin") {
+      // Priority 1: Primary admin of a company
+      const company = await (Company as any).findOne({
+        where: { adminId: userId },
+        attributes: ["id"],
+      });
+      companyId = company ? company.id : null;
+    } else if (userRole === "manager" || userRole === "sale_person") {
+      // Priority 1: Primary manager of a company
+      const company = await (Company as any).findOne({
+        where: { managerId: userId },
+        attributes: ["id"],
+      });
+      companyId = company ? company.id : null;
+    }
+
+    // Priority 2: Fallback — find ANY company where this user has assigned permissions
+    if (!companyId && userRole !== "super_admin") {
+      const firstPermission = await UserPermission.findOne({
+        where: { userId },
+        attributes: ["companyId"],
+      });
+      companyId = firstPermission ? firstPermission.companyId : null;
+    }
+    // super_admin: companyId remains null (global access)
+
+    // Create tokens (companyId embedded in JWT)
     const { accessToken, refreshToken } = Middleware.CreateToken(
-      String(user.get("id")),
-      String(user.get("role"))
+      String(userId),
+      userRole,
+      companyId
     );
 
     // Save refresh token
     await user.update({ refreshToken });
 
+    // ── Fetch Permissions for the Login Response ─────────────────────
+    let permissions: string[] = [];
+    if (userRole === "super_admin") {
+      // Super Admin: get all master permissions
+      const all = await Permission.findAll({ attributes: ["module", "action"] });
+      permissions = all.map((p) => `${p.module}:${p.action}`);
+    } else if (userRole === "admin" && companyId) {
+      // Admin: has all permissions within their company
+      const all = await Permission.findAll({ attributes: ["module", "action"] });
+      permissions = all.map((p) => `${p.module}:${p.action}`);
+    } else if (companyId) {
+      // Manager / Sales: fetch specific assigned permissions
+      const records = await UserPermission.findAll({
+        where: { userId, companyId },
+        include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
+      });
+      permissions = records.map((r: any) => `${r.permission.module}:${r.permission.action}`);
+    }
+
     createSuccess(res, "Login successful", {
       accessToken,
       refreshToken,
-      user,
+      companyId,
+      user: {
+        id: user.get("id"),
+        firstName: user.get("firstName"),
+        lastName: user.get("lastName"),
+        email: user.get("email"),
+        role: userRole,
+      },
+      permissions,
     });
   } catch (error) {
     const errorMessage =

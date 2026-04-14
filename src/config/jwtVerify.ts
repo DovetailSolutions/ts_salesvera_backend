@@ -2,12 +2,12 @@ import dotenv from "dotenv";
 import { Op } from "sequelize";
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import { User } from "../config/dbConnection";
+import { User, Company } from "../config/dbConnection";
 dotenv.config();
 
 declare module "express-serve-static-core" {
   interface Request {
-    userData?: string | JwtPayload; // Or a custom type for decoded token
+    userData?: string | JwtPayload;
   }
 }
 
@@ -34,47 +34,79 @@ export const tokenCheck = async (
     }
 
     const token = req.headers.authorization.split(" ")[1];
-    console.log(">>>>>>>>>>>>>>>>>token", token);
 
     let decoded: JwtPayload;
     try {
       decoded = jwt.verify(
         token,
-        process.env.JWT_SECRET || "dovetailPharma"  // ✅ Must match CreateToken fallback
+        process.env.JWT_SECRET || "dovetailPharma"
       ) as JwtPayload;
-
     } catch (err) {
       return res.status(401).json({
         code: "401",
         success: false,
-        message: "Unauthorized",
+        message: "Unauthorized — invalid or expired token",
       });
     }
 
-    req.userData = decoded;
-    console.log(">>>>>>>>>>>>>>>>>>>>>", req.userData);
-    // support both possible token fields
-    const rawId = (decoded as any).userId ?? (decoded as any).userId;
+    const rawId = (decoded as any).userId ?? (decoded as any).id;
     const id = Number(rawId);
 
-    // Fetch both tables in parallel (you asked to include Users table)
-    const [item] = await Promise.all([
-      User.findOne({
-        where: {
-          id,
-          [Op.or]: [{ role: "admin" }, { role: "super_admin" },{role:"manager"},{role:"sale_person"}],
-        },
-      }),
-    ]);
-    if ((item && item?.role === "admin") || item?.role === "super_admin" ||item?.role === "manager"||item?.role === "sale_person") {
-      return next();
+    // Fetch user from DB — must be active and a valid role
+    const item = await User.findOne({
+      where: {
+        id,
+        status: "active",
+        [Op.or]: [
+          { role: "admin" },
+          { role: "super_admin" },
+          { role: "manager" },
+          { role: "sale_person" },
+        ],
+      },
+    }) as any;
+
+    if (!item) {
+      return res.status(403).json({
+        code: "403",
+        success: false,
+        message: "Unauthorized — user not found or inactive",
+      });
     }
-    return res.status(403).json({
-      code: "403",
-      success: false,
-      message: "Unauthorized",
-    });
+
+    // ── Resolve companyId ──────────────────────────────────────────────
+    // Priority: JWT payload → Company table lookup (admin) → null (super_admin)
+    let companyId: number | null = (decoded as any).companyId
+      ? Number((decoded as any).companyId)
+      : null;
+
+    if (!companyId && item.role !== "super_admin") {
+      if (item.role === "admin") {
+        // Admin's companyId = company where they are set as adminId
+        const company = await (Company as any).findOne({
+          where: { adminId: id },
+          attributes: ["id"],
+        });
+        companyId = company ? company.id : null;
+      }
+      // manager / sale_person must include companyId in their JWT (set at login)
+    }
+
+    // Attach enriched userData to request (available in all controllers & middleware)
+    req.userData = {
+      ...decoded,
+      userId: id,
+      role: item.role,
+      companyId,
+    };
+
+    return next();
   } catch (error) {
-    console.error(error);
+    console.error("tokenCheck error:", error);
+    return res.status(500).json({
+      code: "500",
+      success: false,
+      message: "Internal server error",
+    });
   }
 };

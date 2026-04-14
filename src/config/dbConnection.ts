@@ -42,6 +42,10 @@ import { Invoices } from "../app/model/Invoice";
 
 import { RecordSales } from "../app/model/saleRecord";
 
+// RBAC Models
+import { PermissionModel } from "../app/model/permission";
+import { UserPermissionModel } from "../app/model/userPermission";
+
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -53,10 +57,10 @@ const sequelize = new Sequelize(
     dialect: "postgres",
     logging: false,
     dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false,
-      },
+      // ssl: {
+      //   require: true,
+      //   rejectUnauthorized: false,
+      // },
     },
   }
 );
@@ -108,6 +112,10 @@ const CompanyBank = CompanyBankModel(sequelize);
 Invoices.initModel(sequelize);
 
 RecordSales.initModel(sequelize);
+
+// RBAC
+const Permission = PermissionModel(sequelize);
+const UserPermission = UserPermissionModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -217,6 +225,23 @@ CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(CompanyBank, { foreignKey: "companyId", as: "companyBanks" });
 CompanyBank.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
+// RBAC Associations
+// Permission ↔ UserPermission
+Permission.hasMany(UserPermission, { foreignKey: "permissionId", as: "userPermissions" });
+UserPermission.belongsTo(Permission, { foreignKey: "permissionId", as: "permission" });
+
+// User ↔ UserPermission (receiver)
+User.hasMany(UserPermission, { foreignKey: "userId", as: "assignedPermissions" });
+UserPermission.belongsTo(User, { foreignKey: "userId", as: "permissionHolder" });
+
+// User ↔ UserPermission (granter)
+User.hasMany(UserPermission, { foreignKey: "grantedBy", as: "grantedPermissions" });
+UserPermission.belongsTo(User, { foreignKey: "grantedBy", as: "permissionGranter" });
+
+// Company ↔ UserPermission
+Company.hasMany(UserPermission, { foreignKey: "companyId", as: "companyUserPermissions" });
+UserPermission.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+
 
 /**
  * 🛠️ MANUAL MIGRATION HELPER
@@ -299,6 +324,10 @@ const ensureColumns = async (sequelize: Sequelize) => {
       columns: [
         { name: "adminId", type: "INTEGER" },
         { name: "managerId", type: "INTEGER" },
+        { name: "legalName", type: "VARCHAR(255)" },
+        { name: "registrationNo", type: "VARCHAR(255)" },
+        { name: "companyEmail", type: "VARCHAR(255)" },
+        { name: "companyPhone", type: "VARCHAR(255)" },
       ],
     },
   ];
@@ -430,6 +459,65 @@ const ensureColumns = async (sequelize: Sequelize) => {
   } catch (err) {
     console.error(`❌ Error creating table record_sales:`, err);
   }
+
+  // ✅ RBAC: Ensure permissions table exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "permissions" (
+        "id" SERIAL PRIMARY KEY,
+        "module" VARCHAR(100) NOT NULL,
+        "action" VARCHAR(100) NOT NULL,
+        "description" TEXT,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE ("module", "action")
+      );
+      CREATE INDEX IF NOT EXISTS idx_permissions_module ON "permissions"("module");
+      CREATE INDEX IF NOT EXISTS idx_permissions_module_action ON "permissions"("module", "action");
+    `);
+    console.log(`✅ Ensured table exists: permissions`);
+  } catch (err) {
+    console.error(`❌ Error creating table permissions:`, err);
+  }
+
+  // ✅ RBAC: Ensure user_permissions table exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "user_permissions" (
+        "id" SERIAL PRIMARY KEY,
+        "userId" INTEGER NOT NULL,
+        "permissionId" INTEGER NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "grantedBy" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE ("userId", "permissionId", "companyId")
+      );
+
+      -- Ensure indices exist
+      CREATE INDEX IF NOT EXISTS idx_user_permissions_user_company ON "user_permissions"("userId", "companyId");
+      CREATE INDEX IF NOT EXISTS idx_user_permissions_granted_by ON "user_permissions"("grantedBy");
+
+      -- Manually align Foreign Keys to prevent sync issues
+      DO $$ 
+      BEGIN 
+        -- Drop if exists (to avoid conflicts) and Re-create
+        ALTER TABLE "user_permissions" DROP CONSTRAINT IF EXISTS "user_permissions_userId_fkey";
+        ALTER TABLE "user_permissions" ADD CONSTRAINT "user_permissions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;
+
+        ALTER TABLE "user_permissions" DROP CONSTRAINT IF EXISTS "user_permissions_permissionId_fkey";
+        ALTER TABLE "user_permissions" ADD CONSTRAINT "user_permissions_permissionId_fkey" FOREIGN KEY ("permissionId") REFERENCES "permissions"("id") ON DELETE CASCADE;
+
+        ALTER TABLE "user_permissions" DROP CONSTRAINT IF EXISTS "user_permissions_companyId_fkey";
+        ALTER TABLE "user_permissions" ADD CONSTRAINT "user_permissions_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE CASCADE;
+      EXCEPTION WHEN OTHERS THEN 
+        RAISE NOTICE 'Skipped FK constraint alignment — some tables might not exist yet';
+      END $$;
+    `);
+    console.log(`✅ Ensured table exists: user_permissions`);
+  } catch (err) {
+    console.error(`❌ Error creating table user_permissions:`, err);
+  }
 };
 
 
@@ -476,7 +564,7 @@ const fixConstraints = async (sequelize: Sequelize) => {
  * This prevents Foreign Key constraint violations during sync.
  */
 const ensureDataIntegrity = async (sequelize: Sequelize) => {
-  const tables = ["departments", "branches", "shifts", "holidays", "invoices"];
+  const tables = ["departments", "branches", "shifts", "holidays", "invoices", "company_leaves", "company_banks"];
 
   for (const table of tables) {
     try {
@@ -489,12 +577,11 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
 
       if (results.length > 0) {
         await sequelize.query(`
-          UPDATE "${table}" 
-          SET "companyId" = NULL 
+          DELETE FROM "${table}" 
           WHERE "companyId" IS NOT NULL 
           AND "companyId" NOT IN (SELECT "id" FROM "companies");
         `);
-        console.log(`✅ Ensured data integrity (companyId) for table: ${table}`);
+        console.log(`✅ Ensured data integrity (deleted orphans) for table: ${table}`);
       }
 
       // 2️⃣ Handle Invoices specific data integrity (status ENUM conversion)
@@ -515,14 +602,62 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
               SET "status" = 'draft' 
               WHERE "status" IS NULL 
               OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected');
+              
+              -- 1. Create Type if not exists
+              DO $$ BEGIN 
+                CREATE TYPE "public"."enum_invoices_status" AS ENUM('draft', 'sent', 'accepted', 'rejected'); 
+              EXCEPTION WHEN duplicate_object THEN null; 
+              END $$;
+
+              -- 2. Alter column type with explicit cast
+              ALTER TABLE "invoices" 
+              ALTER COLUMN "status" TYPE "public"."enum_invoices_status" 
+              USING ("status"::"public"."enum_invoices_status");
+
+              -- 3. Set default
+              ALTER TABLE "invoices" 
+              ALTER COLUMN "status" SET DEFAULT 'draft';
             `);
-            console.log(`✅ Sanitized Invoice status values for ENUM conversion`);
+            console.log(`✅ Manually converted Invoice status to ENUM and set default`);
           }
         }
       }
     } catch (err) {
       console.error(`❌ Error during data integrity check for ${table}:`, err);
     }
+  }
+
+  // 3️⃣ Table Sanitization (fix NULL values for NOT NULL columns)
+  try {
+    // Sanitize Companies table
+    await sequelize.query(`
+      UPDATE "companies" 
+      SET "legalName" = "companyName" 
+      WHERE "legalName" IS NULL;
+
+      UPDATE "companies" 
+      SET "registrationNo" = 'N/A' 
+      WHERE "registrationNo" IS NULL;
+
+      UPDATE "companies" 
+      SET "companyEmail" = 'unknown@example.com' 
+      WHERE "companyEmail" IS NULL;
+
+      UPDATE "companies" 
+      SET "companyPhone" = '0000000000' 
+      WHERE "companyPhone" IS NULL;
+    `);
+    console.log(`✅ Sanitized mandatory fields in companies table`);
+
+    // Sanitize Meetings table
+    await sequelize.query(`
+      DELETE FROM "meetings" 
+      WHERE "user_id" IS NULL 
+      OR "company_id" IS NULL;
+    `);
+    console.log(`✅ Cleaned up orphaned records from meetings table`);
+  } catch (err) {
+    console.error(`❌ Error during table sanitization:`, err);
   }
 };
 
@@ -545,8 +680,10 @@ export const connectDB = async () => {
     // 4️⃣ Standard Sequelize sync
     await sequelize.authenticate();
     await sequelize.sync({ alter: true });
-    
 
+    // 5️⃣ Seed RBAC permissions table (idempotent — safe every boot)
+    const { seedPermissions } = await import("./seedPermissions");
+    await seedPermissions();
 
   } catch (err) {
     console.error("❌ DB error:", err);
@@ -580,5 +717,8 @@ export {
   CompanyLeave,
   CompanyBank,
   Invoices,
-  RecordSales
+  RecordSales,
+  // RBAC
+  Permission,
+  UserPermission,
 };

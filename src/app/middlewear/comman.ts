@@ -111,15 +111,18 @@ export const FindByPhone2 = async(model:any,data:any)=>{
 //   });
 // };
 
-export const CreateToken = (userId: string, role: string) => {
+export const CreateToken = (userId: string, role: string, companyId?: string | number | null) => {
+  const payload: any = { userId, role };
+  if (companyId) payload.companyId = Number(companyId);
+
   const accessToken = jwt.sign(
-    { userId, role },
+    payload,
     process.env.JWT_SECRET || "dovetailPharma",
     { expiresIn: "1d" } // short-lived
   );
 
   const refreshToken = jwt.sign(
-    { userId, role },
+    payload,
     process.env.JWT_SECRET || "dovetailPharma",
     { expiresIn: "7d" } // long-lived
   );
