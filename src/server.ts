@@ -11,6 +11,7 @@ import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
+import { registerIo, setUserSocket, removeUserSocket } from "./config/notificationService";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
@@ -93,9 +94,22 @@ const io = new Server(server, {
 
 initChatSocket(io);
 
+// Register io so notificationService can deliver real-time events
+registerIo(io);
+
 // Listen for socket connections
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
+
+  // Track userId → socketId for targeted notifications
+  const userId = socket.data?.user?.userId;
+  if (userId) {
+    setUserSocket(userId, socket.id);
+  }
+
+  socket.on("disconnect", () => {
+    if (userId) removeUserSocket(userId);
+  });
 });
 
 // Start server (IMPORTANT)

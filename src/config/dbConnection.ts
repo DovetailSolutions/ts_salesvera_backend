@@ -41,6 +41,7 @@ import { CompanyBankModel } from "../app/model/bank";
 import { Invoices } from "../app/model/Invoice";
 
 import { RecordSales } from "../app/model/saleRecord";
+import { Notification } from "../app/model/Notification";
 
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
@@ -108,6 +109,9 @@ const CompanyBank = CompanyBankModel(sequelize);
 Invoices.initModel(sequelize);
 
 RecordSales.initModel(sequelize);
+
+// Notifications
+Notification.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -216,6 +220,13 @@ CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
 Company.hasMany(CompanyBank, { foreignKey: "companyId", as: "companyBanks" });
 CompanyBank.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+
+// Notification associations
+User.hasMany(Notification, { foreignKey: "receiverId", as: "receivedNotifications" });
+Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver" });
+
+User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications" });
+Notification.belongsTo(User, { foreignKey: "senderId", as: "sender" });
 
 
 /**
@@ -410,6 +421,27 @@ const ensureColumns = async (sequelize: Sequelize) => {
     console.error(`❌ Error creating table invoices:`, err);
   }
 
+  // ✅ Ensure notifications table exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "notifications" (
+        "id" SERIAL PRIMARY KEY,
+        "receiverId" INTEGER NOT NULL,
+        "senderId" INTEGER,
+        "type" VARCHAR(100) NOT NULL DEFAULT 'system',
+        "title" VARCHAR(255) NOT NULL,
+        "body" TEXT NOT NULL,
+        "data" JSONB,
+        "isRead" BOOLEAN DEFAULT FALSE,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log(`✅ Ensured table exists: notifications`);
+  } catch (err) {
+    console.error(`❌ Error creating table notifications:`, err);
+  }
+
   // ✅ Ensure record_sales table exists
   try {
     await sequelize.query(`
@@ -580,5 +612,6 @@ export {
   CompanyLeave,
   CompanyBank,
   Invoices,
-  RecordSales
+  RecordSales,
+  Notification
 };

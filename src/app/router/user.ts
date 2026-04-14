@@ -1,6 +1,7 @@
 import { Router } from "express";
 const router = Router();
 import * as Controller from "../controller/user";
+import * as NotificationController from "../controller/notification";
 import { tokenCheck } from "../../config/jwtVerify2";
 import getUploadMiddleware from "../../config/fileUploads";
 const profile = getUploadMiddleware("image");
@@ -71,8 +72,13 @@ router.get("/getrecordsale/:id",tokenCheck,Controller.getRecordSaleById);
 router.patch("/updaterecordsale/:id",tokenCheck,Controller.updateRecordSale);
 router.delete("/deleterecordsale/:id",tokenCheck,Controller.deleteRecordSale);
 
-
-
+// ── Notifications ─────────────────────────────────────────────────────────
+router.get("/notifications",                 tokenCheck, NotificationController.getNotifications);
+router.get("/notifications/unread-count",    tokenCheck, NotificationController.getUnreadCount);
+router.patch("/notifications/read-all",      tokenCheck, NotificationController.markAllAsRead);
+router.patch("/notifications/:id/read",      tokenCheck, NotificationController.markAsRead);
+router.delete("/notifications/clear-all",    tokenCheck, NotificationController.clearAllNotifications);
+router.delete("/notifications/:id",          tokenCheck, NotificationController.deleteNotification);
 
 
 export default router;
