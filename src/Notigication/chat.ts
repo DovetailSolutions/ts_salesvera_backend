@@ -8,6 +8,11 @@ import {
   User,
 } from "../config/dbConnection";
 import { v4 as uuid } from "uuid";
+import {
+  sendNotification,
+  setUserSocket,
+  removeUserSocket,
+} from "../config/notificationService";
 
 type UserWithRelations = any & {
   createdUsers?: UserWithRelations[];
@@ -121,6 +126,8 @@ export const initChatSocket = (io: Server) => {
     const userId = socket.data.user.userId;
     const userRole = socket.data.user.role;
 
+    // 📡 Register this user's socket for targeted notifications
+    setUserSocket(userId, socket.id);
 
     console.log(">>>>>>>>>>>>>>userId",userId)
     console.log(">>>>>>>>>>>>>>userRole",userRole)
@@ -220,6 +227,36 @@ export const initChatSocket = (io: Server) => {
         });
 
         io.to(roomId).emit("receiveMessage", newMessage);
+
+        // 🔔 Notify all OTHER participants in real-time
+        const participants = await ChatParticipant.findAll({
+          where: { chatRoomId: room.id },
+        });
+
+        // Fetch sender info for the notification title
+        const sender = await User.findByPk(userId, {
+          attributes: ["firstName", "lastName"],
+        }) as any;
+        const senderName = sender
+          ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
+          : "Someone";
+
+        for (const participant of participants) {
+          if (participant.userId === userId) continue; // skip sender
+
+          await sendNotification({
+            receiverId: participant.userId,
+            senderId: userId,
+            type: "chat",
+            title: `New message from ${senderName}`,
+            body: message ?? "📎 Media message",
+            data: {
+              roomId,
+              messageId: String(newMessage.id),
+            },
+          });
+        }
+
       } catch (error) {
         console.error("Send message error:", error);
         socket.emit("errorMessage", { error: "Failed to send message" });
@@ -808,6 +845,8 @@ export const initChatSocket = (io: Server) => {
       await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
       // 📡 Broadcast this user's offline status to ALL connected clients
       io.emit("userStatusChange", { userId, onlineSatus: "offline" });
+      // Clean up notification socket map
+      removeUserSocket(userId);
       console.log("Disconnected:", socket.id);
     });
   });
