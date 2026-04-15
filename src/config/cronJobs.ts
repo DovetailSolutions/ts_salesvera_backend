@@ -21,7 +21,7 @@ export const startCronJobs = () => {
   // 11:59 PM IST regardless of server timezone
   // ──────────────────────────────────────────────
   cron.schedule(
-    "* * * * *",
+    "59 23 * * *",
     async () => {
       console.log(
         `[CRON] ⏰ Auto punch-out job started at ${new Date().toISOString()}`
