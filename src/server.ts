@@ -12,6 +12,7 @@ import UserRouter from "./app/router/user";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { registerIo, setUserSocket, removeUserSocket } from "./config/notificationService";
+import { startCronJobs } from "./config/cronJobs";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
@@ -115,5 +116,6 @@ io.on("connection", (socket) => {
 // Start server (IMPORTANT)
 server.listen(PORT, () => {
   connectDB();
+  startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   console.log(`Server is running on http://localhost:${PORT}`);
 });
