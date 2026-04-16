@@ -4323,29 +4323,68 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { status,search } = req.query;
+    const { status, search } = req.query;
 
-    // ✅ Pagination (optional but recommended)
+    // ✅ Pagination
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const obj : any = {
-      userId: Number(userData.userId),
+    // ✅ Get all team user IDs (BFS traversal)
+    let teamUserIds: number[] = [];
+    let queue: number[] = [userData.userId];
+
+    while (queue.length > 0) {
+      const users = await User.findAll({
+        where: { id: { [Op.in]: queue } },
+        attributes: ["id"],
+        include: [
+          {
+            model: User,
+            as: "createdUsers",
+            attributes: ["id"],
+          },
+        ],
+      });
+
+      let nextQueue: number[] = [];
+
+      for (const user of users as any[]) {
+        if (!teamUserIds.includes(user.id)) {
+          teamUserIds.push(user.id);
+        }
+
+        const children = user.createdUsers || [];
+
+        for (const child of children) {
+          if (!teamUserIds.includes(child.id)) {
+            nextQueue.push(child.id);
+          }
+        }
+      }
+
+      queue = nextQueue;
+    }
+
+    // ✅ Where condition
+    const obj: any = {
+      userId: { [Op.in]: teamUserIds },
     };
 
     if (status) {
       obj.status = status;
     }
 
-    if(search){
+    if (search) {
+      const searchValue = `%${search}%`;
+
       obj[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } },
-        { mobile: { [Op.like]: `%${search}%` } },
-        { companyName: { [Op.like]: `%${search}%` } },
-        { city: { [Op.like]: `%${search}%` } },
-        { state: { [Op.like]: `%${search}%` } },
+        { name: { [Op.like]: searchValue } },
+        { email: { [Op.like]: searchValue } },
+        { mobile: { [Op.like]: searchValue } },
+        { companyName: { [Op.like]: searchValue } },
+        { city: { [Op.like]: searchValue } },
+        { state: { [Op.like]: searchValue } },
       ];
     }
 
@@ -4357,7 +4396,7 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       offset,
     });
 
-    // ✅ Response
+    // ✅ Response (UNCHANGED)
     createSuccess(res, "Leave list fetched successfully", {
       total: count,
       currentPage: page,
