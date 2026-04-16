@@ -1,6 +1,6 @@
 import { Model, DataTypes, Sequelize, Optional } from "sequelize";
 
-export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected";
+export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected" |"imported";
 
 interface QuotationAttributes {
   id: number;
@@ -66,7 +66,7 @@ export class Quotations
         },
 
         status: {
-          type: DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
+          type: DataTypes.ENUM("draft","imported", "sent", "accepted", "rejected"),
           defaultValue: "draft",
         },
       },
