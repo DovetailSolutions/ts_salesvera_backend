@@ -42,7 +42,7 @@ export class Category
           allowNull: true,
         },
         status: {
-          type: DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
+          type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected"),
           defaultValue: "draft",
         },
       },
