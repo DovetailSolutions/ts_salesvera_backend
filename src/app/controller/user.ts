@@ -2945,8 +2945,22 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       ];
     } 
 
-    if(status){
-      whereCondition.status = status;
+    if (status) {
+      let statusArray: string[];
+
+      if (Array.isArray(status)) {
+        // case: ?status[]=draft&status[]=sent
+        statusArray = status.map((s) => String(s));
+      } else if (typeof status === "string") {
+        // case: ?status=draft,sent
+        statusArray = status.split(",").map((s) => s.trim());
+      } else {
+        statusArray = [String(status)];
+      }
+
+      whereCondition.status = {
+        [Op.in]: statusArray,
+      };
     }
 
     // 🎯 Filters
