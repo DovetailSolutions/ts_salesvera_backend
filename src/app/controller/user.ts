@@ -37,7 +37,8 @@ import {
   CompanyLeave,
   CompanyBank,
   Invoices,
-  RecordSales
+  RecordSales,
+  Report
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -2917,101 +2918,101 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 };
 
 
-// export const getInvoice = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const { page = "1", limit = "10", search = "",status, companyName, city, state,startDate,  // ✅ new
-//       endDate  } = req.query;
+export const getInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const { page = "1", limit = "10", search = "",status, companyName, city, state,startDate,  // ✅ new
+      endDate  } = req.query;
 
-//     const pageNumber = Number(page);
-//     const pageSize = Math.min(Number(limit), 50); // safety limit
-//     const offset = (pageNumber - 1) * pageSize;
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const offset = (pageNumber - 1) * pageSize;
 
-//     // ✅ Dynamic where condition
-//     const whereCondition: any = {
-//       userId: userData.userId,
-//     };
+    // ✅ Dynamic where condition
+    const whereCondition: any = {
+      userId: userData.userId,
+    };
 
-//     // 🔍 Global search
-//     if (search) {
-//       whereCondition[Op.or] = [
-//         { companyName: { [Op.like]: `%${search}%` } },
-//         { city: { [Op.like]: `%${search}%` } },
-//         { state: { [Op.like]: `%${search}%` } },
-//       ];
-//     } 
+    // 🔍 Global search
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    } 
 
-//     if (status) {
-//       let statusArray: string[];
+    if (status) {
+      let statusArray: string[];
 
-//       if (Array.isArray(status)) {
-//         // case: ?status[]=draft&status[]=sent
-//         statusArray = status.map((s) => String(s));
-//       } else if (typeof status === "string") {
-//         // case: ?status=draft,sent
-//         statusArray = status.split(",").map((s) => s.trim());
-//       } else {
-//         statusArray = [String(status)];
-//       }
+      if (Array.isArray(status)) {
+        // case: ?status[]=draft&status[]=sent
+        statusArray = status.map((s) => String(s));
+      } else if (typeof status === "string") {
+        // case: ?status=draft,sent
+        statusArray = status.split(",").map((s) => s.trim());
+      } else {
+        statusArray = [String(status)];
+      }
 
-//       whereCondition.status = {
-//         [Op.in]: statusArray,
-//       };
-//     }
+      whereCondition.status = {
+        [Op.in]: statusArray,
+      };
+    }
 
-//     // 🎯 Filters
-//     if (companyName) {
-//       whereCondition.companyName = {
-//         [Op.like]: `%${companyName}%`,
-//       };
-//     }
+    // 🎯 Filters
+    if (companyName) {
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
+    }
 
-//     if (city) {
-//       whereCondition.city = {
-//         [Op.like]: `%${city}%`,
-//       };
-//     }
+    if (city) {
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
+    }
 
-//     if (state) {
-//       whereCondition.state = {
-//         [Op.like]: `%${state}%`,
-//       };
-//     }
+    if (state) {
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
+    }
 
-//       if (startDate && endDate) {
-//       whereCondition.createdAt = {
-//         [Op.between]: [
-//           new Date(startDate as string),
-//           new Date(endDate as string),
-//         ],
-//       };
-//     } else if (startDate) {
-//       whereCondition.createdAt = {
-//         [Op.gte]: new Date(startDate as string),
-//       };
-//     } else if (endDate) {
-//       whereCondition.createdAt = {
-//         [Op.lte]: new Date(endDate as string),
-//       };
-//     }
+      if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate as string),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate as string),
+      };
+    }
 
-//     const invoiceData = await Invoices.findAll({
-//       where: whereCondition,
-//       limit: pageSize,
-//       offset: offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-//     createSuccess(res, "Invoice list fetched successfully", invoiceData);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// }
+    const invoiceData = await Invoices.findAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset: offset,
+      order: [["createdAt", "DESC"]],
+    });
+    createSuccess(res, "Invoice list fetched successfully", invoiceData);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
 
 
 
@@ -3051,139 +3052,6 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 //     badRequest(res, errorMessage);
 //   }
 // }
-
-// import { Op } from "sequelize";
-
-export const getInvoice = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData?.userId) {
-      badRequest(res, "Unauthorized request");
-      return;
-    }
-
-    const {
-      page = "1",
-      limit = "10",
-      search = "",
-      companyName,
-      city,
-      state,
-      status,
-    } = req.query;
-
-    const pageNumber = Number(page);
-    const pageSize = Math.min(Number(limit), 50);
-    const offset = (pageNumber - 1) * pageSize;
-
-    // ✅ Recursive team users
-    let teamUserIds: any[] = [userData.userId];
-    let currentParentIds: any[] = [userData.userId];
-
-    while (currentParentIds.length > 0) {
-      const subUsers = await User.findAll({
-        where: { id: { [Op.in]: currentParentIds } },
-        include: [
-          {
-            model: User,
-            as: "createdUsers",
-            attributes: ["id"],
-          },
-        ],
-      });
-
-      let nextLevelParentIds: any[] = [];
-
-      subUsers.forEach((u: any) => {
-        const children = u.createdUsers || [];
-
-        children.forEach((child: any) => {
-          if (!teamUserIds.includes(child.id)) {
-            teamUserIds.push(child.id);
-            nextLevelParentIds.push(child.id);
-          }
-        });
-      });
-
-      currentParentIds = nextLevelParentIds;
-    }
-
-    // ✅ Build AND conditions properly
-    const andConditions: any[] = [
-      { userId: { [Op.in]: teamUserIds } },
-    ];
-
-    // 🔍 Search (OR inside AND)
-    if (search) {
-      andConditions.push({
-        [Op.or]: [
-          { companyName: { [Op.like]: `%${search}%` } },
-          { city: { [Op.like]: `%${search}%` } },
-          { state: { [Op.like]: `%${search}%` } },
-        ],
-      });
-    }
-
-    // 🎯 Filters
-    if (companyName) {
-      andConditions.push({
-        companyName: { [Op.like]: `%${companyName}%` },
-      });
-    }
-
-    if (city) {
-      andConditions.push({
-        city: { [Op.like]: `%${city}%` },
-      });
-    }
-
-    if (state) {
-      andConditions.push({
-        state: { [Op.like]: `%${state}%` },
-      });
-    }
-
-    // ✅ Status filter (FIXED)
-    if (status) {
-      const statusArray = Array.isArray(status)
-        ? status
-        : typeof status === "string"
-        ? status.split(",").map((s) => s.trim())
-        : [status];
-
-      andConditions.push({
-        status: { [Op.in]: statusArray },
-      });
-    }
-
-    // ✅ Final WHERE
-    const whereCondition = {
-      [Op.and]: andConditions,
-    };
-
-    // ✅ Query
-    const { rows, count } = await Invoices.findAndCountAll({
-      where: whereCondition,
-      limit: pageSize,
-      offset: offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    createSuccess(res, "Invoice list fetched successfully", {
-      totalItems: count,
-      currentPage: pageNumber,
-      totalPages: Math.ceil(count / pageSize),
-      pageSize,
-      data: rows,
-    });
-
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
 
 
 export const recordSale = async (req: Request, res: Response): Promise<void> => {
@@ -3336,6 +3204,131 @@ export const deleteRecordSale = async (req: Request, res: Response): Promise<voi
     }
     const deleteResult = await RecordSales.destroy({ where: { id } });
     createSuccess(res, "Record sale deleted successfully", deleteResult);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
+
+
+export const getTallyReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const { page = "1", limit = "10", search = "",status, companyName, city, state,startDate,  // ✅ new
+      endDate  } = req.query;
+   let teamUserIds: number[] = [userData.userId];
+    let currentParentIds: number[] = [userData.userId];
+    while (currentParentIds.length > 0) {
+      const subUsers = await User.findAll({
+        where: { id: { [Op.in]: currentParentIds } },
+        include: [
+          {
+            model: User,
+            as: "createdUsers",
+            attributes: ["id"],
+          },
+        ],
+      });
+
+      let nextLevelParentIds: number[] = [];
+
+      subUsers.forEach((u: any) => {
+        const children = u.createdUsers || [];
+
+        children.forEach((child: any) => {
+          if (!teamUserIds.includes(child.id)) {
+            teamUserIds.push(child.id);
+            nextLevelParentIds.push(child.id);
+          }
+        });
+      });
+
+      currentParentIds = nextLevelParentIds;
+    }
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ✅ Dynamic where condition
+    const whereCondition: any = {
+      userId: { [Op.in]: teamUserIds },
+    };
+
+    // 🔍 Global search
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    } 
+
+    if (status) {
+      let statusArray: string[];
+
+      if (Array.isArray(status)) {
+        // case: ?status[]=draft&status[]=sent
+        statusArray = status.map((s) => String(s));
+      } else if (typeof status === "string") {
+        // case: ?status=draft,sent
+        statusArray = status.split(",").map((s) => s.trim());
+      } else {
+        statusArray = [String(status)];
+      }
+
+      whereCondition.status = {
+        [Op.in]: statusArray,
+      };
+    }
+
+    // 🎯 Filters
+    if (companyName) {
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
+    }
+
+    if (city) {
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
+    }
+
+    if (state) {
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
+    }
+
+      if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate as string),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate as string),
+      };
+    }
+
+    const invoiceData = await Report.findAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset: offset,
+      order: [["createdAt", "DESC"]],
+    });
+    createSuccess(res, "Invoice list fetched successfully", invoiceData);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
