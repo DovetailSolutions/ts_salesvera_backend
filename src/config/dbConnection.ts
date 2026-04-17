@@ -467,6 +467,30 @@ const ensureColumns = async (sequelize: Sequelize) => {
   } catch (err) {
     console.error(`❌ Error creating table record_sales:`, err);
   }
+
+  // ✅ Ensure repost table exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "repost" (
+        "id" SERIAL PRIMARY KEY,
+        "date" VARCHAR(255) NOT NULL,
+        "reference_no" VARCHAR(255) NOT NULL,
+        "customer_name" VARCHAR(255) NOT NULL,
+        "opening_amount" DECIMAL(10, 2) NOT NULL,
+        "pending_amount" DECIMAL(10, 2) NOT NULL,
+        "due_on" TIMESTAMP WITH TIME ZONE NOT NULL,
+        "overdue_days" INTEGER NOT NULL,
+        "status" VARCHAR(50) DEFAULT 'draft',
+        "userId" INTEGER,
+        "companyId" INTEGER,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log(`✅ Ensured table exists: repost`);
+  } catch (err) {
+    console.error(`❌ Error creating table repost:`, err);
+  }
 };
 
 

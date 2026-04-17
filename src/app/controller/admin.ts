@@ -5109,6 +5109,10 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
 
     // ✅ Validation function
     const validateReport = (item: any, index: number) => {
+      if (!item.date) {
+        throw new Error(`date is required at index ${index}`);
+      }
+
       if (!item.referenceNo) {
         throw new Error(`referenceNo is required at index ${index}`);
       }
@@ -5171,7 +5175,7 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
     const finalData = reports.map((item) => ({
       ...item,
       userId: userData.userId,
-      companyId: userData.userId,
+      companyId: userData.companyId || userData.userId,
     }));
 
     let result;
