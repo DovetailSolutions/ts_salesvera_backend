@@ -3219,9 +3219,74 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { page = "1", limit = "10", search = "",status, companyName, city, state,startDate,  // ✅ new
-      endDate  } = req.query;
-   let teamUserIds: number[] = [userData.userId];
+    const { page = "1", limit = "10", search = "", status, companyName, city, state, startDate, endDate } = req.query;
+
+    // ✅ Step 1: Walk UP the hierarchy to find parent and root admin
+    // This identifies: direct parent and the ultimate admin (grandparent)
+    let currentId = userData.userId;
+    let rootAdmin: any = null;
+    let parentUser: any = null;
+    let isFirstStep = true;
+
+    while (true) {
+      const userWithCreators = await User.findByPk(currentId, {
+        include: [{
+          model: User,
+          as: "creators",
+          attributes: ["id", "firstName", "lastName", "email", "role"],
+          through: { attributes: [] },
+        }],
+      }) as any;
+
+      if (!userWithCreators) break;
+
+      const plainUser = userWithCreators.get({ plain: true });
+      const creator = plainUser.creators?.[0] || null;
+
+      // First creator we find is the direct parent
+      if (isFirstStep) {
+        parentUser = creator ? { 
+          id: creator.id, 
+          firstName: creator.firstName, 
+          lastName: creator.lastName, 
+          email: creator.email, 
+          role: creator.role 
+        } : null;
+        isFirstStep = false;
+      }
+
+      // If no creator, the current user is root (if admin/super_admin)
+      if (!creator) {
+        if (plainUser.role === "admin" || plainUser.role === "super_admin") {
+          rootAdmin = { 
+            id: plainUser.id, 
+            firstName: plainUser.firstName, 
+            lastName: plainUser.lastName, 
+            email: plainUser.email, 
+            role: plainUser.role 
+          };
+        }
+        break;
+      }
+
+      // If creator is admin/super_admin, they are the root
+      if (creator.role === "admin" || creator.role === "super_admin") {
+        rootAdmin = { 
+          id: creator.id, 
+          firstName: creator.firstName, 
+          lastName: creator.lastName, 
+          email: creator.email, 
+          role: creator.role 
+        };
+        break;
+      }
+
+      // Keep going up
+      currentId = creator.id;
+    }
+
+    // ✅ Step 2: Walk DOWN the hierarchy (Team Records)
+    let teamUserIds: number[] = [userData.userId];
     let currentParentIds: number[] = [userData.userId];
     while (currentParentIds.length > 0) {
       const subUsers = await User.findAll({
@@ -3322,13 +3387,21 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       };
     }
 
-    const invoiceData = await Report.findAll({
+    const { count, rows } = await Report.findAndCountAll({
       where: whereCondition,
       limit: pageSize,
       offset: offset,
       order: [["createdAt", "DESC"]],
     });
-    createSuccess(res, "Invoice list fetched successfully", invoiceData);
+
+    createSuccess(res, "Reports fetched successfully", {
+      totalItems: count,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(count / pageSize),
+      parent: parentUser,
+      rootAdmin: rootAdmin,
+      data: rows,
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
