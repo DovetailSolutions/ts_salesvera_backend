@@ -4697,17 +4697,24 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       };
     }
 
-   if (status) {
-  if (Array.isArray(status)) {
-    // ✅ multiple statuses
+  if (status) {
+    let statusArray: string[];
+
+    if (Array.isArray(status)) {
+      // case: ?status[]=draft&status[]=sent
+      statusArray = status.map((s) => String(s));
+    } else if (typeof status === "string") {
+      // case: ?status=draft,sent
+      statusArray = status.split(",").map((s) => s.trim());
+    } else {
+      // Handle the case where it might be a ParsedQs object or other type
+      statusArray = [String(status)];
+    }
+
     whereCondition.status = {
-      [Op.in]: status,
+      [Op.in]: statusArray,
     };
-  } else {
-    // ✅ single status
-    whereCondition.status = status;
   }
-}
 
     // ✅ Query
     const { rows, count } = await Invoices.findAndCountAll({
