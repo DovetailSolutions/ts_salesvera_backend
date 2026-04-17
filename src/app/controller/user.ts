@@ -3212,17 +3212,36 @@ export const deleteRecordSale = async (req: Request, res: Response): Promise<voi
 }
 
 
+
+
 export const getTallyReport = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    if (!userData || !userData.userId) {
+
+    if (!userData?.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { page = "1", limit = "10", search = "", status, companyName, city, state, startDate, endDate } = req.query;
 
-    // ✅ Step 1: Walk UP the hierarchy to find parent and root admin
-    // This identifies: direct parent and the ultimate admin (grandparent)
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      status,
+      companyName,
+      city,
+      state,
+      startDate,
+      endDate,
+    } = req.query;
+
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50);
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ==============================
+    // 🔼 STEP 1: FIND PARENT & ROOT
+    // ==============================
     let currentId = userData.userId;
     let rootAdmin: any = null;
     let parentUser: any = null;
@@ -3230,12 +3249,14 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
 
     while (true) {
       const userWithCreators = await User.findByPk(currentId, {
-        include: [{
-          model: User,
-          as: "creators",
-          attributes: ["id", "firstName", "lastName", "email", "role"],
-          through: { attributes: [] },
-        }],
+        include: [
+          {
+            model: User,
+            as: "creators",
+            attributes: ["id", "firstName", "lastName", "email", "role"],
+            through: { attributes: [] },
+          },
+        ],
       }) as any;
 
       if (!userWithCreators) break;
@@ -3243,51 +3264,52 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       const plainUser = userWithCreators.get({ plain: true });
       const creator = plainUser.creators?.[0] || null;
 
-      // First creator we find is the direct parent
       if (isFirstStep) {
-        parentUser = creator ? { 
-          id: creator.id, 
-          firstName: creator.firstName, 
-          lastName: creator.lastName, 
-          email: creator.email, 
-          role: creator.role 
-        } : null;
+        parentUser = creator
+          ? {
+              id: creator.id,
+              firstName: creator.firstName,
+              lastName: creator.lastName,
+              email: creator.email,
+              role: creator.role,
+            }
+          : null;
         isFirstStep = false;
       }
 
-      // If no creator, the current user is root (if admin/super_admin)
       if (!creator) {
-        if (plainUser.role === "admin" || plainUser.role === "super_admin") {
-          rootAdmin = { 
-            id: plainUser.id, 
-            firstName: plainUser.firstName, 
-            lastName: plainUser.lastName, 
-            email: plainUser.email, 
-            role: plainUser.role 
+        if (["admin", "super_admin"].includes(plainUser.role)) {
+          rootAdmin = {
+            id: plainUser.id,
+            firstName: plainUser.firstName,
+            lastName: plainUser.lastName,
+            email: plainUser.email,
+            role: plainUser.role,
           };
         }
         break;
       }
 
-      // If creator is admin/super_admin, they are the root
-      if (creator.role === "admin" || creator.role === "super_admin") {
-        rootAdmin = { 
-          id: creator.id, 
-          firstName: creator.firstName, 
-          lastName: creator.lastName, 
-          email: creator.email, 
-          role: creator.role 
+      if (["admin", "super_admin"].includes(creator.role)) {
+        rootAdmin = {
+          id: creator.id,
+          firstName: creator.firstName,
+          lastName: creator.lastName,
+          email: creator.email,
+          role: creator.role,
         };
         break;
       }
 
-      // Keep going up
       currentId = creator.id;
     }
 
-    // ✅ Step 2: Walk DOWN the hierarchy (Team Records)
+    // ==============================
+    // 🔽 STEP 2: TEAM USERS
+    // ==============================
     let teamUserIds: number[] = [userData.userId];
     let currentParentIds: number[] = [userData.userId];
+
     while (currentParentIds.length > 0) {
       const subUsers = await User.findAll({
         where: { id: { [Op.in]: currentParentIds } },
@@ -3300,111 +3322,123 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
         ],
       });
 
-      let nextLevelParentIds: number[] = [];
+      let nextLevel: number[] = [];
 
       subUsers.forEach((u: any) => {
-        const children = u.createdUsers || [];
-
-        children.forEach((child: any) => {
+        (u.createdUsers || []).forEach((child: any) => {
           if (!teamUserIds.includes(child.id)) {
             teamUserIds.push(child.id);
-            nextLevelParentIds.push(child.id);
+            nextLevel.push(child.id);
           }
         });
       });
 
-      currentParentIds = nextLevelParentIds;
+      currentParentIds = nextLevel;
     }
-    const pageNumber = Number(page);
-    const pageSize = Math.min(Number(limit), 50); // safety limit
-    const offset = (pageNumber - 1) * pageSize;
 
-    // ✅ Dynamic where condition
-    const whereCondition: any = {
-      userId: { [Op.in]: teamUserIds },
-    };
+    // ==============================
+    // ✅ STEP 3: FILTERS (FIXED)
+    // ==============================
+    const andConditions: any[] = [
+      { userId: { [Op.in]: teamUserIds } },
+    ];
 
-    // 🔍 Global search
+    // 🔍 Search
     if (search) {
-      whereCondition[Op.or] = [
-        { companyName: { [Op.like]: `%${search}%` } },
-        { city: { [Op.like]: `%${search}%` } },
-        { state: { [Op.like]: `%${search}%` } },
-      ];
-    } 
+      andConditions.push({
+        [Op.or]: [
+          { companyName: { [Op.like]: `%${search}%` } },
+          { city: { [Op.like]: `%${search}%` } },
+          { state: { [Op.like]: `%${search}%` } },
+        ],
+      });
+    }
 
+    // 🎯 Status
     if (status) {
-      let statusArray: string[];
+      const statusArray = Array.isArray(status)
+        ? status.map((s) => String(s))
+        : typeof status === "string"
+        ? status.split(",").map((s) => s.trim())
+        : [String(status)];
 
-      if (Array.isArray(status)) {
-        // case: ?status[]=draft&status[]=sent
-        statusArray = status.map((s) => String(s));
-      } else if (typeof status === "string") {
-        // case: ?status=draft,sent
-        statusArray = status.split(",").map((s) => s.trim());
-      } else {
-        statusArray = [String(status)];
-      }
-
-      whereCondition.status = {
-        [Op.in]: statusArray,
-      };
+      andConditions.push({
+        status: { [Op.in]: statusArray },
+      });
     }
 
     // 🎯 Filters
     if (companyName) {
-      whereCondition.companyName = {
-        [Op.like]: `%${companyName}%`,
-      };
+      andConditions.push({
+        companyName: { [Op.like]: `%${companyName}%` },
+      });
     }
 
     if (city) {
-      whereCondition.city = {
-        [Op.like]: `%${city}%`,
-      };
+      andConditions.push({
+        city: { [Op.like]: `%${city}%` },
+      });
     }
 
     if (state) {
-      whereCondition.state = {
-        [Op.like]: `%${state}%`,
-      };
+      andConditions.push({
+        state: { [Op.like]: `%${state}%` },
+      });
     }
 
-      if (startDate && endDate) {
-      whereCondition.createdAt = {
-        [Op.between]: [
-          new Date(startDate as string),
-          new Date(endDate as string),
-        ],
-      };
+    // 📅 Date filter
+    if (startDate && endDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.between]: [
+            new Date(startDate as string),
+            new Date(endDate as string),
+          ],
+        },
+      });
     } else if (startDate) {
-      whereCondition.createdAt = {
-        [Op.gte]: new Date(startDate as string),
-      };
+      andConditions.push({
+        createdAt: {
+          [Op.gte]: new Date(startDate as string),
+        },
+      });
     } else if (endDate) {
-      whereCondition.createdAt = {
-        [Op.lte]: new Date(endDate as string),
-      };
+      andConditions.push({
+        createdAt: {
+          [Op.lte]: new Date(endDate as string),
+        },
+      });
     }
 
+    const whereCondition = {
+      [Op.and]: andConditions,
+    };
+
+    // ==============================
+    // ✅ STEP 4: QUERY
+    // ==============================
     const { count, rows } = await Report.findAndCountAll({
       where: whereCondition,
       limit: pageSize,
-      offset: offset,
+      offset,
       order: [["createdAt", "DESC"]],
     });
 
+    // ==============================
+    // ✅ RESPONSE
+    // ==============================
     createSuccess(res, "Reports fetched successfully", {
       totalItems: count,
       currentPage: pageNumber,
       totalPages: Math.ceil(count / pageSize),
-      parent: parentUser,
-      rootAdmin: rootAdmin,
+      // parent: parentUser,
+      // rootAdmin: rootAdmin,
       data: rows,
     });
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
-}
+};
