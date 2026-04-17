@@ -4430,7 +4430,7 @@ export const updateClient = async (req: Request, res: Response): Promise<void> =
     const client = await MeetingUser.findOne({
       where: {
         id: Number(id),
-        userId: Number(userData.userId),
+        // userId: Number(userData.userId),
       },
     });
 
