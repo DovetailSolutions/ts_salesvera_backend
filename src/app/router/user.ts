@@ -81,4 +81,8 @@ router.delete("/notifications/clear-all",    tokenCheck, NotificationController.
 router.delete("/notifications/:id",          tokenCheck, NotificationController.deleteNotification);
 
 
+
+router.get("/tally-report",tokenCheck,Controller.getTallyReport)
+
+
 export default router;
