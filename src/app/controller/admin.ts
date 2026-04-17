@@ -5156,6 +5156,7 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
     const finalData = reports.map((item) => ({
       ...item,
       userId: userData.userId,
+      companyId: userData.userId,
     }));
 
     let result;
@@ -5173,7 +5174,7 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
       res,
       finalData.length === 1
         ? "Report added successfully"
-        : "Reports added successfully",
+        : "Report added successfully",
       result
     );
   } catch (error) {
