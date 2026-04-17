@@ -4397,7 +4397,7 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
     });
 
     // ✅ Response (UNCHANGED)
-    createSuccess(res, "Leave list fetched successfully", {
+    createSuccess(res, "user list fetched successfully", {
       total: count,
       currentPage: page,
       totalPages: Math.ceil(count / limit),
