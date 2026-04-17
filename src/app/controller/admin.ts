@@ -5258,3 +5258,68 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+
+export const getReportById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData?.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params;
+
+    const report = await Report.findOne({
+      where: {
+        id,
+        // userId: userData.userId,
+      },
+    });
+
+    if (!report) {
+      badRequest(res, "Report not found");
+      return;
+    }
+
+    createSuccess(res, "Report fetched successfully", report);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const updateReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData?.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params;
+    const payload = req.body;
+
+    const report = await Report.findOne({
+      where: {
+        id,
+        // userId: userData.userId,
+      },
+    });
+
+    if (!report) {
+      badRequest(res, "Report not found");
+      return;
+    }
+
+    const updatedReport = await report.update(payload);
+
+    createSuccess(res, "Report updated successfully", updatedReport);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
