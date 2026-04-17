@@ -2315,17 +2315,17 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     }
 
     // ✅ Duplicate check (IMPORTANT)
-    const existing = await Quotations.findOne({
-      where: {
-        userId: Number(userData.userId),
-        // quotationNumber: data.quotationNumber
-      }
-    });
+    // const existing = await Quotations.findOne({
+    //   where: {
+    //     userId: Number(userData.userId),
+    //     referenceNumber: data.referenceNumber
+    //   }
+    // });
 
-    if (existing) {
-      badRequest(res, "Quotation already exists with this reference number");
-      return
-    }
+    // if (existing) {
+    //   badRequest(res, "Quotation already exists with this reference number");
+    //   return
+    // }
 
     const quotationNumber = await generateQuotationNumber();
 
@@ -2348,11 +2348,10 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     });
 
   } catch (error) {
-    console.error("Add Quotation Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+   const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+   
   }
 };
 
