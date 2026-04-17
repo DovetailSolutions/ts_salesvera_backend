@@ -3431,8 +3431,8 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       totalItems: count,
       currentPage: pageNumber,
       totalPages: Math.ceil(count / pageSize),
-      // parent: parentUser,
-      // rootAdmin: rootAdmin,
+      parent: parentUser,
+      rootAdmin: rootAdmin,
       data: rows,
     });
 
