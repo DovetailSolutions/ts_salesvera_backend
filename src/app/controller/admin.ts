@@ -4697,9 +4697,17 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       };
     }
 
-    if (status) {
-      whereCondition.status = status;
-    }
+   if (status) {
+  if (Array.isArray(status)) {
+    // ✅ multiple statuses
+    whereCondition.status = {
+      [Op.in]: status,
+    };
+  } else {
+    // ✅ single status
+    whereCondition.status = status;
+  }
+}
 
     // ✅ Query
     const { rows, count } = await Invoices.findAndCountAll({
