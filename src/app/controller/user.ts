@@ -2296,10 +2296,10 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
       return
     }
 
-    if (!data.referenceNumber) {
-      badRequest(res, "Reference number is required");
-      return
-    }
+    // if (!data.referenceNumber) {
+    //   badRequest(res, "Reference number is required");
+    //   return
+    // }
 
     if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
       badRequest(res, "Items are required");
