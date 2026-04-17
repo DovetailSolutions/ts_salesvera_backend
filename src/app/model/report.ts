@@ -7,12 +7,11 @@ interface RepostAttributes {
   customerName: string;
   openingAmount: number;
   pendingAmount: number;
-  status?: string;
+  status?: "draft" | "imported" | "sent" | "accepted" | "rejected";
   dueOn: Date;
   overdueDays: number;
   userId: number;
   companyId: number;
-
 }
 
 interface RepostCreationAttributes
@@ -27,7 +26,7 @@ export class Repost
   public customerName!: string;
   public openingAmount!: number;
   public pendingAmount!: number;
-  public status?: string;
+  public status!: "draft" | "imported" | "sent" | "accepted" | "rejected";
   public dueOn!: Date;
   public overdueDays!: number;
   public userId!: number;
@@ -39,59 +38,77 @@ export const RepostModel = (sequelize: Sequelize) => {
     "Repost",
     {
       id: {
-        type: DataTypes.INTEGER.UNSIGNED,
+        type: DataTypes.INTEGER, // ✅ fixed (no UNSIGNED)
         autoIncrement: true,
         primaryKey: true,
       },
+
       date: {
-        type: DataTypes.STRING, // you used "0000000001", so string is fine
+        type: DataTypes.STRING,
         allowNull: false,
       },
+
       referenceNo: {
         type: DataTypes.STRING,
         allowNull: false,
         field: "reference_no",
       },
+
       customerName: {
         type: DataTypes.STRING,
         allowNull: false,
         field: "customer_name",
       },
+
       openingAmount: {
-        type: DataTypes.FLOAT,
+        type: DataTypes.DECIMAL(10, 2), // ✅ fixed
         allowNull: false,
         field: "opening_amount",
       },
+
       pendingAmount: {
-        type: DataTypes.FLOAT,
+        type: DataTypes.DECIMAL(10, 2), // ✅ fixed
         allowNull: false,
         field: "pending_amount",
       },
+
       dueOn: {
         type: DataTypes.DATE,
         allowNull: false,
         field: "due_on",
       },
+
       overdueDays: {
         type: DataTypes.INTEGER,
         allowNull: false,
         field: "overdue_days",
       },
+
       status: {
-          type: DataTypes.ENUM("draft","imported", "sent", "accepted", "rejected"),
-          defaultValue: "draft",
-        },
-        userId: {
-          type: DataTypes.INTEGER,
-          allowNull: false,
-        },
-        companyId: {
-          type: DataTypes.INTEGER,
-          allowNull: false,
-        },
-    },  
+        type: DataTypes.ENUM(
+          "draft",
+          "imported",
+          "sent",
+          "accepted",
+          "rejected"
+        ),
+        allowNull: false, // ✅ added
+        defaultValue: "draft",
+      },
+
+      userId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+
+      companyId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+    },
     {
       tableName: "repost",
+      freezeTableName: true, // ✅ IMPORTANT
       timestamps: true,
     }
   );
