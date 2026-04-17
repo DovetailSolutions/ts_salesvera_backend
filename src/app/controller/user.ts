@@ -2925,7 +2925,7 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { page = "1", limit = "10", search = "", companyName, city, state,startDate,  // ✅ new
+    const { page = "1", limit = "10", search = "",status, companyName, city, state,startDate,  // ✅ new
       endDate  } = req.query;
 
     const pageNumber = Number(page);
@@ -2944,6 +2944,10 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
         { city: { [Op.like]: `%${search}%` } },
         { state: { [Op.like]: `%${search}%` } },
       ];
+    } 
+
+    if(status){
+      whereCondition.status = status;
     }
 
     // 🎯 Filters
