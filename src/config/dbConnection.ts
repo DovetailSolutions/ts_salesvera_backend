@@ -42,6 +42,7 @@ import { Invoices } from "../app/model/Invoice";
 
 import { RecordSales } from "../app/model/saleRecord";
 import { Notification } from "../app/model/Notification";
+import { RepostModel } from "../app/model/report";
 
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
@@ -112,6 +113,8 @@ RecordSales.initModel(sequelize);
 
 // Notifications
 Notification.initModel(sequelize);
+
+const Report = RepostModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -227,6 +230,8 @@ Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver" });
 
 User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications" });
 Notification.belongsTo(User, { foreignKey: "senderId", as: "sender" });
+
+
 
 
 /**
@@ -613,5 +618,6 @@ export {
   CompanyBank,
   Invoices,
   RecordSales,
-  Notification
+  Notification,
+  Report
 };
