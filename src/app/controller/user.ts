@@ -2318,7 +2318,7 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     const existing = await Quotations.findOne({
       where: {
         userId: Number(userData.userId),
-        referenceNumber: data.referenceNumber
+        quotationNumber: data.quotationNumber
       }
     });
 
