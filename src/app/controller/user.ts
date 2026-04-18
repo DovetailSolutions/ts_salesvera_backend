@@ -2932,81 +2932,58 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     const pageSize = Math.min(Number(limit), 50); // safety limit
     const offset = (pageNumber - 1) * pageSize;
 
-    // ✅ STEP 1: Initialize filter conditions
-    const andConditions: any[] = [
-      { userId: userData.userId }
-    ];
+    // ✅ Dynamic where condition
+    const whereCondition: any = {
+      userId: userData.userId,
+    };
 
     // 🔍 Global search
     if (search) {
-      andConditions.push({
-        [Op.or]: [
-          { companyName: { [Op.like]: `%${search}%` } },
-          { city: { [Op.like]: `%${search}%` } },
-          { state: { [Op.like]: `%${search}%` } },
-        ]
-      });
-    }
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    } 
 
-    // 🎯 Status Filter
-    if (status) {
-      const statusArray = Array.isArray(status)
-        ? status.map((s) => String(s))
-        : typeof status === "string"
-        ? status.split(",").map((s) => s.trim())
-        : [String(status)];
-
-      andConditions.push({
-        status: { [Op.in]: statusArray }
-      });
-    }
-
-    // 🎯 Specific Filters
+   if(status){
+    whereCondition.status = status;
+   }
+    // 🎯 Filters
     if (companyName) {
-      andConditions.push({
-        companyName: { [Op.like]: `%${companyName}%` }
-      });
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
     }
 
     if (city) {
-      andConditions.push({
-        city: { [Op.like]: `%${city}%` }
-      });
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
     }
 
     if (state) {
-      andConditions.push({
-        state: { [Op.like]: `%${state}%` }
-      });
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
     }
 
-    // 📅 Date Filtering
-    if (startDate && endDate) {
-      andConditions.push({
-        createdAt: {
-          [Op.between]: [
-            new Date(startDate as string),
-            new Date(endDate as string),
-          ]
-        }
-      });
+      if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
     } else if (startDate) {
-      andConditions.push({
-        createdAt: {
-          [Op.gte]: new Date(startDate as string)
-        }
-      });
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate as string),
+      };
     } else if (endDate) {
-      andConditions.push({
-        createdAt: {
-          [Op.lte]: new Date(endDate as string)
-        }
-      });
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate as string),
+      };
     }
-
-    const whereCondition = {
-      [Op.and]: andConditions
-    };
 
     const invoiceData = await Invoices.findAll({
       where: whereCondition,
