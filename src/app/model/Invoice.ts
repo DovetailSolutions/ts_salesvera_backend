@@ -67,6 +67,7 @@ export class Invoices
         quotationId: {
           type: DataTypes.INTEGER,
           allowNull: true,
+          defaultValue: null,
         },
 
         invoice: {
