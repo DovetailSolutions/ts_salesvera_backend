@@ -3436,3 +3436,66 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
     badRequest(res, errorMessage);
   }
 };
+
+
+export const createClient = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { userId } = req.userData as JwtPayload;
+    const { 
+      name, email, mobile, companyName, panNumber, status, 
+      state, customerType, city, pincode, country, address, gstNumber 
+    } = req.body || {};
+
+    // Only name, state, country, companyName are mandatory
+    if (!name || !state || !country || !companyName) {
+      badRequest(res, "name, state, country, and companyName are required");
+      return;
+    }
+
+    // Duplicate check: only if email or mobile is provided
+    const duplicateChecks: any[] = [];
+    if (email) duplicateChecks.push({ email });
+    if (mobile) duplicateChecks.push({ mobile });
+
+    if (duplicateChecks.length > 0) {
+      const isExist = await MeetingUser.findOne({
+        where: {
+          [Op.or]: duplicateChecks,
+        },
+      });
+
+      if (isExist) {
+        badRequest(res, "Client already exists with this email or mobile");
+        return;
+      }
+    }
+
+    // Create new client information (MeetingUser)
+    await MeetingUser.create({
+      name,
+      email,
+      mobile,
+      userId,
+      companyName,
+      customerType: customerType || "new",
+      state,
+      city,
+      pincode,
+      country,
+      address,
+      gstNumber,
+      panNumber,
+      status: status || "draft"
+    });
+
+    createSuccess(res, "Client created successfully");
+  } catch (error) {
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};
