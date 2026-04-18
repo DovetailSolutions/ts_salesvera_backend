@@ -115,13 +115,13 @@ export const CreateToken = (userId: string, role: string) => {
   const accessToken = jwt.sign(
     { userId, role },
     process.env.JWT_SECRET || "dovetailPharma",
-    { expiresIn: "1d" } // short-lived
+    { expiresIn: "30d" } // short-lived
   );
 
   const refreshToken = jwt.sign(
     { userId, role },
     process.env.JWT_SECRET || "dovetailPharma",
-    { expiresIn: "7d" } // long-lived
+    { expiresIn: "60d" } // long-lived
   );
 
   return { accessToken, refreshToken };
