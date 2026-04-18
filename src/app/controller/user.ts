@@ -2098,10 +2098,10 @@ export const UpdatePassword = async (
 // }
 
 // ✅ Generates a serial 10-digit quotation number (e.g. 0000000001)
-const generateQuotationNumber = async (): Promise<string> => {
-  const count = await Quotations.count();
-  const serial = count + 1;
-  return String(serial).padStart(10, '0');
+const generateQuotationNumber = (): string => {
+  const timestamp = Date.now().toString().slice(-6); // last 6 digits
+  const random = Math.floor(Math.random() * 10000); // 4 digit random
+  return `${timestamp}${String(random).padStart(4, "0")}`;
 };
 
 export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
