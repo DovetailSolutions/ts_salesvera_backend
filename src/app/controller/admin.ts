@@ -5212,23 +5212,68 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { page = "1", limit = "10", search = "" } = req.query as any;
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      referenceNo,
+      startDate,
+      endDate,
+    } = req.query as any;
 
     const pageNumber = Math.max(Number(page) || 1, 1);
     const pageSize = Math.min(Number(limit) || 10, 50);
     const offset = (pageNumber - 1) * pageSize;
 
-    // ✅ Build where condition
-    const whereCondition: any = {
-      userId: userData.userId,
-    };
+    // ✅ Use AND conditions (important)
+    const andConditions: any[] = [
+      { userId: userData.userId },
+    ];
 
+    // 🔍 Global search
     if (search) {
-      whereCondition[Op.or] = [
-        { referenceNo: { [Op.like]: `%${search}%` } },
-        { customerName: { [Op.like]: `%${search}%` } },
-      ];
+      andConditions.push({
+        [Op.or]: [
+          { referenceNo: { [Op.like]: `%${search}%` } },
+          { customerName: { [Op.like]: `%${search}%` } },
+        ],
+      });
     }
+
+    // 🎯 Reference filter (separate from search)
+    if (referenceNo) {
+      andConditions.push({
+        referenceNo: { [Op.like]: `%${referenceNo}%` },
+      });
+    }
+
+    // 📅 Date range filter (using createdAt)
+    if (startDate && endDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.between]: [
+            new Date(startDate),
+            new Date(endDate),
+          ],
+        },
+      });
+    } else if (startDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.gte]: new Date(startDate),
+        },
+      });
+    } else if (endDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.lte]: new Date(endDate),
+        },
+      });
+    }
+
+    const whereCondition = {
+      [Op.and]: andConditions,
+    };
 
     // ✅ Fetch data
     const { count, rows } = await Report.findAndCountAll({
@@ -5238,7 +5283,7 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
       offset,
     });
 
-    // ✅ Transform data
+    // ✅ Add rowIndex
     const updatedRows = rows.map((item: any, rowIndex: number) => ({
       ...item.toJSON(),
       rowIndex: offset + rowIndex + 1,
@@ -5251,6 +5296,7 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
       pageSize,
       data: updatedRows,
     });
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
