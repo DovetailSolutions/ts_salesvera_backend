@@ -59,8 +59,17 @@ app.use(
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
+
+// ✅ Global JSON syntax error handler
+app.use((err: any, req: Request, res: Response, next: any) => {
+  if (err instanceof SyntaxError && "body" in err) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON format in request body",
+    });
+  }
+  next();
+});
 
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
