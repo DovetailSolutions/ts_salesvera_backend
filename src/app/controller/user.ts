@@ -2949,13 +2949,19 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
    if(status){
     whereCondition.status = status;
    }
+
+   if(!status){
+    whereCondition.status ={
+      [Op.in]: ["draft","imported"]
+    }
+   }
     // 🎯 Filters
     if (companyName) {
       whereCondition.companyName = {
         [Op.like]: `%${companyName}%`,
       };
     }
-    
+
 
     if (city) {
       whereCondition.city = {
