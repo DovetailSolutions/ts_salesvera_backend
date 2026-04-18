@@ -4564,9 +4564,10 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
          return;
       }
     }
-
+     let invoice = await generateQuotationNumber();
     // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
     const {
+      invoiceNumber = invoice,
       tallyInvoiceNumber = "web",
       customerName,
       quotationId,
