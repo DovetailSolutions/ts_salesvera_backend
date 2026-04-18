@@ -526,15 +526,15 @@ export const getLastMeeting = async (
     };
 
     // Client/MeetingUser search logic
-   if (search) {
-  whereCondition[Op.or] = [
-    {
-      name: {
-        [Op.iLike]: `${search}%`, // ✅ case-insensitive
-      },
-    },
-  ];
-}
+    if (search) {
+      whereCondition[Op.or] = [
+        {
+          name: {
+            [Op.iLike]: `${search}%`, // ✅ case-insensitive
+          },
+        },
+      ];
+    }
 
     // company search logic
     const companyWhereCondition: any = {};
@@ -753,7 +753,7 @@ export const CreateMeeting = async (
         personName,
         mobileNumber,
         companyEmail,
-        
+
       },
     });
 
@@ -2349,10 +2349,10 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     });
 
   } catch (error) {
-   const errorMessage =
+    const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage, error);
-   
+
   }
 };
 
@@ -2490,7 +2490,7 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       ];
     }
 
-     if (startDate && endDate) {
+    if (startDate && endDate) {
       whereCondition.createdAt = {
         [Op.between]: [
           new Date(startDate + "T00:00:00.000Z"),
@@ -2861,7 +2861,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     //   return;
     // }
 
-    
+
 
     if (!data.customerName) {
       badRequest(res, "Customer name is required");
@@ -2880,7 +2880,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
         return;
       }
     }
-     let invoice = await generateQuotationNumber();
+    let invoice = await generateQuotationNumber();
     // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
     const {
       invoiceNumber = invoice,
@@ -2921,211 +2921,93 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 };
 
 
-// export const getInvoice = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const { page = "1", limit = "10", search = "",status, companyName, city, state,startDate,  // ✅ new
-//       endDate  } = req.query;
+export const getInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const { page = "1", limit = "10", search = "", status, companyName, city, state, startDate,  // ✅ new
+      endDate } = req.query;
 
-//     const pageNumber = Number(page);
-//     const pageSize = Math.min(Number(limit), 50); // safety limit
-//     const offset = (pageNumber - 1) * pageSize;
-//   const {
-//       page = "1",
-//       limit = "10",
-//       search = "",
-//       status,
-//       customerName,
-//       referenceNo,
-//       date,
-//       startDate,
-//       endDate,
-//     } = req.query;
+    const pageNumber = Number(page);
+    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const offset = (pageNumber - 1) * pageSize;
 
-//     const pageNumber = Math.max(Number(page) || 1, 1);
-//     const pageSize = Math.min(Number(limit) || 10, 50);
-//     const offset = (pageNumber - 1) * pageSize;
+    // ✅ Dynamic where condition
+    const whereCondition: any = {
+      // userId: userData.userId,
+    };
 
-//     // ==============================
-//     // 🔼 STEP 1: FIND PARENT & ROOT
-//     // ==============================
-//     let currentId = userData.userId;
-//     let rootAdmin: any = null;
-//     let parentUser: any = null;
-//     let isFirstStep = true;
+    // 🔍 Global search
+    if (search) {
+      whereCondition[Op.or] = [
+        { companyName: { [Op.like]: `%${search}%` } },
+        { city: { [Op.like]: `%${search}%` } },
+        { state: { [Op.like]: `%${search}%` } },
+      ];
+    }
 
-//     while (true) {
-//       const userWithCreators = await User.findByPk(currentId, {
-//         include: [
-//           {
-//             model: User,
-//             as: "creators",
-//             attributes: ["id", "firstName", "lastName", "email", "role"],
-//             through: { attributes: [] },
-//           },
-//         ],
-//       }) as any;
+    if (status) {
+      whereCondition.status = status;
+    }
 
-//       if (!userWithCreators) break;
-
-//       const plainUser = userWithCreators.get({ plain: true });
-//       const creator = plainUser.creators?.[0] || null;
-
-//       if (isFirstStep) {
-//         parentUser = creator
-//           ? {
-//               id: creator.id,
-//               firstName: creator.firstName,
-//               lastName: creator.lastName,
-//               email: creator.email,
-//               role: creator.role,
-//             }
-//           : null;
-//         isFirstStep = false;
-//       }
-
-//       if (!creator) {
-//         if (["admin", "super_admin"].includes(plainUser.role)) {
-//           rootAdmin = {
-//             id: plainUser.id,
-//             firstName: plainUser.firstName,
-//             lastName: plainUser.lastName,
-//             email: plainUser.email,
-//             role: plainUser.role,
-//           };
-//         }
-//         break;
-//       }
-
-//       if (["admin", "super_admin"].includes(creator.role)) {
-//         rootAdmin = {
-//           id: creator.id,
-//           firstName: creator.firstName,
-//           lastName: creator.lastName,
-//           email: creator.email,
-//           role: creator.role,
-//         };
-//         break;
-//       }
-
-//       currentId = creator.id;
-//     }
-
-//     // ==============================
-//     // 🔽 STEP 2: TEAM USERS
-//     // ==============================
-//     let teamUserIds: number[] = [userData.userId];
-//     let currentParentIds: number[] = [userData.userId];
-
-//     while (currentParentIds.length > 0) {
-//       const subUsers = await User.findAll({
-//         where: { id: { [Op.in]: currentParentIds } },
-//         include: [
-//           {
-//             model: User,
-//             as: "createdUsers",
-//             attributes: ["id"],
-//           },
-//         ],
-//       });
-
-//       let nextLevel: number[] = [];
-
-//       subUsers.forEach((u: any) => {
-//         (u.createdUsers || []).forEach((child: any) => {
-//           if (!teamUserIds.includes(child.id)) {
-//             teamUserIds.push(child.id);
-//             nextLevel.push(child.id);
-//           }
-//         });
-//       });
-
-//       currentParentIds = nextLevel;
-//     }
-
-//     // ==============================
-//     // ✅ STEP 3: FILTERS (FIXED)
-//     // ==============================
-//     const andConditions: any[] = [
-//       { userId: rootAdmin ? rootAdmin.id : { [Op.in]: teamUserIds } },
-//     ];
-//     // ✅ Dynamic where condition
-//     const whereCondition: any = {
-//       userId: userData.userId,
-//     };
-
-//     // 🔍 Global search
-//     if (search) {
-//       whereCondition[Op.or] = [
-//         { companyName: { [Op.like]: `%${search}%` } },
-//         { city: { [Op.like]: `%${search}%` } },
-//         { state: { [Op.like]: `%${search}%` } },
-//       ];
-//     } 
-
-//    if(status){
-//     whereCondition.status = status;
-//    }
-
-//    if(!status){
-//     whereCondition.status ={
-//       [Op.in]: ["draft","imported"]
-//     }
-//    }
-//     // 🎯 Filters
-//     if (companyName) {
-//       whereCondition.companyName = {
-//         [Op.like]: `%${companyName}%`,
-//       };
-//     }
+    if (!status) {
+      whereCondition.status = {
+        [Op.in]: ["draft", "imported"]
+      }
+    }
+    // 🎯 Filters
+    if (companyName) {
+      whereCondition.companyName = {
+        [Op.like]: `%${companyName}%`,
+      };
+    }
 
 
-//     if (city) {
-//       whereCondition.city = {
-//         [Op.like]: `%${city}%`,
-//       };
-//     }
+    if (city) {
+      whereCondition.city = {
+        [Op.like]: `%${city}%`,
+      };
+    }
 
-//     if (state) {
-//       whereCondition.state = {
-//         [Op.like]: `%${state}%`,
-//       };
-//     }
+    if (state) {
+      whereCondition.state = {
+        [Op.like]: `%${state}%`,
+      };
+    }
 
-//       if (startDate && endDate) {
-//       whereCondition.createdAt = {
-//         [Op.between]: [
-//           new Date(startDate as string),
-//           new Date(endDate as string),
-//         ],
-//       };
-//     } else if (startDate) {
-//       whereCondition.createdAt = {
-//         [Op.gte]: new Date(startDate as string),
-//       };
-//     } else if (endDate) {
-//       whereCondition.createdAt = {
-//         [Op.lte]: new Date(endDate as string),
-//       };
-//     }
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate as string),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate as string),
+      };
+    }
 
-//     const invoiceData = await Invoices.findAll({
-//       where: whereCondition,
-//       limit: pageSize,
-//       offset: offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-//     createSuccess(res, "Invoice list fetched successfully", invoiceData);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// }
+    const invoiceData = await Invoices.findAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset: offset,
+      order: [["createdAt", "DESC"]],
+    });
+    createSuccess(res, "Invoice list fetched successfully", invoiceData);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}
 
 
 
@@ -3165,170 +3047,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
 //     badRequest(res, errorMessage);
 //   }
 // }
-export const getInvoice = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
 
-    if (!userData?.userId) {
-      badRequest(res, "Unauthorized request");
-      return;
-    }
-
-    // ==============================
-    // ✅ QUERY PARAMS (FIXED)
-    // ==============================
-    const {
-      page = "1",
-      limit = "10",
-      search = "",
-      status,
-      companyName,
-      city,
-      state,
-      startDate,
-      endDate,
-    } = req.query;
-
-    const pageNumber = Math.max(Number(page) || 1, 1);
-    const pageSize = Math.min(Number(limit) || 10, 50);
-    const offset = (pageNumber - 1) * pageSize;
-
-    // ==============================
-    // 🔽 TEAM USERS (RECURSIVE)
-    // ==============================
-    let teamUserIds: number[] = [userData.userId];
-    let currentParentIds: number[] = [userData.userId];
-
-    while (currentParentIds.length > 0) {
-      const subUsers = await User.findAll({
-        where: { id: { [Op.in]: currentParentIds } },
-        include: [
-          {
-            model: User,
-            as: "createdUsers",
-            attributes: ["id"],
-          },
-        ],
-      });
-
-      let nextLevel: number[] = [];
-
-      subUsers.forEach((u: any) => {
-        (u.createdUsers || []).forEach((child: any) => {
-          if (!teamUserIds.includes(child.id)) {
-            teamUserIds.push(child.id);
-            nextLevel.push(child.id);
-          }
-        });
-      });
-
-      currentParentIds = nextLevel;
-    }
-
-    // ==============================
-    // ✅ WHERE CONDITION
-    // ==============================
-    const whereCondition: any = {
-      userId: { [Op.in]: teamUserIds },
-    };
-
-    // 🔍 Global search
-    if (search) {
-      whereCondition[Op.or] = [
-        { companyName: { [Op.like]: `%${search}%` } },
-        { city: { [Op.like]: `%${search}%` } },
-        { state: { [Op.like]: `%${search}%` } },
-      ];
-    }
-
-    // ==============================
-    // ✅ STATUS FILTER (FIXED)
-    // ==============================
-    if (status) {
-      let statusArray: string[];
-
-      if (Array.isArray(status)) {
-        statusArray = status.map((s) => String(s));
-      } else if (typeof status === "string") {
-        statusArray = status.split(",").map((s) => s.trim());
-      } else {
-        statusArray = [String(status)];
-      }
-
-      whereCondition.status = {
-        [Op.in]: statusArray,
-      };
-    } else {
-      // default filter
-      whereCondition.status = {
-        [Op.in]: ["draft", "imported"],
-      };
-    }
-
-    // 🎯 Filters
-    if (companyName) {
-      whereCondition.companyName = {
-        [Op.like]: `%${companyName}%`,
-      };
-    }
-
-    if (city) {
-      whereCondition.city = {
-        [Op.like]: `%${city}%`,
-      };
-    }
-
-    if (state) {
-      whereCondition.state = {
-        [Op.like]: `%${state}%`,
-      };
-    }
-
-    // 📅 Date filter
-    if (startDate && endDate) {
-      whereCondition.createdAt = {
-        [Op.between]: [
-          new Date(startDate as string),
-          new Date(endDate as string),
-        ],
-      };
-    } else if (startDate) {
-      whereCondition.createdAt = {
-        [Op.gte]: new Date(startDate as string),
-      };
-    } else if (endDate) {
-      whereCondition.createdAt = {
-        [Op.lte]: new Date(endDate as string),
-      };
-    }
-
-    // ==============================
-    // ✅ QUERY
-    // ==============================
-    const { rows, count } = await Invoices.findAndCountAll({
-      where: whereCondition,
-      limit: pageSize,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ==============================
-    // ✅ RESPONSE
-    // ==============================
-    createSuccess(res, "Invoice list fetched successfully", {
-      totalItems: count,
-      currentPage: pageNumber,
-      totalPages: Math.ceil(count / pageSize),
-      pageSize,
-      data: rows,
-    });
-
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
 
 export const recordSale = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -3543,12 +3262,12 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       if (isFirstStep) {
         parentUser = creator
           ? {
-              id: creator.id,
-              firstName: creator.firstName,
-              lastName: creator.lastName,
-              email: creator.email,
-              role: creator.role,
-            }
+            id: creator.id,
+            firstName: creator.firstName,
+            lastName: creator.lastName,
+            email: creator.email,
+            role: creator.role,
+          }
           : null;
         isFirstStep = false;
       }
@@ -3634,8 +3353,8 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       const statusArray = Array.isArray(status)
         ? status.map((s) => String(s))
         : typeof status === "string"
-        ? status.split(",").map((s) => s.trim())
-        : [String(status)];
+          ? status.split(",").map((s) => s.trim())
+          : [String(status)];
 
       andConditions.push({
         status: { [Op.in]: statusArray },
