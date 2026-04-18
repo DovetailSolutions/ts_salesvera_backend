@@ -5474,7 +5474,7 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
 // };
 
 
-export const getReportById = async (req: Request, res: Response): Promise<void> => {
+export const getReportDetails = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
 
@@ -5485,24 +5485,25 @@ export const getReportById = async (req: Request, res: Response): Promise<void> 
 
     const { referenceNo, customerName, date } = req.query;
 
-    // ❗ require at least one identifier
+    // ❗ Require at least one filter
     if (!referenceNo && !customerName && !date) {
       badRequest(res, "At least one filter is required");
       return;
     }
 
     const whereCondition: any = {
-      // userId: userData.userId, // keep security
+      userId: userData.userId, // 🔐 security
     };
 
-    // 🎯 referenceNo
-    if (referenceNo && customerName && date) {
+    // ✅ Flexible filters
+    if (referenceNo) {
       whereCondition.referenceNo = referenceNo;
-      whereCondition.customerName = customerName; 
-      // whereCondition.date = date;
     }
 
-    // 🎯 date (match full day)
+    if (customerName) {
+      whereCondition.customerName = customerName;
+    }
+
     if (date) {
       const start = new Date(date as string);
       const end = new Date(date as string);
@@ -5515,10 +5516,10 @@ export const getReportById = async (req: Request, res: Response): Promise<void> 
       };
     }
 
-    // ✅ find single record
+    // ✅ Fetch latest matching record
     const report = await Report.findOne({
       where: whereCondition,
-      order: [["createdAt", "DESC"]], // latest match
+      order: [["createdAt", "DESC"]],
     });
 
     if (!report) {
@@ -5534,7 +5535,6 @@ export const getReportById = async (req: Request, res: Response): Promise<void> 
     badRequest(res, errorMessage);
   }
 };
-
 export const updateReport = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
