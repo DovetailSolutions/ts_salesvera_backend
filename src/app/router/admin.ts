@@ -145,8 +145,8 @@ router.get("/get-record-sale",tokenCheck,AdminController.getRecordSale);
 
 router.post("/add-report",tokenCheck,AdminController.addReport);
 router.get("/get-report",tokenCheck,AdminController.getReport);
-router.get("/get-report/:id",tokenCheck,AdminController.getReportById);
-router.post("/update-report/:id",tokenCheck,AdminController.updateReport);
+router.get("/get-report", tokenCheck, AdminController.getReportById);
+router.post("/update-report",tokenCheck,AdminController.updateReport);
 // router.delete("/delete-report/:id",tokenCheck,AdminController.deleteReport);
 
  

@@ -5442,6 +5442,38 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
 };
 
 
+// export const getReportById = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData?.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const { id } = req.params;
+
+//     const report = await Report.findOne({
+//       where: {
+//         id,
+//         // userId: userData.userId,
+//       },
+//     });
+
+//     if (!report) {
+//       badRequest(res, "Report not found");
+//       return;
+//     }
+
+//     createSuccess(res, "Report fetched successfully", report);
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
 export const getReportById = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -5451,13 +5483,42 @@ export const getReportById = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const { id } = req.params;
+    const { referenceNo, customerName, date } = req.query;
 
+    // ❗ require at least one identifier
+    if (!referenceNo && !customerName && !date) {
+      badRequest(res, "At least one filter is required");
+      return;
+    }
+
+    const whereCondition: any = {
+      userId: userData.userId, // keep security
+    };
+
+    // 🎯 referenceNo
+    if (referenceNo && customerName && date) {
+      whereCondition.referenceNo = referenceNo;
+      whereCondition.customerName = customerName; 
+      // whereCondition.date = date;
+    }
+
+    // 🎯 date (match full day)
+    if (date) {
+      const start = new Date(date as string);
+      const end = new Date(date as string);
+
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+
+      whereCondition.date = {
+        [Op.between]: [start, end],
+      };
+    }
+
+    // ✅ find single record
     const report = await Report.findOne({
-      where: {
-        id,
-        // userId: userData.userId,
-      },
+      where: whereCondition,
+      order: [["createdAt", "DESC"]], // latest match
     });
 
     if (!report) {
@@ -5466,6 +5527,7 @@ export const getReportById = async (req: Request, res: Response): Promise<void> 
     }
 
     createSuccess(res, "Report fetched successfully", report);
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -5482,14 +5544,42 @@ export const updateReport = async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const { id } = req.params;
+     const { referenceNo, customerName, date } = req.query;
+
+    // ❗ require at least one identifier
+    if (!referenceNo && !customerName && !date) {
+      badRequest(res, "At least one filter is required");
+      return;
+    }
+
+    const whereCondition: any = {
+      userId: userData.userId, // keep security
+    };
+
+    // 🎯 referenceNo
+    if (referenceNo && customerName && date) {
+      whereCondition.referenceNo = referenceNo;
+      whereCondition.customerName = customerName; 
+      // whereCondition.date = date;
+    }
+
+    // 🎯 date (match full day)
+    if (date) {
+      const start = new Date(date as string);
+      const end = new Date(date as string);
+
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+
+      whereCondition.date = {
+        [Op.between]: [start, end],
+      };
+    }
     const payload = req.body;
 
     const report = await Report.findOne({
-      where: {
-        id,
-        // userId: userData.userId,
-      },
+      where: whereCondition,
+      order: [["createdAt", "DESC"]], // latest match
     });
 
     if (!report) {
