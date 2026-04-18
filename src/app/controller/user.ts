@@ -2898,7 +2898,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     const invoicePayload: any = {
       userId: userData.userId,
       companyId: userData.companyId || 0,
-      invoiceNumber: tallyInvoiceNumber,
+      invoiceNumber: invoiceNumber,
       customerName: customerName,
       quotationId: quotationId || null,
       status: status || "draft",
