@@ -2955,6 +2955,7 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
         [Op.like]: `%${companyName}%`,
       };
     }
+    
 
     if (city) {
       whereCondition.city = {
