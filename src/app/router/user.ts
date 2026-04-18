@@ -81,6 +81,9 @@ router.delete("/notifications/clear-all",    tokenCheck, NotificationController.
 router.delete("/notifications/:id",          tokenCheck, NotificationController.deleteNotification);
 
 
+router.post("/create-client", tokenCheck, Controller.createClient);
+
+
 
 router.get("/tally-report",tokenCheck,Controller.getTallyReport)
 
