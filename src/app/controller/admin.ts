@@ -5505,14 +5505,10 @@ export const getReportDetails = async (req: Request, res: Response): Promise<voi
     }
 
     if (date) {
-      const start = new Date(date as string);
-      const end = new Date(date as string);
-
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-
+      // DB format: "2023-04-20T10:00:00.000Z"
+      // Input: "2023-04-20"
       whereCondition.date = {
-        [Op.between]: [start, end],
+        [Op.like]: `%${date}%`,
       };
     }
 
@@ -5564,15 +5560,11 @@ export const updateReport = async (req: Request, res: Response): Promise<void> =
     }
 
     // 🎯 date (match full day)
-    if (date) {
-      const start = new Date(date as string);
-      const end = new Date(date as string);
-
-      start.setHours(0, 0, 0, 0);
-      end.setHours(23, 59, 59, 999);
-
+   if (date) {
+      // DB format: "2023-04-20T10:00:00.000Z"
+      // Input: "2023-04-20"
       whereCondition.date = {
-        [Op.between]: [start, end],
+        [Op.like]: `%${date}%`,
       };
     }
     const payload = req.body;
