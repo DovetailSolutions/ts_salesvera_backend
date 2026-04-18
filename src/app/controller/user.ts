@@ -3220,15 +3220,15 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       limit = "10",
       search = "",
       status,
-      companyName,
-      city,
-      state,
+      customerName,
+      referenceNo,
+      date,
       startDate,
       endDate,
     } = req.query;
 
-    const pageNumber = Number(page);
-    const pageSize = Math.min(Number(limit), 50);
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Number(limit) || 10, 50);
     const offset = (pageNumber - 1) * pageSize;
 
     // ==============================
@@ -3339,9 +3339,8 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
     if (search) {
       andConditions.push({
         [Op.or]: [
-          { companyName: { [Op.like]: `%${search}%` } },
-          { city: { [Op.like]: `%${search}%` } },
-          { state: { [Op.like]: `%${search}%` } },
+          { customerName: { [Op.like]: `%${search}%` } },
+          { referenceNo: { [Op.like]: `%${search}%` } },
         ],
       });
     }
@@ -3359,22 +3358,22 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       });
     }
 
-    // 🎯 Filters
-    if (companyName) {
+    // 🎯 Specific Filters
+    if (customerName) {
       andConditions.push({
-        companyName: { [Op.like]: `%${companyName}%` },
+        customerName: { [Op.like]: `%${customerName}%` },
       });
     }
 
-    if (city) {
+    if (referenceNo) {
       andConditions.push({
-        city: { [Op.like]: `%${city}%` },
+        referenceNo: { [Op.like]: `%${referenceNo}%` },
       });
     }
 
-    if (state) {
+    if (date) {
       andConditions.push({
-        state: { [Op.like]: `%${state}%` },
+        date: { [Op.like]: `%${date}%` },
       });
     }
 
