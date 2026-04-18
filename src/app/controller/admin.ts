@@ -5492,7 +5492,7 @@ export const getReportById = async (req: Request, res: Response): Promise<void> 
     }
 
     const whereCondition: any = {
-      userId: userData.userId, // keep security
+      // userId: userData.userId, // keep security
     };
 
     // 🎯 referenceNo
