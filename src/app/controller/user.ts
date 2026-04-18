@@ -3332,7 +3332,7 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
     // ✅ STEP 3: FILTERS (FIXED)
     // ==============================
     const andConditions: any[] = [
-      { userId: { [Op.in]: teamUserIds } },
+      { userId: rootAdmin ? rootAdmin.id : { [Op.in]: teamUserIds } },
     ];
 
     // 🔍 Search
