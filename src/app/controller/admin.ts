@@ -5087,7 +5087,6 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-
 export const addReport = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -5099,79 +5098,64 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
 
     const payload = req.body;
 
-    // ✅ Normalize to array
-    const reports = Array.isArray(payload) ? payload : [payload];
+    // ✅ FIXED NORMALIZATION
+    let reports: any[] = [];
+
+    if (Array.isArray(payload)) {
+      reports = payload;
+    } else if (Array.isArray(payload.data)) {
+      reports = payload.data;
+    } else {
+      reports = [payload];
+    }
 
     if (!reports.length) {
       badRequest(res, "Payload cannot be empty");
       return;
     }
 
-    // ✅ Validation function
+    // ✅ VALIDATION
+    const allowedStatus = [
+      "draft",
+      "imported",
+      "sent",
+      "accepted",
+      "rejected",
+    ];
+
     const validateReport = (item: any, index: number) => {
-      if (!item.date) {
-        throw new Error(`date is required at index ${index}`);
-      }
-
-      if (!item.referenceNo) {
-        throw new Error(`referenceNo is required at index ${index}`);
-      }
-
-      if (!item.customerName) {
-        throw new Error(`customerName is required at index ${index}`);
-      }
+      if (!item.date) throw new Error(`date is required at index ${index}`);
+      if (!item.referenceNo) throw new Error(`referenceNo is required at index ${index}`);
+      if (!item.customerName) throw new Error(`customerName is required at index ${index}`);
 
       if (item.openingAmount == null || isNaN(item.openingAmount)) {
-        throw new Error(`openingAmount must be a number at index ${index}`);
-      }
-
-      if (item.openingAmount < 0) {
-        throw new Error(`openingAmount cannot be negative at index ${index}`);
+        throw new Error(`openingAmount must be number at index ${index}`);
       }
 
       if (item.pendingAmount == null || isNaN(item.pendingAmount)) {
-        throw new Error(`pendingAmount must be a number at index ${index}`);
-      }
-
-      if (item.pendingAmount < 0) {
-        throw new Error(`pendingAmount cannot be negative at index ${index}`);
+        throw new Error(`pendingAmount must be number at index ${index}`);
       }
 
       if (item.pendingAmount > item.openingAmount) {
-        throw new Error(
-          `pendingAmount cannot be greater than openingAmount at index ${index}`
-        );
+        throw new Error(`pendingAmount > openingAmount at index ${index}`);
       }
 
       if (!item.dueOn || isNaN(new Date(item.dueOn).getTime())) {
-        throw new Error(`dueOn must be a valid date at index ${index}`);
+        throw new Error(`Invalid dueOn at index ${index}`);
       }
 
-      if (item.overdueDays == null || !Number.isInteger(item.overdueDays)) {
-        throw new Error(`overdueDays must be an integer at index ${index}`);
+      if (!Number.isInteger(item.overdueDays)) {
+        throw new Error(`overdueDays must be integer at index ${index}`);
       }
-
-      if (item.overdueDays < 0) {
-        throw new Error(`overdueDays cannot be negative at index ${index}`);
-      }
-
-      const allowedStatus = [
-        "draft",
-        "imported",
-        "sent",
-        "accepted",
-        "rejected",
-      ];
 
       if (item.status && !allowedStatus.includes(item.status)) {
         throw new Error(`Invalid status at index ${index}`);
       }
     };
 
-    // ✅ Run validation
     reports.forEach((item, index) => validateReport(item, index));
 
-    // ✅ Prepare data
+    // ✅ PREPARE DATA
     const finalData = reports.map((item) => ({
       ...item,
       userId: userData.userId,
@@ -5189,19 +5173,130 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
       });
     }
 
-    createSuccess(
-      res,
-      finalData.length === 1
-        ? "Report added successfully"
-        : "Report added successfully",
-      result
-    );
+    createSuccess(res, "Report added successfully", result);
+
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };
+
+
+// export const addReport = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData?.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const payload = req.body;
+
+//     // ✅ Normalize to array
+//     const reports = Array.isArray(payload) ? payload : [payload];
+
+//     if (!reports.length) {
+//       badRequest(res, "Payload cannot be empty");
+//       return;
+//     }
+
+//     // ✅ Validation function
+//     const validateReport = (item: any, index: number) => {
+//       if (!item.date) {
+//         throw new Error(`date is required at index ${index}`);
+//       }
+
+//       if (!item.referenceNo) {
+//         throw new Error(`referenceNo is required at index ${index}`);
+//       }
+
+//       if (!item.customerName) {
+//         throw new Error(`customerName is required at index ${index}`);
+//       }
+
+//       if (item.openingAmount == null || isNaN(item.openingAmount)) {
+//         throw new Error(`openingAmount must be a number at index ${index}`);
+//       }
+
+//       if (item.openingAmount < 0) {
+//         throw new Error(`openingAmount cannot be negative at index ${index}`);
+//       }
+
+//       if (item.pendingAmount == null || isNaN(item.pendingAmount)) {
+//         throw new Error(`pendingAmount must be a number at index ${index}`);
+//       }
+
+//       if (item.pendingAmount < 0) {
+//         throw new Error(`pendingAmount cannot be negative at index ${index}`);
+//       }
+
+//       if (item.pendingAmount > item.openingAmount) {
+//         throw new Error(
+//           `pendingAmount cannot be greater than openingAmount at index ${index}`
+//         );
+//       }
+
+//       if (!item.dueOn || isNaN(new Date(item.dueOn).getTime())) {
+//         throw new Error(`dueOn must be a valid date at index ${index}`);
+//       }
+
+//       if (item.overdueDays == null || !Number.isInteger(item.overdueDays)) {
+//         throw new Error(`overdueDays must be an integer at index ${index}`);
+//       }
+
+//       if (item.overdueDays < 0) {
+//         throw new Error(`overdueDays cannot be negative at index ${index}`);
+//       }
+
+//       const allowedStatus = [
+//         "draft",
+//         "imported",
+//         "sent",
+//         "accepted",
+//         "rejected",
+//       ];
+
+//       if (item.status && !allowedStatus.includes(item.status)) {
+//         throw new Error(`Invalid status at index ${index}`);
+//       }
+//     };
+
+//     // ✅ Run validation
+//     reports.forEach((item, index) => validateReport(item, index));
+
+//     // ✅ Prepare data
+//     const finalData = reports.map((item) => ({
+//       ...item,
+//       userId: userData.userId,
+//       companyId: userData.companyId || userData.userId,
+//     }));
+
+//     let result;
+
+//     if (finalData.length === 1) {
+//       result = await Report.create(finalData[0]);
+//     } else {
+//       result = await Report.bulkCreate(finalData, {
+//         validate: true,
+//         returning: true,
+//       });
+//     }
+
+//     createSuccess(
+//       res,
+//       finalData.length === 1
+//         ? "Report added successfully"
+//         : "Report added successfully",
+//       result
+//     );
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
 
 
 // export const addReport = async (req: Request, res: Response): Promise<void> => {
