@@ -4577,6 +4577,18 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       ...restData
     } = data;
 
+
+    let ss = null;
+    if (quotationId != null) {
+      ss = await Quotations.findOne({
+        where: {
+          id: Number(quotationId),
+        },
+      });
+    }
+
+    console.log("quotation", ss);
+
     // ✅ Prepare DB object
     const invoicePayload: any = {
       userId: userData.userId,
