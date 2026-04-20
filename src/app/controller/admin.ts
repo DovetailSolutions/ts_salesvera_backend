@@ -4649,10 +4649,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     for (const item of data.items) {
       if (!item.itemName || !item.quantity || !item.rate) {
         await transaction.rollback();
-        badRequest(
-          res,
-          "Each item must have itemName, quantity, and rate"
-        );
+        badRequest(res, "Each item must have itemName, quantity, and rate");
         return;
       }
 
@@ -4690,7 +4687,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       quotationRecord = await Quotations.findOne({
         where: { id: Number(quotationId) },
         transaction,
-        lock: true, // 🔒 prevent race condition
+        lock: transaction.LOCK.UPDATE, // 🔒 important
       });
 
       if (!quotationRecord) {
@@ -4703,9 +4700,10 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
         throw new Error("Invalid quotation items");
       }
 
+      // 🧠 Update quantities
       const updatedItems = quotationData.items.map((qItem: any) => {
         const invItem = data.items.find(
-          (i: any) => i.index === qItem.index
+          (i: any) => String(i.index) === String(qItem.index) // ✅ FIXED
         );
 
         if (!invItem) return qItem;
@@ -4725,21 +4723,25 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
         };
       });
 
-      // Remove fully consumed items
+      // 🧹 Remove consumed items
       const filteredItems = updatedItems.filter(
         (item: any) => item.quantity > 0
       );
 
-      // Update quotation
-      await quotationRecord.update(
-        {
-          quotation: {
-            ...quotationData,
-            items: filteredItems,
-          },
-        },
-        { transaction }
-      );
+      // 🛠 DEBUG (optional)
+      console.log("Before:", quotationData.items);
+      console.log("Invoice Items:", data.items);
+      console.log("After:", filteredItems);
+
+      // ✅ CRITICAL FIX: Proper JSON update
+      quotationRecord.set("quotation", {
+        ...quotationData,
+        items: filteredItems,
+      });
+
+      quotationRecord.changed("quotation", true);
+
+      await quotationRecord.save({ transaction });
     }
 
     // ============================
@@ -4747,14 +4749,14 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     // ============================
     const invoicePayload = {
       userId: userData.userId,
-      companyId: userData.userId || 0,
+      companyId: userData.companyId || 0, // ✅ FIXED
       invoiceNumber: tallyInvoiceNumber,
       customerName,
-      quotationId: quotationId || undefined,
+      quotationId: quotationId || null,
       status: status || "draft",
-      quotationNumber: QuotationNumber || undefined,
-      quotationDate: QuotationDate ? new Date(QuotationDate) : undefined,
-      invoiceDate: date ? new Date(date) : undefined,
+      quotationNumber: QuotationNumber || null,
+      quotationDate: QuotationDate ? new Date(QuotationDate) : null,
+      invoiceDate: date ? new Date(date) : null,
       invoice: restData,
     };
 
@@ -4762,12 +4764,11 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       transaction,
     });
 
-    // ✅ Commit everything
+    // ✅ Commit
     await transaction.commit();
 
     createSuccess(res, "Invoice added successfully", invoiceData);
   } catch (error) {
-    // ❌ Rollback on any failure
     await transaction.rollback();
 
     const errorMessage =
@@ -4776,7 +4777,6 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     badRequest(res, errorMessage);
   }
 };
-
 export const getInvoice = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
