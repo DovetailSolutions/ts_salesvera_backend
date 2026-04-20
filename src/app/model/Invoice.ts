@@ -5,14 +5,14 @@ interface InvoiceAttributes {
   id: number;
   userId: number;
   companyId: number;
-  quotationId?: number; // 🔥 link to quotation
+  quotationId?: number | null; // 🔥 link to quotation
   invoice?: object;
   status: InvoiceStatus;
   invoiceNumber: string;
   customerName: string;
-  quotationNumber?: string;
-  quotationDate?: Date;
-  invoiceDate?: Date;
+  quotationNumber?: string | null;
+  quotationDate?: Date | null;
+  invoiceDate?: Date | null;
 }
 
 interface InvoiceCreationAttributes
@@ -25,14 +25,14 @@ export class Invoices
   public id!: number;
   public userId!: number;
   public companyId!: number;
-  public quotationId?: number;
+  public quotationId?: number | null;
   public invoice?: object;
   public status!: InvoiceStatus;
   public invoiceNumber!: string;
   public customerName!: string;
-  public invoiceDate?: Date;
-  public quotationDate?: Date;
-  public quotationNumber?: string;
+  public invoiceDate?: Date | null;
+  public quotationDate?: Date | null;
+  public quotationNumber?: string | null;
   
 
   static initModel(sequelize: Sequelize) {
