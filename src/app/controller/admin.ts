@@ -1,5 +1,6 @@
 
 import { Op, fn, col, cast,literal} from "sequelize";
+import {sequelize} from "../../config/dbConnection";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import csv from "csv-parser";
@@ -4531,41 +4532,144 @@ export const SubCategoryStatus = async (req: Request, res: Response): Promise<vo
 };
 
 
+// export const addInvoice = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData || !userData.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const data = req.body;
+
+//     // if (!data.tallyInvoiceNumber) {
+//     //   badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
+//     //   return;
+//     // }
+
+//     if (!data.customerName) {
+//       badRequest(res, "Customer name is required");
+//       return;
+//     }
+
+//     if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+//       badRequest(res, "Items are required");
+//       return;
+//     }
+
+//     // ✅ Validate each item
+//     for (const item of data.items) {
+//       if (!item.itemName || !item.quantity || !item.rate) {
+//          badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
+//          return;
+//       }
+//     }
+
+//     // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
+//     const {
+//       tallyInvoiceNumber = "web",
+//       customerName,
+//       quotationId,
+//       status,
+//       QuotationNumber,
+//       QuotationDate,
+//       date,
+//       ...restData
+//     } = data;
+
+
+//     let ss = null;
+//     if (quotationId != null) {
+//       ss = await Quotations.findOne({
+//         where: {
+//           id: Number(quotationId),
+//         },
+//       });
+//     }
+
+//     console.log("quotation", ss);
+
+//     // ✅ Prepare DB object
+//     const invoicePayload: any = {
+//       userId: userData.userId,
+//       companyId: userData.companyId || 0,
+//       invoiceNumber: tallyInvoiceNumber,
+//       customerName: customerName,
+//       quotationId: quotationId || null,
+//       status: status || "draft",
+//       quotationNumber: QuotationNumber || null,
+//       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
+//       invoiceDate: date ? new Date(date) : null,
+//       invoice: restData, // remaining JSON properties stored here
+//     };
+
+//     // ✅ Create invoice
+//     const invoiceData = await Invoices.create(invoicePayload);
+
+//     createSuccess(res, "Invoice added successfully", invoiceData);
+
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
 export const addInvoice = async (req: Request, res: Response): Promise<void> => {
+  const transaction = await sequelize.transaction();
+
   try {
     const userData = req.userData as JwtPayload;
 
-    if (!userData || !userData.userId) {
+    // 🔒 Auth validation
+    if (!userData?.userId) {
+      await transaction.rollback();
       badRequest(res, "Unauthorized request");
       return;
     }
 
     const data = req.body;
 
-    // if (!data.tallyInvoiceNumber) {
-    //   badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
-    //   return;
-    // }
-
+    // 🔍 Basic validation
     if (!data.customerName) {
+      await transaction.rollback();
       badRequest(res, "Customer name is required");
       return;
     }
 
-    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+    if (!Array.isArray(data.items) || data.items.length === 0) {
+      await transaction.rollback();
       badRequest(res, "Items are required");
       return;
     }
 
-    // ✅ Validate each item
+    // 🔍 Item validation
     for (const item of data.items) {
       if (!item.itemName || !item.quantity || !item.rate) {
-         badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
-         return;
+        await transaction.rollback();
+        badRequest(
+          res,
+          "Each item must have itemName, quantity, and rate"
+        );
+        return;
+      }
+
+      if (!item.index) {
+        await transaction.rollback();
+        badRequest(res, "Item index is required for quotation mapping");
+        return;
+      }
+
+      if (Number(item.quantity) <= 0) {
+        await transaction.rollback();
+        badRequest(res, "Item quantity must be greater than 0");
+        return;
       }
     }
 
-    // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
+    // 🧩 Extract fields
     const {
       tallyInvoiceNumber = "web",
       customerName,
@@ -4577,44 +4681,101 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       ...restData
     } = data;
 
+    let quotationRecord: any = null;
 
-    let ss = null;
-    if (quotationId != null) {
-      ss = await Quotations.findOne({
-        where: {
-          id: Number(quotationId),
-        },
+    // ============================
+    // 🔁 HANDLE QUOTATION UPDATE
+    // ============================
+    if (quotationId) {
+      quotationRecord = await Quotations.findOne({
+        where: { id: Number(quotationId) },
+        transaction,
+        lock: true, // 🔒 prevent race condition
       });
+
+      if (!quotationRecord) {
+        throw new Error("Quotation not found");
+      }
+
+      const quotationData = quotationRecord.quotation;
+
+      if (!quotationData?.items || !Array.isArray(quotationData.items)) {
+        throw new Error("Invalid quotation items");
+      }
+
+      const updatedItems = quotationData.items.map((qItem: any) => {
+        const invItem = data.items.find(
+          (i: any) => i.index === qItem.index
+        );
+
+        if (!invItem) return qItem;
+
+        const remainingQty =
+          Number(qItem.quantity) - Number(invItem.quantity);
+
+        if (remainingQty < 0) {
+          throw new Error(
+            `Invoice quantity exceeds quotation for item: ${qItem.itemName}`
+          );
+        }
+
+        return {
+          ...qItem,
+          quantity: remainingQty,
+        };
+      });
+
+      // Remove fully consumed items
+      const filteredItems = updatedItems.filter(
+        (item: any) => item.quantity > 0
+      );
+
+      // Update quotation
+      await quotationRecord.update(
+        {
+          quotation: {
+            ...quotationData,
+            items: filteredItems,
+          },
+        },
+        { transaction }
+      );
     }
 
-    console.log("quotation", ss);
-
-    // ✅ Prepare DB object
-    const invoicePayload: any = {
+    // ============================
+    // 🧾 CREATE INVOICE
+    // ============================
+    const invoicePayload = {
       userId: userData.userId,
-      companyId: userData.companyId || 0,
+      companyId: userData.userId || 0,
       invoiceNumber: tallyInvoiceNumber,
-      customerName: customerName,
-      quotationId: quotationId || null,
+      customerName,
+      quotationId: quotationId || undefined,
       status: status || "draft",
-      quotationNumber: QuotationNumber || null,
-      quotationDate: QuotationDate ? new Date(QuotationDate) : null,
-      invoiceDate: date ? new Date(date) : null,
-      invoice: restData, // remaining JSON properties stored here
+      quotationNumber: QuotationNumber || undefined,
+      quotationDate: QuotationDate ? new Date(QuotationDate) : undefined,
+      invoiceDate: date ? new Date(date) : undefined,
+      invoice: restData,
     };
 
-    // ✅ Create invoice
-    const invoiceData = await Invoices.create(invoicePayload);
+    const invoiceData = await Invoices.create(invoicePayload, {
+      transaction,
+    });
+
+    // ✅ Commit everything
+    await transaction.commit();
 
     createSuccess(res, "Invoice added successfully", invoiceData);
-
   } catch (error) {
+    // ❌ Rollback on any failure
+    await transaction.rollback();
+
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
+
     badRequest(res, errorMessage);
   }
 };
-
 
 export const getInvoice = async (req: Request, res: Response): Promise<void> => {
   try {
