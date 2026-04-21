@@ -523,6 +523,7 @@ export const getLastMeeting = async (
     const offset = (Number(page) - 1) * Number(limit);
 
     const whereCondition: any = {
+      userId: finalUserId
       // Filter out records so it only shows users that actually had meetings with `finalUserId`
       // We do this dynamically via the nested Include "required" so the global query doesn't fail if the client was met by multiple employees.
     };
