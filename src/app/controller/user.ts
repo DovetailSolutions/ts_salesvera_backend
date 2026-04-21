@@ -389,118 +389,75 @@ export const MySalePerson = async (
   }
 };
 
-// export const CreateMeeting = async (
+
+
+// export const getLastMeeting = async (
 //   req: Request,
 //   res: Response
 // ): Promise<void> => {
 //   try {
 //     const userData = req.userData as JwtPayload;
 //     const finalUserId = userData?.userId;
-//     const isExist = await Meeting.findOne({
-//       where: {
-//         userId: finalUserId,
-//         status: "in", // You wrote "in" but in schema you used: pending | completed | cancelled
-//       },
+
+//     console.log("finalUserId", finalUserId);
+
+//     const { page = 1, limit = 10, search } = req.query as any;
+
+//     const offset = (Number(page) - 1) * Number(limit);
+
+//     const whereCondition: any = {
+//       userId: finalUserId
+//     };
+
+//     // Client/MeetingUser search logic
+//     if (search) {
+//       whereCondition[Op.or] = [
+//         {
+//           name: {
+//             [Op.iLike]: `${search}%`, // ✅ case-insensitive
+//           },
+//         },
+//       ];
+//     }
+//     const companyWhereCondition: any = {};
+//     const meetingWhereCondition: any = { userId: finalUserId };
+
+//     const { rows, count } = await MeetingUser.findAndCountAll({
+//       where: Object.keys(whereCondition).length ? whereCondition : undefined,
+//       limit: Number(limit),
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//       include: [
+//         {
+//           model: MeetingCompany, // Include their associated companies
+//           required: false,
+//           include: [
+//             {
+//               model: Meeting,
+//               where: meetingWhereCondition, // Only fetch meetings that belong to the logged-in employee
+//               required: false,
+//               include: [
+//                 {
+//                   model: MeetingImage
+//                 }
+//               ]
+//             }
+//           ]
+//         }
+//       ],
+//       distinct: true,
 //     });
 
-//     /** ✅ If active meeting exists → Stop */
-//     if (isExist) {
-//       badRequest(
-//         res,
-//         `You already have an active meeting started at ${isExist.meetingTimeIn}`
-//       );
-//       return;
-//     }
-//     const {
-//       companyName,
-//       personName,
-//       mobileNumber,
-//       customerType,
-//       companyEmail,
-//       meetingPurpose,
-//       categoryId,
-//       status,
-//       latitude_in,
-//       longitude_in,
-//       meetingTimeIn,
-//       scheduledTime,
-//     } = req.body || {};
-
-//     /** ✅ Required fields validation */
-//     const requiredFields: Record<string, any> = {
-//       companyName,
-//       personName,
-//       mobileNumber,
-//       customerType,
-//       meetingPurpose,
-//       categoryId,
-//       status,
-//       // latitude_in,
-//       // longitude_in,
-//       // meetingTimeIn,
-//     };
-
-//     for (const key in requiredFields) {
-//       if (!requiredFields[key]) {
-//         badRequest(res, `${key} is required`);
-//         return;
-//       }
-//     }
-
-//     /** ✅ userId priority: req.body → token */
-
-//     if (!finalUserId) {
-//       badRequest(res, "userId is required");
-//       return;
-//     }
-
-//     const isExists =  await Meeting.findOne({where:{companyName,personName,mobileNumber,companyEmail}})
-
-
-//     /** ✅ Prepare payload */
-//     const payload: any = {
-//       companyName,
-//       personName,
-//       companyEmail,
-//       mobileNumber,
-//       customerType,
-//       meetingPurpose,
-//       categoryId,
-//       status,
-//       userId: finalUserId,
-//     };
-
-//     const files = req.files as Express.MulterS3.File[];
-
-//     if(isExists){
-//       payload.customerType = isExists.customerType
-//     }
-
-//     if (files?.length > 0) {
-//       payload.image = files.map((file) => file.location);
-//     }
-
-//     if (meetingTimeIn) {
-//       payload.meetingTimeIn = meetingTimeIn;
-//     }
-//     if (latitude_in) {
-//       payload.latitude_in = latitude_in;
-//     }
-//     if (longitude_in) {
-//       payload.longitude_in = longitude_in;
-//     }
-//     if (scheduledTime) {
-//       payload.scheduledTime = scheduledTime;
-//     }
-
-//     /** ✅ Save data */
-//     const item = await Middleware.CreateData(Meeting, payload);
-//     if(isExists){
-//       createSuccess(res, "Meeting successfully added/user already exist",item);
-//     }else{
-//       createSuccess(res, "Meeting successfully added", item);
-//     }
-
+//     res.status(200).json({
+//       success: true,
+//       data: rows,
+//       pagination: {
+//         page: Number(page),
+//         limit: Number(limit),
+//         totalRecords: count,
+//         totalPages: Math.ceil(count / Number(limit)),
+//       },
+//     });
 //   } catch (error) {
 //     const errorMessage =
 //       error instanceof Error ? error.message : "Something went wrong";
@@ -516,77 +473,72 @@ export const getLastMeeting = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    console.log("finalUserId", finalUserId);
+    if (!finalUserId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
 
     const { page = 1, limit = 10, search } = req.query as any;
 
-    const offset = (Number(page) - 1) * Number(limit);
+    const pageNumber = Number(page);
+    const pageLimit = Number(limit);
+    const offset = (pageNumber - 1) * pageLimit;
 
+    // ✅ Root filter (ONLY this controls main records)
     const whereCondition: any = {
-      userId: finalUserId
-      // Filter out records so it only shows users that actually had meetings with `finalUserId`
-      // We do this dynamically via the nested Include "required" so the global query doesn't fail if the client was met by multiple employees.
+      userId: finalUserId,
     };
 
-    // Client/MeetingUser search logic
+    // ✅ Search filter
     if (search) {
       whereCondition[Op.or] = [
         {
           name: {
-            [Op.iLike]: `${search}%`, // ✅ case-insensitive
+            [Op.iLike]: `${search}%`,
           },
         },
       ];
     }
 
-    // company search logic
-    const companyWhereCondition: any = {};
-    // if (search) {
-    //   companyWhereCondition[Op.or] = [
-    //     { companyName: { [Op.iLike]: `%${search}%` } },
-    //     { personName: { [Op.iLike]: `%${search}%` } },
-    //     { companyEmail: { [Op.iLike]: `%${search}%` } },
-    //     { mobileNumber: { [Op.iLike]: `%${search}%` } },
-    //   ];
-    // }
-
-    // Employee relation tracking
-    const meetingWhereCondition: any = { userId: finalUserId };
-
     const { rows, count } = await MeetingUser.findAndCountAll({
-      where: Object.keys(whereCondition).length ? whereCondition : undefined,
-      limit: Number(limit),
+      where: whereCondition,
+      limit: pageLimit,
       offset,
       order: [["createdAt", "DESC"]],
+      
       include: [
         {
-          model: MeetingCompany, // Include their associated companies
-          required: false,
+          model: MeetingCompany,
+          required: false, // ✅ keep all users
+
           include: [
             {
               model: Meeting,
-              where: meetingWhereCondition, // Only fetch meetings that belong to the logged-in employee
-              required: true,
+              where: { userId: finalUserId }, // filter meetings only
+              required: false, // ✅ IMPORTANT: do not filter users
+
               include: [
                 {
-                  model: MeetingImage
-                }
-              ]
-            }
-          ]
-        }
+                  model: MeetingImage,
+                },
+              ],
+            },
+          ],
+        },
       ],
-      distinct: true,
+
+      distinct: true,     // ✅ correct count with joins
+      subQuery: false,    // ✅ avoids pagination/count issues
     });
 
     res.status(200).json({
       success: true,
       data: rows,
       pagination: {
-        page: Number(page),
-        limit: Number(limit),
+        page: pageNumber,
+        limit: pageLimit,
         totalRecords: count,
-        totalPages: Math.ceil(count / Number(limit)),
+        totalPages: Math.ceil(count / pageLimit),
       },
     });
   } catch (error) {
