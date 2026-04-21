@@ -2477,7 +2477,7 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
     // ✅ Query
     const { count, rows } = await Quotations.findAndCountAll({
       where: whereCondition,
-      order: [["createdAt", "ASC"]],
+      order: [["createdAt", "DESC"]],
       limit,
       offset,
     });
