@@ -516,6 +516,8 @@ export const getLastMeeting = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
+    console.log("finalUserId", finalUserId);
+
     const { page = 1, limit = 10, search } = req.query as any;
 
     const offset = (Number(page) - 1) * Number(limit);
