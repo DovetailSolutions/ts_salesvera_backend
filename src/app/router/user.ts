@@ -82,10 +82,10 @@ router.delete("/notifications/:id",          tokenCheck, NotificationController.
 
 
 router.post("/create-client", tokenCheck, Controller.createClient);
-
-
-
 router.get("/tally-report",tokenCheck,Controller.getTallyReport)
+router.post("/forgot-password", Controller.forgotPassword);
+router.post("/verify-opt", Controller.verifyOtp);
+router.post("/reset-password", Controller.changePassword);
 
 
 export default router;
