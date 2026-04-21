@@ -861,3 +861,35 @@ export const getAllListCategory = async (model: any, data: any = {}, searchField
     throw error;
   }
 };
+export const getAllSubordinateIds = async (userId: number): Promise<number[]> => {
+  let teamUserIds: number[] = [userId];
+  let currentParentIds: number[] = [userId];
+
+  while (currentParentIds.length > 0) {
+    const subUsers = await User.findAll({
+      where: { id: { [Op.in]: currentParentIds } },
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id"],
+        },
+      ],
+    });
+
+    let nextLevelParentIds: number[] = [];
+
+    subUsers.forEach((u: any) => {
+      const children = u.createdUsers || [];
+      children.forEach((child: any) => {
+        if (!teamUserIds.includes(child.id)) {
+          teamUserIds.push(child.id);
+          nextLevelParentIds.push(child.id);
+        }
+      });
+    });
+
+    currentParentIds = nextLevelParentIds;
+  }
+  return teamUserIds;
+};

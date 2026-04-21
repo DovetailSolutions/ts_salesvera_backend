@@ -484,9 +484,13 @@ export const getLastMeeting = async (
     const pageLimit = Number(limit);
     const offset = (pageNumber - 1) * pageLimit;
 
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(finalUserId));
+
+    console.log("allUserIds", allUserIds);
+
     // ✅ Root filter (ONLY this controls main records)
     const whereCondition: any = {
-      userId: finalUserId,
+      userId: { [Op.in]: allUserIds },
     };
 
     // ✅ Search filter
@@ -514,7 +518,7 @@ export const getLastMeeting = async (
           include: [
             {
               model: Meeting,
-              where: { userId: finalUserId }, // filter meetings only
+              where: { userId: { [Op.in]: allUserIds } }, // filter meetings only
               required: false, // ✅ IMPORTANT: do not filter users
 
               include: [
