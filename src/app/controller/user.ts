@@ -42,6 +42,7 @@ import {
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
+import { getAllSubordinateIds } from "../middlewear/comman";
 
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -2431,9 +2432,12 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       return badRequest(res, "Invalid status value");
     }
 
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
     // ✅ Base where condition
     let whereCondition: any = {
-      userId: userData.userId,
+      userId: {
+        [Op.in]: allUserIds
+      }
     };
 
     // ✅ Status filter
@@ -3181,9 +3185,14 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     const pageSize = Math.min(Number(limit), 50); // safety limit
     const offset = (pageNumber - 1) * pageSize;
 
+
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
+
     // ✅ Dynamic where condition
     const whereCondition: any = {
-      // userId: userData.userId,
+      userId: {
+        [Op.in]: allUserIds
+      }
     };
 
     // 🔍 Global search
