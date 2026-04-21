@@ -4618,7 +4618,10 @@ export const SubCategoryStatus = async (req: Request, res: Response): Promise<vo
 // };
 
 
-export const addInvoice = async (req: Request, res: Response): Promise<void> => {
+export const addInvoice = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   const transaction = await sequelize.transaction();
 
   try {
@@ -4650,7 +4653,10 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     for (const item of data.items) {
       if (!item.itemName || !item.quantity || !item.rate) {
         await transaction.rollback();
-        badRequest(res, "Each item must have itemName, quantity, and rate");
+        badRequest(
+          res,
+          "Each item must have itemName, quantity, and rate"
+        );
         return;
       }
 
@@ -4688,11 +4694,16 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       quotationRecord = await Quotations.findOne({
         where: { id: Number(quotationId) },
         transaction,
-        lock: transaction.LOCK.UPDATE, // 🔒 important
+        lock: transaction.LOCK.UPDATE, // 🔒 prevent race condition
       });
 
       if (!quotationRecord) {
         throw new Error("Quotation not found");
+      }
+
+      // 🚫 Prevent invoicing if already consumed
+      if (quotationRecord.isConsumed) {
+        throw new Error("Quotation already fully consumed");
       }
 
       const quotationData = quotationRecord.quotation;
@@ -4704,41 +4715,55 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       // 🧠 Update quantities
       const updatedItems = quotationData.items.map((qItem: any) => {
         const invItem = data.items.find(
-          (i: any) => String(i.index) === String(qItem.index) // ✅ FIXED
+          (i: any) => String(i.index) === String(qItem.index)
         );
 
-        if (!invItem) return qItem;
+        const baseQuantity = Number(qItem.quantity);
+        const alreadyConsumed = Number(qItem.consumedQuantity || 0);
 
-        const remainingQty =
-          Number(qItem.quantity) - Number(invItem.quantity);
+        // If no invoice item → just recalc remaining
+        if (!invItem) {
+          const remaining = baseQuantity - alreadyConsumed;
 
-        if (remainingQty < 0) {
+          return {
+            ...qItem,
+            consumedQuantity: alreadyConsumed,
+            remainingQuantity: remaining,
+          };
+        }
+
+        const newConsume = Number(invItem.quantity);
+        const totalConsumed = alreadyConsumed + newConsume;
+
+        if (totalConsumed > baseQuantity) {
           throw new Error(
             `Invoice quantity exceeds quotation for item: ${qItem.itemName}`
           );
         }
 
+        const remaining = baseQuantity - totalConsumed;
+
         return {
           ...qItem,
-          quantity: remainingQty,
+          consumedQuantity: totalConsumed,
+          remainingQuantity: remaining,
         };
       });
 
-      // 🧹 Remove consumed items
-      const filteredItems = updatedItems.filter(
-        (item: any) => item.quantity > 0
-      );
+      // ✅ Check if all items fully consumed
+      const isQuotationConsumed =
+        updatedItems.length > 0 &&
+        updatedItems.every(
+          (item: any) => Number(item.remainingQuantity) === 0
+        );
 
-      // 🛠 DEBUG (optional)
-      console.log("Before:", quotationData.items);
-      console.log("Invoice Items:", data.items);
-      console.log("After:", filteredItems);
-
-      // ✅ CRITICAL FIX: Proper JSON update
+      // ✅ Save quotation JSON + flag
       quotationRecord.set("quotation", {
         ...quotationData,
-        items: filteredItems,
+        items: updatedItems,
       });
+
+      quotationRecord.set("isConsumed", isQuotationConsumed);
 
       quotationRecord.changed("quotation", true);
 
@@ -4750,7 +4775,7 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
     // ============================
     const invoicePayload = {
       userId: userData.userId,
-      companyId: userData.companyId || 0, // ✅ FIXED
+      companyId: userData.companyId || 0,
       invoiceNumber: tallyInvoiceNumber,
       customerName,
       quotationId: quotationId || null,
@@ -4759,13 +4784,14 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
       invoiceDate: date ? new Date(date) : null,
       invoice: restData,
+      items: data.items,
     };
 
     const invoiceData = await Invoices.create(invoicePayload, {
       transaction,
     });
 
-    // ✅ Commit
+    // ✅ Commit transaction
     await transaction.commit();
 
     createSuccess(res, "Invoice added successfully", invoiceData);
