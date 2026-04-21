@@ -863,33 +863,62 @@ export const getAllListCategory = async (model: any, data: any = {}, searchField
 };
 export const getAllSubordinateIds = async (userId: number): Promise<number[]> => {
   let teamUserIds: number[] = [userId];
-  let currentParentIds: number[] = [userId];
 
+  // 1. Walk UP (Ancestors: Parent, Grandparent, etc.)
+  let currentChildIds: number[] = [userId];
+  while (currentChildIds.length > 0) {
+    const users = await User.findAll({
+      where: { id: { [Op.in]: currentChildIds } },
+      include: [
+        {
+          model: User,
+          as: "creators",
+          attributes: ["id"],
+          through: { attributes: [] },
+        },
+      ],
+    });
+
+    let nextLevelIds: number[] = [];
+    users.forEach((u: any) => {
+      const parents = (u as any).creators || [];
+      parents.forEach((p: any) => {
+        if (!teamUserIds.includes(p.id)) {
+          teamUserIds.push(p.id);
+          nextLevelIds.push(p.id);
+        }
+      });
+    });
+    currentChildIds = nextLevelIds;
+  }
+
+  // 2. Walk DOWN (Descendants: Children, Grandchildren, etc.)
+  let currentParentIds: number[] = [userId];
   while (currentParentIds.length > 0) {
-    const subUsers = await User.findAll({
+    const users = await User.findAll({
       where: { id: { [Op.in]: currentParentIds } },
       include: [
         {
           model: User,
           as: "createdUsers",
           attributes: ["id"],
+          through: { attributes: [] },
         },
       ],
     });
 
-    let nextLevelParentIds: number[] = [];
-
-    subUsers.forEach((u: any) => {
-      const children = u.createdUsers || [];
-      children.forEach((child: any) => {
-        if (!teamUserIds.includes(child.id)) {
-          teamUserIds.push(child.id);
-          nextLevelParentIds.push(child.id);
+    let nextLevelIds: number[] = [];
+    users.forEach((u: any) => {
+      const children = (u as any).createdUsers || [];
+      children.forEach((c: any) => {
+        if (!teamUserIds.includes(c.id)) {
+          teamUserIds.push(c.id);
+          nextLevelIds.push(c.id);
         }
       });
     });
-
-    currentParentIds = nextLevelParentIds;
+    currentParentIds = nextLevelIds;
   }
+
   return teamUserIds;
 };
