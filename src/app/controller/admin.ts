@@ -3923,7 +3923,8 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
       customerName: data.customerName,
       referenceNumber: data.referenceNumber,
       quotation: data,
-      status: data.status || "draft"
+      status: data.status || "draft",
+      isConsumed: false,
     });
 
     res.status(201).json({

@@ -11,6 +11,7 @@ interface QuotationAttributes {
   quotationNumber: string;
   referenceNumber: string;
   customerName: string;
+  isConsumed: boolean;
 }
 
 interface QuotationCreationAttributes
@@ -28,6 +29,7 @@ export class Quotations
   public quotationNumber!: string;
   public referenceNumber!: string;
   public customerName!: string;
+  public isConsumed!: boolean;
 
   static initModel(sequelize: Sequelize) {
     Quotations.init(
@@ -59,7 +61,11 @@ export class Quotations
           type: DataTypes.INTEGER,
           allowNull: true,
         },
-
+        isConsumed:{
+          type: DataTypes.BOOLEAN,
+          defaultValue: false,
+          allowNull: true,
+        },
         quotation: {
           type: DataTypes.JSON, // 🔥 best for storing object
           allowNull: true,
