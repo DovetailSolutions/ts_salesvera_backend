@@ -863,33 +863,38 @@ export const getAllListCategory = async (model: any, data: any = {}, searchField
 };
 export const getAllSubordinateIds = async (userId: number): Promise<number[]> => {
   let teamUserIds: number[] = [userId];
-  let currentParentIds: number[] = [userId];
+  let currentId = userId;
 
-  while (currentParentIds.length > 0) {
-    const subUsers = await User.findAll({
-      where: { id: { [Op.in]: currentParentIds } },
+  while (true) {
+    const userWithCreators = (await User.findByPk(currentId, {
       include: [
         {
           model: User,
-          as: "createdUsers",
-          attributes: ["id"],
+          as: "creators",
+          attributes: ["id", "role"],
+          through: { attributes: [] },
         },
       ],
-    });
+    })) as any;
 
-    let nextLevelParentIds: number[] = [];
+    if (!userWithCreators) break;
 
-    subUsers.forEach((u: any) => {
-      const children = u.createdUsers || [];
-      children.forEach((child: any) => {
-        if (!teamUserIds.includes(child.id)) {
-          teamUserIds.push(child.id);
-          nextLevelParentIds.push(child.id);
-        }
-      });
-    });
+    const plainUser = userWithCreators.get({ plain: true });
+    const creator = plainUser.creators?.[0] || null;
 
-    currentParentIds = nextLevelParentIds;
+    if (!creator) break;
+
+    if (!teamUserIds.includes(creator.id)) {
+      teamUserIds.push(creator.id);
+    }
+
+    // Stop if the creator is an admin or super_admin
+    if (["admin", "super_admin"].includes(creator.role)) {
+      break;
+    }
+
+    currentId = creator.id;
   }
+
   return teamUserIds;
 };
