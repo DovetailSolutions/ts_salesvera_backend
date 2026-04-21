@@ -27,8 +27,7 @@ interface UserAttributes {
   profile?: string;
   createdBy?: number;
   onlineSatus?: "online" | "offline"
-  otp?: string | null;
-  otpExpiry?: Date | null;
+
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -101,14 +100,7 @@ export const createUserModel = (sequelize: Sequelize) => {
         allowNull: true,
       },
 
-      otp: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
-      otpExpiry: {
-        type: DataTypes.DATE,
-        allowNull: true,
-      },
+  
 
       status: {
         type: DataTypes.ENUM("active","deActive","delete"),
