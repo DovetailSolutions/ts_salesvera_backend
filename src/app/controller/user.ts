@@ -15,7 +15,7 @@ import {
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
-import { sendEmail, forgotpassword } from "../../config/email";
+// import { sendEmail, forgotpassword } from "../../config/email";
 import {
   User,
   Category,
@@ -3759,119 +3759,119 @@ export const createClient = async (
 };
 
 
-export const forgotPassword = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { email } = req.body || {};
+// export const forgotPassword = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { email } = req.body || {};
 
-    if (!email) {
-      badRequest(res, "Email is missing");
-      return;
-    }
-    const user: any = await User.findOne({ where: { email } });
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    // Save OTP + Expiry (10 minutes)
-    user.otp = otp;
-    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-    await user.save();
+//     if (!email) {
+//       badRequest(res, "Email is missing");
+//       return;
+//     }
+//     const user: any = await User.findOne({ where: { email } });
+//     if (!user) {
+//       badRequest(res, "User not found");
+//       return;
+//     }
+//     // Generate 6-digit OTP
+//     const otp = Math.floor(100000 + Math.random() * 900000).toString();
+//     // Save OTP + Expiry (10 minutes)
+//     user.otp = otp;
+//     user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+//     await user.save();
 
-    // Send response FIRST
-    createSuccess(res, "OTP sent to your email");
+//     // Send response FIRST
+//     createSuccess(res, "OTP sent to your email");
 
-    // Send email in background (no await required)
-    forgotpassword("Password Reset OTP", otp, user.email);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-
-export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { email, otp } = req.body || {};
-
-    if (!email || !otp) {
-      badRequest(res, "Email and OTP are required");
-      return;
-    }
-
-    const user: any = await User.findOne({ where: { email } });
-
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
-
-    // Check OTP match
-    if (user.otp !== otp) {
-      badRequest(res, "Invalid OTP");
-      return;
-    }
-
-    // Check OTP expiry
-    if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
-      badRequest(res, "OTP has expired");
-      return;
-    }
-
-    // OTP verified → clear OTP fields
-    user.otp = null;
-    user.otpExpiry = null;
-    await user.save();
-
-    createSuccess(res, "OTP verified successfully");
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+//     // Send email in background (no await required)
+//     forgotpassword("Password Reset OTP", otp, user.email);
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
 
 
-export const changePassword = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { email, newPassword } = req.body || {};
+// export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const { email, otp } = req.body || {};
 
-    if (!email || !newPassword) {
-      badRequest(res, "Email and new password are required");
-      return;
-    }
+//     if (!email || !otp) {
+//       badRequest(res, "Email and OTP are required");
+//       return;
+//     }
 
-    // ✅ Hash password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+//     const user: any = await User.findOne({ where: { email } });
 
-    const [updatedRows] = await User.update(
-      {
-        password: hashedPassword,
-        otp: null,
-        otpExpiry: null,
-      },
-      {
-        where: { email },
-      }
-    );
+//     if (!user) {
+//       badRequest(res, "User not found");
+//       return;
+//     }
 
-    if (updatedRows === 0) {
-      badRequest(res, "User not found");
-      return;
-    }
+//     // Check OTP match
+//     if (user.otp !== otp) {
+//       badRequest(res, "Invalid OTP");
+//       return;
+//     }
 
-    createSuccess(res, "Password changed successfully");
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+//     // Check OTP expiry
+//     if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
+//       badRequest(res, "OTP has expired");
+//       return;
+//     }
+
+//     // OTP verified → clear OTP fields
+//     user.otp = null;
+//     user.otpExpiry = null;
+//     await user.save();
+
+//     createSuccess(res, "OTP verified successfully");
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
+// export const changePassword = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const { email, newPassword } = req.body || {};
+
+//     if (!email || !newPassword) {
+//       badRequest(res, "Email and new password are required");
+//       return;
+//     }
+
+//     // ✅ Hash password
+//     const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+//     const [updatedRows] = await User.update(
+//       {
+//         password: hashedPassword,
+//         otp: null,
+//         otpExpiry: null,
+//       },
+//       {
+//         where: { email },
+//       }
+//     );
+
+//     if (updatedRows === 0) {
+//       badRequest(res, "User not found");
+//       return;
+//     }
+
+//     createSuccess(res, "Password changed successfully");
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
