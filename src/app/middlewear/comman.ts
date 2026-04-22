@@ -817,7 +817,7 @@ export const withuserlogin = async (
 
 export const getAllListCategory = async (model: any, data: any = {}, searchFields: string[] = []) => {
   try {
-    const { page = 1, limit = 10, date, search, ...filters } = data;
+    const { page = 1, limit = 100, date, search, ...filters } = data;
     const whereConditions: any = { ...filters };
     if (date) {
       whereConditions.date = date; 
