@@ -4533,91 +4533,6 @@ export const SubCategoryStatus = async (req: Request, res: Response): Promise<vo
 };
 
 
-// export const addInvoice = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-
-//     const data = req.body;
-
-//     // if (!data.tallyInvoiceNumber) {
-//     //   badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
-//     //   return;
-//     // }
-
-//     if (!data.customerName) {
-//       badRequest(res, "Customer name is required");
-//       return;
-//     }
-
-//     if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
-//       badRequest(res, "Items are required");
-//       return;
-//     }
-
-//     // ✅ Validate each item
-//     for (const item of data.items) {
-//       if (!item.itemName || !item.quantity || !item.rate) {
-//          badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
-//          return;
-//       }
-//     }
-
-//     // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
-//     const {
-//       tallyInvoiceNumber = "web",
-//       customerName,
-//       quotationId,
-//       status,
-//       QuotationNumber,
-//       QuotationDate,
-//       date,
-//       ...restData
-//     } = data;
-
-
-//     let ss = null;
-//     if (quotationId != null) {
-//       ss = await Quotations.findOne({
-//         where: {
-//           id: Number(quotationId),
-//         },
-//       });
-//     }
-
-//     console.log("quotation", ss);
-
-//     // ✅ Prepare DB object
-//     const invoicePayload: any = {
-//       userId: userData.userId,
-//       companyId: userData.companyId || 0,
-//       invoiceNumber: tallyInvoiceNumber,
-//       customerName: customerName,
-//       quotationId: quotationId || null,
-//       status: status || "draft",
-//       quotationNumber: QuotationNumber || null,
-//       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
-//       invoiceDate: date ? new Date(date) : null,
-//       invoice: restData, // remaining JSON properties stored here
-//     };
-
-//     // ✅ Create invoice
-//     const invoiceData = await Invoices.create(invoicePayload);
-
-//     createSuccess(res, "Invoice added successfully", invoiceData);
-
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-
-
 export const addInvoice = async (
   req: Request,
   res: Response
@@ -4631,7 +4546,6 @@ export const addInvoice = async (
     if (!userData?.userId) {
       await transaction.rollback();
       badRequest(res, "Unauthorized request");
-      return;
     }
 
     const data = req.body;
@@ -4640,13 +4554,11 @@ export const addInvoice = async (
     if (!data.customerName) {
       await transaction.rollback();
       badRequest(res, "Customer name is required");
-      return;
     }
 
     if (!Array.isArray(data.items) || data.items.length === 0) {
       await transaction.rollback();
       badRequest(res, "Items are required");
-      return;
     }
 
     // 🔍 Item validation
@@ -4657,23 +4569,19 @@ export const addInvoice = async (
           res,
           "Each item must have itemName, quantity, and rate"
         );
-        return;
       }
 
       if (!item.index) {
         await transaction.rollback();
-        badRequest(res, "Item index is required for quotation mapping");
-        return;
+        badRequest(res, "Item index is required");
       }
 
       if (Number(item.quantity) <= 0) {
         await transaction.rollback();
         badRequest(res, "Item quantity must be greater than 0");
-        return;
       }
     }
 
-    // 🧩 Extract fields
     const {
       tallyInvoiceNumber = "web",
       customerName,
@@ -4687,92 +4595,120 @@ export const addInvoice = async (
 
     let quotationRecord: any = null;
 
-    // ============================
-    // 🔁 HANDLE QUOTATION UPDATE
-    // ============================
+    // =========================================
+    // 🔁 QUOTATION HANDLING (FIXED LOGIC)
+    // =========================================
     if (quotationId) {
       quotationRecord = await Quotations.findOne({
         where: { id: Number(quotationId) },
         transaction,
-        lock: transaction.LOCK.UPDATE, // 🔒 prevent race condition
+        lock: transaction.LOCK.UPDATE,
       });
 
       if (!quotationRecord) {
         throw new Error("Quotation not found");
       }
 
-      // 🚫 Prevent invoicing if already consumed
       if (quotationRecord.isConsumed) {
         throw new Error("Quotation already fully consumed");
       }
 
       const quotationData = quotationRecord.quotation;
 
-      if (!quotationData?.items || !Array.isArray(quotationData.items)) {
+      if (!Array.isArray(quotationData?.items)) {
         throw new Error("Invalid quotation items");
       }
 
-      // 🧠 Update quantities
+      // 🧠 Filter only valid (remaining) invoice items
+      const validInvoiceItems = data.items.filter((invItem: any) => {
+        const qItem = quotationData.items.find(
+          (q: any) => String(q.index) === String(invItem.index)
+        );
+
+        if (!qItem) return false;
+
+        const remaining =
+          Number(qItem.quantity) - Number(qItem.consumedQuantity || 0);
+
+        return remaining > 0;
+      });
+
+      if (validInvoiceItems.length === 0) {
+        throw new Error("All selected items are already fully consumed");
+      }
+
+      // 🧠 Update quotation items
       const updatedItems = quotationData.items.map((qItem: any) => {
-        const invItem = data.items.find(
+        const invItem = validInvoiceItems.find(
           (i: any) => String(i.index) === String(qItem.index)
         );
 
-        const baseQuantity = Number(qItem.quantity);
-        const alreadyConsumed = Number(qItem.consumedQuantity || 0);
+        const baseQuantity = Number(qItem.quantity) || 0;
+        const alreadyConsumed = Number(qItem.consumedQuantity) || 0;
 
-        // If no invoice item → just recalc remaining
-        if (!invItem) {
-          const remaining = baseQuantity - alreadyConsumed;
-
+        // 🟢 Skip fully consumed
+        if (alreadyConsumed >= baseQuantity) {
           return {
             ...qItem,
             consumedQuantity: alreadyConsumed,
-            remainingQuantity: remaining,
+            remainingQuantity: 0,
           };
         }
 
-        const newConsume = Number(invItem.quantity);
-        const totalConsumed = alreadyConsumed + newConsume;
+        // 🟡 No new invoice item → keep same
+        if (!invItem) {
+          return {
+            ...qItem,
+            consumedQuantity: alreadyConsumed,
+            remainingQuantity: baseQuantity - alreadyConsumed,
+          };
+        }
 
-        if (totalConsumed > baseQuantity) {
+        const newConsume = Number(invItem.quantity) || 0;
+
+        const available = baseQuantity - alreadyConsumed;
+
+        // 🔴 Prevent over-consumption
+        if (newConsume > available) {
           throw new Error(
-            `Invoice quantity exceeds quotation for item: ${qItem.itemName}`
+            `Only ${available} quantity left for ${qItem.itemName}`
           );
         }
 
-        const remaining = baseQuantity - totalConsumed;
+        const totalConsumed = alreadyConsumed + newConsume;
 
         return {
           ...qItem,
           consumedQuantity: totalConsumed,
-          remainingQuantity: remaining,
+          remainingQuantity: baseQuantity - totalConsumed,
         };
       });
 
-      // ✅ Check if all items fully consumed
+      // ✅ Check if fully consumed
       const isQuotationConsumed =
         updatedItems.length > 0 &&
         updatedItems.every(
           (item: any) => Number(item.remainingQuantity) === 0
         );
 
-      // ✅ Save quotation JSON + flag
+      // 💾 Save
       quotationRecord.set("quotation", {
         ...quotationData,
         items: updatedItems,
       });
 
       quotationRecord.set("isConsumed", isQuotationConsumed);
-
       quotationRecord.changed("quotation", true);
 
       await quotationRecord.save({ transaction });
+
+      // 👉 Replace original items with valid ones only
+      data.items = validInvoiceItems;
     }
 
-    // ============================
+    // =========================================
     // 🧾 CREATE INVOICE
-    // ============================
+    // =========================================
     const invoicePayload = {
       userId: userData.userId,
       companyId: userData.companyId || 0,
@@ -4791,7 +4727,7 @@ export const addInvoice = async (
       transaction,
     });
 
-    // ✅ Commit transaction
+    // ✅ Commit
     await transaction.commit();
 
     createSuccess(res, "Invoice added successfully", invoiceData);
@@ -4802,8 +4738,197 @@ export const addInvoice = async (
       error instanceof Error ? error.message : "Something went wrong";
 
     badRequest(res, errorMessage);
+    return
   }
 };
+
+
+// export const addInvoice = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   const transaction = await sequelize.transaction();
+
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     // 🔒 Auth validation
+//     if (!userData?.userId) {
+//       await transaction.rollback();
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const data = req.body;
+
+//     // 🔍 Basic validation
+//     if (!data.customerName) {
+//       await transaction.rollback();
+//       badRequest(res, "Customer name is required");
+//       return;
+//     }
+
+//     if (!Array.isArray(data.items) || data.items.length === 0) {
+//       await transaction.rollback();
+//       badRequest(res, "Items are required");
+//       return;
+//     }
+
+//     // 🔍 Item validation
+//     for (const item of data.items) {
+//       if (!item.itemName || !item.quantity || !item.rate) {
+//         await transaction.rollback();
+//         badRequest(
+//           res,
+//           "Each item must have itemName, quantity, and rate"
+//         );
+//         return;
+//       }
+
+//       if (!item.index) {
+//         await transaction.rollback();
+//         badRequest(res, "Item index is required for quotation mapping");
+//         return;
+//       }
+
+//       if (Number(item.quantity) <= 0) {
+//         await transaction.rollback();
+//         badRequest(res, "Item quantity must be greater than 0");
+//         return;
+//       }
+//     }
+
+//     // 🧩 Extract fields
+//     const {
+//       tallyInvoiceNumber = "web",
+//       customerName,
+//       quotationId,
+//       status,
+//       QuotationNumber,
+//       QuotationDate,
+//       date,
+//       ...restData
+//     } = data;
+
+//     let quotationRecord: any = null;
+
+//     // ============================
+//     // 🔁 HANDLE QUOTATION UPDATE
+//     // ============================
+//     if (quotationId) {
+//       quotationRecord = await Quotations.findOne({
+//         where: { id: Number(quotationId) },
+//         transaction,
+//         lock: transaction.LOCK.UPDATE, // 🔒 prevent race condition
+//       });
+
+//       if (!quotationRecord) {
+//         throw new Error("Quotation not found");
+//       }
+
+//       // 🚫 Prevent invoicing if already consumed
+//       if (quotationRecord.isConsumed) {
+//         throw new Error("Quotation already fully consumed");
+//       }
+
+//       const quotationData = quotationRecord.quotation;
+
+//       if (!quotationData?.items || !Array.isArray(quotationData.items)) {
+//         throw new Error("Invalid quotation items");
+//       }
+
+//       // 🧠 Update quantities
+//       const updatedItems = quotationData.items.map((qItem: any) => {
+//         const invItem = data.items.find(
+//           (i: any) => String(i.index) === String(qItem.index)
+//         );
+
+//         const baseQuantity = Number(qItem.quantity);
+//         const alreadyConsumed = Number(qItem.consumedQuantity || 0);
+
+//         // If no invoice item → just recalc remaining
+//         if (!invItem) {
+//           const remaining = baseQuantity - alreadyConsumed;
+
+//           return {
+//             ...qItem,
+//             consumedQuantity: alreadyConsumed,
+//             remainingQuantity: remaining,
+//           };
+//         }
+
+//         const newConsume = Number(invItem.quantity);
+//         const totalConsumed = alreadyConsumed + newConsume;
+
+//         if (totalConsumed > baseQuantity) {
+//           throw new Error(
+//             `Invoice quantity exceeds quotation for item: ${qItem.itemName}`
+//           );
+//         }
+
+//         const remaining = baseQuantity - totalConsumed;
+
+//         return {
+//           ...qItem,
+//           consumedQuantity: totalConsumed,
+//           remainingQuantity: remaining,
+//         };
+//       });
+
+//       // ✅ Check if all items fully consumed
+//       const isQuotationConsumed =
+//         updatedItems.length > 0 &&
+//         updatedItems.every(
+//           (item: any) => Number(item.remainingQuantity) === 0
+//         );
+
+//       // ✅ Save quotation JSON + flag
+//       quotationRecord.set("quotation", {
+//         ...quotationData,
+//         items: updatedItems,
+//       });
+
+//       quotationRecord.set("isConsumed", isQuotationConsumed);
+
+//       quotationRecord.changed("quotation", true);
+
+//       await quotationRecord.save({ transaction });
+//     }
+
+//     // ============================
+//     // 🧾 CREATE INVOICE
+//     // ============================
+//     const invoicePayload = {
+//       userId: userData.userId,
+//       companyId: userData.companyId || 0,
+//       invoiceNumber: tallyInvoiceNumber,
+//       customerName,
+//       quotationId: quotationId || null,
+//       status: status || "draft",
+//       quotationNumber: QuotationNumber || null,
+//       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
+//       invoiceDate: date ? new Date(date) : null,
+//       invoice: restData,
+//       items: data.items,
+//     };
+
+//     const invoiceData = await Invoices.create(invoicePayload, {
+//       transaction,
+//     });
+
+//     // ✅ Commit transaction
+//     await transaction.commit();
+
+//     createSuccess(res, "Invoice added successfully", invoiceData);
+//   } catch (error) {
+//     await transaction.rollback();
+
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+
+//     badRequest(res, errorMessage);
+//   }
+// };
 export const getInvoice = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;

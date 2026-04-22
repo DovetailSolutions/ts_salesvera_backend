@@ -15,6 +15,7 @@
   "description": "",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.920.0",
+    "@getbrevo/brevo": "^5.0.4",
     "@types/node-cron": "^3.0.11",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
