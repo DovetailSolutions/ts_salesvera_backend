@@ -4669,11 +4669,11 @@ export const addInvoice = async (
         const available = baseQuantity - alreadyConsumed;
 
         // 🔴 Prevent over-consumption
-        if (newConsume > available) {
-          throw new Error(
-            `Only ${available} quantity left for ${qItem.itemName}`
-          );
-        }
+        // if (newConsume > available) {
+        //   throw new Error(
+        //     `Only ${available} quantity left for ${qItem.itemName}`
+        //   );
+        // }
 
         const totalConsumed = alreadyConsumed + newConsume;
 
