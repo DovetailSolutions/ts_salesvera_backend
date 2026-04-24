@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "532909003272",
+    "project_id": "salesvera",
+    "storage_bucket": "salesvera.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532909003272:android:b7d8dd7c84f876f4c677bd",
+        "android_client_info": {
+          "package_name": "com.dovetail.salesvera"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvMuOpBKJ-BnuHZHiC-ShrGxlw8h-UXGs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
