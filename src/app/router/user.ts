@@ -79,6 +79,7 @@ router.patch("/notifications/read-all",      tokenCheck, NotificationController.
 router.patch("/notifications/:id/read",      tokenCheck, NotificationController.markAsRead);
 router.delete("/notifications/clear-all",    tokenCheck, NotificationController.clearAllNotifications);
 router.delete("/notifications/:id",          tokenCheck, NotificationController.deleteNotification);
+// router.post("/notifications/test",           tokenCheck, NotificationController.testNotification);
 
 
 router.post("/create-client", tokenCheck, Controller.createClient);

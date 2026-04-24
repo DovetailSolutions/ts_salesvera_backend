@@ -123,7 +123,7 @@ export const initChatSocket = (io: Server) => {
   io.on("connection",async (socket) => {
     console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
 
-    const userId = socket.data.user.userId;
+    const userId = Number(socket.data.user.userId); // ✅ Cast to number
     const userRole = socket.data.user.role;
 
     // 📡 Register this user's socket for targeted notifications
