@@ -204,6 +204,8 @@ export const initChatSocket = (io: Server) => {
     // 🟦 SEND MESSAGE
     // --------------------------------------------------------
     socket.on("sendMessage", async ({ roomId, message }) => {
+      console.log(`📩 Incoming sendMessage from User ${userId} in Room ${roomId}: "${message}"`);
+
       try {
         const room = await ChatRoom.findOne({ where: { roomId } });
 

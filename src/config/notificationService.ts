@@ -53,6 +53,9 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
     data = {},
   } = payload;
 
+  console.log("--------------------------------------------------");
+  console.log("🔔 sendNotification triggered with payload:", JSON.stringify(payload, null, 2));
+
   try {
     // 1️⃣ Persist to DB
     const notification = await Notification.create({
@@ -64,14 +67,16 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
       data,
       isRead: false,
     });
+    console.log("✅ Notification saved to DB with ID:", notification.id);
 
     // 2️⃣ Real-time delivery via socket.io
     if (_io) {
       const receiverSocketId = userSocketMap.get(receiverId);
+      console.log(`🔍 Checking socket map for receiverId ${receiverId}:`, receiverSocketId || "NOT_FOUND");
 
       if (receiverSocketId) {
         // Receiver is online → send directly to their socket
-        _io.to(receiverSocketId).emit("notification", {
+        const eventPayload = {
           id: notification.id,
           receiverId,
           senderId,
@@ -81,14 +86,21 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
           data,
           isRead: false,
           createdAt: notification.createdAt,
-        });
-        console.log(`🔔 Notification sent to user ${receiverId} (socket ${receiverSocketId})`);
+        };
+        
+        console.log(`📡 Emitting 'notification' event to socket ${receiverSocketId}`);
+        _io.to(receiverSocketId).emit("notification", eventPayload);
+        console.log(`🚀 Notification event emitted successfully.`);
       } else {
         // Receiver is offline → notification is stored in DB, they'll fetch it on next login
-        console.log(`📭 User ${receiverId} is offline. Notification stored in DB (id: ${notification.id})`);
+        console.log(`📭 User ${receiverId} is offline. Notification stored in DB for later fetch.`);
       }
+    } else {
+      console.warn("⚠️ Socket.io instance (_io) is not initialized. Skipping real-time delivery.");
     }
+    console.log("--------------------------------------------------");
   } catch (error) {
     console.error("❌ sendNotification error:", error);
+    console.log("--------------------------------------------------");
   }
 };
