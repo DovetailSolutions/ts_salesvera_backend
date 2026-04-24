@@ -23,7 +23,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllListCategory = exports.withuserlogin = exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmail = void 0;
+exports.getAllSubordinateIds = exports.getAllListCategory = exports.withuserlogin = exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmail = void 0;
 const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../../config/dbConnection");
@@ -107,9 +107,9 @@ exports.FindByPhone2 = FindByPhone2;
 //   });
 // };
 const CreateToken = (userId, role) => {
-    const accessToken = jsonwebtoken_1.default.sign({ userId, role }, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "1d" } // short-lived
+    const accessToken = jsonwebtoken_1.default.sign({ userId, role }, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "30d" } // short-lived
     );
-    const refreshToken = jsonwebtoken_1.default.sign({ userId, role }, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "7d" } // long-lived
+    const refreshToken = jsonwebtoken_1.default.sign({ userId, role }, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "60d" } // long-lived
     );
     return { accessToken, refreshToken };
 };
@@ -439,28 +439,123 @@ const findOneByCondition = (model, condition) => __awaiter(void 0, void 0, void 
     }
 });
 exports.findOneByCondition = findOneByCondition;
+// export const getCategory = async (
+//   Model: any,
+//   data: { page?: number; limit?: number; search?: string; category_id?: number },
+//   id = "",
+//   login = ""
+// ): Promise<{
+//   rows: any[];
+//   pagination: {
+//     totalItems: number;
+//     currentPage: number;
+//     totalPages: number;
+//     limit: number;
+//   };
+// }> => {
+//   try {
+//     const { page = 1, limit = 10, search = "", category_id } = data;
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     console.log(">>>>>>>>>>>>>>>>>> login:", login);
+//     // -------------------------
+//     // MAIN WHERE
+//     // -------------------------
+//     const where: any = {};
+//     if (search) {
+//       where.name = { [Op.iLike]: `%${search}%` };
+//     }
+//     if (id) {
+//       where.user_id = id;
+//     }
+//     // 🔥 FIXED: OR condition for admin/manager
+//     if (login) {
+//       where[Op.or] = [
+//         { adminId: login },
+//         { managerId: login }
+//       ];
+//     }
+//     // -------------------------
+//     // INCLUDE CATEGORY FILTER
+//     // -------------------------
+//     const include: any[] = [];
+//     if (category_id) {
+//       include.push({
+//         model: Category,
+//         as: "categories",
+//         where: {
+//           id: Number(category_id),
+//           [Op.or]: [
+//             { adminId: login },
+//             { managerId: login }
+//           ]
+//         },
+//         through: { attributes: [] },
+//       });
+//     }
+//     // -------------------------
+//     // COUNT
+//     // -------------------------
+//     const totalItems = await Model.count({
+//       where,
+//       include: include.length ? include : undefined,
+//       distinct: true,
+//     });
+//     // -------------------------
+//     // FETCH ROWS
+//     // -------------------------
+//     const rows = await Model.findAll({
+//       where,
+//       include: include.length ? include : undefined,
+//       limit: limitNum,
+//       offset,
+//       order: [["createdAt", "DESC"]],
+//     });
+//     return {
+//       rows,
+//       pagination: {
+//         totalItems,
+//         currentPage: pageNum,
+//         totalPages: Math.ceil(totalItems / limitNum),
+//         limit: limitNum,
+//       },
+//     };
+//   } catch (error) {
+//     throw error;
+//   }
+// };
+// import { Op } from "sequelize";
 const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, data_1, ...args_1], void 0, function* (Model, data, id = "", login = "") {
     try {
         const { page = 1, limit = 10, search = "", category_id } = data;
+        // ✅ Pagination calculation
         const pageNum = Number(page);
-        const limitNum = Number(limit);
+        const limitNum = Math.min(Number(limit), 50); // safety limit
         const offset = (pageNum - 1) * limitNum;
-        console.log(">>>>>>>>>>>>>>>>>> login:", login);
         // -------------------------
         // MAIN WHERE
         // -------------------------
         const where = {};
+        // 🔍 Search (case-insensitive)
         if (search) {
-            where.name = { [sequelize_1.Op.iLike]: `%${search}%` };
+            where.name = {
+                [sequelize_1.Op.iLike]: `%${search}%`,
+            };
         }
+        // 👤 User filter
         if (id) {
             where.user_id = id;
         }
-        // 🔥 FIXED: OR condition for admin/manager
+        // 🔐 Admin / Manager access
         if (login) {
-            where[sequelize_1.Op.or] = [
-                { adminId: login },
-                { managerId: login }
+            where[sequelize_1.Op.and] = [
+                {
+                    [sequelize_1.Op.or]: [
+                        { adminId: login },
+                        { managerId: login },
+                    ],
+                },
             ];
         }
         // -------------------------
@@ -475,38 +570,32 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
                     id: Number(category_id),
                     [sequelize_1.Op.or]: [
                         { adminId: login },
-                        { managerId: login }
-                    ]
+                        { managerId: login },
+                    ],
                 },
                 through: { attributes: [] },
             });
         }
         // -------------------------
-        // COUNT
+        // FETCH DATA + COUNT
         // -------------------------
-        const totalItems = yield Model.count({
-            where,
-            include: include.length ? include : undefined,
-            distinct: true,
-        });
-        // -------------------------
-        // FETCH ROWS
-        // -------------------------
-        const rows = yield Model.findAll({
+        const { rows, count } = yield Model.findAndCountAll({
             where,
             include: include.length ? include : undefined,
             limit: limitNum,
             offset,
             order: [["createdAt", "DESC"]],
+            distinct: true, // important when using include
         });
+        // -------------------------
+        // RESPONSE
+        // -------------------------
         return {
             rows,
-            pagination: {
-                totalItems,
-                currentPage: pageNum,
-                totalPages: Math.ceil(totalItems / limitNum),
-                limit: limitNum,
-            },
+            totalItems: count,
+            currentPage: pageNum,
+            totalPages: Math.ceil(count / limitNum),
+            limit: limitNum,
         };
     }
     catch (error) {
@@ -514,7 +603,6 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
     }
 });
 exports.getCategory = getCategory;
-// import { Op } from "sequelize";
 const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, id_1, ...args_1], void 0, function* (model, id, data = {}, searchFields = [], include = []) {
     try {
         const { page = 1, limit = 10, month, year, search } = data, filters = __rest(data, ["page", "limit", "month", "year", "search"]);
@@ -570,7 +658,7 @@ const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, 
 exports.withuserlogin = withuserlogin;
 const getAllListCategory = (model_1, ...args_1) => __awaiter(void 0, [model_1, ...args_1], void 0, function* (model, data = {}, searchFields = []) {
     try {
-        const { page = 1, limit = 10, date, search } = data, filters = __rest(data, ["page", "limit", "date", "search"]);
+        const { page = 1, limit = 100, date, search } = data, filters = __rest(data, ["page", "limit", "date", "search"]);
         const whereConditions = Object.assign({}, filters);
         if (date) {
             whereConditions.date = date;
@@ -614,3 +702,36 @@ const getAllListCategory = (model_1, ...args_1) => __awaiter(void 0, [model_1, .
     }
 });
 exports.getAllListCategory = getAllListCategory;
+const getAllSubordinateIds = (userId) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    let teamUserIds = [userId];
+    let currentId = userId;
+    while (true) {
+        const userWithCreators = (yield dbConnection_1.User.findByPk(currentId, {
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "creators",
+                    attributes: ["id", "role"],
+                    through: { attributes: [] },
+                },
+            ],
+        }));
+        if (!userWithCreators)
+            break;
+        const plainUser = userWithCreators.get({ plain: true });
+        const creator = ((_a = plainUser.creators) === null || _a === void 0 ? void 0 : _a[0]) || null;
+        if (!creator)
+            break;
+        if (!teamUserIds.includes(creator.id)) {
+            teamUserIds.push(creator.id);
+        }
+        // Stop if the creator is an admin or super_admin
+        if (["admin", "super_admin"].includes(creator.role)) {
+            break;
+        }
+        currentId = creator.id;
+    }
+    return teamUserIds;
+});
+exports.getAllSubordinateIds = getAllSubordinateIds;

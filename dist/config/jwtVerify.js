@@ -34,7 +34,8 @@ const tokenCheck = (req, res, next) => __awaiter(void 0, void 0, void 0, functio
         console.log(">>>>>>>>>>>>>>>>>token", token);
         let decoded;
         try {
-            decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
+            decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || "dovetailPharma" // ✅ Must match CreateToken fallback
+            );
         }
         catch (err) {
             return res.status(401).json({
@@ -53,11 +54,11 @@ const tokenCheck = (req, res, next) => __awaiter(void 0, void 0, void 0, functio
             dbConnection_1.User.findOne({
                 where: {
                     id,
-                    [sequelize_1.Op.or]: [{ role: "admin" }, { role: "super_admin" }, { role: "manager" }],
+                    [sequelize_1.Op.or]: [{ role: "admin" }, { role: "super_admin" }, { role: "manager" }, { role: "sale_person" }],
                 },
             }),
         ]);
-        if ((item && (item === null || item === void 0 ? void 0 : item.role) === "admin") || (item === null || item === void 0 ? void 0 : item.role) === "super_admin" || (item === null || item === void 0 ? void 0 : item.role) === "manager") {
+        if ((item && (item === null || item === void 0 ? void 0 : item.role) === "admin") || (item === null || item === void 0 ? void 0 : item.role) === "super_admin" || (item === null || item === void 0 ? void 0 : item.role) === "manager" || (item === null || item === void 0 ? void 0 : item.role) === "sale_person") {
             return next();
         }
         return res.status(403).json({

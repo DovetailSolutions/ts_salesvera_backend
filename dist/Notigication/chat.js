@@ -17,11 +17,13 @@ const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../config/dbConnection");
 const uuid_1 = require("uuid");
+const notificationService_1 = require("../config/notificationService");
 function getAllRelatedUserIds(userId_1) {
     return __awaiter(this, arguments, void 0, function* (userId, includeSelf = false) {
         const result = new Set();
         if (includeSelf)
             result.add(userId);
+        // 1. Fetch recursively UP (parents) and DOWN (children)
         function fetchRelations(id, direction) {
             return __awaiter(this, void 0, void 0, function* () {
                 const processedIds = new Set();
@@ -53,10 +55,42 @@ function getAllRelatedUserIds(userId_1) {
                 }
             });
         }
-        // Fetch both children and parents concurrently
+        // 2. Fetch Horizontal Peers (Siblings - users created by the same parents)
+        function fetchPeers(id) {
+            return __awaiter(this, void 0, void 0, function* () {
+                const user = (yield dbConnection_1.User.findByPk(id, {
+                    include: [
+                        {
+                            model: dbConnection_1.User,
+                            as: "creators",
+                            through: { attributes: [] },
+                            include: [
+                                {
+                                    model: dbConnection_1.User,
+                                    as: "createdUsers",
+                                    through: { attributes: [] },
+                                    attributes: ["id"],
+                                },
+                            ],
+                        },
+                    ],
+                }));
+                if (user === null || user === void 0 ? void 0 : user.creators) {
+                    for (const creator of user.creators) {
+                        if (creator.createdUsers) {
+                            for (const peer of creator.createdUsers) {
+                                result.add(peer.id);
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        // Execute all logic
         yield Promise.all([
             fetchRelations(userId, "children"),
             fetchRelations(userId, "parents"),
+            fetchPeers(userId),
         ]);
         return Array.from(result);
     });
@@ -78,8 +112,10 @@ const initChatSocket = (io) => {
     });
     io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
         console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
-        const userId = socket.data.user.userId;
+        const userId = Number(socket.data.user.userId); // ✅ Cast to number
         const userRole = socket.data.user.role;
+        // 📡 Register this user's socket for targeted notifications
+        (0, notificationService_1.setUserSocket)(userId, socket.id);
         console.log(">>>>>>>>>>>>>>userId", userId);
         console.log(">>>>>>>>>>>>>>userRole", userRole);
         yield dbConnection_1.User.update({ onlineSatus: "online" }, { where: { id: userId } });
@@ -138,6 +174,8 @@ const initChatSocket = (io) => {
         // 🟦 SEND MESSAGE
         // --------------------------------------------------------
         socket.on("sendMessage", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, message }) {
+            var _b, _c;
+            console.log(`📩 Incoming sendMessage from User ${userId} in Room ${roomId}: "${message}"`);
             try {
                 const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId } });
                 if (!room)
@@ -156,6 +194,32 @@ const initChatSocket = (io) => {
                     message,
                 });
                 io.to(roomId).emit("receiveMessage", newMessage);
+                // 🔔 Notify all OTHER participants in real-time
+                const participants = yield dbConnection_1.ChatParticipant.findAll({
+                    where: { chatRoomId: room.id },
+                });
+                // Fetch sender info for the notification title
+                const sender = yield dbConnection_1.User.findByPk(userId, {
+                    attributes: ["firstName", "lastName"],
+                });
+                const senderName = sender
+                    ? `${(_b = sender.firstName) !== null && _b !== void 0 ? _b : ""} ${(_c = sender.lastName) !== null && _c !== void 0 ? _c : ""}`.trim()
+                    : "Someone";
+                for (const participant of participants) {
+                    if (participant.userId === userId)
+                        continue; // skip sender
+                    yield (0, notificationService_1.sendNotification)({
+                        receiverId: participant.userId,
+                        senderId: userId,
+                        type: "chat",
+                        title: `New message from ${senderName}`,
+                        body: message !== null && message !== void 0 ? message : "📎 Media message",
+                        data: {
+                            roomId,
+                            messageId: String(newMessage.id),
+                        },
+                    });
+                }
             }
             catch (error) {
                 console.error("Send message error:", error);
@@ -657,6 +721,8 @@ const initChatSocket = (io) => {
             yield dbConnection_1.User.update({ onlineSatus: "offline" }, { where: { id: userId } });
             // 📡 Broadcast this user's offline status to ALL connected clients
             io.emit("userStatusChange", { userId, onlineSatus: "offline" });
+            // Clean up notification socket map
+            (0, notificationService_1.removeUserSocket)(userId);
             console.log("Disconnected:", socket.id);
         }));
     }));

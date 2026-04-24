@@ -31,9 +31,9 @@ class Attendance extends sequelize_1.Model {
                 allowNull: true,
             },
             status: {
-                type: sequelize_1.DataTypes.ENUM("present", "absent", "leave", "leaveReject", "leaveApproved", "holiday"),
+                type: sequelize_1.DataTypes.ENUM("present", "out", "absent", "leave", "leaveReject", "leaveApproved", "holiday"),
                 allowNull: false,
-                defaultValue: "present",
+                defaultValue: "absent",
             },
             late: {
                 type: sequelize_1.DataTypes.BOOLEAN,

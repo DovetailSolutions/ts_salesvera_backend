@@ -19,7 +19,6 @@ const ShiftModel = (sequelize) => {
         shiftCode: {
             type: sequelize_1.DataTypes.STRING,
             allowNull: false,
-            unique: true,
         },
         startTime: {
             type: sequelize_1.DataTypes.TIME, // better than string
