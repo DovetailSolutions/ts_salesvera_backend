@@ -45,13 +45,13 @@ export interface NotificationPayload {
 // ─────────────────────────────────────────────────────────────────────────────
 export const sendNotification = async (payload: NotificationPayload): Promise<void> => {
   const {
-    receiverId,
     senderId = null,
     type = "system",
     title,
     body,
     data = {},
   } = payload;
+  const receiverId = Number(payload.receiverId); // ✅ Extra safety cast
 
   console.log("--------------------------------------------------");
   console.log("🔔 sendNotification triggered with payload:", JSON.stringify(payload, null, 2));

@@ -112,14 +112,15 @@ io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
   // Track userId → socketId for targeted notifications
-  const userId = socket.data?.user?.userId;
-  if (userId) {
+  const rawUserId = socket.data?.user?.userId;
+  if (rawUserId) {
+    const userId = Number(rawUserId); // ✅ Ensure it's a number
     setUserSocket(userId, socket.id);
+    
+    socket.on("disconnect", () => {
+      removeUserSocket(userId);
+    });
   }
-
-  socket.on("disconnect", () => {
-    if (userId) removeUserSocket(userId);
-  });
 });
 
 // Start server (IMPORTANT)
