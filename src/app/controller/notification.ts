@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { Notification } from "../../config/dbConnection";
 import { Op } from "sequelize";
+import { JwtPayload } from "jsonwebtoken";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/notifications
@@ -8,7 +9,8 @@ import { Op } from "sequelize";
 // ─────────────────────────────────────────────────────────────────────────────
 export const getNotifications = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.userId;
+    const userData = (req as any).userData as JwtPayload;
+    const userId = userData.userId;
     const page   = Math.max(1, parseInt(req.query.page  as string) || 1);
     const limit  = Math.min(50, parseInt(req.query.limit as string) || 20);
     const offset = (page - 1) * limit;
@@ -46,7 +48,8 @@ export const getNotifications = async (req: Request, res: Response): Promise<voi
 // ─────────────────────────────────────────────────────────────────────────────
 export const markAsRead = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.userId;
+    const userData = (req as any).userData as JwtPayload;
+    const userId = userData.userId;
     const { id } = req.params;
 
     const notification = await Notification.findOne({
@@ -74,7 +77,8 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
 // ─────────────────────────────────────────────────────────────────────────────
 export const markAllAsRead = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.userId;
+    const userData = (req as any).userData as JwtPayload;
+    const userId = userData.userId;
 
     await Notification.update(
       { isRead: true },
@@ -94,7 +98,8 @@ export const markAllAsRead = async (req: Request, res: Response): Promise<void> 
 // ─────────────────────────────────────────────────────────────────────────────
 export const deleteNotification = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.userId;
+    const userData = (req as any).userData as JwtPayload;
+    const userId = userData.userId;
     const { id } = req.params;
 
     const deleted = await Notification.destroy({
@@ -119,7 +124,8 @@ export const deleteNotification = async (req: Request, res: Response): Promise<v
 // ─────────────────────────────────────────────────────────────────────────────
 export const clearAllNotifications = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.userId;
+    const userData = (req as any).userData as JwtPayload;
+    const userId = userData.userId;
 
     await Notification.destroy({ where: { receiverId: userId } });
 
@@ -136,7 +142,8 @@ export const clearAllNotifications = async (req: Request, res: Response): Promis
 // ─────────────────────────────────────────────────────────────────────────────
 export const getUnreadCount = async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req as any).user?.userId;
+    const userData = (req as any).userData as JwtPayload;
+    const userId = userData.userId;
 
     const count = await Notification.count({
       where: { receiverId: userId, isRead: false },
