@@ -16,11 +16,11 @@ exports.sendNewChatNotification = exports.sendPushNotification = void 0;
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
 // ✅ Initialize Firebase Admin SDK
 // Using static import ensures TypeScript copies the file to the dist/ directory.
-const google_services_json_1 = __importDefault(require("../Notigication/google-services.json"));
+const salesvera_firebase_adminsdk_fbsvc_28c5e29ae4_json_1 = __importDefault(require("../Notigication/salesvera-firebase-adminsdk-fbsvc-28c5e29ae4.json"));
 try {
     if (!firebase_admin_1.default.apps.length) {
         firebase_admin_1.default.initializeApp({
-            credential: firebase_admin_1.default.credential.cert(google_services_json_1.default),
+            credential: firebase_admin_1.default.credential.cert(salesvera_firebase_adminsdk_fbsvc_28c5e29ae4_json_1.default),
         });
         console.log("🔥 Firebase Admin SDK initialized successfully.");
     }

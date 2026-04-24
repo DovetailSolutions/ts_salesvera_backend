@@ -4,4 +4,5 @@
 src/Notigication/notification.json
 dist/Notigication/notification.json
 package-lock.json
-
+src/Notigication/*.json
+dist/Notigication/*.json

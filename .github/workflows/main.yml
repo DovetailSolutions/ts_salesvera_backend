@@ -21,9 +21,9 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd /home/ubuntu/salesvera/ts_salesvera_backend   # Your Server 1 app path
-            git pull 
-            npm install --production
+            cd /var/www/ts_salesvera_backend # Your Server 1 app path
+            git pull origin main || { echo "Git pull failed"; exit 1; }
+            npm install || { echo "Build failed"; exit 1; }
             npm run build 
-            pm2 restart all 
+            pm2 reload salesvera || { echo "PM2 reload failed"; exit 1; } 
       
