@@ -1,5 +1,5 @@
 import { Model, DataTypes, Sequelize, Optional } from "sequelize";
-export type InvoiceStatus = "draft" | "sent" | "accepted" | "rejected" |"imported";
+export type InvoiceStatus = "draft" | "sent" | "accepted" | "rejected" |"imported" | "cancelled" | "deleted";
 
 interface InvoiceAttributes {
   id: number;
@@ -89,7 +89,7 @@ export class Invoices
           allowNull: true,
         },
  status: {
-          type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected"),
+          type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected", "cancelled", "deleted"),
           defaultValue: "draft",
         },
       },

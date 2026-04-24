@@ -22,7 +22,7 @@ router.post(
   tokenCheck,
   meeting.array("image"),
   Controller.CreateMeeting
-);
+); 
 router.get("/clientmeeting",tokenCheck,Controller.getLastMeeting)
 router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
