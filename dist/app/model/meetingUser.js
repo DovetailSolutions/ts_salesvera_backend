@@ -26,19 +26,26 @@ const UserModel = (sequelize) => {
         },
         userId: {
             type: sequelize_1.DataTypes.INTEGER,
-            allowNull: true
+            allowNull: true,
+            field: "user_id",
         },
         customerType: {
-            type: sequelize_1.DataTypes.ENUM("new", "existing", "followup"),
+            type: sequelize_1.DataTypes.STRING,
             defaultValue: "new",
+            field: "customer_type",
         },
+        state: sequelize_1.DataTypes.STRING,
+        city: sequelize_1.DataTypes.STRING,
+        pincode: sequelize_1.DataTypes.STRING,
+        country: sequelize_1.DataTypes.STRING,
         address: sequelize_1.DataTypes.TEXT,
-        // gstNumber: DataTypes.STRING,
-        // quotationNumber: DataTypes.STRING,
-        //   role: {
-        //     type: DataTypes.ENUM("admin", "manager", "employee"),
-        //     defaultValue: "employee",
-        //   },
+        gstNumber: sequelize_1.DataTypes.STRING,
+        companyName: sequelize_1.DataTypes.STRING,
+        panNumber: sequelize_1.DataTypes.STRING,
+        status: {
+            type: sequelize_1.DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),
+            defaultValue: "draft",
+        },
     }, {
         sequelize,
         tableName: "meeting_users",

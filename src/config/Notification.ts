@@ -2,13 +2,16 @@ import { Meeting } from "../config/dbConnection";
 import admin from "firebase-admin";
 
 // ✅ Initialize Firebase Admin SDK
-// Make sure the file exists at: src/Notigication/notification.json
+// Using static import ensures TypeScript copies the file to the dist/ directory.
+import serviceAccount from "../Notigication/google-services.json";
+
 try {
-  const serviceAccount = require("../Notigication/google-services.json");
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
-  });
-  console.log("🔥 Firebase Admin SDK initialized successfully.");
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
+    });
+    console.log("🔥 Firebase Admin SDK initialized successfully.");
+  }
 } catch (error) {
   console.error("❌ Firebase Admin initialization error:", error);
 }

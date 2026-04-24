@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const router = (0, express_1.Router)();
 const Controller = __importStar(require("../controller/user"));
+const NotificationController = __importStar(require("../controller/notification"));
 const jwtVerify2_1 = require("../../config/jwtVerify2");
 const fileUploads_1 = __importDefault(require("../../config/fileUploads"));
 const profile = (0, fileUploads_1.default)("image");
@@ -67,6 +68,7 @@ router.get("/leave-list", jwtVerify2_1.tokenCheck, Controller.LeaveList);
 router.post("/expense", jwtVerify2_1.tokenCheck, expense.array("billImage"), Controller.CreateExpense);
 router.get("/getexpense", jwtVerify2_1.tokenCheck, Controller.GetExpense);
 router.get("/refreshtoken", jwtVerify2_1.tokenCheck, Controller.ReFressToken);
+router.patch("/updatepassword", jwtVerify2_1.tokenCheck, Controller.UpdatePassword);
 // router.get("/getquotation",tokenCheck,Controller.getQuotation)
 router.post("/getquotationpdf", jwtVerify2_1.tokenCheck, Controller.getQuotationPdf);
 router.get("/getquotationpdflist", jwtVerify2_1.tokenCheck, Controller.getQuotationPdfList);
@@ -74,4 +76,28 @@ router.get("/downloadquotationpdf/:id", jwtVerify2_1.tokenCheck, Controller.down
 router.get("/getsubcategory/:id", jwtVerify2_1.tokenCheck, Controller.getSubCategory);
 router.post("/addquotation", jwtVerify2_1.tokenCheck, Controller.addQuotation);
 router.post('/updatequotation/:id', jwtVerify2_1.tokenCheck, Controller.updateQuotation);
+router.get("/getcompany", jwtVerify2_1.tokenCheck, Controller.getCompany);
+router.get("/getcompanydetails/:id", jwtVerify2_1.tokenCheck, Controller.getCompanyDetails);
+router.post("/addinvoice", jwtVerify2_1.tokenCheck, Controller.addInvoice);
+router.get("/getinvoice", jwtVerify2_1.tokenCheck, Controller.getInvoice);
+//  router.post("/quotationToInvoice/:id",tokenCheck,Controller.quotationToInvoice);
+// record  sale
+router.post("/recordsale", jwtVerify2_1.tokenCheck, Controller.recordSale);
+router.get("/getrecordsale", jwtVerify2_1.tokenCheck, Controller.getRecordSale);
+router.get("/getrecordsale/:id", jwtVerify2_1.tokenCheck, Controller.getRecordSaleById);
+router.patch("/updaterecordsale/:id", jwtVerify2_1.tokenCheck, Controller.updateRecordSale);
+router.delete("/deleterecordsale/:id", jwtVerify2_1.tokenCheck, Controller.deleteRecordSale);
+// ── Notifications ─────────────────────────────────────────────────────────
+router.get("/notifications", jwtVerify2_1.tokenCheck, NotificationController.getNotifications);
+router.get("/notifications/unread-count", jwtVerify2_1.tokenCheck, NotificationController.getUnreadCount);
+router.patch("/notifications/read-all", jwtVerify2_1.tokenCheck, NotificationController.markAllAsRead);
+router.patch("/notifications/:id/read", jwtVerify2_1.tokenCheck, NotificationController.markAsRead);
+router.delete("/notifications/clear-all", jwtVerify2_1.tokenCheck, NotificationController.clearAllNotifications);
+router.delete("/notifications/:id", jwtVerify2_1.tokenCheck, NotificationController.deleteNotification);
+// router.post("/notifications/test",           tokenCheck, NotificationController.testNotification);
+router.post("/create-client", jwtVerify2_1.tokenCheck, Controller.createClient);
+router.get("/tally-report", jwtVerify2_1.tokenCheck, Controller.getTallyReport);
+// router.post("/forgot-password", Controller.forgotPassword);
+// router.post("/verify-opt", Controller.verifyOtp);
+// router.post("/reset-password", Controller.changePassword);
 exports.default = router;
