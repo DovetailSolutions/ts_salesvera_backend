@@ -1,5 +1,7 @@
 import { Server } from "socket.io";
 import { Notification } from "../app/model/Notification";
+import { Device } from "../config/dbConnection";
+import { sendPushNotification } from "./Notification";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 📡  Socket.io instance registry
@@ -42,6 +44,7 @@ export interface NotificationPayload {
 // 🔔  Main utility function
 //     1. Saves notification to DB
 //     2. Pushes via socket.io to online receiver (if connected)
+//     3. Pushes via Firebase Cloud Messaging (FCM) to all registered devices
 // ─────────────────────────────────────────────────────────────────────────────
 export const sendNotification = async (payload: NotificationPayload): Promise<void> => {
   const {
@@ -69,7 +72,7 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
     });
     console.log("✅ Notification saved to DB with ID:", notification.id);
 
-    // 2️⃣ Real-time delivery via socket.io
+    // 2️⃣ Real-time delivery via socket.io (Socket only)
     if (_io) {
       const receiverSocketId = userSocketMap.get(receiverId);
       console.log(`🔍 Checking socket map for receiverId ${receiverId}:`, receiverSocketId || "NOT_FOUND");
@@ -90,14 +93,46 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
         
         console.log(`📡 Emitting 'notification' event to socket ${receiverSocketId}`);
         _io.to(receiverSocketId).emit("notification", eventPayload);
-        console.log(`🚀 Notification event emitted successfully.`);
+        console.log(`🚀 Socket event emitted successfully.`);
       } else {
-        // Receiver is offline → notification is stored in DB, they'll fetch it on next login
-        console.log(`📭 User ${receiverId} is offline. Notification stored in DB for later fetch.`);
+        console.log(`📭 User ${receiverId} is offline for socket delivery.`);
       }
-    } else {
-      console.warn("⚠️ Socket.io instance (_io) is not initialized. Skipping real-time delivery.");
     }
+
+    // 3️⃣ Real-time delivery via Firebase (Push Notification)
+    try {
+      const devices = await Device.findAll({
+        where: { userId: receiverId, isActive: true }
+      });
+
+      if (devices.length > 0) {
+        const tokens = devices.map(d => d.deviceToken).filter(t => !!t);
+        
+        if (tokens.length > 0) {
+          console.log(`📱 Sending Firebase Push to ${tokens.length} tokens for user ${receiverId}`);
+          
+          // Flatten data for Firebase (must be strings)
+          const firebaseData: Record<string, string> = {};
+          Object.entries(data).forEach(([key, value]) => {
+            firebaseData[key] = String(value);
+          });
+          firebaseData.notificationId = String(notification.id);
+          firebaseData.type = type;
+
+          await sendPushNotification({
+            token: tokens,
+            title,
+            body,
+            data: firebaseData,
+          });
+        }
+      } else {
+        console.log(`📵 No registered devices found for user ${receiverId}. Skipping push.`);
+      }
+    } catch (pushError) {
+      console.error("⚠️ Push Notification failed but continuing:", pushError);
+    }
+
     console.log("--------------------------------------------------");
   } catch (error) {
     console.error("❌ sendNotification error:", error);
