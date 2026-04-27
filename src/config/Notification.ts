@@ -131,7 +131,6 @@ export const sendNewChatNotification = async (req: Request, res: Response): Prom
 
     console.log(`✅ Found ${devices.length} active device(s).`);
 
-    // 2️⃣ Extract tokens
     const tokens = devices.map(d => d.deviceToken).filter(t => !!t);
     console.log(`🎫 Tokens extracted: ${tokens.length}`);
 
@@ -141,13 +140,25 @@ export const sendNewChatNotification = async (req: Request, res: Response): Prom
       return;
     }
 
+    // Prepare data payload for Firebase
+    const firebaseData: Record<string, string> = {};
+    Object.entries(data).forEach(([key, value]) => {
+      firebaseData[key] = String(value);
+    });
+    // Add type if provided
+    if (req.body.type) {
+      firebaseData.type = String(req.body.type);
+    } else {
+      firebaseData.type = "chat"; // Default to chat since it's sendNewChatNotification
+    }
+
     // 3️⃣ Send Push Notification
     console.log("🚀 Triggering Firebase Cloud Messaging...");
     const result = await sendPushNotification({
       token: tokens,
       title,
       body,
-      data: data
+      data: firebaseData
     });
 
     if (result.success) {

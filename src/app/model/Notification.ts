@@ -1,10 +1,18 @@
 import { Model, DataTypes, Sequelize } from "sequelize";
 
+export enum NotificationType {
+  CHAT = "chat",
+  TASK = "task",
+  MEETING = "meeting",
+  SYSTEM = "system",
+  OTHER = "other"
+}
+
 export class Notification extends Model {
   public id!: number;
   public receiverId!: number;       // who receives this notification
   public senderId!: number | null;  // who triggered it (null = system)
-  public type!: string;             // e.g. "chat", "meeting", "task", "system"
+  public type!: NotificationType;   // use enum
   public title!: string;
   public body!: string;
   public data!: Record<string, any> | null; // any extra JSON payload
@@ -30,9 +38,9 @@ export class Notification extends Model {
           defaultValue: null,
         },
         type: {
-          type: DataTypes.STRING(100),
+          type: DataTypes.ENUM(...Object.values(NotificationType)),
           allowNull: false,
-          defaultValue: "system",
+          defaultValue: NotificationType.SYSTEM,
         },
         title: {
           type: DataTypes.STRING(255),

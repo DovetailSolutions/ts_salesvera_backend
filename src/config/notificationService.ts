@@ -1,5 +1,5 @@
 import { Server } from "socket.io";
-import { Notification } from "../app/model/Notification";
+import { Notification, NotificationType } from "../app/model/Notification";
 import { Device } from "../config/dbConnection";
 import { sendPushNotification } from "./Notification";
 
@@ -34,7 +34,7 @@ export const removeUserSocket = (userId: number) => {
 export interface NotificationPayload {
   receiverId: number;          // target user
   senderId?: number | null;    // who triggered it (omit for system messages)
-  type?: string;               // "chat" | "meeting" | "task" | "system" | any
+  type?: NotificationType | string; // Use enum for strict typing, but allow string for backwards compatibility
   title: string;
   body: string;
   data?: Record<string, any>;  // any extra data the client needs
@@ -49,7 +49,7 @@ export interface NotificationPayload {
 export const sendNotification = async (payload: NotificationPayload): Promise<void> => {
   const {
     senderId = null,
-    type = "system",
+    type = NotificationType.SYSTEM,
     title,
     body,
     data = {},
