@@ -1960,7 +1960,7 @@ export const addSubCategory = async (
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { sub_category_name, amount, tax,status, CategoryId } = req.body;
+    const { sub_category_name, amount, tax,status, CategoryId,gst,unit,hsnCode } = req.body;
     if (!sub_category_name?.trim()) {
       badRequest(res, "Sub category name is required");
       return;
@@ -1988,6 +1988,9 @@ export const addSubCategory = async (
       amount: amount ?? null,
       text: tax ?? null,
       status: status || "draft",
+      gst:gst ?? null,
+      unit:unit ?? null,
+      hsnCode:hsnCode ?? null,
     });
     createSuccess(res, "Sub category created successfully", subCategory);
   } catch (error) {
