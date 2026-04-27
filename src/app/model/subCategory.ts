@@ -10,6 +10,8 @@ export interface SubCategoryAttributes {
   text?: string;
   hsnCode?: string;
   status: string;
+  gst:string
+  unit?:string
 }
 
 export interface SubCategoryCreationAttributes
@@ -28,6 +30,8 @@ export class SubCategory
   public text!: string;
   public hsnCode!: string;
   public status!: string;
+  public gst!:string;
+  public unit!:string;
 
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
@@ -64,6 +68,14 @@ export class SubCategory
         hsnCode: {
           type: DataTypes.STRING,
           allowNull: true,
+        },
+        gst:{
+          type:DataTypes.STRING,
+          allowNull:true
+        },
+        unit:{
+          type:DataTypes.STRING,
+          allowNull:true
         },
         status: {
           type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected"),
