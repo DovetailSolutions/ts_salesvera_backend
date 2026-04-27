@@ -1,7 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Notification = void 0;
+exports.Notification = exports.NotificationType = void 0;
 const sequelize_1 = require("sequelize");
+var NotificationType;
+(function (NotificationType) {
+    NotificationType["CHAT"] = "chat";
+    NotificationType["TASK"] = "task";
+    NotificationType["MEETING"] = "meeting";
+    NotificationType["SYSTEM"] = "system";
+    NotificationType["OTHER"] = "other";
+})(NotificationType || (exports.NotificationType = NotificationType = {}));
 class Notification extends sequelize_1.Model {
     static initModel(sequelize) {
         Notification.init({
@@ -20,9 +28,9 @@ class Notification extends sequelize_1.Model {
                 defaultValue: null,
             },
             type: {
-                type: sequelize_1.DataTypes.STRING(100),
+                type: sequelize_1.DataTypes.ENUM(...Object.values(NotificationType)),
                 allowNull: false,
-                defaultValue: "system",
+                defaultValue: NotificationType.SYSTEM,
             },
             title: {
                 type: sequelize_1.DataTypes.STRING(255),

@@ -119,7 +119,6 @@ const sendNewChatNotification = (req, res) => __awaiter(void 0, void 0, void 0, 
             return;
         }
         console.log(`✅ Found ${devices.length} active device(s).`);
-        // 2️⃣ Extract tokens
         const tokens = devices.map(d => d.deviceToken).filter(t => !!t);
         console.log(`🎫 Tokens extracted: ${tokens.length}`);
         if (tokens.length === 0) {
@@ -127,13 +126,25 @@ const sendNewChatNotification = (req, res) => __awaiter(void 0, void 0, void 0, 
             res.status(200).json({ success: true, message: "No valid tokens found." });
             return;
         }
+        // Prepare data payload for Firebase
+        const firebaseData = {};
+        Object.entries(data).forEach(([key, value]) => {
+            firebaseData[key] = String(value);
+        });
+        // Add type if provided
+        if (req.body.type) {
+            firebaseData.type = String(req.body.type);
+        }
+        else {
+            firebaseData.type = "chat"; // Default to chat since it's sendNewChatNotification
+        }
         // 3️⃣ Send Push Notification
         console.log("🚀 Triggering Firebase Cloud Messaging...");
         const result = yield (0, exports.sendPushNotification)({
             token: tokens,
             title,
             body,
-            data: data
+            data: firebaseData
         });
         if (result.success) {
             console.log("✨ Firebase push notification generated and sent successfully!");

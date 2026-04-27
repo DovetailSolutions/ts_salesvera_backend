@@ -43,7 +43,7 @@ exports.removeUserSocket = removeUserSocket;
 //     3. Pushes via Firebase Cloud Messaging (FCM) to all registered devices
 // ─────────────────────────────────────────────────────────────────────────────
 const sendNotification = (payload) => __awaiter(void 0, void 0, void 0, function* () {
-    const { senderId = null, type = "system", title, body, data = {}, } = payload;
+    const { senderId = null, type = Notification_1.NotificationType.SYSTEM, title, body, data = {}, } = payload;
     const receiverId = Number(payload.receiverId); // ✅ Extra safety cast
     console.log("--------------------------------------------------");
     console.log("🔔 sendNotification triggered with payload:", JSON.stringify(payload, null, 2));
