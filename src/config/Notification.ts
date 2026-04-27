@@ -3,7 +3,7 @@ import admin from "firebase-admin";
 
 // ✅ Initialize Firebase Admin SDK
 // Using static import ensures TypeScript copies the file to the dist/ directory.
-import serviceAccount from "../Notigication/google-services.json";
+import serviceAccount from "../Notigication/salesvera-firebase-adminsdk-fbsvc-28c5e29ae4.json";
 
 try {
   if (!admin.apps.length) {
