@@ -5500,6 +5500,26 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
 
     reports.forEach((item, index) => validateReport(item, index));
 
+    // ✅ DUPLICATE CHECK (referenceNo + date)
+    const conditions = reports.map((item) => ({
+      referenceNo: item.referenceNo,
+      date: item.date,
+    }));
+
+    const existingReports = await Report.findAll({
+      where: {
+        [Op.or]: conditions,
+      },
+    });
+
+    if (existingReports.length > 0) {
+      const duplicates = existingReports
+        .map((r: any) => `Ref: ${r.referenceNo}, Date: ${r.date}`)
+        .join("; ");
+      badRequest(res, `Duplicate reports found: ${duplicates}`);
+      return;
+    }
+
     // ✅ PREPARE DATA
     const finalData = reports.map((item) => ({
       ...item,
