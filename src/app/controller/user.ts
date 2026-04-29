@@ -1217,7 +1217,7 @@ export const GetMeetingList = async (
       where: where,
       limit: Number(limit),
       offset,
-      order: [["createdAt", "DESC"]],
+      order: [["updatedAt", "DESC"]],
       include: [
         {
           model: MeetingCompany, // Include their associated companies
