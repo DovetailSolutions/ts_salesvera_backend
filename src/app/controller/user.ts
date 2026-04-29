@@ -3863,13 +3863,16 @@ export const getDashboardMobile = async (
     const { userId, role } = req.userData as JwtPayload;
 
     const allUserIds = await Middleware.getAllSubordinateIds(Number(userId));
-    
+    console.log(allUserIds, "allUserIds")
     const saleordercount = await Quotations.count({
       where: {
         userId: { [Op.in]: allUserIds },
         // status: "draft",
       },
     });
+
+
+    console.log(saleordercount, "saleordercount")
 
     const perfomaInvoice = await Invoices.count({
       where: {
