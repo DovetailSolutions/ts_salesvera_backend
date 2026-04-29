@@ -26,8 +26,9 @@ interface UserAttributes {
   dob?: string;
   profile?: string;
   createdBy?: number;
-  onlineSatus?: "online" | "offline"
-
+  onlineSatus?: "online" | "offline";
+  otp?: string | null;
+  otpExpiry?: Date | null;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -136,14 +137,14 @@ export const createUserModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
-      // createdBy: {
-      //   type: DataTypes.INTEGER,
-      //   allowNull: true,
-      //   references: {
-      //     model: "users", // If FK
-      //     key: "id",
-      //   },
-      // },
+      otp: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      otpExpiry: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "users",
