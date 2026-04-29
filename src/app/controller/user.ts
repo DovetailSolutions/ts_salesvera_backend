@@ -3860,44 +3860,43 @@ export const getDashboardMobile = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId, role } = req.userData as JwtPayload;
+    const { userId } = req.userData as JwtPayload;
 
     const allUserIds = await Middleware.getAllSubordinateIds(Number(userId));
-    console.log(allUserIds, "allUserIds")
+
+    const commonFilter = {
+      userId: { [Op.in]: allUserIds },
+      status: { [Op.notIn]: ["cancelled", "deleted"] },
+    };
+
     const saleordercount = await Quotations.count({
-      where: {
-        userId: { [Op.in]: allUserIds },
-        // status: "draft",
-      },
+      where: commonFilter,
     });
-
-
-    console.log(saleordercount, "saleordercount")
 
     const perfomaInvoice = await Invoices.count({
       where: {
         userId: { [Op.in]: allUserIds },
-        status: { [Op.in]: ["draft", "imported"] },
+        [Op.and]: [
+          { status: { [Op.in]: ["draft", "imported"] } },
+          { status: { [Op.notIn]: ["cancelled", "deleted"] } },
+        ],
       },
     });
 
     const invoice = await Invoices.count({
       where: {
         userId: { [Op.in]: allUserIds },
-        status: "accepted",
+        [Op.and]: [
+          { status: "accepted" },
+          { status: { [Op.notIn]: ["cancelled", "deleted"] } },
+        ],
       },
     });
 
     const Reports = await Report.count({
-      where: {
-        userId: { [Op.in]: allUserIds },
-        // status: "accepted",
-      },
-    }); 
+      where: commonFilter,
+    });
 
-    // ──────────────────────
-    // ✅ RESPONSE
-    // ──────────────────────
     createSuccess(res, "Dashboard data fetched successfully", {
       saleordercount,
       perfomaInvoice,
