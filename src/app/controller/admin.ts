@@ -2142,6 +2142,9 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
     const { count, rows } = await Quotations.findAndCountAll({
       where: {
         // userId: userData.userId
+        status: {
+          [Op.notIn]: ["cancelled", "deleted"]
+        }
       },
       include: [
         {
@@ -3964,6 +3967,12 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     // ✅ Filters
     const status = String(req.query.status || "").toLowerCase();
     const companyName = String(req.query.companyName || "").toLowerCase();
+
+    // ✅ Validate status
+    const allowedStatus = ["draft", "accepted", "rejected"];
+    if (status && !allowedStatus.includes(status)) {
+      return badRequest(res, "Invalid status value");
+    }
     // 🟢 HIERARCHY LOGIC 🟢
     // Admin > Manager > Sales Person
     // We fetch all sub-users created by the logged-in user, and their sub-users too.
@@ -4010,6 +4019,9 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
+      }
     };
 
 
@@ -4995,8 +5007,13 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     // ✅ FIX: Use ONLY ONE whereCondition
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
+      }
     };
 
+
+    
     // 🔍 Global search
     if (search) {
       whereCondition[Op.or] = [

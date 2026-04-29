@@ -2411,6 +2411,9 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
     let whereCondition: any = {
       userId: {
         [Op.in]: allUserIds
+      },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
       }
     };
 
@@ -3168,6 +3171,9 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     const whereCondition: any = {
       userId: {
         [Op.in]: allUserIds
+      },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
       }
     };
 
