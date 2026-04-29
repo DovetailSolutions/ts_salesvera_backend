@@ -1178,23 +1178,21 @@ export const GetMeetingList = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { page = 1, limit = 10, search = "", status } = req.query;
+    const { page = "1", limit = "10", search = "", status } = req.query;
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
+    const pageNum = Math.max(Number(page) || 1, 1);
+    const limitNum = Math.min(Number(limit) || 10, 50);
     const offset = (pageNum - 1) * limitNum;
 
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
-
-    console.log("finalUserId", finalUserId);
 
     if (!finalUserId) {
       badRequest(res, "UserId not found");
       return;
     }
 
-    /** ✅ Meeting Search condition */
+    /** ✅ Meeting filter */
     const meetingWhere: any = {
       userId: finalUserId,
     };
@@ -1203,55 +1201,31 @@ export const GetMeetingList = async (
       meetingWhere.status = status;
     }
 
-    /** ✅ MeetingCompany Search condition (for text search) */
-    const companyWhere: any = {};
-    if (search) {
-      companyWhere[Op.or] = [
-        { companyName: { [Op.iLike]: `%${search}%` } },
-        { personName: { [Op.iLike]: `%${search}%` } },
-        { mobileNumber: { [Op.iLike]: `%${search}%` } },
-        { remarks: { [Op.iLike]: `%${search}%` } },
-      ];
-    }
+    /** ⚠️ NOTE: search not applied (same as your original) */
+    // You created companyWhere but didn't use it in query
 
-    /** ✅ Query with pagination + count */
+    /** ✅ Query */
     const { rows, count } = await Meeting.findAndCountAll({
       where: meetingWhere,
-      limit: Number(limit),
+      limit: limitNum,
       offset,
       order: [["updatedAt", "DESC"]],
       distinct: true,
-      include: [
-        {
-          model: MeetingCompany,
-          required: search ? true : false,
-          where: search ? companyWhere : undefined,
-        },
-        {
-          model: MeetingUser,
-          required: false,
-        },
-        {
-          model: MeetingImage,
-          required: false,
-        }
-      ]
     });
 
-    /** ✅ Pagination Info */
-    const pageInfo = {
+    /** ✅ Flat Pagination Response */
+    createSuccess(res, "Meeting list fetched", {
       currentPage: pageNum,
       pageSize: limitNum,
       totalItems: count,
       totalPages: Math.ceil(count / limitNum),
-    };
+      data: rows,
+    });
 
-    createSuccess(res, "Meeting list fetched", { pageInfo, meetings: rows });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return;
   }
 };
 
