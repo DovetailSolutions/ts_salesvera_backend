@@ -3875,3 +3875,58 @@ export const createClient = async (
 //     badRequest(res, errorMessage);
 //   }
 // };
+
+export const getDashboardMobile = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { userId, role } = req.userData as JwtPayload;
+
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userId));
+    
+    const saleordercount = await Quotations.count({
+      where: {
+        userId: { [Op.in]: allUserIds },
+        // status: "draft",
+      },
+    });
+
+    const perfomaInvoice = await Invoices.count({
+      where: {
+        userId: { [Op.in]: allUserIds },
+        status: { [Op.in]: ["draft", "imported"] },
+      },
+    });
+
+    const invoice = await Invoices.count({
+      where: {
+        userId: { [Op.in]: allUserIds },
+        status: "accepted",
+      },
+    });
+
+    const Reports = await Report.count({
+      where: {
+        userId: { [Op.in]: allUserIds },
+        // status: "accepted",
+      },
+    }); 
+
+    // ──────────────────────
+    // ✅ RESPONSE
+    // ──────────────────────
+    createSuccess(res, "Dashboard data fetched successfully", {
+      saleordercount,
+      perfomaInvoice,
+      invoice,
+      Reports,
+    });
+  } catch (error) {
+    console.error(error);
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};

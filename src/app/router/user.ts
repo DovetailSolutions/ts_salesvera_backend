@@ -88,5 +88,7 @@ router.get("/tally-report",tokenCheck,Controller.getTallyReport)
 // router.post("/verify-opt", Controller.verifyOtp);
 // router.post("/reset-password", Controller.changePassword);
 
+router.get("/dashboardmobile",tokenCheck,Controller.getDashboardMobile)
+
 
 export default router;
