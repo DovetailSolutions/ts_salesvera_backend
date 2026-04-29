@@ -1194,13 +1194,19 @@ export const GetMeetingList = async (
       return;
     }
 
-    /** ✅ Search condition */
-    const where: any = {
+    /** ✅ Meeting Search condition */
+    const meetingWhere: any = {
       userId: finalUserId,
     };
 
+    if (status) {
+      meetingWhere.status = status;
+    }
+
+    /** ✅ MeetingCompany Search condition (for text search) */
+    const companyWhere: any = {};
     if (search) {
-      where[Op.or] = [
+      companyWhere[Op.or] = [
         { companyName: { [Op.iLike]: `%${search}%` } },
         { personName: { [Op.iLike]: `%${search}%` } },
         { mobileNumber: { [Op.iLike]: `%${search}%` } },
@@ -1208,36 +1214,28 @@ export const GetMeetingList = async (
       ];
     }
 
-    if (status) {
-      where.status = status;
-    }
-
     /** ✅ Query with pagination + count */
-    const { rows, count } = await MeetingUser.findAndCountAll({
-      where: where,
+    const { rows, count } = await Meeting.findAndCountAll({
+      where: meetingWhere,
       limit: Number(limit),
       offset,
       order: [["updatedAt", "DESC"]],
+      distinct: true,
       include: [
         {
-          model: MeetingCompany, // Include their associated companies
+          model: MeetingCompany,
+          required: search ? true : false,
+          where: search ? companyWhere : undefined,
+        },
+        {
+          model: MeetingUser,
           required: false,
-          include: [
-            {
-              model: Meeting,
-              where: where, // Only fetch meetings that belong to the logged-in employee
-              required: true,
-              order: [["updatedAt", "DESC"]],
-              include: [
-                {
-                  model: MeetingImage
-                }
-              ]
-            }
-          ]
+        },
+        {
+          model: MeetingImage,
+          required: false,
         }
-      ],
-      distinct: true,
+      ]
     });
 
     /** ✅ Pagination Info */
@@ -1248,7 +1246,7 @@ export const GetMeetingList = async (
       totalPages: Math.ceil(count / limitNum),
     };
 
-    createSuccess(res, "Meeting list fetched", { pageInfo, data: rows });
+    createSuccess(res, "Meeting list fetched", { pageInfo, meetings: rows });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
