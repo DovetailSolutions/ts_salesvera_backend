@@ -1227,6 +1227,7 @@ export const GetMeetingList = async (
               model: Meeting,
               where: where, // Only fetch meetings that belong to the logged-in employee
               required: true,
+              order: [["updatedAt", "DESC"]],
               include: [
                 {
                   model: MeetingImage
