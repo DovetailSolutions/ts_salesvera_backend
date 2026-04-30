@@ -5443,8 +5443,11 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
 
     const payload = req.body;
 
+    console.log(">>>>>>>>>>>>>>>payload",payload)
+
     // ✅ FIXED NORMALIZATION
     let reports: any[] = [];
+    
 
     if (Array.isArray(payload)) {
       reports = payload;
