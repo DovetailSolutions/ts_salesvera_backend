@@ -762,8 +762,8 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
   let rootId = userId;
   let currentId = userId;
 
-  // 1. Climb UP to find the 'admin' or 'manager' (Company Root)
-  // This ensures that even a sale_person sees their entire team/company data.
+  // 1. Climb UP to find the highest 'admin' or 'manager' (Company Root)
+  // This ensures we capture the entire company tree starting from the top.
   while (true) {
     const userWithCreators = await User.findByPk(currentId, {
       include: [
@@ -780,17 +780,17 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
     const creator = userWithCreators.creators?.[0];
     if (!creator) break;
 
-    // Stop if we find an admin or manager (treating them as root of their team/company)
-    if (["admin", "manager"].includes(creator.role)) {
-      rootId = creator.id;
-      break;
-    }
-
-    // Stop if we hit a super_admin (we don't want to include platform-wide data)
+    // If we hit a super_admin, we stop climbing and keep the previous valid root
     if (creator.role === "super_admin") {
       break;
     }
 
+    // Update rootId to the creator if they are an admin or manager
+    if (["admin", "manager"].includes(creator.role)) {
+      rootId = creator.id;
+    }
+
+    // Move up to the next level
     currentId = creator.id;
   }
 
@@ -827,9 +827,6 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
           if (child.role !== "super_admin") {
             teamUserIds.push(child.id);
             queue.push(child.id);
-          } else {
-            // Even if we don't include super_admin in results, we might want to crawl their children?
-            // Usually super_admin is the top, so we won't hit them going DOWN anyway.
           }
         }
       }
