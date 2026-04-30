@@ -387,9 +387,14 @@ export const initChatSocket = (io: Server) => {
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
         const childIds = await getAllRelatedUserIds(userId);
-        console.log(">>>>>>>>>>>>>>>>childIds", childIds);
         const validUserIds = [userId, ...childIds];
-        console.log(">>>>>>>>>>>>>>>>validUserIds", validUserIds);
+
+        // 🟢 Get all rooms I am part of to filter unread messages correctly
+        const myParticipations = await ChatParticipant.findAll({
+          where: { userId },
+          attributes: ["chatRoomId"],
+        });
+        const myRoomIds = myParticipations.map((p: any) => p.chatRoomId);
 
         let userSearchCondition = {};
 
@@ -419,18 +424,19 @@ export const initChatSocket = (io: Server) => {
             "role",
             "onlineSatus",
           ],
-          // include: [
-          //   {
-          //     model: Message,
-          //     as: "Messages",
-          //     where: {
-          //       status: "unseen",
-          //     },
-          //     required: false,
-          //     separate: true, // 🔥 important: does not break pagination
-          //     attributes: ["id", "status"],
-          //   },
-          // ],
+          include: [
+            {
+              model: Message,
+              as: "Messages",
+              where: {
+                status: "unseen",
+                chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
+              },
+              required: false,
+              separate: true, // 🔥 important: does not break pagination
+              attributes: ["id", "status"],
+            },
+          ],
           order: [["id", "DESC"]],
           limit,
           offset,
@@ -448,9 +454,6 @@ export const initChatSocket = (io: Server) => {
             unreadCount
           };
         });
-
-        console.log(">>>>>>>>usersWithUnreadCounts",usersWithUnreadCounts)
-
         io.to(socket.id).emit("UserList", {
           success: true,
           total: result.count,
@@ -459,7 +462,6 @@ export const initChatSocket = (io: Server) => {
           data: usersWithUnreadCounts,
         });
       } catch (error) {
-        console.error("UserList Error:", error);
         socket.emit("UserList", {
           success: false,
           error: "Unable to fetch user list",
