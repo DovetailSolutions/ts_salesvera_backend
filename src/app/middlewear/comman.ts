@@ -759,11 +759,13 @@ export const getAllListCategory = async (model: any, data: any = {}, searchField
   }
 };
 export const getAllSubordinateIds = async (userId: number): Promise<number[]> => {
-  let teamUserIds: number[] = [userId];
+  let rootId = userId;
   let currentId = userId;
 
+  // 1. Climb UP to find the 'admin' or 'manager' (Company Root)
+  // This ensures that even a sale_person sees their entire team/company data.
   while (true) {
-    const userWithCreators = (await User.findByPk(currentId, {
+    const userWithCreators = await User.findByPk(currentId, {
       include: [
         {
           model: User,
@@ -772,25 +774,66 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
           through: { attributes: [] },
         },
       ],
-    })) as any;
+    }) as any;
 
     if (!userWithCreators) break;
-
-    const plainUser = userWithCreators.get({ plain: true });
-    const creator = plainUser.creators?.[0] || null;
-
+    const creator = userWithCreators.creators?.[0];
     if (!creator) break;
 
-    if (!teamUserIds.includes(creator.id)) {
-      teamUserIds.push(creator.id);
+    // Stop if we find an admin or manager (treating them as root of their team/company)
+    if (["admin", "manager"].includes(creator.role)) {
+      rootId = creator.id;
+      break;
     }
 
-    // Stop if the creator is an admin or super_admin
-    if (["admin", "manager"].includes(creator.role)) {
+    // Stop if we hit a super_admin (we don't want to include platform-wide data)
+    if (creator.role === "super_admin") {
       break;
     }
 
     currentId = creator.id;
+  }
+
+  // 2. Fetch all subordinates DOWN from the rootId (Full hierarchy)
+  let teamUserIds: number[] = [];
+  
+  // Check if root itself is not super_admin
+  const rootUser = await User.findByPk(rootId);
+  if (rootUser && rootUser.role !== "super_admin") {
+    teamUserIds.push(rootId);
+  }
+
+  let queue: number[] = [rootId];
+  let processedIds = new Set<number>([rootId]);
+
+  while (queue.length > 0) {
+    const pid = queue.shift()!;
+    const userWithCreated = await User.findByPk(pid, {
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id", "role"],
+          through: { attributes: [] },
+        },
+      ],
+    }) as any;
+
+    if (userWithCreated?.createdUsers) {
+      for (const child of userWithCreated.createdUsers) {
+        if (!processedIds.has(child.id)) {
+          processedIds.add(child.id);
+          // Only include manager, sale_person, admin etc. but NOT super_admin
+          if (child.role !== "super_admin") {
+            teamUserIds.push(child.id);
+            queue.push(child.id);
+          } else {
+            // Even if we don't include super_admin in results, we might want to crawl their children?
+            // Usually super_admin is the top, so we won't hit them going DOWN anyway.
+          }
+        }
+      }
+    }
   }
 
   return teamUserIds;

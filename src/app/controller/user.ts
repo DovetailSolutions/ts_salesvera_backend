@@ -2866,106 +2866,13 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
     // ==============================
     // 🔼 STEP 1: FIND PARENT & ROOT
     // ==============================
-    let currentId = userData.userId;
-    let rootAdmin: any = null;
-    let parentUser: any = null;
-    let isFirstStep = true;
-
-    while (true) {
-      const userWithCreators = await User.findByPk(currentId, {
-        include: [
-          {
-            model: User,
-            as: "creators",
-            attributes: ["id", "firstName", "lastName", "email", "role"],
-            through: { attributes: [] },
-          },
-        ],
-      }) as any;
-
-      if (!userWithCreators) break;
-
-      const plainUser = userWithCreators.get({ plain: true });
-      const creator = plainUser.creators?.[0] || null;
-
-      if (isFirstStep) {
-        parentUser = creator
-          ? {
-            id: creator.id,
-            firstName: creator.firstName,
-            lastName: creator.lastName,
-            email: creator.email,
-            role: creator.role,
-          }
-          : null;
-        isFirstStep = false;
-      }
-
-      if (!creator) {
-        if (["admin", "manager"].includes(plainUser.role)) {
-          rootAdmin = {
-            id: plainUser.id,
-            firstName: plainUser.firstName,
-            lastName: plainUser.lastName,
-            email: plainUser.email,
-            role: plainUser.role,
-          };
-        }
-        break;
-      }
-
-      if (["admin", "manager"].includes(creator.role)) {
-        rootAdmin = {
-          id: creator.id,
-          firstName: creator.firstName,
-          lastName: creator.lastName,
-          email: creator.email,
-          role: creator.role,
-        };
-        break;
-      }
-
-      currentId = creator.id;
-    }
-  
-    
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",allUserIds);
     // ==============================
-    // 🔽 STEP 2: TEAM USERS
-    // ==============================
-    let teamUserIds: number[] = [userData.userId];
-    let currentParentIds: number[] = [userData.userId];
-
-    while (currentParentIds.length > 0) {
-      const subUsers = await User.findAll({
-        where: { id: { [Op.in]: currentParentIds } },
-        include: [
-          {
-            model: User,
-            as: "createdUsers",
-            attributes: ["id"],
-          },
-        ],
-      });
-
-      let nextLevel: number[] = [];
-
-      subUsers.forEach((u: any) => {
-        (u.createdUsers || []).forEach((child: any) => {
-          if (!teamUserIds.includes(child.id)) {
-            teamUserIds.push(child.id);
-            nextLevel.push(child.id);
-          }
-        });
-      });
-
-      currentParentIds = nextLevel;
-    }
-
-    // ==============================
-    // ✅ STEP 3: FILTERS (FIXED)
+    // ✅ STEP 2: FILTERS
     // ==============================
     const andConditions: any[] = [
-      { userId: rootAdmin ? rootAdmin.id : { [Op.in]: teamUserIds } },
+      { userId: { [Op.in]: allUserIds } },
     ];
 
     // 🔍 Search
