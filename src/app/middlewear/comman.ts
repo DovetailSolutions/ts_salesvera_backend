@@ -786,7 +786,7 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
     }
 
     // Stop if the creator is an admin or super_admin
-    if (["admin", "super_admin"].includes(creator.role)) {
+    if (["admin", "manager"].includes(creator.role)) {
       break;
     }
 
