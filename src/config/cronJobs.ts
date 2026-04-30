@@ -23,10 +23,6 @@ export const startCronJobs = () => {
   cron.schedule(
     "59 23 * * *",
     async () => {
-      console.log(
-        `[CRON] ⏰ Auto punch-out job started at ${new Date().toISOString()}`
-      );
-
       try {
         // Today's date string (yyyy-mm-dd)
         const todayStr = new Date().toISOString().slice(0, 10);
@@ -43,13 +39,9 @@ export const startCronJobs = () => {
         });
 
         if (missed.length === 0) {
-          console.log("[CRON] ✅ No missed punch-outs found. All good!");
           return;
         }
 
-        console.log(
-          `[CRON] 🔍 Found ${missed.length} missed punch-out(s). Processing...`
-        );
 
         // ── Step 2: Auto punch-out each record ──
         let successCount = 0;
@@ -98,9 +90,7 @@ export const startCronJobs = () => {
               status: "out",
             });
 
-            console.log(
-              `[CRON] ✅ Auto punched out → employee_id: ${record.employee_id} | date: ${dateStr} | hours: ${workingHours}h`
-            );
+         
             successCount++;
 
           } catch (recordError) {
@@ -123,9 +113,5 @@ export const startCronJobs = () => {
       // scheduled: true,
       timezone: "Asia/Kolkata", // 11:59 PM IST
     }
-  );
-
-  console.log(
-    "[CRON] 🟢 Scheduled: Auto punch-out cron registered (runs at 11:59 PM IST daily)"
   );
 };

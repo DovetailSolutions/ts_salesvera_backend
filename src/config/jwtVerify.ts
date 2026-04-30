@@ -34,7 +34,7 @@ export const tokenCheck = async (
     }
 
     const token = req.headers.authorization.split(" ")[1];
-    console.log(">>>>>>>>>>>>>>>>>token", token);
+
 
     let decoded: JwtPayload;
     try {
@@ -52,7 +52,7 @@ export const tokenCheck = async (
     }
 
     req.userData = decoded;
-    console.log(">>>>>>>>>>>>>>>>>>>>>", req.userData);
+
     // support both possible token fields
     const rawId = (decoded as any).userId ?? (decoded as any).userId;
     const id = Number(rawId);
