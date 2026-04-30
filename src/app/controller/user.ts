@@ -2557,6 +2557,8 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
 
     const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
 
+    console.log(allUserIds,"allUserIdsdadaaddadad")
+
     // ✅ Dynamic where condition
     const whereCondition: any = {
       userId: {
