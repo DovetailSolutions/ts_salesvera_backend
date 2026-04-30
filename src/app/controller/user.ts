@@ -128,7 +128,16 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     await user.update({ refreshToken });
 
     if (deviceToken) {
-      const existing = await Device.findOne({ where: { deviceToken } });
+      // ✅ Check if this device (token or ID) is already registered
+      const existing = await Device.findOne({
+        where: {
+          [Op.or]: [
+            { deviceToken },
+            ...(deviceId ? [{ deviceId }] : [])
+          ]
+        }
+      });
+
       if (!existing) {
         await Device.create({
           userId: user?.id,
@@ -140,8 +149,10 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
           isActive: true, // ✅ REQUIRED
         });
       } else {
+        // ✅ If it exists (even for another user), transfer it to the current user
         await existing.update({
           userId: user.id,
+          deviceToken, // Update token in case it's new (e.g. after reinstall)
           deviceType,
           devicemodel,
           devicename,
@@ -941,7 +952,8 @@ export const Logout = async (req: Request, res: Response): Promise<void> => {
   try {
     const { deviceId } = req.body;
     if (!deviceId) {
-      badRequest(res, "device token is missing");
+      badRequest(res, "device ID is missing");
+      return;
     }
     await Device.destroy({ where: { deviceId } });
     createSuccess(res, "logout sussfully");
