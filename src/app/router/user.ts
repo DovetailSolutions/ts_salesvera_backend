@@ -41,7 +41,7 @@ router.get("/leave-list", tokenCheck, Controller.LeaveList);
 router.post(
   "/expense",
   tokenCheck,
-  expense.array("billImage"),
+  expense.any(),
   Controller.CreateExpense
 );
 router.get("/getexpense",tokenCheck,Controller.GetExpense);

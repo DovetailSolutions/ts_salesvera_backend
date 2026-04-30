@@ -1660,7 +1660,7 @@ export const CreateExpense = async (req: Request, res: Response) => {
       throw new Error("Expenses must be an array");
     }
 
-    const files = req.files as Express.Multer.File[];
+    const files = req.files as Express.MulterS3.File[];
 
     const imageMap: Record<number, string[]> = {};
 
@@ -1675,7 +1675,7 @@ export const CreateExpense = async (req: Request, res: Response) => {
             imageMap[index] = [];
           }
 
-          imageMap[index].push(file.originalname);
+          imageMap[index].push(file.location);
         }
       });
     }
