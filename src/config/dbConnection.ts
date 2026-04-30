@@ -340,7 +340,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
             "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
           );
         `);
-        console.log(`✅ Ensured table exists: shifts`);
+        
       } catch (err) {
         console.error(`❌ Error creating table shifts:`, err);
       }
@@ -353,7 +353,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
           ALTER TABLE "${config.tableName}" 
           ADD COLUMN IF NOT EXISTS "${column.name}" ${column.type};
         `);
-        console.log(`✅ Checked/Added ${column.name} to table: ${config.tableName}`);
+      
       } catch (err) {
         console.error(`❌ Error checking/adding ${column.name} to ${config.tableName}:`, err);
       }
@@ -371,7 +371,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
   for (const item of constraintsToDrop) {
     try {
       await sequelize.query(`ALTER TABLE "${item.table}" DROP CONSTRAINT IF EXISTS "${item.constraint}";`);
-      console.log(`✅ Dropped unique constraint ${item.constraint} from ${item.table}`);
+
     } catch (err) {
       // Ignore if doesn't exist
     }
@@ -397,7 +397,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: company_banks`);
+    
   } catch (err) {
     console.error(`❌ Error creating table company_banks:`, err);
   }
@@ -421,7 +421,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: invoices`);
+
   } catch (err) {
     console.error(`❌ Error creating table invoices:`, err);
   }
@@ -442,7 +442,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: notifications`);
+
   } catch (err) {
     console.error(`❌ Error creating table notifications:`, err);
   }
@@ -463,7 +463,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: record_sales`);
+
   } catch (err) {
     console.error(`❌ Error creating table record_sales:`, err);
   }
@@ -487,7 +487,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: repost`);
+
   } catch (err) {
     console.error(`❌ Error creating table repost:`, err);
   }
@@ -524,7 +524,7 @@ const fixConstraints = async (sequelize: Sequelize) => {
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
 
-    console.log("✅ Fixed all meeting-related database constraints");
+    
   } catch (err) {
     console.error("❌ Error fixing constraints:", err);
   }
@@ -555,7 +555,7 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
           WHERE "companyId" IS NOT NULL 
           AND "companyId" NOT IN (SELECT "id" FROM "companies");
         `);
-        console.log(`✅ Ensured data integrity (companyId) for table: ${table}`);
+        
       }
 
       // 2️⃣ Handle Invoices specific data integrity (status ENUM conversion)
@@ -577,7 +577,7 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
               WHERE "status" IS NULL 
               OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected');
             `);
-            console.log(`✅ Sanitized Invoice status values for ENUM conversion`);
+           
           }
         }
       }
@@ -592,7 +592,7 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
 
 export const connectDB = async () => {
   try {
-    console.log("✅ Database connection established successfully");
+   
 
     // 1️⃣ Run manual migration for specific missing columns
     await ensureColumns(sequelize);

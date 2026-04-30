@@ -2135,7 +2135,7 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       return;
     }
 
-    console.log("userData", userData);
+
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
@@ -3750,7 +3750,7 @@ export const addHoliday = async (req: Request, res: Response) => {
     }
 
     // ================= DEBUG (optional) =================
-    // console.log(JSON.stringify(holidayData, null, 2));
+
 
     // ================= BULK CREATE =================
 
@@ -4013,7 +4013,7 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
       currentParentIds = nextLevelParentIds;
     }
 
-    console.log("Final Team User IDs (Recursive):", teamUserIds);
+
 
     // ✅ Base where condition for Quotations
     // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
@@ -4094,7 +4094,7 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
     const {id} = req.params;
     const {status} = req.body||{};
 
-    console.log("id",id,"status",status);
+
     if(!id){
       badRequest(res, "Quotation id is required");
       return;
@@ -4119,7 +4119,7 @@ export const addLeave = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
 
-    console.log("userData",userData);
+
 
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
@@ -4949,7 +4949,7 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     const userData = req.userData as JwtPayload;
 
 
-    console.log("userDatagetInvoice",userData);
+
 
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
@@ -5002,7 +5002,7 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       currentParentIds = nextLevelParentIds;
     }
 
-    console.log("Final Team User IDs (Recursive):", teamUserIds);
+    
 
     // ✅ FIX: Use ONLY ONE whereCondition
     let whereCondition: any = {
@@ -5443,11 +5443,11 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
 
     const payload = req.body;
 
-    console.log(">>>>>>>>>>>>>>>payload",payload)
+
 
     // ✅ FIXED NORMALIZATION
     let reports: any[] = [];
-    
+
 
     if (Array.isArray(payload)) {
       reports = payload;
@@ -5507,6 +5507,7 @@ export const addReport = async (req: Request, res: Response): Promise<void> => {
     const conditions = reports.map((item) => ({
       referenceNo: item.referenceNo,
       date: item.date,
+
     }));
 
     const existingReports = await Report.findAll({

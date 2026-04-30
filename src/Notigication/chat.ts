@@ -120,8 +120,8 @@ export const initChatSocket = (io: Server) => {
     }
   });
 
-  io.on("connection",async (socket) => {
-    console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
+  io.on("connection", async (socket) => {
+
 
     const userId = Number(socket.data.user.userId); // ✅ Cast to number
     const userRole = socket.data.user.role;
@@ -129,15 +129,12 @@ export const initChatSocket = (io: Server) => {
     // 📡 Register this user's socket for targeted notifications
     setUserSocket(userId, socket.id);
 
-    console.log(">>>>>>>>>>>>>>userId",userId)
-    console.log(">>>>>>>>>>>>>>userRole",userRole)
-
 
     await User.update({ onlineSatus: "online" }, { where: { id: userId } });
 
     // 📡 Broadcast this user's online status to ALL connected clients
     io.emit("userStatusChange", { userId, onlineSatus: "online" });
-    
+
     // --------------------------------------------------------
     // 🟦 JOIN ROOM
     // --------------------------------------------------------
@@ -155,7 +152,7 @@ export const initChatSocket = (io: Server) => {
               type,
             });
 
-            console.log("New room created:", newRoomId);
+
           }
 
           // Use DB primary key for relations (VERY IMPORTANT)
@@ -192,7 +189,6 @@ export const initChatSocket = (io: Server) => {
             type: room.type,
           });
 
-          console.log(`User ${userId} joined room ${room.roomId}`);
         } catch (error) {
           console.error("Join room error:", error);
           socket.emit("errorMessage", { error: "Unable to join room" });
@@ -204,8 +200,6 @@ export const initChatSocket = (io: Server) => {
     // 🟦 SEND MESSAGE
     // --------------------------------------------------------
     socket.on("sendMessage", async ({ roomId, message }) => {
-      console.log(`📩 Incoming sendMessage from User ${userId} in Room ${roomId}: "${message}"`);
-
       try {
         const room = await ChatRoom.findOne({ where: { roomId } });
 
@@ -294,14 +288,13 @@ export const initChatSocket = (io: Server) => {
         );
 
         if (!updated) {
-          console.log("Message not found");
         }
 
-        io.to(msg.roomId).emit("seenMessage", { 
-          success: true, 
+        io.to(msg.roomId).emit("seenMessage", {
+          success: true,
           data: updated,
           msg_id: msg.msg_id,
-          seenBy: userId 
+          seenBy: userId
         });
       } catch (err) {
         console.error("Seen message error:", err);
@@ -322,8 +315,6 @@ export const initChatSocket = (io: Server) => {
 
         if (deletedMessage) {
           io.emit("Deleted", { id: data.id });
-        } else {
-          console.log("Message not found or already deleted");
         }
       } catch (error) {
         console.error("Error deleting message:", error);
@@ -445,10 +436,10 @@ export const initChatSocket = (io: Server) => {
         // Attach a flat unreadCount mathematically
         const usersWithUnreadCounts = result.rows.map((user: any) => {
           const userObj = user.get({ plain: true });
-          
+
           // The included Messages array contains only "unseen" messages from this user
           const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
-          
+
           return {
             ...userObj,
             unreadCount
@@ -470,13 +461,13 @@ export const initChatSocket = (io: Server) => {
     });
 
 
-        // --------------------------------------------------------
+    // --------------------------------------------------------
     // 🟦 CREATE GROUP
     // --------------------------------------------------------
     socket.on("createGroup", async ({ members = [], name = "New Group" }) => {
       try {
 
-        console.log(">>>>>>>>>>>>>>>members",members)
+
         if (!members || members.length === 0) {
           return socket.emit("createGroup", { error: "Group members are required" });
         }
@@ -518,7 +509,6 @@ export const initChatSocket = (io: Server) => {
           members: [userId, ...members],
         });
 
-        console.log(`User ${userId} created group ${room.roomId}`);
       } catch (error) {
         console.error("Create group error:", error);
         socket.emit("errorMessage", { error: "Unable to create group chat" });
@@ -564,9 +554,7 @@ export const initChatSocket = (io: Server) => {
           addedBy: userId
         });
 
-        // console.log(`User ${userId} added members ${newMembers} to group ${roomId}`);
       } catch (error) {
-        // console.error("Add members error:", error);
         socket.emit("addGroupMembers", { error: "Unable to add members to group." });
       }
     });
@@ -605,12 +593,10 @@ export const initChatSocket = (io: Server) => {
             removedMember: memberIdToRemove,
             removedBy: userId
           });
-          // console.log(`User ${userId} removed member ${memberIdToRemove} from group ${roomId}`);
         } else {
-           socket.emit("leaveGroup", { error: "Member not found in group." });
+          socket.emit("leaveGroup", { error: "Member not found in group." });
         }
       } catch (error) {
-        // console.error("Remove member error:", error);
         socket.emit("leaveGroup", { error: "Unable to remove member from group." });
       }
     });
@@ -639,11 +625,11 @@ export const initChatSocket = (io: Server) => {
             roomId,
             leftMember: userId
           });
-          
+
           socket.emit("leaveGroup", { roomId });
-          // console.log(`User ${userId} left group ${roomId}`);
+
         } else {
-           socket.emit("leaveGroup", { error: "You are not a member of this group." });
+          socket.emit("leaveGroup", { error: "You are not a member of this group." });
         }
       } catch (error) {
         socket.emit("leaveGroup", { error: "Unable to leave group." });
@@ -694,10 +680,10 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     // 🟦 GET MY GROUPS
     // --------------------------------------------------------
-    socket.on("getMyGroups", async ({ page = 1, limit = 10, search = "" } : any = {}) => {
+    socket.on("getMyGroups", async ({ page = 1, limit = 10, search = "" }: any = {}) => {
       try {
         const offset = (page - 1) * limit;
-        
+
         // 1. Find all ChatRoom IDs that the user is a participant of
         const userParticipations = await ChatParticipant.findAll({
           where: { userId },
@@ -705,7 +691,7 @@ export const initChatSocket = (io: Server) => {
         });
         const chatRoomIds = userParticipations.map(p => p.chatRoomId);
         if (chatRoomIds.length === 0) {
-           return socket.emit("getMyGroups", {
+          return socket.emit("getMyGroups", {
             success: true,
             total: 0,
             totalPages: 0,
@@ -717,9 +703,9 @@ export const initChatSocket = (io: Server) => {
         // 2. Fetch those ChatRoom details, filtering by type="group"
         const result = await ChatRoom.findAndCountAll({
           where: {
-             id: { [Op.in]: chatRoomIds },
-             type: "group",
-             ...(search && { groupName: { [Op.iLike]: `%${search}%` } }), // ← Search by group name
+            id: { [Op.in]: chatRoomIds },
+            type: "group",
+            ...(search && { groupName: { [Op.iLike]: `%${search}%` } }), // ← Search by group name
           },
           offset,
           limit,
@@ -792,7 +778,6 @@ export const initChatSocket = (io: Server) => {
           updatedBy: userId
         });
 
-        console.log(`User ${userId} updated group ${roomId} name to "${room.groupName}"`);
       } catch (error) {
         console.error("Update group name error:", error);
         socket.emit("updateGroupName", { error: "Unable to update group name." });
@@ -837,7 +822,6 @@ export const initChatSocket = (io: Server) => {
         // Force all sockets to leave the room
         io.in(roomId).socketsLeave(roomId);
 
-        console.log(`User ${userId} deleted group ${roomId}`);
       } catch (error) {
         console.error("Delete group error:", error);
         socket.emit("deleteGroup", { error: "Unable to delete group." });
@@ -851,7 +835,7 @@ export const initChatSocket = (io: Server) => {
       io.emit("userStatusChange", { userId, onlineSatus: "offline" });
       // Clean up notification socket map
       removeUserSocket(userId);
-      console.log("Disconnected:", socket.id);
+
     });
   });
 };

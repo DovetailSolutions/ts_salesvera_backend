@@ -56,8 +56,7 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
   } = payload;
   const receiverId = Number(payload.receiverId); // ✅ Extra safety cast
 
-  console.log("--------------------------------------------------");
-  console.log("🔔 sendNotification triggered with payload:", JSON.stringify(payload, null, 2));
+
 
   try {
     // 1️⃣ Persist to DB
@@ -70,12 +69,11 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
       data,
       isRead: false,
     });
-    console.log("✅ Notification saved to DB with ID:", notification.id);
+
 
     // 2️⃣ Real-time delivery via socket.io (Socket only)
     if (_io) {
       const receiverSocketId = userSocketMap.get(receiverId);
-      console.log(`🔍 Checking socket map for receiverId ${receiverId}:`, receiverSocketId || "NOT_FOUND");
 
       if (receiverSocketId) {
         // Receiver is online → send directly to their socket
@@ -90,13 +88,8 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
           isRead: false,
           createdAt: notification.createdAt,
         };
-        
-        console.log(`📡 Emitting 'notification' event to socket ${receiverSocketId}`);
-        _io.to(receiverSocketId).emit("notification", eventPayload);
-        console.log(`🚀 Socket event emitted successfully.`);
-      } else {
-        console.log(`📭 User ${receiverId} is offline for socket delivery.`);
-      }
+      
+      } 
     }
 
     // 3️⃣ Real-time delivery via Firebase (Push Notification)
@@ -109,9 +102,6 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
         const tokens = devices.map(d => d.deviceToken).filter(t => !!t);
         
         if (tokens.length > 0) {
-          console.log(`📱 Sending Firebase Push to ${tokens.length} tokens for user ${receiverId}`);
-          
-          // Flatten data for Firebase (must be strings)
           const firebaseData: Record<string, string> = {};
           Object.entries(data).forEach(([key, value]) => {
             firebaseData[key] = String(value);
@@ -126,16 +116,14 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
             data: firebaseData,
           });
         }
-      } else {
-        console.log(`📵 No registered devices found for user ${receiverId}. Skipping push.`);
-      }
+      } 
     } catch (pushError) {
       console.error("⚠️ Push Notification failed but continuing:", pushError);
     }
 
-    console.log("--------------------------------------------------");
+   
   } catch (error) {
     console.error("❌ sendNotification error:", error);
-    console.log("--------------------------------------------------");
+    
   }
 };

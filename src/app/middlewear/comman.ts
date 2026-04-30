@@ -133,7 +133,6 @@ export const CreateData = async <T extends Model>(
   data: CreationAttributes<T>
 ): Promise<T> => {
   try {
-    console.log("Creating data with:", JSON.stringify(data, null, 2));
     return await model.create(data);
   } catch (error) {
     console.error("Error in CreateData:", error);
@@ -257,7 +256,7 @@ export const getAllList3 = async (
       order: [["createdAt", "DESC"]],
     });
 
-    console.log(rows.length)
+
     let count  = rows.length
 
     return {
@@ -305,7 +304,7 @@ export const getAllList2 = async (
        distinct: true, // ✅ ensures unique lead IDs in count
     });
     let count = result.count
-    // console.log(">>>>>>>>>>>>>>>>>>count",count)
+
     return {
       data: result.rows,
       pagination: {
@@ -540,108 +539,6 @@ export const findOneByCondition = async (
     throw error;
   }
 };
-
-// export const getCategory = async (
-//   Model: any,
-//   data: { page?: number; limit?: number; search?: string; category_id?: number },
-//   id = "",
-//   login = ""
-// ): Promise<{
-//   rows: any[];
-//   pagination: {
-//     totalItems: number;
-//     currentPage: number;
-//     totalPages: number;
-//     limit: number;
-//   };
-// }> => {
-//   try {
-//     const { page = 1, limit = 10, search = "", category_id } = data;
-
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-
-//     console.log(">>>>>>>>>>>>>>>>>> login:", login);
-
-//     // -------------------------
-//     // MAIN WHERE
-//     // -------------------------
-//     const where: any = {};
-
-//     if (search) {
-//       where.name = { [Op.iLike]: `%${search}%` };
-//     }
-
-//     if (id) {
-//       where.user_id = id;
-//     }
-
-//     // 🔥 FIXED: OR condition for admin/manager
-//     if (login) {
-//       where[Op.or] = [
-//         { adminId: login },
-//         { managerId: login }
-//       ];
-//     }
-
-//     // -------------------------
-//     // INCLUDE CATEGORY FILTER
-//     // -------------------------
-//     const include: any[] = [];
-
-//     if (category_id) {
-//       include.push({
-//         model: Category,
-//         as: "categories",
-//         where: {
-//           id: Number(category_id),
-//           [Op.or]: [
-//             { adminId: login },
-//             { managerId: login }
-//           ]
-//         },
-//         through: { attributes: [] },
-//       });
-//     }
-
-//     // -------------------------
-//     // COUNT
-//     // -------------------------
-//     const totalItems = await Model.count({
-//       where,
-//       include: include.length ? include : undefined,
-//       distinct: true,
-//     });
-
-//     // -------------------------
-//     // FETCH ROWS
-//     // -------------------------
-//     const rows = await Model.findAll({
-//       where,
-//       include: include.length ? include : undefined,
-//       limit: limitNum,
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-
-//     return {
-//       rows,
-//       pagination: {
-//         totalItems,
-//         currentPage: pageNum,
-//         totalPages: Math.ceil(totalItems / limitNum),
-//         limit: limitNum,
-//       },
-//     };
-//   } catch (error) {
-//     throw error;
-//   }
-// };
-
-
-
-// import { Op } from "sequelize";
 
 
 export const getCategory = async (

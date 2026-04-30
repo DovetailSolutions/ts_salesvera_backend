@@ -75,7 +75,7 @@ Support Team
       `,
     });
 
-    console.log("✅ Mail sent:", response.messageId);
+   
     return response;
   } catch (error) {
     console.error("❌ Mail error:", error);
@@ -137,8 +137,6 @@ export const sendMultipleMail = async (companies: any[]) => {
       subject: "Companies with Low Leads (≤ 5)",
       html: htmlMessage,
     });
-
-    console.log("✅ Email sent successfully:", response.messageId);
   } catch (error) {
     console.error("❌ Error sending email:", error);
   }
@@ -184,7 +182,7 @@ export const forgotpassword = async (
       `,
     });
 
-    console.log("✅ OTP sent to:", email);
+
     return response;
   } catch (error) {
     console.error("❌ OTP error:", error);

@@ -109,8 +109,6 @@ registerIo(io);
 
 // Listen for socket connections
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-
   // Track userId → socketId for targeted notifications
   const rawUserId = socket.data?.user?.userId;
   if (rawUserId) {

@@ -393,80 +393,6 @@ export const MySalePerson = async (
 
 
 
-// export const getLastMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-
-//     console.log("finalUserId", finalUserId);
-
-//     const { page = 1, limit = 10, search } = req.query as any;
-
-//     const offset = (Number(page) - 1) * Number(limit);
-
-//     const whereCondition: any = {
-//       userId: finalUserId
-//     };
-
-//     // Client/MeetingUser search logic
-//     if (search) {
-//       whereCondition[Op.or] = [
-//         {
-//           name: {
-//             [Op.iLike]: `${search}%`, // ✅ case-insensitive
-//           },
-//         },
-//       ];
-//     }
-//     const companyWhereCondition: any = {};
-//     const meetingWhereCondition: any = { userId: finalUserId };
-
-//     const { rows, count } = await MeetingUser.findAndCountAll({
-//       where: Object.keys(whereCondition).length ? whereCondition : undefined,
-//       limit: Number(limit),
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//       include: [
-//         {
-//           model: MeetingCompany, // Include their associated companies
-//           required: false,
-//           include: [
-//             {
-//               model: Meeting,
-//               where: meetingWhereCondition, // Only fetch meetings that belong to the logged-in employee
-//               required: false,
-//               include: [
-//                 {
-//                   model: MeetingImage
-//                 }
-//               ]
-//             }
-//           ]
-//         }
-//       ],
-//       distinct: true,
-//     });
-
-//     res.status(200).json({
-//       success: true,
-//       data: rows,
-//       pagination: {
-//         page: Number(page),
-//         limit: Number(limit),
-//         totalRecords: count,
-//         totalPages: Math.ceil(count / Number(limit)),
-//       },
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-
 export const getLastMeeting = async (
   req: Request,
   res: Response
@@ -488,7 +414,7 @@ export const getLastMeeting = async (
 
     const allUserIds = await Middleware.getAllSubordinateIds(Number(finalUserId));
 
-    console.log("allUserIds", allUserIds);
+
 
     // ✅ Root filter (ONLY this controls main records)
     const whereCondition: any = {
@@ -511,7 +437,7 @@ export const getLastMeeting = async (
       limit: pageLimit,
       offset,
       order: [["createdAt", "DESC"]],
-      
+
       include: [
         {
           model: MeetingCompany,
@@ -558,8 +484,6 @@ export const CreateMeeting = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-
-  console.log("req.body create meeting ");
   const transaction = await sequelize.transaction();
 
   try {
@@ -602,12 +526,6 @@ export const CreateMeeting = async (
       remarks,
       pincode,
     } = req.body || {};
-
-
-
-    console.log("req.body create meeting ", req.body);
-
-
     // Trim all string inputs to avoid trailing space errors in enums
     if (typeof customerType === "string") customerType = customerType.trim();
     if (typeof meetingPurpose === "string") meetingPurpose = meetingPurpose.trim();
@@ -684,11 +602,6 @@ export const CreateMeeting = async (
     /** --------------------------
      * 2️⃣ Check Active Meeting
      * -------------------------- */
-
-
-
-    console.log("finalUserId", finalUserId)
-    console.log("meetingContactUser", meetingContactUser)
     const activeMeeting = await Meeting.findOne({
       where: {
         userId: finalUserId,
@@ -927,252 +840,6 @@ export const EndMeeting = async (
     badRequest(res, errorMessage);
   }
 };
-
-
-
-// export const EndMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
-
-//     if (!meetingId) {
-//       badRequest(res, "meetingId is required");
-//       return;
-//     }
-
-//     if (!latitude_out || !longitude_out) {
-//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
-//       return;
-//     }
-
-//     /** ✅ Check meeting exist for this user & active */
-//     const isExist = await Meeting.findOne({
-//       where: {
-//         id: meetingId,
-//         userId: finalUserId,
-//         status: "in",
-//       },
-//     });
-
-//     if (!isExist) {
-//       badRequest(res, "No active meeting found with this meetingId");
-//       return;
-//     }
-//     // Since remarks is on the meeting_companies table (not Meetings), we need to update it there
-//     if (remarks) {
-//       const company = await MeetingCompany.findByPk(isExist.companyId);
-//       if (company) {
-//         await company.update({ remarks });
-//       }
-//     }
-//     // /** ✅ Update meeting */
-//     isExist.status = "out"; // Use 'out' as per schema instead of 'completed'
-//     isExist.latitude_out = latitude_out;
-//     isExist.longitude_out = longitude_out;
-//     isExist.meetingTimeOut = new Date();
-//     await isExist.save();
-
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0, 0, 0, 0);
-
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23, 59, 59, 999);
-
-//     const attendance = await Attendance.findOne({
-//       where: {
-//         employee_id: finalUserId,
-//         date: {
-//           [Op.between]: [startOfDay, endOfDay],
-//         },
-//       },
-//       attributes:["id","latitude_in","longitude_in"]
-//     });
-
-//     // console.log("attendance",attendance)
-
-//     const item = await Meeting.findAll({  
-//       where: {
-//         userId: finalUserId,
-//         // status: "in",
-//         createdAt: {
-//           [Op.between]: [startOfDay, endOfDay],
-//         },
-//       },
-//       attributes:["id","latitude_out","longitude_out"]
-//     });
-
-//   if (!item.length) {
-//      createSuccess(res, "Meeting ended successfully", []);
-//   }
-
-//       let totalDistance = 0;
-
-//     for (let i = 1; i < item.length; i++) {
-//       const prev = item[i - 1];
-//       const curr = item[i];
-
-//       const lat1 = parseFloat(prev.latitude_out);
-//       const lon1 = parseFloat(prev.longitude_out);
-//       const lat2 = parseFloat(curr.latitude_out);
-//       const lon2 = parseFloat(curr.longitude_out);
-
-//       // skip invalid data
-//       if (!lat1 || !lon1 || !lat2 || !lon2) continue;
-
-//       const distance = getDistance(lat1, lon1, lat2, lon2);
-//       totalDistance += distance;
-//     }
-//     isExist.totalDistance = totalDistance.toString();
-//     await isExist.save();
-//     createSuccess(res, "Meeting ended successfully", item);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-// export const EndMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
-
-//     if (!meetingId) {
-//       badRequest(res, "meetingId is required");
-//       return;
-//     }
-
-//     if (!latitude_out || !longitude_out) {
-//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
-//       return;
-//     }
-
-//     /** ✅ Check meeting exist for this user & active */
-//     const isExist = await Meeting.findOne({
-//       where: {
-//         id: meetingId,
-//         userId: finalUserId,
-//         status: "in",
-//       },
-//     });
-
-//     if (!isExist) {
-//       badRequest(res, "No active meeting found with this meetingId");
-//       return;
-//     }
-
-//     // Update remarks on meeting_companies table
-//     if (remarks) {
-//       const company = await MeetingCompany.findByPk(isExist.companyId);
-//       if (company) {
-//         await company.update({ remarks });
-//       }
-//     }
-
-//     // ✅ Update current meeting as ended
-//     isExist.status = "out";
-//     isExist.latitude_out = latitude_out;
-//     isExist.longitude_out = longitude_out;
-//     isExist.meetingTimeOut = new Date();
-//     await isExist.save();
-
-//     // ✅ Day range
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0, 0, 0, 0);
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23, 59, 59, 999);
-
-//     // ✅ Fetch today's attendance (starting point)
-//     const attendance = await Attendance.findOne({
-//       where: {
-//         employee_id: finalUserId,
-//         date: { [Op.between]: [startOfDay, endOfDay] },
-//       },
-//       attributes: ["id", "latitude_in", "longitude_in"],
-//     });
-
-//     // ✅ Fetch ALL completed meetings today, ordered by time
-//     //    Use findAll (not findOne) so we get an array
-//     const todayMeetings = await Meeting.findAll({
-//       where: {
-//         userId: finalUserId,
-//         status: "out", // only completed meetings have latitude_out
-//         meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
-//       },
-//       attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut"],
-//       order: [["meetingTimeOut", "ASC"]], // sort chronologically
-//     });
-
-//     if (!todayMeetings.length) {
-//       createSuccess(res, "Meeting ended successfully", []);
-//       return; // ✅ was missing return — code would continue after this
-//     }
-
-//     let totalDistance = 0;
-
-//     /**
-//      * Distance chain:
-//      *
-//      *  Attendance (check-in location)
-//      *       ↓
-//      *   Meeting 1 (latitude_out / longitude_out)
-//      *       ↓
-//      *   Meeting 2 (latitude_out / longitude_out)
-//      *       ↓
-//      *   Meeting N ...
-//      *
-//      * If attendance exists → first leg is attendance → meeting1
-//      * Otherwise           → first leg is meeting1 → meeting2
-//      */
-//     if (attendance && attendance.latitude_in && attendance.longitude_in) {
-//       // Leg 0: attendance check-in → first meeting end point
-//       const lat1 = parseFloat(attendance.latitude_in);
-//       const lon1 = parseFloat(attendance.longitude_in);
-//       const lat2 = parseFloat(todayMeetings[0].latitude_out);
-//       const lon2 = parseFloat(todayMeetings[0].longitude_out);
-
-//       if (lat1 && lon1 && lat2 && lon2) {
-//         totalDistance += getDistance(lat1, lon1, lat2, lon2);
-//       }
-//     }
-
-//     // Legs between consecutive meetings: meeting[i-1] → meeting[i]
-//     for (let i = 1; i < todayMeetings.length; i++) {
-//       const prev = todayMeetings[i - 1];
-//       const curr = todayMeetings[i];
-
-//       const lat1 = parseFloat(prev.latitude_out);
-//       const lon1 = parseFloat(prev.longitude_out);
-//       const lat2 = parseFloat(curr.latitude_out);
-//       const lon2 = parseFloat(curr.longitude_out);
-
-//       if (!lat1 || !lon1 || !lat2 || !lon2) continue; // skip invalid GPS
-
-//       totalDistance += getDistance(lat1, lon1, lat2, lon2);
-//     }
-
-//     // ✅ Save total distance on the meeting that was just ended
-//     isExist.totalDistance = totalDistance.toFixed(2).toString(); // e.g. "12.34"
-//     await isExist.save();
-
-//     createSuccess(res, "Meeting ended successfully", todayMeetings);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-
-
-
-
 export const GetMeetingList = async (
   req: Request,
   res: Response
@@ -1593,60 +1260,9 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
 };
 
 
-// export const CreateExpense = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-
-//     if (!finalUserId) {
-//       badRequest(res, "Invalid user");
-//       return;
-//     }
-
-//     const { title, total_amount, date, category, amount, description, location } = req.body ?? {};
-
-//     // Keep title as required for backward compatibility, or you can adjust this
-//     if (!title && !description) {
-//       badRequest(res, "Title or Description is required");
-//       return;
-//     }
-
-//     const payload: any = {
-//       userId: finalUserId,
-//       title: title || description,
-//       total_amount: total_amount || amount,
-//       date,
-//       category,
-//       amount: amount || total_amount,
-//       description: description || title,
-//       location
-//     };
-
-//     // ✅ files from multer (S3 upload)
-//     const files = req.files as Express.MulterS3.File[];
-//     if (Array.isArray(files) && files.length > 0) {
-//       payload.billImage = files.map((file) => file.location);
-//     }
-
-//     // ✅ Create entry
-//     const created = await Expense.create(payload);
-
-//     createSuccess(res, "Expense added successfully", created);
-//   } catch (error) {
-//     console.error("Error in CreateExpense:", error);
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//     return;
-//   }
-// };
 
 export const CreateExpense = async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-
   try {
     const userId = (req as any).userData?.userId;
 
@@ -1876,160 +1492,6 @@ export const UpdatePassword = async (
   }
 };
 
-// export const getQuotation = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     // const userData = req.userData as JwtPayload;
-
-//     // if (!userData || !userData.userId) {
-//     //   badRequest(res, "Unauthorized request");
-//     //   return;
-//     // }
-
-//     const { page = 1, limit = 10 } = req.query;
-//     const pageNumber = Number(page);
-//     const pageSize = Number(limit);
-//     const offset = (pageNumber - 1) * pageSize;
-//     const { count, rows } = await Quotation.findAndCountAll({
-//       where: {
-//         // userId: userData.userId
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit: pageSize,
-//       offset: offset
-//     });
-
-//     createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page: pageNumber,
-//       totalPages: Math.ceil(count / pageSize),
-//       data: rows
-//     });
-
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-
-//     badRequest(res, errorMessage, error);
-//   }
-// };
-
-// export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//       const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const data = req.body;
-//     // ✅ Helper: read local file → base64 data URI (works with Puppeteer setContent)
-//     const toBase64 = (filePath: string): string => {
-//       try {
-//         if (fs.existsSync(filePath)) {
-//           const ext = filePath.split(".").pop()?.toLowerCase();
-//           const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
-//           const buf = fs.readFileSync(filePath);
-//           return `data:${mime};base64,${buf.toString("base64")}`;
-//         }
-//       } catch (_) {}
-//       return "";
-//     };
-//     const logo      = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
-//     const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
-//     const stamp     = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
-
-//     // ✅ Calculations
-//     const subtotal = data.items.reduce((sum: number, item: any) => {
-//       return sum + Number(item.amount || 0);
-//     }, 0);
-
-//     const discount = Number(data.discount || 0);
-//     const taxableAmount = subtotal - discount;
-
-//     const gstAmount = (taxableAmount * Number(data.gstRate || 0)) / 100;
-//     const finalAmount = taxableAmount + gstAmount;
-
-//     // ✅ Render EJS
-//     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
-
-//     const html = await ejs.renderFile(filePath, {
-//       ...data,
-//       logo,
-//       signature,
-//       stamp,
-//       subtotal,
-//       discount,
-//       taxableAmount,
-//       gstAmount,
-//       finalAmount
-//     });
-
-//     // ✅ SAVE TO DB HERE
-// await Quotations.create({
-//   userId: Number(userData?.userId),
-//   companyId: data.companyId || 0,
-//   quotation: data,
-//   status: "draft"
-// });
-//     // ✅ Puppeteer
-//     const browser = await puppeteer.launch({
-//       args: ["--no-sandbox", "--disable-setuid-sandbox"]
-//     });
-
-//     const page = await browser.newPage();
-//     await page.setContent(html as string, { waitUntil: "load" });
-
-//     const pdfBuffer = await page.pdf({
-//       format: "a4",
-//       printBackground: true,
-//       margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
-//     });
-
-//     await browser.close();
-
-//     res.set({
-//       "Content-Type": "application/pdf",
-//       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
-//     });
-
-//     res.send(pdfBuffer);
-
-//   } catch (error) {
-//     res.status(400).json({ error: "Something went wrong" });
-//   }
-// };
-
-// export const getQuotationPdfList = async(req:Request,res:Response)=>{
-//   try{
-//     const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 10;
-//     const offset = (page - 1) * limit;
-//     const ownstate = req.query.ownstate;
-//     const clientState = req.query.clientState;
-//     const { count, rows } = await Quotations.findAndCountAll({
-//       where: {
-//         userId: userData.userId
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit: limit,
-//       offset: offset
-//     });
-//     createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page: page,
-//       totalPages: Math.ceil(count / limit),
-//       data: rows
-//     });
-//   }catch(error){
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage, error);
-//   }
-// }
 
 // ✅ Generates a serial 10-digit quotation number (e.g. 0000000001)
 const generateQuotationNumber = (): string => {
@@ -2294,88 +1756,6 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
 
 
 
-
-
-// export const getQuotationPdfList = async (req: Request, res: Response) => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-
-//     if (!userData || !userData.userId) {
-//       return badRequest(res, "Unauthorized request");
-//     }
-
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 10;
-//     const offset = (page - 1) * limit;
-
-//     const ownstate = String(req.query.ownstate || "").toLowerCase();
-//     const clientState = String(req.query.clientState || "").toLowerCase();
-
-//     // if (!ownstate || !clientState) {
-//     //   return badRequest(res, "ownstate and clientState are required");
-//     // }
-
-//     const { count, rows } = await Quotations.findAndCountAll({
-//       where: {
-//         userId: userData.userId,
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit,
-//       offset,
-//     });
-
-//     const updatedRows = rows.map((item: any) => {
-//       const data = item.toJSON();
-//       const quotation = data.quotation;
-
-//       // ✅ Calculate total amount
-//       const totalAmount =
-//         quotation?.items?.reduce(
-//           (sum: number, i: any) => sum + Number(i.amount || 0),
-//           0
-//         ) || 0;
-
-//       const gstRate = Number(quotation?.gstRate || 0);
-//       const totalGST = (totalAmount * gstRate) / 100;
-
-//       let cgst = 0;
-//       let sgst = 0;
-//       let igst = 0;
-
-//       // ✅ GST Logic (India)
-//       if (ownstate === clientState) {
-//         cgst = totalGST / 2;
-//         sgst = totalGST / 2;
-//       } else {
-//         igst = totalGST;
-//       }
-
-//       return {
-//         ...data,
-//         gstDetails: {
-//           totalAmount,
-//           gstRate,
-//           cgst,
-//           sgst,
-//           igst,
-//           totalGST,
-//           totalWithGST: totalAmount + totalGST,
-//         },
-//       };
-//     });
-
-//     return createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page,
-//       totalPages: Math.ceil(count / limit),
-//       data: updatedRows,
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     return badRequest(res, errorMessage, error);
-//   }
-// };
 
 
 
@@ -2647,8 +2027,6 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
   try {
     const { id } = req.params;
     const { status } = req.body || {};
-
-    console.log("id", id, "status", status);
     if (!id) {
       badRequest(res, "Quotation id is required");
       return;
@@ -3681,9 +3059,9 @@ export const createClient = async (
 ): Promise<void> => {
   try {
     const { userId } = req.userData as JwtPayload;
-    const { 
-      name, email, mobile, companyName, panNumber, status, 
-      state, customerType, city, pincode, country, address, gstNumber 
+    const {
+      name, email, mobile, companyName, panNumber, status,
+      state, customerType, city, pincode, country, address, gstNumber
     } = req.body || {};
 
     // Only name, state, country, companyName are mandatory
