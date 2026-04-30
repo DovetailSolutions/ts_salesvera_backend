@@ -2888,7 +2888,7 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
       }
 
       if (!creator) {
-        if (["admin", "super_admin"].includes(plainUser.role)) {
+        if (["admin", "manager"].includes(plainUser.role)) {
           rootAdmin = {
             id: plainUser.id,
             firstName: plainUser.firstName,
@@ -2900,7 +2900,7 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
         break;
       }
 
-      if (["admin", "super_admin"].includes(creator.role)) {
+      if (["admin", "manager"].includes(creator.role)) {
         rootAdmin = {
           id: creator.id,
           firstName: creator.firstName,
@@ -2913,7 +2913,8 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
 
       currentId = creator.id;
     }
-
+  
+    
     // ==============================
     // 🔽 STEP 2: TEAM USERS
     // ==============================
