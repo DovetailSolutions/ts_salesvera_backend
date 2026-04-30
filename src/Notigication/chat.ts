@@ -424,19 +424,19 @@ export const initChatSocket = (io: Server) => {
             "role",
             "onlineSatus",
           ],
-          include: [
-            {
-              model: Message,
-              as: "Messages",
-              where: {
-                status: "unseen",
-                chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
-              },
-              required: false,
-              separate: true, // 🔥 important: does not break pagination
-              attributes: ["id", "status"],
-            },
-          ],
+          // include: [
+          //   {
+          //     model: Message,
+          //     as: "Messages",
+          //     where: {
+          //       status: "unseen",
+          //       chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
+          //     },
+          //     required: false,
+          //     separate: true, // 🔥 important: does not break pagination
+          //     attributes: ["id", "status"],
+          //   },
+          // ],
           order: [["id", "DESC"]],
           limit,
           offset,
