@@ -5,47 +5,65 @@ import { sendPushNotification } from "./Notification";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 📡  Socket.io instance registry
-//     Populated by server.ts once io is created.
 // ─────────────────────────────────────────────────────────────────────────────
 let _io: Server | null = null;
 
-/** Call this once after creating your socket.io Server instance. */
 export const registerIo = (io: Server) => {
   _io = io;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 🗂️  In-memory userId → socketId map
-//     Updated from the chat socket whenever a user connects / disconnects.
+// 🗂️  In-memory userId → Set<socketId> map (Supports multiple devices)
 // ─────────────────────────────────────────────────────────────────────────────
-const userSocketMap = new Map<number, string>();
+const userSocketMap = new Map<number, Set<string>>();
 
 export const setUserSocket = (userId: number, socketId: string) => {
-  userSocketMap.set(userId, socketId);
+  // 🔐 SAFETY: Remove this specific socketId from ANY other user (Prevention of socket reuse leaks)
+  userSocketMap.forEach((sockets, uid) => {
+    if (sockets.has(socketId)) {
+      sockets.delete(socketId);
+      if (sockets.size === 0) userSocketMap.delete(uid);
+    }
+  });
+
+  if (!userSocketMap.has(userId)) {
+    userSocketMap.set(userId, new Set());
+  }
+  userSocketMap.get(userId)!.add(socketId);
 };
 
-export const removeUserSocket = (userId: number) => {
-  userSocketMap.delete(userId);
+/** 
+ * Removes a specific socket. 
+ * Returns true if this was the LAST socket for the user (user is now fully offline).
+ */
+export const removeUserSocket = (userId: number, socketId: string): boolean => {
+  const sockets = userSocketMap.get(userId);
+  if (sockets) {
+    sockets.delete(socketId);
+    if (sockets.size === 0) {
+      userSocketMap.delete(userId);
+      return true; // Last socket gone
+    }
+  }
+  return false;
+};
+
+export const isUserOnline = (userId: number): boolean => {
+  return userSocketMap.has(userId) && userSocketMap.get(userId)!.size > 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 📤  Payload accepted by sendNotification
+// 📤  Notification Logic
 // ─────────────────────────────────────────────────────────────────────────────
 export interface NotificationPayload {
-  receiverId: number;          // target user
-  senderId?: number | null;    // who triggered it (omit for system messages)
-  type?: NotificationType | string; // Use enum for strict typing, but allow string for backwards compatibility
+  receiverId: number;
+  senderId?: number | null;
+  type?: NotificationType | string;
   title: string;
   body: string;
-  data?: Record<string, any>;  // any extra data the client needs
+  data?: Record<string, any>;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 🔔  Main utility function
-//     1. Saves notification to DB
-//     2. Pushes via socket.io to online receiver (if connected)
-//     3. Pushes via Firebase Cloud Messaging (FCM) to all registered devices
-// ─────────────────────────────────────────────────────────────────────────────
 export const sendNotification = async (payload: NotificationPayload): Promise<void> => {
   const {
     senderId = null,
@@ -54,9 +72,7 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
     body,
     data = {},
   } = payload;
-  const receiverId = Number(payload.receiverId); // ✅ Extra safety cast
-
-
+  const receiverId = Number(payload.receiverId);
 
   try {
     // 1️⃣ Persist to DB
@@ -70,29 +86,29 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
       isRead: false,
     });
 
+    const eventPayload = {
+      id: notification.id,
+      receiverId,
+      senderId,
+      type,
+      title,
+      body,
+      data,
+      isRead: false,
+      createdAt: notification.createdAt,
+    };
 
-    // 2️⃣ Real-time delivery via socket.io (Socket only)
+    // 2️⃣ Real-time delivery via socket.io
     if (_io) {
-      const receiverSocketId = userSocketMap.get(receiverId);
-
-      if (receiverSocketId) {
-        // Receiver is online → send directly to their socket
-        const eventPayload = {
-          id: notification.id,
-          receiverId,
-          senderId,
-          type,
-          title,
-          body,
-          data,
-          isRead: false,
-          createdAt: notification.createdAt,
-        };
-      
-      } 
+      const receiverSockets = userSocketMap.get(receiverId);
+      if (receiverSockets) {
+        receiverSockets.forEach((sid) => {
+          _io?.to(sid).emit("notification", eventPayload);
+        });
+      }
     }
 
-    // 3️⃣ Real-time delivery via Firebase (Push Notification)
+    // 3️⃣ Real-time delivery via Firebase
     try {
       const devices = await Device.findAll({
         where: { userId: receiverId, isActive: true }
@@ -100,7 +116,6 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
 
       if (devices.length > 0) {
         const tokens = devices.map(d => d.deviceToken).filter(t => !!t);
-        
         if (tokens.length > 0) {
           const firebaseData: Record<string, string> = {};
           Object.entries(data).forEach(([key, value]) => {
@@ -118,12 +133,9 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
         }
       } 
     } catch (pushError) {
-      console.error("⚠️ Push Notification failed but continuing:", pushError);
+      console.error("⚠️ Push Notification failed:", pushError);
     }
-
-   
   } catch (error) {
     console.error("❌ sendNotification error:", error);
-    
   }
 };

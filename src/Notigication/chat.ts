@@ -293,18 +293,22 @@ export const initChatSocket = (io: Server) => {
         const offset = (page - 1) * limit;
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
-        const childIds = await Middleware.getAllSubordinateIds(userId);
-        const validUserIds = childIds; // childIds already includes the user or the root team
+        // 🔐 SECURITY: Re-verify userId from current headers to prevent leakage if socket was reused
+        let currentUserId = userId;
+        const currentToken = socket.handshake.headers.token as string;
+        if (currentToken) {
+          try {
+            const decoded: any = jwt.verify(currentToken, process.env.JWT_SECRET!);
+            currentUserId = Number(decoded.userId);
+          } catch (e) {
+            // If token is invalid now, we might want to stop, but for now we fallback to connection-time userId
+          }
+        }
 
-        console.log(validUserIds,'validUserIds')
-        
+        const childIds = await Middleware.getAllSubordinateIds(currentUserId);
+        const validUserIds = childIds; 
 
-        // 🟢 Get all rooms I am part of to filter unread messages correctly
-        const myParticipations = await ChatParticipant.findAll({
-          where: { userId },
-          attributes: ["chatRoomId"],
-        });
-        const myRoomIds = myParticipations.map((p: any) => p.chatRoomId);
+        console.log(validUserIds, 'validUserIds for user:', currentUserId);
 
         let userSearchCondition = {};
 
@@ -322,9 +326,9 @@ export const initChatSocket = (io: Server) => {
           where: {
             id: {
               [Op.in]: validUserIds,
-              [Op.ne]: userId, // ❌ exclude logged-in user
+              [Op.ne]: currentUserId, 
             },
-            ...userSearchCondition, // Add search conditions
+            ...userSearchCondition,
           },
           attributes: [
             "id",
@@ -334,19 +338,6 @@ export const initChatSocket = (io: Server) => {
             "role",
             "onlineSatus",
           ],
-          // include: [
-          //   {
-          //     model: Message,
-          //     as: "Messages",
-          //     where: {
-          //       status: "unseen",
-          //       chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
-          //     },
-          //     required: false,
-          //     separate: true, // 🔥 important: does not break pagination
-          //     attributes: ["id", "status"],
-          //   },
-          // ],
           order: [["id", "DESC"]],
           limit,
           offset,
@@ -749,12 +740,14 @@ export const initChatSocket = (io: Server) => {
 
     // --------------------------------------------------------
     socket.on("disconnect", async () => {
-      await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
-      // 📡 Broadcast this user's offline status to ALL connected clients
-      io.emit("userStatusChange", { userId, onlineSatus: "offline" });
-      // Clean up notification socket map
-      removeUserSocket(userId);
-
+      // Clean up notification socket map and check if user is fully offline
+      const isLastSocket = removeUserSocket(userId, socket.id);
+      
+      if (isLastSocket) {
+        await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+        // 📡 Broadcast this user's offline status to ALL connected clients
+        io.emit("userStatusChange", { userId, onlineSatus: "offline" });
+      }
     });
   });
 };
