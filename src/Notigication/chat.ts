@@ -13,13 +13,97 @@ import {
   setUserSocket,
   removeUserSocket,
 } from "../config/notificationService";
-import * as Middleware from "../app/middlewear/comman";
 
 type UserWithRelations = any & {
   createdUsers?: UserWithRelations[];
 };
 
+async function getAllRelatedUserIds(
+  userId: number,
+  includeSelf = false
+): Promise<number[]> {
+  const result = new Set<number>();
+  if (includeSelf) result.add(userId);
 
+  // 1. Fetch recursively UP (parents) and DOWN (children)
+  async function fetchRelations(
+    id: number,
+    direction: "children" | "parents"
+  ): Promise<void> {
+    const processedIds = new Set<number>();
+    const queue: number[] = [id];
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+
+      if (processedIds.has(currentId)) continue;
+      processedIds.add(currentId);
+
+      const user = (await User.findByPk(currentId, {
+        include: [
+          {
+            model: User,
+            as: direction === "children" ? "createdUsers" : "creators",
+            through: { attributes: [] },
+            attributes: ["id"],
+          },
+        ],
+      })) as UserWithRelations;
+
+      const relations =
+        direction === "children" ? user.createdUsers : user.creators;
+
+      if (!relations) continue;
+
+      for (const relation of relations) {
+        if (!result.has(relation.id)) {
+          result.add(relation.id);
+          queue.push(relation.id);
+        }
+      }
+    }
+  }
+
+  // 2. Fetch Horizontal Peers (Siblings - users created by the same parents)
+  async function fetchPeers(id: number): Promise<void> {
+    const user = (await User.findByPk(id, {
+      include: [
+        {
+          model: User,
+          as: "creators",
+          through: { attributes: [] },
+          include: [
+            {
+              model: User,
+              as: "createdUsers",
+              through: { attributes: [] },
+              attributes: ["id"],
+            },
+          ],
+        },
+      ],
+    })) as any;
+
+    if (user?.creators) {
+      for (const creator of user.creators) {
+        if (creator.createdUsers) {
+          for (const peer of creator.createdUsers) {
+            result.add(peer.id);
+          }
+        }
+      }
+    }
+  }
+
+  // Execute all logic
+  await Promise.all([
+    fetchRelations(userId, "children"),
+    fetchRelations(userId, "parents"),
+    fetchPeers(userId),
+  ]);
+
+  return Array.from(result);
+}
 
 export const initChatSocket = (io: Server) => {
   // ---------- 🔐 AUTH MIDDLEWARE ----------
@@ -293,22 +377,18 @@ export const initChatSocket = (io: Server) => {
         const offset = (page - 1) * limit;
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
-        // 🔐 SECURITY: Re-verify userId from current headers to prevent leakage if socket was reused
-        let currentUserId = userId;
-        const currentToken = socket.handshake.headers.token as string;
-        if (currentToken) {
-          try {
-            const decoded: any = jwt.verify(currentToken, process.env.JWT_SECRET!);
-            currentUserId = Number(decoded.userId);
-          } catch (e) {
-            // If token is invalid now, we might want to stop, but for now we fallback to connection-time userId
-          }
-        }
+        const childIds = await getAllRelatedUserIds(userId);
+        const validUserIds = [userId, ...childIds];
 
-        const childIds = await Middleware.getAllSubordinateIds(currentUserId);
-        const validUserIds = childIds; 
+        console.log(validUserIds,'validUserIds')
+        
 
-        console.log(validUserIds, 'validUserIds for user:', currentUserId);
+        // 🟢 Get all rooms I am part of to filter unread messages correctly
+        const myParticipations = await ChatParticipant.findAll({
+          where: { userId },
+          attributes: ["chatRoomId"],
+        });
+        const myRoomIds = myParticipations.map((p: any) => p.chatRoomId);
 
         let userSearchCondition = {};
 
@@ -326,9 +406,9 @@ export const initChatSocket = (io: Server) => {
           where: {
             id: {
               [Op.in]: validUserIds,
-              [Op.ne]: currentUserId, 
+              [Op.ne]: userId, // ❌ exclude logged-in user
             },
-            ...userSearchCondition,
+            ...userSearchCondition, // Add search conditions
           },
           attributes: [
             "id",
@@ -338,6 +418,19 @@ export const initChatSocket = (io: Server) => {
             "role",
             "onlineSatus",
           ],
+          // include: [
+          //   {
+          //     model: Message,
+          //     as: "Messages",
+          //     where: {
+          //       status: "unseen",
+          //       chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
+          //     },
+          //     required: false,
+          //     separate: true, // 🔥 important: does not break pagination
+          //     attributes: ["id", "status"],
+          //   },
+          // ],
           order: [["id", "DESC"]],
           limit,
           offset,
@@ -740,14 +833,12 @@ export const initChatSocket = (io: Server) => {
 
     // --------------------------------------------------------
     socket.on("disconnect", async () => {
-      // Clean up notification socket map and check if user is fully offline
-      const isLastSocket = removeUserSocket(userId, socket.id);
-      
-      if (isLastSocket) {
-        await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
-        // 📡 Broadcast this user's offline status to ALL connected clients
-        io.emit("userStatusChange", { userId, onlineSatus: "offline" });
-      }
+      await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+      // 📡 Broadcast this user's offline status to ALL connected clients
+      io.emit("userStatusChange", { userId, onlineSatus: "offline" });
+      // Clean up notification socket map
+      removeUserSocket(userId, socket.id);
+
     });
   });
 };

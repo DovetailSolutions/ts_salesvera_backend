@@ -116,7 +116,7 @@ io.on("connection", (socket) => {
     setUserSocket(userId, socket.id);
     
     socket.on("disconnect", () => {
-      removeUserSocket(userId);
+      removeUserSocket(userId, socket.id);
     });
   }
 });
