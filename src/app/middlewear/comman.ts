@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import { User, Category, SubCategory } from "../../config/dbConnection";
 import { promises } from "dns";
 import { Mode } from "fs";
+import axios from "axios";
+
 interface FindOneWithIncludeParams {
   baseModel: any; // typeof Model works but is tricky for TS generics
   id: number | string;
@@ -834,4 +836,47 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
   }
 
   return teamUserIds;
+};
+
+
+
+export const getDistance = async (
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): Promise<number> => {
+  try {
+    const url =
+      "https://maps.googleapis.com/maps/api/distancematrix/json";
+
+    const response = await axios.get(url, {
+      params: {
+        origins: `${lat1},${lng1}`,
+        destinations: `${lat2},${lng2}`,
+        key: process.env.GOOGLE_MAP_API_KEY,
+      },
+    });
+
+    const data = response.data;
+
+    if (
+      data.status === "OK" &&
+      data.rows?.[0]?.elements?.[0]?.status === "OK"
+    ) {
+      // Distance in meters
+      const distanceInMeters =
+        data.rows[0].elements[0].distance.value;
+
+      // Convert to KM
+      const distanceInKm = distanceInMeters / 1000;
+
+      return Number(distanceInKm.toFixed(2));
+    }
+
+    return 0;
+  } catch (error) {
+    console.log("Distance API Error:", error);
+    return 0;
+  }
 };
