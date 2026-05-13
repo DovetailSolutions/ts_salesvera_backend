@@ -42,7 +42,7 @@ import { Invoices } from "../app/model/Invoice";
 
 import { RecordSales } from "../app/model/saleRecord";
 import { Notification } from "../app/model/Notification";
-import { ReportModel } from "../app/model/report";
+import { RepostModel } from "../app/model/report";
 
 
 // RBAC Models
@@ -116,7 +116,6 @@ Invoices.initModel(sequelize);
 
 RecordSales.initModel(sequelize);
 
-const Report = ReportModel(sequelize);
 
 // RBAC
 const Permission = PermissionModel(sequelize);
