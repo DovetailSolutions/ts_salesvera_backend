@@ -34,10 +34,6 @@ export const tokenCheck = async (
     }
 
     const token = req.headers.authorization.split(" ")[1];
-<<<<<<< HEAD
-=======
-
->>>>>>> 64fd0f23488fc19ce5f9fbb8f372dae62bec1f20
 
     let decoded: JwtPayload;
     try {
@@ -53,14 +49,7 @@ export const tokenCheck = async (
       });
     }
 
-<<<<<<< HEAD
     const rawId = (decoded as any).userId ?? (decoded as any).id;
-=======
-    req.userData = decoded;
-
-    // support both possible token fields
-    const rawId = (decoded as any).userId ?? (decoded as any).userId;
->>>>>>> 64fd0f23488fc19ce5f9fbb8f372dae62bec1f20
     const id = Number(rawId);
 
     // Fetch user from DB — must be active and a valid role

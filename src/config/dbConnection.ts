@@ -115,7 +115,7 @@ const CompanyBank = CompanyBankModel(sequelize);
 Invoices.initModel(sequelize);
 
 RecordSales.initModel(sequelize);
-
+Notification.initModel(sequelize);
 
 // RBAC
 const Permission = PermissionModel(sequelize);
