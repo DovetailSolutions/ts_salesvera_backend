@@ -19,6 +19,7 @@ const MeetingImageModel = (sequelize) => {
         meetingUserId: {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             allowNull: true,
+            field: "meeting_user_id",
         },
         image: {
             type: sequelize_1.DataTypes.STRING,

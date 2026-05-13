@@ -143,13 +143,20 @@ router.post("/updateinvoice/:id",tokenCheck,AdminController.updateInvoice);
 router.get("/get-record-sale",tokenCheck,AdminController.getRecordSale);
 
 
+router.post("/add-report",tokenCheck,AdminController.addReport);
+router.get("/get-report",tokenCheck,AdminController.getReport);
+router.get("/get-report-details", tokenCheck, AdminController.getReportDetails);
+router.post("/update-report",tokenCheck,AdminController.updateReport);
+// router.delete("/delete-report/:id",tokenCheck,AdminController.deleteReport);
+
+ 
 
 
 
 
 
 
-// meeting apis 
+
 
 
 export default router;

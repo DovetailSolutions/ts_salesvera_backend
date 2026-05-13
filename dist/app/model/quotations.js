@@ -30,12 +30,17 @@ class Quotations extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,
             },
+            isConsumed: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false,
+                allowNull: true,
+            },
             quotation: {
                 type: sequelize_1.DataTypes.JSON, // 🔥 best for storing object
                 allowNull: true,
             },
             status: {
-                type: sequelize_1.DataTypes.ENUM("draft", "sent", "accepted", "rejected"),
+                type: sequelize_1.DataTypes.ENUM("draft", "imported", "sent", "accepted", "rejected", "cancelled", "deleted"),
                 defaultValue: "draft",
             },
         }, {

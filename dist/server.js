@@ -14,6 +14,8 @@ const admin_1 = __importDefault(require("./app/router/admin"));
 const user_1 = __importDefault(require("./app/router/user"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const chat_1 = require("./Notigication/chat");
+const notificationService_1 = require("./config/notificationService");
+const cronJobs_1 = require("./config/cronJobs");
 const swaggerFile = require(path_1.default.join(__dirname, "../swagger-output.json"));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
@@ -54,8 +56,16 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true, limit: "50mb" }));
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
+// ✅ Global JSON syntax error handler
+app.use((err, req, res, next) => {
+    if (err instanceof SyntaxError && "body" in err) {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid JSON format in request body",
+        });
+    }
+    next();
+});
 app.use("/uploads", express_1.default.static(path_1.default.join(__dirname, "../uploads")));
 app.use("/admin", admin_1.default);
 app.use("/api", user_1.default);
@@ -81,12 +91,25 @@ const io = new socket_io_1.Server(server, {
     },
 });
 (0, chat_1.initChatSocket)(io);
+// Register io so notificationService can deliver real-time events
+(0, notificationService_1.registerIo)(io);
 // Listen for socket connections
-// io.on("connection", (socket) => {
-//   console.log("User connected:", socket.id);
-// });
+io.on("connection", (socket) => {
+    var _a, _b;
+    console.log("User connected:", socket.id);
+    // Track userId → socketId for targeted notifications
+    const rawUserId = (_b = (_a = socket.data) === null || _a === void 0 ? void 0 : _a.user) === null || _b === void 0 ? void 0 : _b.userId;
+    if (rawUserId) {
+        const userId = Number(rawUserId); // ✅ Ensure it's a number
+        (0, notificationService_1.setUserSocket)(userId, socket.id);
+        socket.on("disconnect", () => {
+            (0, notificationService_1.removeUserSocket)(userId);
+        });
+    }
+});
 // Start server (IMPORTANT)
 server.listen(PORT, () => {
     (0, dbConnection_1.connectDB)();
+    (0, cronJobs_1.startCronJobs)(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
     console.log(`Server is running on http://localhost:${PORT}`);
 });

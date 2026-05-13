@@ -41,6 +41,9 @@ import { CompanyBankModel } from "../app/model/bank";
 import { Invoices } from "../app/model/Invoice";
 
 import { RecordSales } from "../app/model/saleRecord";
+import { Notification } from "../app/model/Notification";
+import { ReportModel } from "../app/model/report";
+
 
 // RBAC Models
 import { PermissionModel } from "../app/model/permission";
@@ -113,9 +116,13 @@ Invoices.initModel(sequelize);
 
 RecordSales.initModel(sequelize);
 
+const Report = ReportModel(sequelize);
+
 // RBAC
 const Permission = PermissionModel(sequelize);
 const UserPermission = UserPermissionModel(sequelize);
+
+const Report = RepostModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -241,6 +248,14 @@ UserPermission.belongsTo(User, { foreignKey: "grantedBy", as: "permissionGranter
 // Company ↔ UserPermission
 Company.hasMany(UserPermission, { foreignKey: "companyId", as: "companyUserPermissions" });
 UserPermission.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+// Notification associations
+User.hasMany(Notification, { foreignKey: "receiverId", as: "receivedNotifications" });
+Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver" });
+
+User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications" });
+Notification.belongsTo(User, { foreignKey: "senderId", as: "sender" });
+
+
 
 
 /**
@@ -353,7 +368,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
             "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
           );
         `);
-        console.log(`✅ Ensured table exists: shifts`);
+        
       } catch (err) {
         console.error(`❌ Error creating table shifts:`, err);
       }
@@ -366,7 +381,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
           ALTER TABLE "${config.tableName}" 
           ADD COLUMN IF NOT EXISTS "${column.name}" ${column.type};
         `);
-        console.log(`✅ Checked/Added ${column.name} to table: ${config.tableName}`);
+      
       } catch (err) {
         console.error(`❌ Error checking/adding ${column.name} to ${config.tableName}:`, err);
       }
@@ -384,7 +399,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
   for (const item of constraintsToDrop) {
     try {
       await sequelize.query(`ALTER TABLE "${item.table}" DROP CONSTRAINT IF EXISTS "${item.constraint}";`);
-      console.log(`✅ Dropped unique constraint ${item.constraint} from ${item.table}`);
+
     } catch (err) {
       // Ignore if doesn't exist
     }
@@ -410,7 +425,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: company_banks`);
+    
   } catch (err) {
     console.error(`❌ Error creating table company_banks:`, err);
   }
@@ -434,9 +449,30 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: invoices`);
+
   } catch (err) {
     console.error(`❌ Error creating table invoices:`, err);
+  }
+
+  // ✅ Ensure notifications table exists
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "notifications" (
+        "id" SERIAL PRIMARY KEY,
+        "receiverId" INTEGER NOT NULL,
+        "senderId" INTEGER,
+        "type" VARCHAR(100) NOT NULL DEFAULT 'system',
+        "title" VARCHAR(255) NOT NULL,
+        "body" TEXT NOT NULL,
+        "data" JSONB,
+        "isRead" BOOLEAN DEFAULT FALSE,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+  } catch (err) {
+    console.error(`❌ Error creating table notifications:`, err);
   }
 
   // ✅ Ensure record_sales table exists
@@ -455,68 +491,33 @@ const ensureColumns = async (sequelize: Sequelize) => {
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    console.log(`✅ Ensured table exists: record_sales`);
+
   } catch (err) {
     console.error(`❌ Error creating table record_sales:`, err);
   }
 
-  // ✅ RBAC: Ensure permissions table exists
+  // ✅ Ensure repost table exists
   try {
     await sequelize.query(`
-      CREATE TABLE IF NOT EXISTS "permissions" (
+      CREATE TABLE IF NOT EXISTS "repost" (
         "id" SERIAL PRIMARY KEY,
-        "module" VARCHAR(100) NOT NULL,
-        "action" VARCHAR(100) NOT NULL,
-        "description" TEXT,
+        "date" VARCHAR(255) NOT NULL,
+        "reference_no" VARCHAR(255) NOT NULL,
+        "customer_name" VARCHAR(255) NOT NULL,
+        "opening_amount" DECIMAL(10, 2) NOT NULL,
+        "pending_amount" DECIMAL(10, 2) NOT NULL,
+        "due_on" TIMESTAMP WITH TIME ZONE NOT NULL,
+        "overdue_days" INTEGER NOT NULL,
+        "status" VARCHAR(50) DEFAULT 'draft',
+        "userId" INTEGER,
+        "companyId" INTEGER,
         "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE ("module", "action")
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
-      CREATE INDEX IF NOT EXISTS idx_permissions_module ON "permissions"("module");
-      CREATE INDEX IF NOT EXISTS idx_permissions_module_action ON "permissions"("module", "action");
     `);
-    console.log(`✅ Ensured table exists: permissions`);
+
   } catch (err) {
-    console.error(`❌ Error creating table permissions:`, err);
-  }
-
-  // ✅ RBAC: Ensure user_permissions table exists
-  try {
-    await sequelize.query(`
-      CREATE TABLE IF NOT EXISTS "user_permissions" (
-        "id" SERIAL PRIMARY KEY,
-        "userId" INTEGER NOT NULL,
-        "permissionId" INTEGER NOT NULL,
-        "companyId" INTEGER NOT NULL,
-        "grantedBy" INTEGER NOT NULL,
-        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE ("userId", "permissionId", "companyId")
-      );
-
-      -- Ensure indices exist
-      CREATE INDEX IF NOT EXISTS idx_user_permissions_user_company ON "user_permissions"("userId", "companyId");
-      CREATE INDEX IF NOT EXISTS idx_user_permissions_granted_by ON "user_permissions"("grantedBy");
-
-      -- Manually align Foreign Keys to prevent sync issues
-      DO $$ 
-      BEGIN 
-        -- Drop if exists (to avoid conflicts) and Re-create
-        ALTER TABLE "user_permissions" DROP CONSTRAINT IF EXISTS "user_permissions_userId_fkey";
-        ALTER TABLE "user_permissions" ADD CONSTRAINT "user_permissions_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE;
-
-        ALTER TABLE "user_permissions" DROP CONSTRAINT IF EXISTS "user_permissions_permissionId_fkey";
-        ALTER TABLE "user_permissions" ADD CONSTRAINT "user_permissions_permissionId_fkey" FOREIGN KEY ("permissionId") REFERENCES "permissions"("id") ON DELETE CASCADE;
-
-        ALTER TABLE "user_permissions" DROP CONSTRAINT IF EXISTS "user_permissions_companyId_fkey";
-        ALTER TABLE "user_permissions" ADD CONSTRAINT "user_permissions_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "companies"("id") ON DELETE CASCADE;
-      EXCEPTION WHEN OTHERS THEN 
-        RAISE NOTICE 'Skipped FK constraint alignment — some tables might not exist yet';
-      END $$;
-    `);
-    console.log(`✅ Ensured table exists: user_permissions`);
-  } catch (err) {
-    console.error(`❌ Error creating table user_permissions:`, err);
+    console.error(`❌ Error creating table repost:`, err);
   }
 };
 
@@ -551,7 +552,7 @@ const fixConstraints = async (sequelize: Sequelize) => {
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
 
-    console.log("✅ Fixed all meeting-related database constraints");
+    
   } catch (err) {
     console.error("❌ Error fixing constraints:", err);
   }
@@ -581,7 +582,7 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
           WHERE "companyId" IS NOT NULL 
           AND "companyId" NOT IN (SELECT "id" FROM "companies");
         `);
-        console.log(`✅ Ensured data integrity (deleted orphans) for table: ${table}`);
+        
       }
 
       // 2️⃣ Handle Invoices specific data integrity (status ENUM conversion)
@@ -618,7 +619,7 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
               ALTER TABLE "invoices" 
               ALTER COLUMN "status" SET DEFAULT 'draft';
             `);
-            console.log(`✅ Manually converted Invoice status to ENUM and set default`);
+           
           }
         }
       }
@@ -666,7 +667,7 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
 
 export const connectDB = async () => {
   try {
-    console.log("✅ Database connection established successfully");
+   
 
     // 1️⃣ Run manual migration for specific missing columns
     await ensureColumns(sequelize);
@@ -721,4 +722,6 @@ export {
   // RBAC
   Permission,
   UserPermission,
+  Notification,
+  Report
 };

@@ -8,6 +8,11 @@ import {
   User,
 } from "../config/dbConnection";
 import { v4 as uuid } from "uuid";
+import {
+  sendNotification,
+  setUserSocket,
+  removeUserSocket,
+} from "../config/notificationService";
 
 type UserWithRelations = any & {
   createdUsers?: UserWithRelations[];
@@ -115,22 +120,21 @@ export const initChatSocket = (io: Server) => {
     }
   });
 
-  io.on("connection",async (socket) => {
-    console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
+  io.on("connection", async (socket) => {
 
-    const userId = socket.data.user.userId;
+
+    const userId = Number(socket.data.user.userId); // ✅ Cast to number
     const userRole = socket.data.user.role;
 
-
-    console.log(">>>>>>>>>>>>>>userId",userId)
-    console.log(">>>>>>>>>>>>>>userRole",userRole)
+    // 📡 Register this user's socket for targeted notifications
+    setUserSocket(userId, socket.id);
 
 
     await User.update({ onlineSatus: "online" }, { where: { id: userId } });
 
     // 📡 Broadcast this user's online status to ALL connected clients
     io.emit("userStatusChange", { userId, onlineSatus: "online" });
-    
+
     // --------------------------------------------------------
     // 🟦 JOIN ROOM
     // --------------------------------------------------------
@@ -148,7 +152,7 @@ export const initChatSocket = (io: Server) => {
               type,
             });
 
-            console.log("New room created:", newRoomId);
+
           }
 
           // Use DB primary key for relations (VERY IMPORTANT)
@@ -185,7 +189,6 @@ export const initChatSocket = (io: Server) => {
             type: room.type,
           });
 
-          console.log(`User ${userId} joined room ${room.roomId}`);
         } catch (error) {
           console.error("Join room error:", error);
           socket.emit("errorMessage", { error: "Unable to join room" });
@@ -220,6 +223,36 @@ export const initChatSocket = (io: Server) => {
         });
 
         io.to(roomId).emit("receiveMessage", newMessage);
+
+        // 🔔 Notify all OTHER participants in real-time
+        const participants = await ChatParticipant.findAll({
+          where: { chatRoomId: room.id },
+        });
+
+        // Fetch sender info for the notification title
+        const sender = await User.findByPk(userId, {
+          attributes: ["firstName", "lastName"],
+        }) as any;
+        const senderName = sender
+          ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
+          : "Someone";
+
+        for (const participant of participants) {
+          if (participant.userId === userId) continue; // skip sender
+
+          await sendNotification({
+            receiverId: participant.userId,
+            senderId: userId,
+            type: "chat",
+            title: `New message from ${senderName}`,
+            body: message ?? "📎 Media message",
+            data: {
+              roomId,
+              messageId: String(newMessage.id),
+            },
+          });
+        }
+
       } catch (error) {
         console.error("Send message error:", error);
         socket.emit("errorMessage", { error: "Failed to send message" });
@@ -255,14 +288,13 @@ export const initChatSocket = (io: Server) => {
         );
 
         if (!updated) {
-          console.log("Message not found");
         }
 
-        io.to(msg.roomId).emit("seenMessage", { 
-          success: true, 
+        io.to(msg.roomId).emit("seenMessage", {
+          success: true,
           data: updated,
           msg_id: msg.msg_id,
-          seenBy: userId 
+          seenBy: userId
         });
       } catch (err) {
         console.error("Seen message error:", err);
@@ -283,8 +315,6 @@ export const initChatSocket = (io: Server) => {
 
         if (deletedMessage) {
           io.emit("Deleted", { id: data.id });
-        } else {
-          console.log("Message not found or already deleted");
         }
       } catch (error) {
         console.error("Error deleting message:", error);
@@ -348,9 +378,17 @@ export const initChatSocket = (io: Server) => {
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
         const childIds = await getAllRelatedUserIds(userId);
-        console.log(">>>>>>>>>>>>>>>>childIds", childIds);
         const validUserIds = [userId, ...childIds];
-        console.log(">>>>>>>>>>>>>>>>validUserIds", validUserIds);
+
+        console.log(validUserIds,'validUserIds')
+        
+
+        // 🟢 Get all rooms I am part of to filter unread messages correctly
+        const myParticipations = await ChatParticipant.findAll({
+          where: { userId },
+          attributes: ["chatRoomId"],
+        });
+        const myRoomIds = myParticipations.map((p: any) => p.chatRoomId);
 
         let userSearchCondition = {};
 
@@ -380,18 +418,19 @@ export const initChatSocket = (io: Server) => {
             "role",
             "onlineSatus",
           ],
-          include: [
-            {
-              model: Message,
-              as: "Messages",
-              where: {
-                status: "unseen",
-              },
-              required: false,
-              separate: true, // 🔥 important: does not break pagination
-              attributes: ["id", "status"],
-            },
-          ],
+          // include: [
+          //   {
+          //     model: Message,
+          //     as: "Messages",
+          //     where: {
+          //       status: "unseen",
+          //       chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
+          //     },
+          //     required: false,
+          //     separate: true, // 🔥 important: does not break pagination
+          //     attributes: ["id", "status"],
+          //   },
+          // ],
           order: [["id", "DESC"]],
           limit,
           offset,
@@ -400,18 +439,15 @@ export const initChatSocket = (io: Server) => {
         // Attach a flat unreadCount mathematically
         const usersWithUnreadCounts = result.rows.map((user: any) => {
           const userObj = user.get({ plain: true });
-          
+
           // The included Messages array contains only "unseen" messages from this user
           const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
-          
+
           return {
             ...userObj,
             unreadCount
           };
         });
-
-        console.log(">>>>>>>>usersWithUnreadCounts",usersWithUnreadCounts)
-
         io.to(socket.id).emit("UserList", {
           success: true,
           total: result.count,
@@ -420,7 +456,6 @@ export const initChatSocket = (io: Server) => {
           data: usersWithUnreadCounts,
         });
       } catch (error) {
-        console.error("UserList Error:", error);
         socket.emit("UserList", {
           success: false,
           error: "Unable to fetch user list",
@@ -429,13 +464,13 @@ export const initChatSocket = (io: Server) => {
     });
 
 
-        // --------------------------------------------------------
+    // --------------------------------------------------------
     // 🟦 CREATE GROUP
     // --------------------------------------------------------
     socket.on("createGroup", async ({ members = [], name = "New Group" }) => {
       try {
 
-        console.log(">>>>>>>>>>>>>>>members",members)
+
         if (!members || members.length === 0) {
           return socket.emit("createGroup", { error: "Group members are required" });
         }
@@ -477,7 +512,6 @@ export const initChatSocket = (io: Server) => {
           members: [userId, ...members],
         });
 
-        console.log(`User ${userId} created group ${room.roomId}`);
       } catch (error) {
         console.error("Create group error:", error);
         socket.emit("errorMessage", { error: "Unable to create group chat" });
@@ -523,9 +557,7 @@ export const initChatSocket = (io: Server) => {
           addedBy: userId
         });
 
-        // console.log(`User ${userId} added members ${newMembers} to group ${roomId}`);
       } catch (error) {
-        // console.error("Add members error:", error);
         socket.emit("addGroupMembers", { error: "Unable to add members to group." });
       }
     });
@@ -564,12 +596,10 @@ export const initChatSocket = (io: Server) => {
             removedMember: memberIdToRemove,
             removedBy: userId
           });
-          // console.log(`User ${userId} removed member ${memberIdToRemove} from group ${roomId}`);
         } else {
-           socket.emit("leaveGroup", { error: "Member not found in group." });
+          socket.emit("leaveGroup", { error: "Member not found in group." });
         }
       } catch (error) {
-        // console.error("Remove member error:", error);
         socket.emit("leaveGroup", { error: "Unable to remove member from group." });
       }
     });
@@ -598,11 +628,11 @@ export const initChatSocket = (io: Server) => {
             roomId,
             leftMember: userId
           });
-          
+
           socket.emit("leaveGroup", { roomId });
-          // console.log(`User ${userId} left group ${roomId}`);
+
         } else {
-           socket.emit("leaveGroup", { error: "You are not a member of this group." });
+          socket.emit("leaveGroup", { error: "You are not a member of this group." });
         }
       } catch (error) {
         socket.emit("leaveGroup", { error: "Unable to leave group." });
@@ -653,10 +683,10 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     // 🟦 GET MY GROUPS
     // --------------------------------------------------------
-    socket.on("getMyGroups", async ({ page = 1, limit = 10, search = "" } : any = {}) => {
+    socket.on("getMyGroups", async ({ page = 1, limit = 10, search = "" }: any = {}) => {
       try {
         const offset = (page - 1) * limit;
-        
+
         // 1. Find all ChatRoom IDs that the user is a participant of
         const userParticipations = await ChatParticipant.findAll({
           where: { userId },
@@ -664,7 +694,7 @@ export const initChatSocket = (io: Server) => {
         });
         const chatRoomIds = userParticipations.map(p => p.chatRoomId);
         if (chatRoomIds.length === 0) {
-           return socket.emit("getMyGroups", {
+          return socket.emit("getMyGroups", {
             success: true,
             total: 0,
             totalPages: 0,
@@ -676,9 +706,9 @@ export const initChatSocket = (io: Server) => {
         // 2. Fetch those ChatRoom details, filtering by type="group"
         const result = await ChatRoom.findAndCountAll({
           where: {
-             id: { [Op.in]: chatRoomIds },
-             type: "group",
-             ...(search && { groupName: { [Op.iLike]: `%${search}%` } }), // ← Search by group name
+            id: { [Op.in]: chatRoomIds },
+            type: "group",
+            ...(search && { groupName: { [Op.iLike]: `%${search}%` } }), // ← Search by group name
           },
           offset,
           limit,
@@ -751,7 +781,6 @@ export const initChatSocket = (io: Server) => {
           updatedBy: userId
         });
 
-        console.log(`User ${userId} updated group ${roomId} name to "${room.groupName}"`);
       } catch (error) {
         console.error("Update group name error:", error);
         socket.emit("updateGroupName", { error: "Unable to update group name." });
@@ -796,7 +825,6 @@ export const initChatSocket = (io: Server) => {
         // Force all sockets to leave the room
         io.in(roomId).socketsLeave(roomId);
 
-        console.log(`User ${userId} deleted group ${roomId}`);
       } catch (error) {
         console.error("Delete group error:", error);
         socket.emit("deleteGroup", { error: "Unable to delete group." });
@@ -808,7 +836,9 @@ export const initChatSocket = (io: Server) => {
       await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
       // 📡 Broadcast this user's offline status to ALL connected clients
       io.emit("userStatusChange", { userId, onlineSatus: "offline" });
-      console.log("Disconnected:", socket.id);
+      // Clean up notification socket map
+      removeUserSocket(userId, socket.id);
+
     });
   });
 };

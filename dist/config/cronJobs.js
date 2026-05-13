@@ -1,0 +1,108 @@
+"use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.startCronJobs = void 0;
+const node_cron_1 = __importDefault(require("node-cron"));
+const sequelize_1 = require("sequelize");
+const dbConnection_1 = require("./dbConnection");
+/**
+ * ─────────────────────────────────────────────
+ *  AUTO PUNCH-OUT CRON JOB
+ *  Schedule : Every day at 11:59 PM (IST)
+ *  Purpose  : Find all attendance records that
+ *             are still "present" (punch-in done,
+ *             punch-out NOT done) and auto close
+ *             them with punch_out = 23:59:00 IST
+ *             of their respective date.
+ * ─────────────────────────────────────────────
+ */
+const startCronJobs = () => {
+    // ──────────────────────────────────────────────
+    // Cron: "59 23 * * *"  → runs at 23:59 every day
+    // timezone: "Asia/Kolkata" ensures it fires at
+    // 11:59 PM IST regardless of server timezone
+    // ──────────────────────────────────────────────
+    node_cron_1.default.schedule("59 23 * * *", () => __awaiter(void 0, void 0, void 0, function* () {
+        console.log(`[CRON] ⏰ Auto punch-out job started at ${new Date().toISOString()}`);
+        try {
+            // Today's date string (yyyy-mm-dd)
+            const todayStr = new Date().toISOString().slice(0, 10);
+            // ── Step 1: Find all un-punched-out records up to today ──
+            const missed = yield dbConnection_1.Attendance.findAll({
+                where: {
+                    status: "present", // punched in, not yet punched out
+                    punch_out: null, // safety double-check
+                    date: {
+                        [sequelize_1.Op.lte]: todayStr, // today or any earlier forgotten date
+                    },
+                },
+            });
+            if (missed.length === 0) {
+                console.log("[CRON] ✅ No missed punch-outs found. All good!");
+                return;
+            }
+            console.log(`[CRON] 🔍 Found ${missed.length} missed punch-out(s). Processing...`);
+            // ── Step 2: Auto punch-out each record ──
+            let successCount = 0;
+            let skipCount = 0;
+            for (const record of missed) {
+                try {
+                    // Get the attendance date string (e.g. "2026-04-14")
+                    const dateStr = record.date instanceof Date
+                        ? record.date.toISOString().slice(0, 10)
+                        : String(record.date).slice(0, 10);
+                    // Set auto punch-out at 23:59:00 IST of the attendance date
+                    // "+05:30" = IST offset so DB stores the correct UTC equivalent
+                    const autoPunchOut = new Date(`${dateStr}T23:59:00+05:30`);
+                    const punchIn = new Date(record.punch_in);
+                    // Skip if punch_in is somehow after auto punch-out (data anomaly)
+                    if (autoPunchOut <= punchIn) {
+                        console.warn(`[CRON] ⚠️  Skipping employee ${record.employee_id} (date: ${dateStr}) — punch_in is after 23:59`);
+                        skipCount++;
+                        continue;
+                    }
+                    // ── Calculate working hours ──
+                    const diffMs = autoPunchOut.getTime() - punchIn.getTime();
+                    const workingHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
+                    // ── Overtime (standard 8h working day) ──
+                    const officeHours = 8;
+                    const overtime = workingHours > officeHours
+                        ? Number((workingHours - officeHours).toFixed(2))
+                        : 0;
+                    // ── Update the record ──
+                    yield record.update({
+                        punch_out: autoPunchOut,
+                        working_hours: workingHours,
+                        overtime,
+                        status: "out",
+                    });
+                    console.log(`[CRON] ✅ Auto punched out → employee_id: ${record.employee_id} | date: ${dateStr} | hours: ${workingHours}h`);
+                    successCount++;
+                }
+                catch (recordError) {
+                    console.error(`[CRON] ❌ Failed to auto punch-out employee ${record.employee_id}:`, recordError);
+                }
+            }
+            console.log(`[CRON] 🏁 Job done — Success: ${successCount}, Skipped: ${skipCount}, Total: ${missed.length}`);
+        }
+        catch (error) {
+            console.error("[CRON] ❌ Auto punch-out job failed with error:", error);
+        }
+    }), {
+        // scheduled: true,
+        timezone: "Asia/Kolkata", // 11:59 PM IST
+    });
+    console.log("[CRON] 🟢 Scheduled: Auto punch-out cron registered (runs at 11:59 PM IST daily)");
+};
+exports.startCronJobs = startCronJobs;

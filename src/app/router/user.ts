@@ -1,6 +1,7 @@
 import { Router } from "express";
 const router = Router();
 import * as Controller from "../controller/user";
+import * as NotificationController from "../controller/notification";
 import { tokenCheck } from "../../config/jwtVerify2";
 import getUploadMiddleware from "../../config/fileUploads";
 const profile = getUploadMiddleware("image");
@@ -26,7 +27,7 @@ router.post(
   tokenCheck,
   meeting.array("image"),
   Controller.CreateMeeting
-);
+); 
 router.get("/clientmeeting",tokenCheck,Controller.getLastMeeting)
 router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
@@ -45,11 +46,12 @@ router.get("/leave-list", tokenCheck, Controller.LeaveList);
 router.post(
   "/expense",
   tokenCheck,
-  expense.array("billImage"),
+  expense.any(),
   Controller.CreateExpense
 );
 router.get("/getexpense",tokenCheck,Controller.GetExpense);
 router.get("/refreshtoken",tokenCheck,Controller.ReFressToken);
+router.patch("/updatepassword", tokenCheck, Controller.UpdatePassword);
 // router.get("/getquotation",tokenCheck,Controller.getQuotation)
 router.post("/getquotationpdf",tokenCheck,Controller.getQuotationPdf)
 router.get("/getquotationpdflist",tokenCheck,Controller.getQuotationPdfList)
@@ -75,8 +77,22 @@ router.get("/getrecordsale/:id",tokenCheck,Controller.getRecordSaleById);
 router.patch("/updaterecordsale/:id",tokenCheck,Controller.updateRecordSale);
 router.delete("/deleterecordsale/:id",tokenCheck,Controller.deleteRecordSale);
 
+// ── Notifications ─────────────────────────────────────────────────────────
+router.get("/notifications",                 tokenCheck, NotificationController.getNotifications);
+router.get("/notifications/unread-count",    tokenCheck, NotificationController.getUnreadCount);
+router.patch("/notifications/read-all",      tokenCheck, NotificationController.markAllAsRead);
+router.patch("/notifications/:id/read",      tokenCheck, NotificationController.markAsRead);
+router.delete("/notifications/clear-all",    tokenCheck, NotificationController.clearAllNotifications);
+router.delete("/notifications/:id",          tokenCheck, NotificationController.deleteNotification);
+// router.post("/notifications/test",           tokenCheck, NotificationController.testNotification);
 
 
+router.post("/create-client", tokenCheck, Controller.createClient);
+router.get("/tally-report",tokenCheck,Controller.getTallyReport)
+router.post("/forgot-password", Controller.forgotPassword);
+router.post("/verify-otp", Controller.verifyOtp);
+router.post("/reset-password", Controller.changePassword);
+router.get("/dashboardmobile",tokenCheck,Controller.getDashboardMobile)
 
 
 export default router;

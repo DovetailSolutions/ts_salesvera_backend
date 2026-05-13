@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import { User, Category, SubCategory } from "../../config/dbConnection";
 import { promises } from "dns";
 import { Mode } from "fs";
+import axios from "axios";
+
 interface FindOneWithIncludeParams {
   baseModel: any; // typeof Model works but is tricky for TS generics
   id: number | string;
@@ -118,13 +120,13 @@ export const CreateToken = (userId: string, role: string, companyId?: string | n
   const accessToken = jwt.sign(
     payload,
     process.env.JWT_SECRET || "dovetailPharma",
-    { expiresIn: "1d" } // short-lived
+    { expiresIn: "30d" } // short-lived
   );
 
   const refreshToken = jwt.sign(
     payload,
     process.env.JWT_SECRET || "dovetailPharma",
-    { expiresIn: "7d" } // long-lived
+    { expiresIn: "60d" } // long-lived
   );
 
   return { accessToken, refreshToken };
@@ -136,7 +138,6 @@ export const CreateData = async <T extends Model>(
   data: CreationAttributes<T>
 ): Promise<T> => {
   try {
-    console.log("Creating data with:", JSON.stringify(data, null, 2));
     return await model.create(data);
   } catch (error) {
     console.error("Error in CreateData:", error);
@@ -260,7 +261,7 @@ export const getAllList3 = async (
       order: [["createdAt", "DESC"]],
     });
 
-    console.log(rows.length)
+
     let count  = rows.length
 
     return {
@@ -308,7 +309,7 @@ export const getAllList2 = async (
        distinct: true, // ✅ ensures unique lead IDs in count
     });
     let count = result.count
-    // console.log(">>>>>>>>>>>>>>>>>>count",count)
+
     return {
       data: result.rows,
       pagination: {
@@ -544,108 +545,6 @@ export const findOneByCondition = async (
   }
 };
 
-// export const getCategory = async (
-//   Model: any,
-//   data: { page?: number; limit?: number; search?: string; category_id?: number },
-//   id = "",
-//   login = ""
-// ): Promise<{
-//   rows: any[];
-//   pagination: {
-//     totalItems: number;
-//     currentPage: number;
-//     totalPages: number;
-//     limit: number;
-//   };
-// }> => {
-//   try {
-//     const { page = 1, limit = 10, search = "", category_id } = data;
-
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-
-//     console.log(">>>>>>>>>>>>>>>>>> login:", login);
-
-//     // -------------------------
-//     // MAIN WHERE
-//     // -------------------------
-//     const where: any = {};
-
-//     if (search) {
-//       where.name = { [Op.iLike]: `%${search}%` };
-//     }
-
-//     if (id) {
-//       where.user_id = id;
-//     }
-
-//     // 🔥 FIXED: OR condition for admin/manager
-//     if (login) {
-//       where[Op.or] = [
-//         { adminId: login },
-//         { managerId: login }
-//       ];
-//     }
-
-//     // -------------------------
-//     // INCLUDE CATEGORY FILTER
-//     // -------------------------
-//     const include: any[] = [];
-
-//     if (category_id) {
-//       include.push({
-//         model: Category,
-//         as: "categories",
-//         where: {
-//           id: Number(category_id),
-//           [Op.or]: [
-//             { adminId: login },
-//             { managerId: login }
-//           ]
-//         },
-//         through: { attributes: [] },
-//       });
-//     }
-
-//     // -------------------------
-//     // COUNT
-//     // -------------------------
-//     const totalItems = await Model.count({
-//       where,
-//       include: include.length ? include : undefined,
-//       distinct: true,
-//     });
-
-//     // -------------------------
-//     // FETCH ROWS
-//     // -------------------------
-//     const rows = await Model.findAll({
-//       where,
-//       include: include.length ? include : undefined,
-//       limit: limitNum,
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-
-//     return {
-//       rows,
-//       pagination: {
-//         totalItems,
-//         currentPage: pageNum,
-//         totalPages: Math.ceil(totalItems / limitNum),
-//         limit: limitNum,
-//       },
-//     };
-//   } catch (error) {
-//     throw error;
-//   }
-// };
-
-
-
-// import { Op } from "sequelize";
-
 
 export const getCategory = async (
   Model: any,
@@ -820,7 +719,7 @@ export const withuserlogin = async (
 
 export const getAllListCategory = async (model: any, data: any = {}, searchFields: string[] = []) => {
   try {
-    const { page = 1, limit = 10, date, search, ...filters } = data;
+    const { page = 1, limit = 100, date, search, ...filters } = data;
     const whereConditions: any = { ...filters };
     if (date) {
       whereConditions.date = date; 
@@ -862,5 +761,125 @@ export const getAllListCategory = async (model: any, data: any = {}, searchField
   } catch (error) {
     console.error("Database Error:", error);
     throw error;
+  }
+};
+export const getAllSubordinateIds = async (userId: number): Promise<number[]> => {
+  let rootId = userId;
+  let currentId = userId;
+
+  // 1. Climb UP to find the highest 'admin' or 'manager' (Company Root)
+  // This ensures we capture the entire company tree starting from the top.
+  while (true) {
+    const userWithCreators = await User.findByPk(currentId, {
+      include: [
+        {
+          model: User,
+          as: "creators",
+          attributes: ["id", "role"],
+          through: { attributes: [] },
+        },
+      ],
+    }) as any;
+
+    if (!userWithCreators) break;
+    const creator = userWithCreators.creators?.[0];
+    if (!creator) break;
+
+    // If we hit a super_admin, we stop climbing and keep the previous valid root
+    if (creator.role === "super_admin") {
+      break;
+    }
+
+    // Update rootId to the creator if they are an admin or manager
+    if (["admin", "manager"].includes(creator.role)) {
+      rootId = creator.id;
+    }
+
+    // Move up to the next level
+    currentId = creator.id;
+  }
+
+  // 2. Fetch all subordinates DOWN from the rootId (Full hierarchy)
+  let teamUserIds: number[] = [];
+  
+  // Check if root itself is not super_admin
+  const rootUser = await User.findByPk(rootId);
+  if (rootUser && rootUser.role !== "super_admin") {
+    teamUserIds.push(rootId);
+  }
+
+  let queue: number[] = [rootId];
+  let processedIds = new Set<number>([rootId]);
+
+  while (queue.length > 0) {
+    const pid = queue.shift()!;
+    const userWithCreated = await User.findByPk(pid, {
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id", "role"],
+          through: { attributes: [] },
+        },
+      ],
+    }) as any;
+
+    if (userWithCreated?.createdUsers) {
+      for (const child of userWithCreated.createdUsers) {
+        if (!processedIds.has(child.id)) {
+          processedIds.add(child.id);
+          // Only include manager, sale_person, admin etc. but NOT super_admin
+          if (child.role !== "super_admin") {
+            teamUserIds.push(child.id);
+            queue.push(child.id);
+          }
+        }
+      }
+    }
+  }
+
+  return teamUserIds;
+};
+
+
+
+export const getDistance = async (
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): Promise<number> => {
+  try {
+    const url =
+      "https://maps.googleapis.com/maps/api/distancematrix/json";
+
+    const response = await axios.get(url, {
+      params: {
+        origins: `${lat1},${lng1}`,
+        destinations: `${lat2},${lng2}`,
+        key: process.env.GOOGLE_MAP_API_KEY,
+      },
+    });
+
+    const data = response.data;
+
+    if (
+      data.status === "OK" &&
+      data.rows?.[0]?.elements?.[0]?.status === "OK"
+    ) {
+      // Distance in meters
+      const distanceInMeters =
+        data.rows[0].elements[0].distance.value;
+
+      // Convert to KM
+      const distanceInKm = distanceInMeters / 1000;
+
+      return Number(distanceInKm.toFixed(2));
+    }
+
+    return 0;
+  } catch (error) {
+    console.log("Distance API Error:", error);
+    return 0;
   }
 };

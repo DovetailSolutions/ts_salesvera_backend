@@ -15,6 +15,7 @@ import {
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
+import { sendEmail, forgotpassword } from "../../config/email";
 import {
   User,
   Category,
@@ -37,10 +38,12 @@ import {
   CompanyLeave,
   CompanyBank,
   Invoices,
-  RecordSales
+  RecordSales,
+  Report
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
+import { getAllSubordinateIds } from "../middlewear/comman";
 
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -125,7 +128,16 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     await user.update({ refreshToken });
 
     if (deviceToken) {
-      const existing = await Device.findOne({ where: { deviceToken } });
+      // ✅ Check if this device (token or ID) is already registered
+      const existing = await Device.findOne({
+        where: {
+          [Op.or]: [
+            { deviceToken },
+            ...(deviceId ? [{ deviceId }] : [])
+          ]
+        }
+      });
+
       if (!existing) {
         await Device.create({
           userId: user?.id,
@@ -137,8 +149,10 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
           isActive: true, // ✅ REQUIRED
         });
       } else {
+        // ✅ If it exists (even for another user), transfer it to the current user
         await existing.update({
           userId: user.id,
+          deviceToken, // Update token in case it's new (e.g. after reinstall)
           deviceType,
           devicemodel,
           devicename,
@@ -388,124 +402,7 @@ export const MySalePerson = async (
   }
 };
 
-// export const CreateMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     const isExist = await Meeting.findOne({
-//       where: {
-//         userId: finalUserId,
-//         status: "in", // You wrote "in" but in schema you used: pending | completed | cancelled
-//       },
-//     });
 
-//     /** ✅ If active meeting exists → Stop */
-//     if (isExist) {
-//       badRequest(
-//         res,
-//         `You already have an active meeting started at ${isExist.meetingTimeIn}`
-//       );
-//       return;
-//     }
-//     const {
-//       companyName,
-//       personName,
-//       mobileNumber,
-//       customerType,
-//       companyEmail,
-//       meetingPurpose,
-//       categoryId,
-//       status,
-//       latitude_in,
-//       longitude_in,
-//       meetingTimeIn,
-//       scheduledTime,
-//     } = req.body || {};
-
-//     /** ✅ Required fields validation */
-//     const requiredFields: Record<string, any> = {
-//       companyName,
-//       personName,
-//       mobileNumber,
-//       customerType,
-//       meetingPurpose,
-//       categoryId,
-//       status,
-//       // latitude_in,
-//       // longitude_in,
-//       // meetingTimeIn,
-//     };
-
-//     for (const key in requiredFields) {
-//       if (!requiredFields[key]) {
-//         badRequest(res, `${key} is required`);
-//         return;
-//       }
-//     }
-
-//     /** ✅ userId priority: req.body → token */
-
-//     if (!finalUserId) {
-//       badRequest(res, "userId is required");
-//       return;
-//     }
-
-//     const isExists =  await Meeting.findOne({where:{companyName,personName,mobileNumber,companyEmail}})
-
-
-//     /** ✅ Prepare payload */
-//     const payload: any = {
-//       companyName,
-//       personName,
-//       companyEmail,
-//       mobileNumber,
-//       customerType,
-//       meetingPurpose,
-//       categoryId,
-//       status,
-//       userId: finalUserId,
-//     };
-
-//     const files = req.files as Express.MulterS3.File[];
-
-//     if(isExists){
-//       payload.customerType = isExists.customerType
-//     }
-
-//     if (files?.length > 0) {
-//       payload.image = files.map((file) => file.location);
-//     }
-
-//     if (meetingTimeIn) {
-//       payload.meetingTimeIn = meetingTimeIn;
-//     }
-//     if (latitude_in) {
-//       payload.latitude_in = latitude_in;
-//     }
-//     if (longitude_in) {
-//       payload.longitude_in = longitude_in;
-//     }
-//     if (scheduledTime) {
-//       payload.scheduledTime = scheduledTime;
-//     }
-
-//     /** ✅ Save data */
-//     const item = await Middleware.CreateData(Meeting, payload);
-//     if(isExists){
-//       createSuccess(res, "Meeting successfully added/user already exist",item);
-//     }else{
-//       createSuccess(res, "Meeting successfully added", item);
-//     }
-
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
 
 export const getLastMeeting = async (
   req: Request,
@@ -515,72 +412,76 @@ export const getLastMeeting = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
+    if (!finalUserId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
     const { page = 1, limit = 10, search } = req.query as any;
 
-    const offset = (Number(page) - 1) * Number(limit);
+    const pageNumber = Number(page);
+    const pageLimit = Number(limit);
+    const offset = (pageNumber - 1) * pageLimit;
 
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(finalUserId));
+
+
+
+    // ✅ Root filter (ONLY this controls main records)
     const whereCondition: any = {
-      // Filter out records so it only shows users that actually had meetings with `finalUserId`
-      // We do this dynamically via the nested Include "required" so the global query doesn't fail if the client was met by multiple employees.
+      userId: { [Op.in]: allUserIds },
     };
 
-    // Client/MeetingUser search logic
+    // ✅ Search filter
     if (search) {
       whereCondition[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } },
-        { mobile: { [Op.like]: `%${search}%` } },
+        {
+          name: {
+            [Op.iLike]: `${search}%`,
+          },
+        },
       ];
     }
 
-    // company search logic
-    const companyWhereCondition: any = {};
-    // if (search) {
-    //   companyWhereCondition[Op.or] = [
-    //     { companyName: { [Op.iLike]: `%${search}%` } },
-    //     { personName: { [Op.iLike]: `%${search}%` } },
-    //     { companyEmail: { [Op.iLike]: `%${search}%` } },
-    //     { mobileNumber: { [Op.iLike]: `%${search}%` } },
-    //   ];
-    // }
-
-    // Employee relation tracking
-    const meetingWhereCondition: any = { userId: finalUserId };
-
     const { rows, count } = await MeetingUser.findAndCountAll({
-      where: Object.keys(whereCondition).length ? whereCondition : undefined,
-      limit: Number(limit),
+      where: whereCondition,
+      limit: pageLimit,
       offset,
       order: [["createdAt", "DESC"]],
+
       include: [
         {
-          model: MeetingCompany, // Include their associated companies
-          required: false,
+          model: MeetingCompany,
+          required: false, // ✅ keep all users
+
           include: [
             {
               model: Meeting,
-              where: meetingWhereCondition, // Only fetch meetings that belong to the logged-in employee
-              required: true,
+              where: { userId: { [Op.in]: allUserIds } }, // filter meetings only
+              required: false, // ✅ IMPORTANT: do not filter users
+
               include: [
                 {
-                  model: MeetingImage
-                }
-              ]
-            }
-          ]
-        }
+                  model: MeetingImage,
+                },
+              ],
+            },
+          ],
+        },
       ],
-      distinct: true,
+
+      distinct: true,     // ✅ correct count with joins
+      subQuery: false,    // ✅ avoids pagination/count issues
     });
 
     res.status(200).json({
       success: true,
       data: rows,
       pagination: {
-        page: Number(page),
-        limit: Number(limit),
+        page: pageNumber,
+        limit: pageLimit,
         totalRecords: count,
-        totalPages: Math.ceil(count / Number(limit)),
+        totalPages: Math.ceil(count / pageLimit),
       },
     });
   } catch (error) {
@@ -594,8 +495,6 @@ export const CreateMeeting = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-
-  console.log("req.body create meeting ");
   const transaction = await sequelize.transaction();
 
   try {
@@ -638,12 +537,6 @@ export const CreateMeeting = async (
       remarks,
       pincode,
     } = req.body || {};
-
-
-
-    console.log("req.body create meeting ", req.body);
-
-
     // Trim all string inputs to avoid trailing space errors in enums
     if (typeof customerType === "string") customerType = customerType.trim();
     if (typeof meetingPurpose === "string") meetingPurpose = meetingPurpose.trim();
@@ -720,11 +613,6 @@ export const CreateMeeting = async (
     /** --------------------------
      * 2️⃣ Check Active Meeting
      * -------------------------- */
-
-
-
-    console.log("finalUserId", finalUserId)
-    console.log("meetingContactUser", meetingContactUser)
     const activeMeeting = await Meeting.findOne({
       where: {
         userId: finalUserId,
@@ -750,7 +638,7 @@ export const CreateMeeting = async (
         personName,
         mobileNumber,
         companyEmail,
-        
+
       },
     });
 
@@ -825,147 +713,6 @@ export const CreateMeeting = async (
   }
 };
 
-export const EndMeeting = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const finalUserId = userData?.userId;
-    const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
-
-    // ✅ Validations
-    if (!meetingId) {
-      badRequest(res, "meetingId is required");
-      return;
-    }
-    if (!latitude_out || !longitude_out) {
-      badRequest(res, "latitude_out and longitude_out are required");
-      return;
-    }
-
-    // ✅ Check meeting exists and is active
-    const isExist = await Meeting.findOne({
-      where: {
-        id: meetingId,
-        userId: finalUserId,
-        status: "in",
-      },
-    });
-    if (!isExist) {
-      badRequest(res, "No active meeting found with this meetingId");
-      return;
-    }
-
-    // ✅ Update remarks if provided
-    if (remarks) {
-      const company = await MeetingCompany.findByPk(isExist.companyId);
-      if (company) await company.update({ remarks });
-    }
-
-    // ✅ Mark meeting as ended
-    isExist.status = "out";
-    isExist.latitude_out = latitude_out;
-    isExist.longitude_out = longitude_out;
-    isExist.meetingTimeOut = new Date();
-    await isExist.save();
-
-    // ✅ Day range
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
-
-    // ✅ Get today's attendance (starting point)
-    const attendance = await Attendance.findOne({
-      where: {
-        employee_id: finalUserId,
-        date: { [Op.between]: [startOfDay, endOfDay] },
-      },
-      attributes: ["id", "latitude_in", "longitude_in"],
-    });
-
-    // ✅ Get all OTHER completed meetings today (excluding current)
-    const previousMeetings = await Meeting.findAll({
-      where: {
-        userId: finalUserId,
-        status: "out",
-        id: { [Op.ne]: isExist.id },
-        meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
-      },
-      attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut", "legDistance"],
-      order: [["meetingTimeOut", "ASC"]],
-    });
-
-    // ✅ Calculate leg distance (previous point → this meeting)
-    let legDistance = 0;
-
-    if (previousMeetings.length === 0) {
-      // First meeting of the day → distance from attendance check-in
-      if (
-        attendance?.latitude_in &&
-        attendance?.longitude_in &&
-        isExist.latitude_out &&
-        isExist.longitude_out
-      ) {
-        const lat1 = parseFloat(attendance.latitude_in);
-        const lon1 = parseFloat(attendance.longitude_in);
-        const lat2 = parseFloat(isExist.latitude_out);
-        const lon2 = parseFloat(isExist.longitude_out);
-
-        if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
-          legDistance = getDistance(lat1, lon1, lat2, lon2);
-        }
-      }
-    } else {
-      // Nth meeting → distance from last completed meeting
-      const lastMeeting = previousMeetings[previousMeetings.length - 1];
-
-      if (
-        lastMeeting.latitude_out &&
-        lastMeeting.longitude_out &&
-        isExist.latitude_out &&
-        isExist.longitude_out
-      ) {
-        const lat1 = parseFloat(lastMeeting.latitude_out);
-        const lon1 = parseFloat(lastMeeting.longitude_out);
-        const lat2 = parseFloat(isExist.latitude_out);
-        const lon2 = parseFloat(isExist.longitude_out);
-
-        if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
-          legDistance = getDistance(lat1, lon1, lat2, lon2);
-        }
-      }
-    }
-
-    // ✅ Sum all previous leg distances + current leg = total for the day
-    const previousTotal = previousMeetings.reduce((sum, m) => {
-      const leg = parseFloat(m.legDistance || "0");
-      return sum + (isNaN(leg) ? 0 : leg);
-    }, 0);
-
-    const totalDistance = previousTotal + legDistance;
-
-    // ✅ Save leg + total on current meeting
-    isExist.legDistance = legDistance.toFixed(2).toString();
-    isExist.totalDistance = totalDistance.toFixed(2).toString();
-    await isExist.save();
-
-    createSuccess(res, "Meeting ended successfully", {
-      meetingId: isExist.id,
-      legDistance: `${isExist.legDistance} km`,   // e.g. "7.00 km"  (M1 → M2)
-      totalDistance: `${isExist.totalDistance} km`, // e.g. "12.00 km" (A → M1 → M2)
-    });
-
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-
-
 // export const EndMeeting = async (
 //   req: Request,
 //   res: Response
@@ -975,17 +722,17 @@ export const EndMeeting = async (
 //     const finalUserId = userData?.userId;
 //     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
 
+//     // ✅ Validations
 //     if (!meetingId) {
 //       badRequest(res, "meetingId is required");
 //       return;
 //     }
-
 //     if (!latitude_out || !longitude_out) {
-//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
+//       badRequest(res, "latitude_out and longitude_out are required");
 //       return;
 //     }
 
-//     /** ✅ Check meeting exist for this user & active */
+//     // ✅ Check meeting exists and is active
 //     const isExist = await Meeting.findOne({
 //       where: {
 //         id: meetingId,
@@ -993,126 +740,18 @@ export const EndMeeting = async (
 //         status: "in",
 //       },
 //     });
-
-//     if (!isExist) {
-//       badRequest(res, "No active meeting found with this meetingId");
-//       return;
-//     }
-//     // Since remarks is on the meeting_companies table (not Meetings), we need to update it there
-//     if (remarks) {
-//       const company = await MeetingCompany.findByPk(isExist.companyId);
-//       if (company) {
-//         await company.update({ remarks });
-//       }
-//     }
-//     // /** ✅ Update meeting */
-//     isExist.status = "out"; // Use 'out' as per schema instead of 'completed'
-//     isExist.latitude_out = latitude_out;
-//     isExist.longitude_out = longitude_out;
-//     isExist.meetingTimeOut = new Date();
-//     await isExist.save();
-
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0, 0, 0, 0);
-
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23, 59, 59, 999);
-
-//     const attendance = await Attendance.findOne({
-//       where: {
-//         employee_id: finalUserId,
-//         date: {
-//           [Op.between]: [startOfDay, endOfDay],
-//         },
-//       },
-//       attributes:["id","latitude_in","longitude_in"]
-//     });
-
-//     // console.log("attendance",attendance)
-
-//     const item = await Meeting.findAll({  
-//       where: {
-//         userId: finalUserId,
-//         // status: "in",
-//         createdAt: {
-//           [Op.between]: [startOfDay, endOfDay],
-//         },
-//       },
-//       attributes:["id","latitude_out","longitude_out"]
-//     });
-
-//   if (!item.length) {
-//      createSuccess(res, "Meeting ended successfully", []);
-//   }
-
-//       let totalDistance = 0;
-
-//     for (let i = 1; i < item.length; i++) {
-//       const prev = item[i - 1];
-//       const curr = item[i];
-
-//       const lat1 = parseFloat(prev.latitude_out);
-//       const lon1 = parseFloat(prev.longitude_out);
-//       const lat2 = parseFloat(curr.latitude_out);
-//       const lon2 = parseFloat(curr.longitude_out);
-
-//       // skip invalid data
-//       if (!lat1 || !lon1 || !lat2 || !lon2) continue;
-
-//       const distance = getDistance(lat1, lon1, lat2, lon2);
-//       totalDistance += distance;
-//     }
-//     isExist.totalDistance = totalDistance.toString();
-//     await isExist.save();
-//     createSuccess(res, "Meeting ended successfully", item);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-// export const EndMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
-
-//     if (!meetingId) {
-//       badRequest(res, "meetingId is required");
-//       return;
-//     }
-
-//     if (!latitude_out || !longitude_out) {
-//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
-//       return;
-//     }
-
-//     /** ✅ Check meeting exist for this user & active */
-//     const isExist = await Meeting.findOne({
-//       where: {
-//         id: meetingId,
-//         userId: finalUserId,
-//         status: "in",
-//       },
-//     });
-
 //     if (!isExist) {
 //       badRequest(res, "No active meeting found with this meetingId");
 //       return;
 //     }
 
-//     // Update remarks on meeting_companies table
+//     // ✅ Update remarks if provided
 //     if (remarks) {
 //       const company = await MeetingCompany.findByPk(isExist.companyId);
-//       if (company) {
-//         await company.update({ remarks });
-//       }
+//       if (company) await company.update({ remarks });
 //     }
 
-//     // ✅ Update current meeting as ended
+//     // ✅ Mark meeting as ended
 //     isExist.status = "out";
 //     isExist.latitude_out = latitude_out;
 //     isExist.longitude_out = longitude_out;
@@ -1125,7 +764,7 @@ export const EndMeeting = async (
 //     const endOfDay = new Date();
 //     endOfDay.setHours(23, 59, 59, 999);
 
-//     // ✅ Fetch today's attendance (starting point)
+//     // ✅ Get today's attendance (starting point)
 //     const attendance = await Attendance.findOne({
 //       where: {
 //         employee_id: finalUserId,
@@ -1134,71 +773,78 @@ export const EndMeeting = async (
 //       attributes: ["id", "latitude_in", "longitude_in"],
 //     });
 
-//     // ✅ Fetch ALL completed meetings today, ordered by time
-//     //    Use findAll (not findOne) so we get an array
-//     const todayMeetings = await Meeting.findAll({
+//     // ✅ Get all OTHER completed meetings today (excluding current)
+//     const previousMeetings = await Meeting.findAll({
 //       where: {
 //         userId: finalUserId,
-//         status: "out", // only completed meetings have latitude_out
+//         status: "out",
+//         id: { [Op.ne]: isExist.id },
 //         meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
 //       },
-//       attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut"],
-//       order: [["meetingTimeOut", "ASC"]], // sort chronologically
+//       attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut", "legDistance"],
+//       order: [["meetingTimeOut", "ASC"]],
 //     });
 
-//     if (!todayMeetings.length) {
-//       createSuccess(res, "Meeting ended successfully", []);
-//       return; // ✅ was missing return — code would continue after this
-//     }
+//     // ✅ Calculate leg distance (previous point → this meeting)
+//     let legDistance = 0;
 
-//     let totalDistance = 0;
+//     if (previousMeetings.length === 0) {
+//       // First meeting of the day → distance from attendance check-in
+//       if (
+//         attendance?.latitude_in &&
+//         attendance?.longitude_in &&
+//         isExist.latitude_out &&
+//         isExist.longitude_out
+//       ) {
+//         const lat1 = parseFloat(attendance.latitude_in);
+//         const lon1 = parseFloat(attendance.longitude_in);
+//         const lat2 = parseFloat(isExist.latitude_out);
+//         const lon2 = parseFloat(isExist.longitude_out);
 
-//     /**
-//      * Distance chain:
-//      *
-//      *  Attendance (check-in location)
-//      *       ↓
-//      *   Meeting 1 (latitude_out / longitude_out)
-//      *       ↓
-//      *   Meeting 2 (latitude_out / longitude_out)
-//      *       ↓
-//      *   Meeting N ...
-//      *
-//      * If attendance exists → first leg is attendance → meeting1
-//      * Otherwise           → first leg is meeting1 → meeting2
-//      */
-//     if (attendance && attendance.latitude_in && attendance.longitude_in) {
-//       // Leg 0: attendance check-in → first meeting end point
-//       const lat1 = parseFloat(attendance.latitude_in);
-//       const lon1 = parseFloat(attendance.longitude_in);
-//       const lat2 = parseFloat(todayMeetings[0].latitude_out);
-//       const lon2 = parseFloat(todayMeetings[0].longitude_out);
+//         if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+//           legDistance = getDistance(lat1, lon1, lat2, lon2);
+//         }
+//       }
+//     } else {
+//       // Nth meeting → distance from last completed meeting
+//       const lastMeeting = previousMeetings[previousMeetings.length - 1];
 
-//       if (lat1 && lon1 && lat2 && lon2) {
-//         totalDistance += getDistance(lat1, lon1, lat2, lon2);
+//       if (
+//         lastMeeting.latitude_out &&
+//         lastMeeting.longitude_out &&
+//         isExist.latitude_out &&
+//         isExist.longitude_out
+//       ) {
+//         const lat1 = parseFloat(lastMeeting.latitude_out);
+//         const lon1 = parseFloat(lastMeeting.longitude_out);
+//         const lat2 = parseFloat(isExist.latitude_out);
+//         const lon2 = parseFloat(isExist.longitude_out);
+
+//         if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+//           legDistance = getDistance(lat1, lon1, lat2, lon2);
+//         }
 //       }
 //     }
 
-//     // Legs between consecutive meetings: meeting[i-1] → meeting[i]
-//     for (let i = 1; i < todayMeetings.length; i++) {
-//       const prev = todayMeetings[i - 1];
-//       const curr = todayMeetings[i];
+//     // ✅ Sum all previous leg distances + current leg = total for the day
+//     const previousTotal = previousMeetings.reduce((sum, m) => {
+//       const leg = parseFloat(m.legDistance || "0");
+//       return sum + (isNaN(leg) ? 0 : leg);
+//     }, 0);
 
-//       const lat1 = parseFloat(prev.latitude_out);
-//       const lon1 = parseFloat(prev.longitude_out);
-//       const lat2 = parseFloat(curr.latitude_out);
-//       const lon2 = parseFloat(curr.longitude_out);
+//     const totalDistance = previousTotal + legDistance;
 
-//       if (!lat1 || !lon1 || !lat2 || !lon2) continue; // skip invalid GPS
-
-//       totalDistance += getDistance(lat1, lon1, lat2, lon2);
-//     }
-
-//     // ✅ Save total distance on the meeting that was just ended
-//     isExist.totalDistance = totalDistance.toFixed(2).toString(); // e.g. "12.34"
+//     // ✅ Save leg + total on current meeting
+//     isExist.legDistance = legDistance.toFixed(2).toString();
+//     isExist.totalDistance = totalDistance.toFixed(2).toString();
 //     await isExist.save();
 
-//     createSuccess(res, "Meeting ended successfully", todayMeetings);
+//     createSuccess(res, "Meeting ended successfully", {
+//       meetingId: isExist.id,
+//       legDistance: `${isExist.legDistance} km`,   // e.g. "7.00 km"  (M1 → M2)
+//       totalDistance: `${isExist.totalDistance} km`, // e.g. "12.00 km" (A → M1 → M2)
+//     });
+
 //   } catch (error) {
 //     const errorMessage =
 //       error instanceof Error ? error.message : "Something went wrong";
@@ -1209,104 +855,308 @@ export const EndMeeting = async (
 
 
 
+
+export const EndMeeting = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+
+    const {
+      meetingId,
+      latitude_out,
+      longitude_out,
+      remarks,
+    } = req.body || {};
+
+    // ✅ Validations
+    if (!meetingId) {
+      badRequest(res, "meetingId is required");
+      return;
+    }
+
+    if (!latitude_out || !longitude_out) {
+      badRequest(
+        res,
+        "latitude_out and longitude_out are required"
+      );
+      return;
+    }
+
+    // ✅ Check meeting exists
+    const isExist = await Meeting.findOne({
+      where: {
+        id: meetingId,
+        userId: finalUserId,
+        status: "in",
+      },
+    });
+
+    if (!isExist) {
+      badRequest(
+        res,
+        "No active meeting found with this meetingId"
+      );
+      return;
+    }
+
+    // ✅ Update remarks
+    if (remarks) {
+      const company = await MeetingCompany.findByPk(
+        isExist.companyId
+      );
+
+      if (company) {
+        await company.update({ remarks });
+      }
+    }
+
+    // ✅ End Meeting
+    isExist.status = "out";
+    isExist.latitude_out = latitude_out;
+    isExist.longitude_out = longitude_out;
+    isExist.meetingTimeOut = new Date();
+
+    await isExist.save();
+
+    // ✅ Day Start & End
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // ✅ Get Attendance
+    const attendance = await Attendance.findOne({
+      where: {
+        employee_id: finalUserId,
+        date: {
+          [Op.between]: [startOfDay, endOfDay],
+        },
+      },
+      attributes: [
+        "id",
+        "latitude_in",
+        "longitude_in",
+      ],
+    });
+
+    // ✅ Previous Meetings
+    const previousMeetings = await Meeting.findAll({
+      where: {
+        userId: finalUserId,
+        status: "out",
+        id: {
+          [Op.ne]: isExist.id,
+        },
+        meetingTimeOut: {
+          [Op.between]: [startOfDay, endOfDay],
+        },
+      },
+      attributes: [
+        "id",
+        "latitude_out",
+        "longitude_out",
+        "meetingTimeOut",
+        "legDistance",
+      ],
+      order: [["meetingTimeOut", "ASC"]],
+    });
+
+    // ✅ Current Meeting Distance
+    let legDistance = 0;
+
+    // =========================================================
+    // ✅ FIRST MEETING
+    // =========================================================
+    if (previousMeetings.length === 0) {
+      if (
+        attendance?.latitude_in &&
+        attendance?.longitude_in &&
+        isExist.latitude_out &&
+        isExist.longitude_out
+      ) {
+        const lat1 = parseFloat(
+          attendance.latitude_in
+        );
+
+        const lon1 = parseFloat(
+          attendance.longitude_in
+        );
+
+        const lat2 = parseFloat(
+          isExist.latitude_out
+        );
+
+        const lon2 = parseFloat(
+          isExist.longitude_out
+        );
+
+        if (
+          !isNaN(lat1) &&
+          !isNaN(lon1) &&
+          !isNaN(lat2) &&
+          !isNaN(lon2)
+        ) {
+          // ✅ GOOGLE MAP DISTANCE
+          legDistance = await Middleware.getDistance(
+            lat1,
+            lon1,
+            lat2,
+            lon2
+          );
+        }
+      }
+    }
+
+    // =========================================================
+    // ✅ NEXT MEETINGS
+    // =========================================================
+    else {
+      const lastMeeting =
+        previousMeetings[
+          previousMeetings.length - 1
+        ];
+
+      if (
+        lastMeeting.latitude_out &&
+        lastMeeting.longitude_out &&
+        isExist.latitude_out &&
+        isExist.longitude_out
+      ) {
+        const lat1 = parseFloat(
+          lastMeeting.latitude_out
+        );
+
+        const lon1 = parseFloat(
+          lastMeeting.longitude_out
+        );
+
+        const lat2 = parseFloat(
+          isExist.latitude_out
+        );
+
+        const lon2 = parseFloat(
+          isExist.longitude_out
+        );
+
+        if (
+          !isNaN(lat1) &&
+          !isNaN(lon1) &&
+          !isNaN(lat2) &&
+          !isNaN(lon2)
+        ) {
+          // ✅ GOOGLE MAP DISTANCE
+          legDistance = await Middleware.getDistance(
+            lat1,
+            lon1,
+            lat2,
+            lon2
+          );
+        }
+      }
+    }
+
+    // ✅ Previous Total Distance
+    const previousTotal =
+      previousMeetings.reduce((sum, m) => {
+        const leg = parseFloat(
+          m.legDistance || "0"
+        );
+
+        return sum + (isNaN(leg) ? 0 : leg);
+      }, 0);
+
+    // ✅ Total Distance
+    const totalDistance =
+      previousTotal + legDistance;
+
+    // ✅ Save Distance
+    isExist.legDistance = legDistance
+      .toFixed(2)
+      .toString();
+
+    isExist.totalDistance = totalDistance
+      .toFixed(2)
+      .toString();
+
+    await isExist.save();
+
+    // ✅ Final Response
+    createSuccess(
+      res,
+      "Meeting ended successfully",
+      {
+        meetingId: isExist.id,
+        legDistance: `${isExist.legDistance} km`,
+        totalDistance: `${isExist.totalDistance} km`,
+      }
+    );
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Something went wrong";
+
+    badRequest(res, errorMessage);
+  }
+};
+
 export const GetMeetingList = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const { page = 1, limit = 10, search = "", status } = req.query;
+    const { page = "1", limit = "10", search = "", status } = req.query;
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
+    const pageNum = Math.max(Number(page) || 1, 1);
+    const limitNum = Math.min(Number(limit) || 10, 50);
     const offset = (pageNum - 1) * limitNum;
 
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
-
-    console.log("finalUserId", finalUserId);
 
     if (!finalUserId) {
       badRequest(res, "UserId not found");
       return;
     }
 
-    // ✅ Auto-Cancel Overdue Meetings (older than 24h)
-    // Runs before fetching to ensure the list is up to date
-    try {
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      await Meeting.update(
-        { status: "cancelled" },
-        {
-          where: {
-            status: { [Op.in]: ["scheduled", "pending"] },
-            scheduledTime: { [Op.lt]: twentyFourHoursAgo },
-          },
-        }
-      );
-    } catch (cancelError) {
-      console.error("Auto-cancel meetings error:", cancelError);
-      // Continue fetching even if auto-cancel fails
-    }
-
-    /** ✅ Search condition */
-    const where: any = {
+    /** ✅ Meeting filter */
+    const meetingWhere: any = {
       userId: finalUserId,
     };
 
-    if (search) {
-      where[Op.or] = [
-        { companyName: { [Op.iLike]: `%${search}%` } },
-        { personName: { [Op.iLike]: `%${search}%` } },
-        { mobileNumber: { [Op.iLike]: `%${search}%` } },
-        { remarks: { [Op.iLike]: `%${search}%` } },
-      ];
-    }
-
     if (status) {
-      where.status = status;
+      meetingWhere.status = status;
     }
 
-    /** ✅ Query with pagination + count */
-    const { rows, count } = await MeetingUser.findAndCountAll({
-      where: where,
-      limit: Number(limit),
+    /** ⚠️ NOTE: search not applied (same as your original) */
+    // You created companyWhere but didn't use it in query
+
+    /** ✅ Query */
+    const { rows, count } = await Meeting.findAndCountAll({
+      where: meetingWhere,
+      limit: limitNum,
       offset,
-      order: [["createdAt", "DESC"]],
-      include: [
-        {
-          model: MeetingCompany, // Include their associated companies
-          required: false,
-          include: [
-            {
-              model: Meeting,
-              where: where, // Only fetch meetings that belong to the logged-in employee
-              required: true,
-              include: [
-                {
-                  model: MeetingImage
-                }
-              ]
-            }
-          ]
-        }
-      ],
+      order: [["updatedAt", "DESC"]],
       distinct: true,
     });
 
-    /** ✅ Pagination Info */
-    const pageInfo = {
+    /** ✅ Flat Pagination Response */
+    createSuccess(res, "Meeting list fetched", {
       currentPage: pageNum,
       pageSize: limitNum,
       totalItems: count,
       totalPages: Math.ceil(count / limitNum),
-    };
+      data: rows,
+    });
 
-    createSuccess(res, "Meeting list fetched", { pageInfo, data: rows });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return;
   }
 };
 
@@ -1355,7 +1205,8 @@ export const Logout = async (req: Request, res: Response): Promise<void> => {
   try {
     const { deviceId } = req.body;
     if (!deviceId) {
-      badRequest(res, "device token is missing");
+      badRequest(res, "device ID is missing");
+      return;
     }
     await Device.destroy({ where: { deviceId } });
     createSuccess(res, "logout sussfully");
@@ -1674,60 +1525,9 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
 };
 
 
-// export const CreateExpense = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-
-//     if (!finalUserId) {
-//       badRequest(res, "Invalid user");
-//       return;
-//     }
-
-//     const { title, total_amount, date, category, amount, description, location } = req.body ?? {};
-
-//     // Keep title as required for backward compatibility, or you can adjust this
-//     if (!title && !description) {
-//       badRequest(res, "Title or Description is required");
-//       return;
-//     }
-
-//     const payload: any = {
-//       userId: finalUserId,
-//       title: title || description,
-//       total_amount: total_amount || amount,
-//       date,
-//       category,
-//       amount: amount || total_amount,
-//       description: description || title,
-//       location
-//     };
-
-//     // ✅ files from multer (S3 upload)
-//     const files = req.files as Express.MulterS3.File[];
-//     if (Array.isArray(files) && files.length > 0) {
-//       payload.billImage = files.map((file) => file.location);
-//     }
-
-//     // ✅ Create entry
-//     const created = await Expense.create(payload);
-
-//     createSuccess(res, "Expense added successfully", created);
-//   } catch (error) {
-//     console.error("Error in CreateExpense:", error);
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//     return;
-//   }
-// };
 
 export const CreateExpense = async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();
-
   try {
     const userId = (req as any).userData?.userId;
 
@@ -1741,7 +1541,7 @@ export const CreateExpense = async (req: Request, res: Response) => {
       throw new Error("Expenses must be an array");
     }
 
-    const files = req.files as Express.Multer.File[];
+    const files = req.files as Express.MulterS3.File[];
 
     const imageMap: Record<number, string[]> = {};
 
@@ -1756,7 +1556,7 @@ export const CreateExpense = async (req: Request, res: Response) => {
             imageMap[index] = [];
           }
 
-          imageMap[index].push(file.originalname);
+          imageMap[index].push(file.location);
         }
       });
     }
@@ -1906,166 +1706,63 @@ export const ReFressToken = async (
   }
 };
 
-// export const getQuotation = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     // const userData = req.userData as JwtPayload;
+export const UpdatePassword = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const { oldPassword, newPassword } = req.body || {};
+    if (!oldPassword || !newPassword) {
+      badRequest(res, "Please provide old password and new password");
+      return;
+    }
 
-//     // if (!userData || !userData.userId) {
-//     //   badRequest(res, "Unauthorized request");
-//     //   return;
-//     // }
+    if (oldPassword === newPassword) {
+      badRequest(res, "New password must be different from the old password");
+      return;
+    }
 
-//     const { page = 1, limit = 10 } = req.query;
-//     const pageNumber = Number(page);
-//     const pageSize = Number(limit);
-//     const offset = (pageNumber - 1) * pageSize;
-//     const { count, rows } = await Quotation.findAndCountAll({
-//       where: {
-//         // userId: userData.userId
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit: pageSize,
-//       offset: offset
-//     });
+    // ✅ Fetch user
+    const user = await Middleware.getById(User, Number(userData.userId));
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
 
-//     createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page: pageNumber,
-//       totalPages: Math.ceil(count / pageSize),
-//       data: rows
-//     });
+    // ✅ Now TypeScript knows `user` is not null
+    const isPasswordValid = await bcrypt.compare(
+      oldPassword,
+      user.get("password") as string
+    );
 
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
+    if (!isPasswordValid) {
+      badRequest(res, "Old password is incorrect");
+      return;
+    }
 
-//     badRequest(res, errorMessage, error);
-//   }
-// };
+    const salt = await bcrypt.genSalt(10);
+    const newHashedPassword = await bcrypt.hash(newPassword, salt);
 
-// export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//       const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const data = req.body;
-//     // ✅ Helper: read local file → base64 data URI (works with Puppeteer setContent)
-//     const toBase64 = (filePath: string): string => {
-//       try {
-//         if (fs.existsSync(filePath)) {
-//           const ext = filePath.split(".").pop()?.toLowerCase();
-//           const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
-//           const buf = fs.readFileSync(filePath);
-//           return `data:${mime};base64,${buf.toString("base64")}`;
-//         }
-//       } catch (_) {}
-//       return "";
-//     };
-//     const logo      = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
-//     const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
-//     const stamp     = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
+    await Middleware.Update(User, Number(userData.userId), {
+      password: newHashedPassword,
+    });
 
-//     // ✅ Calculations
-//     const subtotal = data.items.reduce((sum: number, item: any) => {
-//       return sum + Number(item.amount || 0);
-//     }, 0);
+    createSuccess(res, "Password updated successfully");
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+    return;
+  }
+};
 
-//     const discount = Number(data.discount || 0);
-//     const taxableAmount = subtotal - discount;
-
-//     const gstAmount = (taxableAmount * Number(data.gstRate || 0)) / 100;
-//     const finalAmount = taxableAmount + gstAmount;
-
-//     // ✅ Render EJS
-//     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
-
-//     const html = await ejs.renderFile(filePath, {
-//       ...data,
-//       logo,
-//       signature,
-//       stamp,
-//       subtotal,
-//       discount,
-//       taxableAmount,
-//       gstAmount,
-//       finalAmount
-//     });
-
-//     // ✅ SAVE TO DB HERE
-// await Quotations.create({
-//   userId: Number(userData?.userId),
-//   companyId: data.companyId || 0,
-//   quotation: data,
-//   status: "draft"
-// });
-//     // ✅ Puppeteer
-//     const browser = await puppeteer.launch({
-//       args: ["--no-sandbox", "--disable-setuid-sandbox"]
-//     });
-
-//     const page = await browser.newPage();
-//     await page.setContent(html as string, { waitUntil: "load" });
-
-//     const pdfBuffer = await page.pdf({
-//       format: "a4",
-//       printBackground: true,
-//       margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
-//     });
-
-//     await browser.close();
-
-//     res.set({
-//       "Content-Type": "application/pdf",
-//       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
-//     });
-
-//     res.send(pdfBuffer);
-
-//   } catch (error) {
-//     res.status(400).json({ error: "Something went wrong" });
-//   }
-// };
-
-// export const getQuotationPdfList = async(req:Request,res:Response)=>{
-//   try{
-//     const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 10;
-//     const offset = (page - 1) * limit;
-//     const ownstate = req.query.ownstate;
-//     const clientState = req.query.clientState;
-//     const { count, rows } = await Quotations.findAndCountAll({
-//       where: {
-//         userId: userData.userId
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit: limit,
-//       offset: offset
-//     });
-//     createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page: page,
-//       totalPages: Math.ceil(count / limit),
-//       data: rows
-//     });
-//   }catch(error){
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage, error);
-//   }
-// }
 
 // ✅ Generates a serial 10-digit quotation number (e.g. 0000000001)
-const generateQuotationNumber = async (): Promise<string> => {
-  const count = await Quotations.count();
-  const serial = count + 1;
-  return String(serial).padStart(10, '0');
+const generateQuotationNumber = (): string => {
+  const timestamp = Date.now().toString().slice(-6); // last 6 digits
+  const random = Math.floor(Math.random() * 10000); // 4 digit random
+  return `${timestamp}${String(random).padStart(4, "0")}`;
 };
 
 export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
@@ -2261,10 +1958,10 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
       return
     }
 
-    if (!data.referenceNumber) {
-      badRequest(res, "Reference number is required");
-      return
-    }
+    // if (!data.referenceNumber) {
+    //   badRequest(res, "Reference number is required");
+    //   return
+    // }
 
     if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
       badRequest(res, "Items are required");
@@ -2280,17 +1977,17 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     }
 
     // ✅ Duplicate check (IMPORTANT)
-    const existing = await Quotations.findOne({
-      where: {
-        userId: Number(userData.userId),
-        referenceNumber: data.referenceNumber
-      }
-    });
+    // const existing = await Quotations.findOne({
+    //   where: {
+    //     userId: Number(userData.userId),
+    //     referenceNumber: data.referenceNumber
+    //   }
+    // });
 
-    if (existing) {
-      badRequest(res, "Quotation already exists with this reference number");
-      return
-    }
+    // if (existing) {
+    //   badRequest(res, "Quotation already exists with this reference number");
+    //   return
+    // }
 
     const quotationNumber = await generateQuotationNumber();
 
@@ -2302,6 +1999,7 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
       customerName: data.customerName,
       referenceNumber: data.referenceNumber,
       quotation: data,
+      isConsumed: false,
 
       status: "draft"
     });
@@ -2313,99 +2011,16 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     });
 
   } catch (error) {
-    console.error("Add Quotation Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+
   }
 };
 
 
 
 
-
-
-// export const getQuotationPdfList = async (req: Request, res: Response) => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-
-//     if (!userData || !userData.userId) {
-//       return badRequest(res, "Unauthorized request");
-//     }
-
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 10;
-//     const offset = (page - 1) * limit;
-
-//     const ownstate = String(req.query.ownstate || "").toLowerCase();
-//     const clientState = String(req.query.clientState || "").toLowerCase();
-
-//     // if (!ownstate || !clientState) {
-//     //   return badRequest(res, "ownstate and clientState are required");
-//     // }
-
-//     const { count, rows } = await Quotations.findAndCountAll({
-//       where: {
-//         userId: userData.userId,
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit,
-//       offset,
-//     });
-
-//     const updatedRows = rows.map((item: any) => {
-//       const data = item.toJSON();
-//       const quotation = data.quotation;
-
-//       // ✅ Calculate total amount
-//       const totalAmount =
-//         quotation?.items?.reduce(
-//           (sum: number, i: any) => sum + Number(i.amount || 0),
-//           0
-//         ) || 0;
-
-//       const gstRate = Number(quotation?.gstRate || 0);
-//       const totalGST = (totalAmount * gstRate) / 100;
-
-//       let cgst = 0;
-//       let sgst = 0;
-//       let igst = 0;
-
-//       // ✅ GST Logic (India)
-//       if (ownstate === clientState) {
-//         cgst = totalGST / 2;
-//         sgst = totalGST / 2;
-//       } else {
-//         igst = totalGST;
-//       }
-
-//       return {
-//         ...data,
-//         gstDetails: {
-//           totalAmount,
-//           gstRate,
-//           cgst,
-//           sgst,
-//           igst,
-//           totalGST,
-//           totalWithGST: totalAmount + totalGST,
-//         },
-//       };
-//     });
-
-//     return createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page,
-//       totalPages: Math.ceil(count / limit),
-//       data: updatedRows,
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     return badRequest(res, errorMessage, error);
-//   }
-// };
 
 
 
@@ -2428,22 +2043,31 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
 
     const ownstate = String(req.query.ownstate || "").toLowerCase();
     const clientState = String(req.query.clientState || "").toLowerCase();
-
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
     // ✅ Validate status
     const allowedStatus = ["draft", "accepted", "rejected"];
     if (status && !allowedStatus.includes(status)) {
       return badRequest(res, "Invalid status value");
     }
 
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
     // ✅ Base where condition
     let whereCondition: any = {
-      userId: userData.userId,
+      userId: {
+        [Op.in]: allUserIds
+      },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
+      }
     };
+
 
     // ✅ Status filter
     if (status) {
       whereCondition.status = status;
     }
+
 
     // ✅ Company name filter (PostgreSQL JSON)
     if (companyName) {
@@ -2454,10 +2078,27 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       ];
     }
 
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate + "T00:00:00.000Z"),
+          new Date(endDate + "T23:59:59.999Z"),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+      };
+    }
+
     // ✅ Query
     const { count, rows } = await Quotations.findAndCountAll({
       where: whereCondition,
-      order: [["createdAt", "ASC"]],
+      order: [["createdAt", "DESC"]],
       limit,
       offset,
     });
@@ -2651,8 +2292,6 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
   try {
     const { id } = req.params;
     const { status } = req.body || {};
-
-    console.log("id", id, "status", status);
     if (!id) {
       badRequest(res, "Quotation id is required");
       return;
@@ -2792,41 +2431,236 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
 };
 
 
-export const addInvoice = async (req: Request, res: Response): Promise<void> => {
+
+
+
+
+
+
+
+// export const addInvoice = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   const transaction = await sequelize.transaction();
+
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     // 🔒 Auth validation
+//     if (!userData?.userId) {
+//       await transaction.rollback();
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const data = req.body;
+
+//     // 🔍 Basic validation
+//     if (!data.customerName) {
+//       await transaction.rollback();
+//       badRequest(res, "Customer name is required");
+//       return;
+//     }
+
+//     if (!Array.isArray(data.items) || data.items.length === 0) {
+//       await transaction.rollback();
+//       badRequest(res, "Items are required");
+//       return;
+//     }
+
+//     // 🔍 Item validation
+//     for (const item of data.items) {
+//       if (!item.itemName || !item.quantity || !item.rate) {
+//         await transaction.rollback();
+//         badRequest(res, "Each item must have itemName, quantity, and rate");
+//         return;
+//       }
+
+//       if (!item.index) {
+//         await transaction.rollback();
+//         badRequest(res, "Item index is required for quotation mapping");
+//         return;
+//       }
+
+//       if (Number(item.quantity) <= 0) {
+//         await transaction.rollback();
+//         badRequest(res, "Item quantity must be greater than 0");
+//         return;
+//       }
+//     }
+
+//     // 🧩 Extract fields
+//     const {
+//       tallyInvoiceNumber = "web",
+//       customerName,
+//       quotationId,
+//       status,
+//       QuotationNumber,
+//       QuotationDate,
+//       date,
+//       ...restData
+//     } = data;
+
+//     let quotationRecord: any = null;
+
+//     // ============================
+//     // 🔁 HANDLE QUOTATION UPDATE
+//     // ============================
+//     if (quotationId) {
+//       quotationRecord = await Quotations.findOne({
+//         where: { id: Number(quotationId) },
+//         transaction,
+//         lock: transaction.LOCK.UPDATE, // 🔒 prevent race condition
+//       });
+
+//       if (!quotationRecord) {
+//         throw new Error("Quotation not found");
+//       }
+
+//       const quotationData = quotationRecord.quotation;
+
+//       if (!quotationData?.items || !Array.isArray(quotationData.items)) {
+//         throw new Error("Invalid quotation items");
+//       }
+
+//       // 🧠 Update quantities with consumed tracking
+//       const updatedItems = quotationData.items.map((qItem: any) => {
+//         const invItem = data.items.find(
+//           (i: any) => String(i.index) === String(qItem.index)
+//         );
+
+//         const baseQuantity = Number(qItem.quantity);
+//         const alreadyConsumed = Number(qItem.consumedQuantity || 0);
+
+//         // If no invoice item → just recalculate remaining
+//         if (!invItem) {
+//           return {
+//             ...qItem,
+//             consumedQuantity: alreadyConsumed,
+//             remainingQuantity: baseQuantity - alreadyConsumed,
+//           };
+//         }
+
+//         const newConsume = Number(invItem.quantity);
+//         const totalConsumed = alreadyConsumed + newConsume;
+
+//         if (totalConsumed > baseQuantity) {
+//           throw new Error(
+//             `Invoice quantity exceeds quotation for item: ${qItem.itemName}`
+//           );
+//         }
+
+//         return {
+//           ...qItem,
+//           consumedQuantity: totalConsumed,
+//           remainingQuantity: baseQuantity - totalConsumed,
+//         };
+//       });
+
+//       // ✅ Save updated quotation
+//       quotationRecord.set("quotation", {
+//         ...quotationData,
+//         items: updatedItems,
+//       });
+
+//       quotationRecord.changed("quotation", true);
+
+//       await quotationRecord.save({ transaction });
+//     }
+
+//     // ============================
+//     // 🧾 CREATE INVOICE
+//     // ============================
+//     const invoicePayload = {
+//       userId: userData.userId,
+//       companyId: userData.companyId || 0,
+//       invoiceNumber: tallyInvoiceNumber,
+//       customerName,
+//       quotationId: quotationId || null,
+//       status: status || "draft",
+//       quotationNumber: QuotationNumber || null,
+//       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
+//       invoiceDate: date ? new Date(date) : null,
+//       invoice: restData,
+//       items: data.items, // store invoice items separately
+//     };
+
+//     const invoiceData = await Invoices.create(invoicePayload, {
+//       transaction,
+//     });
+
+//     // ✅ Commit transaction
+//     await transaction.commit();
+
+//     createSuccess(res, "Invoice added successfully", invoiceData);
+//   } catch (error) {
+//     await transaction.rollback();
+
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
+export const addInvoice = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const transaction = await sequelize.transaction();
+
   try {
     const userData = req.userData as JwtPayload;
 
-    if (!userData || !userData.userId) {
+    // 🔒 Auth validation
+    if (!userData?.userId) {
+      await transaction.rollback();
       badRequest(res, "Unauthorized request");
       return;
     }
 
     const data = req.body;
 
-    // if (!data.tallyInvoiceNumber) {
-    //   badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
-    //   return;
-    // }
-
+    // 🔍 Basic validation
     if (!data.customerName) {
+      await transaction.rollback();
       badRequest(res, "Customer name is required");
       return;
     }
 
-    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+    if (!Array.isArray(data.items) || data.items.length === 0) {
+      await transaction.rollback();
       badRequest(res, "Items are required");
       return;
     }
 
-    // ✅ Validate each item
+    // 🔍 Item validation
     for (const item of data.items) {
       if (!item.itemName || !item.quantity || !item.rate) {
-        badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
+        await transaction.rollback();
+        badRequest(
+          res,
+          "Each item must have itemName, quantity, and rate"
+        );
+        return;
+      }
+
+      if (!item.index) {
+        await transaction.rollback();
+        badRequest(res, "Item index is required for quotation mapping");
+        return;
+      }
+
+      if (Number(item.quantity) <= 0) {
+        await transaction.rollback();
+        badRequest(res, "Item quantity must be greater than 0");
         return;
       }
     }
 
-    // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
+    // 🧩 Extract fields
     const {
       tallyInvoiceNumber = "web",
       customerName,
@@ -2838,28 +2672,122 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       ...restData
     } = data;
 
-    // ✅ Prepare DB object
-    const invoicePayload: any = {
+    let quotationRecord: any = null;
+
+    // ============================
+    // 🔁 HANDLE QUOTATION UPDATE
+    // ============================
+    if (quotationId) {
+      quotationRecord = await Quotations.findOne({
+        where: { id: Number(quotationId) },
+        transaction,
+        lock: transaction.LOCK.UPDATE, // 🔒 prevent race condition
+      });
+
+      if (!quotationRecord) {
+        throw new Error("Quotation not found");
+      }
+
+      // 🚫 Prevent invoicing if already consumed
+      if (quotationRecord.isConsumed) {
+        throw new Error("Quotation already fully consumed");
+      }
+
+      const quotationData = quotationRecord.quotation;
+
+      if (!quotationData?.items || !Array.isArray(quotationData.items)) {
+        throw new Error("Invalid quotation items");
+      }
+
+      // 🧠 Update quantities
+      const updatedItems = quotationData.items.map((qItem: any) => {
+        const invItem = data.items.find(
+          (i: any) => String(i.index) === String(qItem.index)
+        );
+
+        const baseQuantity = Number(qItem.quantity);
+        const alreadyConsumed = Number(qItem.consumedQuantity || 0);
+
+        // If no invoice item → just recalc remaining
+        if (!invItem) {
+          const remaining = baseQuantity - alreadyConsumed;
+
+          return {
+            ...qItem,
+            consumedQuantity: alreadyConsumed,
+            remainingQuantity: remaining,
+          };
+        }
+
+        const newConsume = Number(invItem.quantity);
+        const totalConsumed = alreadyConsumed + newConsume;
+
+        if (totalConsumed > baseQuantity) {
+          throw new Error(
+            `Invoice quantity exceeds quotation for item: ${qItem.itemName}`
+          );
+        }
+
+        const remaining = baseQuantity - totalConsumed;
+
+        return {
+          ...qItem,
+          consumedQuantity: totalConsumed,
+          remainingQuantity: remaining,
+        };
+      });
+
+      // ✅ Check if all items fully consumed
+      const isQuotationConsumed =
+        updatedItems.length > 0 &&
+        updatedItems.every(
+          (item: any) => Number(item.remainingQuantity) === 0
+        );
+
+      // ✅ Save quotation JSON + flag
+      quotationRecord.set("quotation", {
+        ...quotationData,
+        items: updatedItems,
+      });
+
+      quotationRecord.set("isConsumed", isQuotationConsumed);
+
+      quotationRecord.changed("quotation", true);
+
+      await quotationRecord.save({ transaction });
+    }
+
+    // ============================
+    // 🧾 CREATE INVOICE
+    // ============================
+    const invoicePayload = {
       userId: userData.userId,
       companyId: userData.companyId || 0,
       invoiceNumber: tallyInvoiceNumber,
-      customerName: customerName,
+      customerName,
       quotationId: quotationId || null,
       status: status || "draft",
       quotationNumber: QuotationNumber || null,
       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
       invoiceDate: date ? new Date(date) : null,
-      invoice: restData, // remaining JSON properties stored here
+      invoice: restData,
+      items: data.items,
     };
 
-    // ✅ Create invoice
-    const invoiceData = await Invoices.create(invoicePayload);
+    const invoiceData = await Invoices.create(invoicePayload, {
+      transaction,
+    });
+
+    // ✅ Commit transaction
+    await transaction.commit();
 
     createSuccess(res, "Invoice added successfully", invoiceData);
-
   } catch (error) {
+    await transaction.rollback();
+
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
+
     badRequest(res, errorMessage);
   }
 };
@@ -2872,14 +2800,27 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { page = "1", limit = "10", search = "", companyName, city, state, } = req.query;
+    const { page = "1", limit = "10", search = "", status, companyName, city, state, startDate,  // ✅ new
+      endDate } = req.query;
 
     const pageNumber = Number(page);
     const pageSize = Math.min(Number(limit), 50); // safety limit
     const offset = (pageNumber - 1) * pageSize;
 
+
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
+
+    console.log(allUserIds,"allUserIdsdadaaddadad")
+
     // ✅ Dynamic where condition
-    const whereCondition: any = {};
+    const whereCondition: any = {
+      userId: {
+        [Op.in]: allUserIds
+      },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
+      }
+    };
 
     // 🔍 Global search
     if (search) {
@@ -2890,12 +2831,22 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       ];
     }
 
+    if (status) {
+      whereCondition.status = status;
+    }
+
+    if (!status) {
+      whereCondition.status = {
+        [Op.in]: ["draft", "imported"]
+      }
+    }
     // 🎯 Filters
     if (companyName) {
       whereCondition.companyName = {
         [Op.like]: `%${companyName}%`,
       };
     }
+
 
     if (city) {
       whereCondition.city = {
@@ -2908,11 +2859,29 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
         [Op.like]: `%${state}%`,
       };
     }
+
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate as string),
+          new Date(endDate as string),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate as string),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate as string),
+      };
+    }
+
     const invoiceData = await Invoices.findAll({
-      where: {
-        userId: userData.userId,
-        // companyId:userData.companyId || 0
-      }
+      where: whereCondition,
+      limit: pageSize,
+      offset: offset,
+      order: [["createdAt", "DESC"]],
     });
     createSuccess(res, "Invoice list fetched successfully", invoiceData);
   } catch (error) {
@@ -3118,3 +3087,380 @@ export const deleteRecordSale = async (req: Request, res: Response): Promise<voi
     badRequest(res, errorMessage);
   }
 }
+
+
+
+
+export const getTallyReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData?.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      status,
+      customerName,
+      referenceNo,
+      date,
+      startDate,
+      endDate,
+    } = req.query;
+
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Number(limit) || 10, 50);
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ==============================
+    // 🔼 STEP 1: FIND PARENT & ROOT
+    // ==============================
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",allUserIds);
+    // ==============================
+    // ✅ STEP 2: FILTERS
+    // ==============================
+    const andConditions: any[] = [
+      { userId: { [Op.in]: allUserIds } },
+    ];
+
+    // 🔍 Search
+    if (search) {
+      andConditions.push({
+        [Op.or]: [
+          { customerName: { [Op.like]: `%${search}%` } },
+          { referenceNo: { [Op.like]: `%${search}%` } },
+        ],
+      });
+    }
+
+    // 🎯 Status
+    if (status) {
+      const statusArray = Array.isArray(status)
+        ? status.map((s) => String(s))
+        : typeof status === "string"
+          ? status.split(",").map((s) => s.trim())
+          : [String(status)];
+
+      andConditions.push({
+        status: { [Op.in]: statusArray },
+      });
+    }
+
+    // 🎯 Specific Filters
+    if (customerName) {
+      andConditions.push({
+        customerName: { [Op.like]: `%${customerName}%` },
+      });
+    }
+
+    if (referenceNo) {
+      andConditions.push({
+        referenceNo: { [Op.like]: `%${referenceNo}%` },
+      });
+    }
+
+    if (date) {
+      andConditions.push({
+        date: { [Op.like]: `%${date}%` },
+      });
+    }
+
+    // 📅 Date filter
+    if (startDate && endDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.between]: [
+            new Date(startDate as string),
+            new Date(endDate as string),
+          ],
+        },
+      });
+    } else if (startDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.gte]: new Date(startDate as string),
+        },
+      });
+    } else if (endDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.lte]: new Date(endDate as string),
+        },
+      });
+    }
+
+    const whereCondition = {
+      [Op.and]: andConditions,
+    };
+
+    // ==============================
+    // ✅ STEP 4: QUERY
+    // ==============================
+    const { count, rows } = await Report.findAndCountAll({
+      where: whereCondition,
+      limit: pageSize,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    // ==============================
+    // ✅ RESPONSE
+    // ==============================
+    createSuccess(res, "Reports fetched successfully", {
+      totalItems: count,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(count / pageSize),
+      // parent: parentUser,
+      // rootAdmin: rootAdmin,
+      data: rows,
+    });
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const createClient = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { userId } = req.userData as JwtPayload;
+    const {
+      name, email, mobile, companyName, panNumber, status,
+      state, customerType, city, pincode, country, address, gstNumber
+    } = req.body || {};
+
+    // Only name, state, country, companyName are mandatory
+    if (!name || !state || !country || !companyName) {
+      badRequest(res, "name, state, country, and companyName are required");
+      return;
+    }
+
+    // Duplicate check: only if email or mobile is provided
+    const duplicateChecks: any[] = [];
+    if (email) duplicateChecks.push({ email });
+    if (mobile) duplicateChecks.push({ mobile });
+
+    if (duplicateChecks.length > 0) {
+      const isExist = await MeetingUser.findOne({
+        where: {
+          [Op.or]: duplicateChecks,
+        },
+      });
+
+      if (isExist) {
+        badRequest(res, "Client already exists with this email or mobile");
+        return;
+      }
+    }
+
+    // Create new client information (MeetingUser)
+    await MeetingUser.create({
+      name,
+      email,
+      mobile,
+      userId,
+      companyName,
+      customerType: customerType || "new",
+      state,
+      city,
+      pincode,
+      country,
+      address,
+      gstNumber,
+      panNumber,
+      status: status || "draft"
+    });
+
+    createSuccess(res, "Client created successfully");
+  } catch (error) {
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};
+
+
+export const forgotPassword = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { email } = req.body || {};
+
+    if (!email) {
+      badRequest(res, "Email is missing");
+      return;
+    }
+    const user: any = await User.findOne({ where: { email } });
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    // Save OTP + Expiry (10 minutes)
+    user.otp = otp;
+    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    // Send response FIRST
+    createSuccess(res, "OTP sent to your email");
+
+    // Send email in background (no await required)
+    forgotpassword("Password Reset OTP", otp, user.email);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, otp } = req.body || {};
+
+    if (!email || !otp) {
+      badRequest(res, "Email and OTP are required");
+      return;
+    }
+
+    const user: any = await User.findOne({ where: { email } });
+
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    // Check OTP match
+    if (user.otp !== otp) {
+      badRequest(res, "Invalid OTP");
+      return;
+    }
+
+    // Check OTP expiry
+    if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
+      badRequest(res, "OTP has expired");
+      return;
+    }
+
+    // OTP verified → clear OTP fields
+    user.otp = null;
+    user.otpExpiry = null;
+    await user.save();
+
+    createSuccess(res, "OTP verified successfully");
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+export const changePassword = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { email, newPassword } = req.body || {};
+
+    if (!email || !newPassword) {
+      badRequest(res, "Email and new password are required");
+      return;
+    }
+
+    // ✅ Hash password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    const [updatedRows] = await User.update(
+      {
+        password: hashedPassword,
+        otp: null,
+        otpExpiry: null,
+      },
+      {
+        where: { email },
+      }
+    );
+
+    if (updatedRows === 0) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    createSuccess(res, "Password changed successfully");
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const getDashboardMobile = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { userId } = req.userData as JwtPayload;
+
+    const allUserIds = await Middleware.getAllSubordinateIds(Number(userId));
+
+    const commonFilter = {
+      userId: { [Op.in]: allUserIds },
+      status: { [Op.notIn]: ["cancelled", "deleted"] },
+    };
+
+    const saleordercount = await Quotations.count({
+      where: commonFilter,
+    });
+
+    const perfomaInvoice = await Invoices.count({
+      where: {
+        userId: { [Op.in]: allUserIds },
+        [Op.and]: [
+          { status: { [Op.in]: ["draft", "imported"] } },
+          { status: { [Op.notIn]: ["cancelled", "deleted"] } },
+        ],
+      },
+    });
+
+    const invoice = await Invoices.count({
+      where: {
+        userId: { [Op.in]: allUserIds },
+        [Op.and]: [
+          { status: "accepted" },
+          { status: { [Op.notIn]: ["cancelled", "deleted"] } },
+        ],
+      },
+    });
+
+    const Reports = await Report.count({
+      where: commonFilter,
+    });
+
+    createSuccess(res, "Dashboard data fetched successfully", {
+      saleordercount,
+      perfomaInvoice,
+      invoice,
+      Reports,
+    });
+  } catch (error) {
+    console.error(error);
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};

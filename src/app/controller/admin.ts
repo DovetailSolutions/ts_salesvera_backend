@@ -1,5 +1,6 @@
 
 import { Op, fn, col, cast,literal} from "sequelize";
+import {sequelize} from "../../config/dbConnection";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import csv from "csv-parser";
@@ -36,7 +37,8 @@ import {
   Invoices,
   RecordSales,
   Permission,
-  UserPermission
+  UserPermission,
+  Report
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { S3 } from "@aws-sdk/client-s3";
@@ -1362,6 +1364,8 @@ export const GetExpense = async (
       ]
     }
 
+   
+
     const { rows, count } = await Expense.findAndCountAll({
       where: expenseWhere, // 👈 final merged condition
       include: [
@@ -2013,7 +2017,7 @@ export const addSubCategory = async (
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { sub_category_name, amount, tax,status, CategoryId } = req.body;
+    const { sub_category_name, amount, tax,status, CategoryId,gst,unit,hsnCode } = req.body;
     if (!sub_category_name?.trim()) {
       badRequest(res, "Sub category name is required");
       return;
@@ -2041,6 +2045,9 @@ export const addSubCategory = async (
       amount: amount ?? null,
       text: tax ?? null,
       status: status || "draft",
+      gst:gst ?? null,
+      unit:unit ?? null,
+      hsnCode:hsnCode ?? null,
     });
     createSuccess(res, "Sub category created successfully", subCategory);
   } catch (error) {
@@ -2185,13 +2192,16 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       return;
     }
 
-    console.log("userData", userData);
+
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
     const { count, rows } = await Quotations.findAndCountAll({
       where: {
         // userId: userData.userId
+        status: {
+          [Op.notIn]: ["cancelled", "deleted"]
+        }
       },
       include: [
         {
@@ -3797,7 +3807,7 @@ export const addHoliday = async (req: Request, res: Response) => {
     }
 
     // ================= DEBUG (optional) =================
-    // console.log(JSON.stringify(holidayData, null, 2));
+
 
     // ================= BULK CREATE =================
 
@@ -3935,10 +3945,10 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
        return
     }
 
-    if (!data.referenceNumber) {
-       badRequest(res, "Reference number is required");
-       return
-    }
+    // if (!data.referenceNumber) {
+    //    badRequest(res, "Reference number is required");
+    //    return
+    // }
 
     if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
        badRequest(res, "Items are required");
@@ -3976,7 +3986,8 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
       customerName: data.customerName,
       referenceNumber: data.referenceNumber,
       quotation: data,
-      status: data.status || "draft"
+      status: data.status || "draft",
+      isConsumed: false,
     });
 
     res.status(201).json({
@@ -4013,6 +4024,12 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     // ✅ Filters
     const status = String(req.query.status || "").toLowerCase();
     const companyName = String(req.query.companyName || "").toLowerCase();
+
+    // ✅ Validate status
+    const allowedStatus = ["draft", "accepted", "rejected"];
+    if (status && !allowedStatus.includes(status)) {
+      return badRequest(res, "Invalid status value");
+    }
     // 🟢 HIERARCHY LOGIC 🟢
     // Admin > Manager > Sales Person
     // We fetch all sub-users created by the logged-in user, and their sub-users too.
@@ -4053,12 +4070,15 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
       currentParentIds = nextLevelParentIds;
     }
 
-    console.log("Final Team User IDs (Recursive):", teamUserIds);
+
 
     // ✅ Base where condition for Quotations
     // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
+      }
     };
 
 
@@ -4131,7 +4151,7 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
     const {id} = req.params;
     const {status} = req.body||{};
 
-    console.log("id",id,"status",status);
+
     if(!id){
       badRequest(res, "Quotation id is required");
       return;
@@ -4156,7 +4176,7 @@ export const addLeave = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
 
-    console.log("userData",userData);
+
 
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
@@ -4378,29 +4398,68 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { status,search } = req.query;
+    const { status, search } = req.query;
 
-    // ✅ Pagination (optional but recommended)
+    // ✅ Pagination
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const obj : any = {
-      userId: Number(userData.userId),
+    // ✅ Get all team user IDs (BFS traversal)
+    let teamUserIds: number[] = [];
+    let queue: number[] = [userData.userId];
+
+    while (queue.length > 0) {
+      const users = await User.findAll({
+        where: { id: { [Op.in]: queue } },
+        attributes: ["id"],
+        include: [
+          {
+            model: User,
+            as: "createdUsers",
+            attributes: ["id"],
+          },
+        ],
+      });
+
+      let nextQueue: number[] = [];
+
+      for (const user of users as any[]) {
+        if (!teamUserIds.includes(user.id)) {
+          teamUserIds.push(user.id);
+        }
+
+        const children = user.createdUsers || [];
+
+        for (const child of children) {
+          if (!teamUserIds.includes(child.id)) {
+            nextQueue.push(child.id);
+          }
+        }
+      }
+
+      queue = nextQueue;
+    }
+
+    // ✅ Where condition
+    const obj: any = {
+      userId: { [Op.in]: teamUserIds },
     };
 
     if (status) {
       obj.status = status;
     }
 
-    if(search){
+    if (search) {
+      const searchValue = `%${search}%`;
+
       obj[Op.or] = [
-        { name: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } },
-        { mobile: { [Op.like]: `%${search}%` } },
-        { companyName: { [Op.like]: `%${search}%` } },
-        { city: { [Op.like]: `%${search}%` } },
-        { state: { [Op.like]: `%${search}%` } },
+        { name: { [Op.like]: searchValue } },
+        { email: { [Op.like]: searchValue } },
+        { mobile: { [Op.like]: searchValue } },
+        { companyName: { [Op.like]: searchValue } },
+        { city: { [Op.like]: searchValue } },
+        { state: { [Op.like]: searchValue } },
       ];
     }
 
@@ -4412,8 +4471,8 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       offset,
     });
 
-    // ✅ Response
-    createSuccess(res, "Leave list fetched successfully", {
+    // ✅ Response (UNCHANGED)
+    createSuccess(res, "user list fetched successfully", {
       total: count,
       currentPage: page,
       totalPages: Math.ceil(count / limit),
@@ -4446,7 +4505,7 @@ export const updateClient = async (req: Request, res: Response): Promise<void> =
     const client = await MeetingUser.findOne({
       where: {
         id: Number(id),
-        userId: Number(userData.userId),
+        // userId: Number(userData.userId),
       },
     });
 
@@ -4546,41 +4605,55 @@ export const SubCategoryStatus = async (req: Request, res: Response): Promise<vo
 };
 
 
-export const addInvoice = async (req: Request, res: Response): Promise<void> => {
+export const addInvoice = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const transaction = await sequelize.transaction();
+
   try {
     const userData = req.userData as JwtPayload;
 
-    if (!userData || !userData.userId) {
+    // 🔒 Auth validation
+    if (!userData?.userId) {
+      await transaction.rollback();
       badRequest(res, "Unauthorized request");
-      return;
     }
 
     const data = req.body;
 
-    // if (!data.tallyInvoiceNumber) {
-    //   badRequest(res, "Invoice number (tallyInvoiceNumber) is required");
-    //   return;
-    // }
-
+    // 🔍 Basic validation
     if (!data.customerName) {
+      await transaction.rollback();
       badRequest(res, "Customer name is required");
-      return;
     }
 
-    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+    if (!Array.isArray(data.items) || data.items.length === 0) {
+      await transaction.rollback();
       badRequest(res, "Items are required");
-      return;
     }
 
-    // ✅ Validate each item
+    // 🔍 Item validation
     for (const item of data.items) {
       if (!item.itemName || !item.quantity || !item.rate) {
-         badRequest(res, "Invalid item data: itemName, quantity, and rate are required");
-         return;
+        await transaction.rollback();
+        badRequest(
+          res,
+          "Each item must have itemName, quantity, and rate"
+        );
+      }
+
+      if (!item.index) {
+        await transaction.rollback();
+        badRequest(res, "Item index is required");
+      }
+
+      if (Number(item.quantity) <= 0) {
+        await transaction.rollback();
+        badRequest(res, "Item quantity must be greater than 0");
       }
     }
 
-    // ✅ Extract fields for explicit columns and group the rest into 'invoice' JSON
     const {
       tallyInvoiceNumber = "web",
       customerName,
@@ -4592,39 +4665,348 @@ export const addInvoice = async (req: Request, res: Response): Promise<void> => 
       ...restData
     } = data;
 
-    // ✅ Prepare DB object
-    const invoicePayload: any = {
+    let quotationRecord: any = null;
+
+    // =========================================
+    // 🔁 QUOTATION HANDLING (FIXED LOGIC)
+    // =========================================
+    if (quotationId) {
+      quotationRecord = await Quotations.findOne({
+        where: { id: Number(quotationId) },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      if (!quotationRecord) {
+        throw new Error("Quotation not found");
+      }
+
+      if (quotationRecord.isConsumed) {
+        throw new Error("Quotation already fully consumed");
+      }
+
+      const quotationData = quotationRecord.quotation;
+
+      if (!Array.isArray(quotationData?.items)) {
+        throw new Error("Invalid quotation items");
+      }
+
+      // 🧠 Filter only valid (remaining) invoice items
+      const validInvoiceItems = data.items.filter((invItem: any) => {
+        const qItem = quotationData.items.find(
+          (q: any) => String(q.index) === String(invItem.index)
+        );
+
+        if (!qItem) return false;
+
+        const remaining =
+          Number(qItem.quantity) - Number(qItem.consumedQuantity || 0);
+
+        return remaining > 0;
+      });
+
+      if (validInvoiceItems.length === 0) {
+        throw new Error("All selected items are already fully consumed");
+      }
+
+      // 🧠 Update quotation items
+      const updatedItems = quotationData.items.map((qItem: any) => {
+        const invItem = validInvoiceItems.find(
+          (i: any) => String(i.index) === String(qItem.index)
+        );
+
+        const baseQuantity = Number(qItem.quantity) || 0;
+        const alreadyConsumed = Number(qItem.consumedQuantity) || 0;
+
+        // 🟢 Skip fully consumed
+        if (alreadyConsumed >= baseQuantity) {
+          return {
+            ...qItem,
+            consumedQuantity: alreadyConsumed,
+            remainingQuantity: 0,
+          };
+        }
+
+        // 🟡 No new invoice item → keep same
+        if (!invItem) {
+          return {
+            ...qItem,
+            consumedQuantity: alreadyConsumed,
+            remainingQuantity: baseQuantity - alreadyConsumed,
+          };
+        }
+
+        const newConsume = Number(invItem.quantity) || 0;
+
+        const available = baseQuantity - alreadyConsumed;
+
+        // 🔴 Prevent over-consumption
+        // if (newConsume > available) {
+        //   throw new Error(
+        //     `Only ${available} quantity left for ${qItem.itemName}`
+        //   );
+        // }
+
+        const totalConsumed = alreadyConsumed + newConsume;
+
+        return {
+          ...qItem,
+          consumedQuantity: totalConsumed,
+          remainingQuantity: baseQuantity - totalConsumed,
+        };
+      });
+
+      // ✅ Check if fully consumed
+      const isQuotationConsumed =
+        updatedItems.length > 0 &&
+        updatedItems.every(
+          (item: any) => Number(item.remainingQuantity) === 0
+        );
+
+      // 💾 Save
+      quotationRecord.set("quotation", {
+        ...quotationData,
+        items: updatedItems,
+      });
+
+      quotationRecord.set("isConsumed", isQuotationConsumed);
+      quotationRecord.changed("quotation", true);
+
+      await quotationRecord.save({ transaction });
+
+      // 👉 Replace original items with valid ones only
+      data.items = validInvoiceItems;
+    }
+
+    // =========================================
+    // 🧾 CREATE INVOICE
+    // =========================================
+    const invoicePayload = {
       userId: userData.userId,
       companyId: userData.companyId || 0,
       invoiceNumber: tallyInvoiceNumber,
-      customerName: customerName,
+      customerName,
       quotationId: quotationId || null,
       status: status || "draft",
       quotationNumber: QuotationNumber || null,
       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
       invoiceDate: date ? new Date(date) : null,
-      invoice: restData, // remaining JSON properties stored here
+      invoice: restData,
+      items: data.items,
     };
 
-    // ✅ Create invoice
-    const invoiceData = await Invoices.create(invoicePayload);
+    const invoiceData = await Invoices.create(invoicePayload, {
+      transaction,
+    });
+
+    // ✅ Commit
+    await transaction.commit();
 
     createSuccess(res, "Invoice added successfully", invoiceData);
-
   } catch (error) {
+    await transaction.rollback();
+
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
+
     badRequest(res, errorMessage);
+    return
   }
 };
 
 
+// export const addInvoice = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   const transaction = await sequelize.transaction();
+
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     // 🔒 Auth validation
+//     if (!userData?.userId) {
+//       await transaction.rollback();
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const data = req.body;
+
+//     // 🔍 Basic validation
+//     if (!data.customerName) {
+//       await transaction.rollback();
+//       badRequest(res, "Customer name is required");
+//       return;
+//     }
+
+//     if (!Array.isArray(data.items) || data.items.length === 0) {
+//       await transaction.rollback();
+//       badRequest(res, "Items are required");
+//       return;
+//     }
+
+//     // 🔍 Item validation
+//     for (const item of data.items) {
+//       if (!item.itemName || !item.quantity || !item.rate) {
+//         await transaction.rollback();
+//         badRequest(
+//           res,
+//           "Each item must have itemName, quantity, and rate"
+//         );
+//         return;
+//       }
+
+//       if (!item.index) {
+//         await transaction.rollback();
+//         badRequest(res, "Item index is required for quotation mapping");
+//         return;
+//       }
+
+//       if (Number(item.quantity) <= 0) {
+//         await transaction.rollback();
+//         badRequest(res, "Item quantity must be greater than 0");
+//         return;
+//       }
+//     }
+
+//     // 🧩 Extract fields
+//     const {
+//       tallyInvoiceNumber = "web",
+//       customerName,
+//       quotationId,
+//       status,
+//       QuotationNumber,
+//       QuotationDate,
+//       date,
+//       ...restData
+//     } = data;
+
+//     let quotationRecord: any = null;
+
+//     // ============================
+//     // 🔁 HANDLE QUOTATION UPDATE
+//     // ============================
+//     if (quotationId) {
+//       quotationRecord = await Quotations.findOne({
+//         where: { id: Number(quotationId) },
+//         transaction,
+//         lock: transaction.LOCK.UPDATE, // 🔒 prevent race condition
+//       });
+
+//       if (!quotationRecord) {
+//         throw new Error("Quotation not found");
+//       }
+
+//       // 🚫 Prevent invoicing if already consumed
+//       if (quotationRecord.isConsumed) {
+//         throw new Error("Quotation already fully consumed");
+//       }
+
+//       const quotationData = quotationRecord.quotation;
+
+//       if (!quotationData?.items || !Array.isArray(quotationData.items)) {
+//         throw new Error("Invalid quotation items");
+//       }
+
+//       // 🧠 Update quantities
+//       const updatedItems = quotationData.items.map((qItem: any) => {
+//         const invItem = data.items.find(
+//           (i: any) => String(i.index) === String(qItem.index)
+//         );
+
+//         const baseQuantity = Number(qItem.quantity);
+//         const alreadyConsumed = Number(qItem.consumedQuantity || 0);
+
+//         // If no invoice item → just recalc remaining
+//         if (!invItem) {
+//           const remaining = baseQuantity - alreadyConsumed;
+
+//           return {
+//             ...qItem,
+//             consumedQuantity: alreadyConsumed,
+//             remainingQuantity: remaining,
+//           };
+//         }
+
+//         const newConsume = Number(invItem.quantity);
+//         const totalConsumed = alreadyConsumed + newConsume;
+
+//         if (totalConsumed > baseQuantity) {
+//           throw new Error(
+//             `Invoice quantity exceeds quotation for item: ${qItem.itemName}`
+//           );
+//         }
+
+//         const remaining = baseQuantity - totalConsumed;
+
+//         return {
+//           ...qItem,
+//           consumedQuantity: totalConsumed,
+//           remainingQuantity: remaining,
+//         };
+//       });
+
+//       // ✅ Check if all items fully consumed
+//       const isQuotationConsumed =
+//         updatedItems.length > 0 &&
+//         updatedItems.every(
+//           (item: any) => Number(item.remainingQuantity) === 0
+//         );
+
+//       // ✅ Save quotation JSON + flag
+//       quotationRecord.set("quotation", {
+//         ...quotationData,
+//         items: updatedItems,
+//       });
+
+//       quotationRecord.set("isConsumed", isQuotationConsumed);
+
+//       quotationRecord.changed("quotation", true);
+
+//       await quotationRecord.save({ transaction });
+//     }
+
+//     // ============================
+//     // 🧾 CREATE INVOICE
+//     // ============================
+//     const invoicePayload = {
+//       userId: userData.userId,
+//       companyId: userData.companyId || 0,
+//       invoiceNumber: tallyInvoiceNumber,
+//       customerName,
+//       quotationId: quotationId || null,
+//       status: status || "draft",
+//       quotationNumber: QuotationNumber || null,
+//       quotationDate: QuotationDate ? new Date(QuotationDate) : null,
+//       invoiceDate: date ? new Date(date) : null,
+//       invoice: restData,
+//       items: data.items,
+//     };
+
+//     const invoiceData = await Invoices.create(invoicePayload, {
+//       transaction,
+//     });
+
+//     // ✅ Commit transaction
+//     await transaction.commit();
+
+//     createSuccess(res, "Invoice added successfully", invoiceData);
+//   } catch (error) {
+//     await transaction.rollback();
+
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+
+//     badRequest(res, errorMessage);
+//   }
+// };
 export const getInvoice = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
 
 
-    console.log("userDatagetInvoice",userData);
+
 
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
@@ -4677,13 +5059,18 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       currentParentIds = nextLevelParentIds;
     }
 
-    console.log("Final Team User IDs (Recursive):", teamUserIds);
+    
 
     // ✅ FIX: Use ONLY ONE whereCondition
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
+      status: {
+        [Op.notIn]: ["cancelled", "deleted"]
+      }
     };
 
+
+    
     // 🔍 Global search
     if (search) {
       whereCondition[Op.or] = [
@@ -4712,9 +5099,24 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       };
     }
 
-    if (status) {
-      whereCondition.status = status;
+  if (status) {
+    let statusArray: string[];
+
+    if (Array.isArray(status)) {
+      // case: ?status[]=draft&status[]=sent
+      statusArray = status.map((s) => String(s));
+    } else if (typeof status === "string") {
+      // case: ?status=draft,sent
+      statusArray = status.split(",").map((s) => s.trim());
+    } else {
+      // Handle the case where it might be a ParsedQs object or other type
+      statusArray = [String(status)];
     }
+
+    whereCondition.status = {
+      [Op.in]: statusArray,
+    };
+  }
 
     // ✅ Query
     const { rows, count } = await Invoices.findAndCountAll({
@@ -4781,6 +5183,148 @@ export const updateInvoice = async (req: Request, res: Response): Promise<void> 
 };
 
 
+// export const getRecordSale = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData?.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const {
+//       page = "1",
+//       limit = "10",
+//       search = "",
+//       companyName,
+//       city,
+//       state,
+//       status,
+//     } = req.query as any;
+
+//     // ✅ Safe pagination parsing
+//     const pageNumber = Math.max(Number(page) || 1, 1);
+//     const pageSize = Math.min(Number(limit) || 10, 50);
+//     const offset = (pageNumber - 1) * pageSize;
+
+//     /** --------------------------
+//      * 🔁 Get Team Users (Recursive)
+//      * -------------------------- */
+//     let teamUserIds: number[] = [userData.userId];
+//     let currentParentIds: number[] = [userData.userId];
+
+//     while (currentParentIds.length > 0) {
+//       const subUsers = await User.findAll({
+//         where: { id: { [Op.in]: currentParentIds } },
+//         include: [
+//           {
+//             model: User,
+//             as: "createdUsers",
+//             attributes: ["id"],
+//           },
+//         ],
+//       });
+
+//       let nextLevelParentIds: number[] = [];
+
+//       subUsers.forEach((u: any) => {
+//         const children = u.createdUsers || [];
+
+//         children.forEach((child: any) => {
+//           if (!teamUserIds.includes(child.id)) {
+//             teamUserIds.push(child.id);
+//             nextLevelParentIds.push(child.id);
+//           }
+//         });
+//       });
+
+//       currentParentIds = nextLevelParentIds;
+//     }
+
+//     /** --------------------------
+//      * 🔍 Filters
+//      * -------------------------- */
+//     const whereCondition: any = {
+//       userId: { [Op.in]: teamUserIds },
+//     };
+
+//     // Global search
+//     if (search) {
+//       whereCondition[Op.or] = [
+//         { companyName: { [Op.like]: `%${search}%` } },
+//         { city: { [Op.like]: `%${search}%` } },
+//         { state: { [Op.like]: `%${search}%` } },
+//       ];
+//     }
+
+//     if (companyName) {
+//       whereCondition.companyName = { [Op.like]: `%${companyName}%` };
+//     }
+
+//     if (city) {
+//       whereCondition.city = { [Op.like]: `%${city}%` };
+//     }
+
+//     if (state) {
+//       whereCondition.state = { [Op.like]: `%${state}%` };
+//     }
+
+//     if (status) {
+//       whereCondition.status = status;
+//     }
+
+//     /** --------------------------
+//      * 📦 Fetch Data
+//      * -------------------------- */
+//     const { count, rows } = await RecordSales.findAndCountAll({
+//       where: whereCondition,
+//       order: [["createdAt", "DESC"]], // ✅ latest first
+//       limit: pageSize,                // ✅ fixed
+//       offset,
+//     });
+
+//     /** --------------------------
+//      * 🧠 Transform Data
+//      * -------------------------- */
+//     const updatedRows = rows.map((item: any, rowIndex: number) => {
+//       const data = item.toJSON();
+//       const { quotation, ...rest } = data;
+
+//       const finalQuotation = quotation?.quotation || quotation;
+
+//       if (finalQuotation?.items && Array.isArray(finalQuotation.items)) {
+//         finalQuotation.items = finalQuotation.items.map(
+//           (itm: any, itemIndex: number) => ({
+//             index: itemIndex + 1,
+//             ...itm,
+//           })
+//         );
+//       }
+
+//       return {
+//         ...rest,
+//         rowIndex: offset + rowIndex + 1,
+//         quotation: finalQuotation,
+//       };
+//     });
+
+//     /** --------------------------
+//      * ✅ Response
+//      * -------------------------- */
+//     createSuccess(res, "Invoice list fetched successfully", {
+//       totalItems: count,
+//       currentPage: pageNumber,
+//       totalPages: Math.ceil(count / pageSize),
+//       pageSize,
+//       data: updatedRows, // ✅ FIXED (was rows)
+//     });
+
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
 export const getRecordSale = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -4798,6 +5342,8 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       city,
       state,
       status,
+      startDate,   // ✅ added
+      endDate,     // ✅ added
     } = req.query as any;
 
     // ✅ Safe pagination parsing
@@ -4846,7 +5392,7 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       userId: { [Op.in]: teamUserIds },
     };
 
-    // Global search
+    // 🔍 Global search
     if (search) {
       whereCondition[Op.or] = [
         { companyName: { [Op.like]: `%${search}%` } },
@@ -4867,8 +5413,27 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       whereCondition.state = { [Op.like]: `%${state}%` };
     }
 
+    // ✅ Status filter
     if (status) {
-      whereCondition.status = status;
+      whereCondition.paymentReceived = status;
+    }
+
+    // ✅ Date filter (createdAt)
+    if (startDate && endDate) {
+      whereCondition.createdAt = {
+        [Op.between]: [
+          new Date(startDate + "T00:00:00.000Z"),
+          new Date(endDate + "T23:59:59.999Z"),
+        ],
+      };
+    } else if (startDate) {
+      whereCondition.createdAt = {
+        [Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+      };
+    } else if (endDate) {
+      whereCondition.createdAt = {
+        [Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+      };
     }
 
     /** --------------------------
@@ -4876,8 +5441,8 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
      * -------------------------- */
     const { count, rows } = await RecordSales.findAndCountAll({
       where: whereCondition,
-      order: [["createdAt", "DESC"]], // ✅ latest first
-      limit: pageSize,                // ✅ fixed
+      order: [["createdAt", "DESC"]],
+      limit: pageSize,
       offset,
     });
 
@@ -4907,16 +5472,665 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
     });
 
     /** --------------------------
-     * ✅ Response
+     * ✅ Response (UNCHANGED)
      * -------------------------- */
     createSuccess(res, "Invoice list fetched successfully", {
       totalItems: count,
       currentPage: pageNumber,
       totalPages: Math.ceil(count / pageSize),
       pageSize,
-      data: updatedRows, // ✅ FIXED (was rows)
+      data: updatedRows,
     });
 
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const addReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData?.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const payload = req.body;
+
+
+
+    // ✅ FIXED NORMALIZATION
+    let reports: any[] = [];
+
+
+    if (Array.isArray(payload)) {
+      reports = payload;
+    } else if (Array.isArray(payload.data)) {
+      reports = payload.data;
+    } else {
+      reports = [payload];
+    }
+
+    if (!reports.length) {
+      badRequest(res, "Payload cannot be empty");
+      return;
+    }
+
+    // ✅ VALIDATION
+    const allowedStatus = [
+      "draft",
+      "imported",
+      "sent",
+      "accepted",
+      "rejected",
+    ];
+
+    const validateReport = (item: any, index: number) => {
+      if (!item.date) throw new Error(`date is required at index ${index}`);
+      if (!item.referenceNo) throw new Error(`referenceNo is required at index ${index}`);
+      if (!item.customerName) throw new Error(`customerName is required at index ${index}`);
+
+      if (item.openingAmount == null || isNaN(item.openingAmount)) {
+        throw new Error(`openingAmount must be number at index ${index}`);
+      }
+
+      if (item.pendingAmount == null || isNaN(item.pendingAmount)) {
+        throw new Error(`pendingAmount must be number at index ${index}`);
+      }
+
+      if (item.pendingAmount > item.openingAmount) {
+        throw new Error(`pendingAmount > openingAmount at index ${index}`);
+      }
+
+      if (!item.dueOn || isNaN(new Date(item.dueOn).getTime())) {
+        throw new Error(`Invalid dueOn at index ${index}`);
+      }
+
+      if (!Number.isInteger(item.overdueDays)) {
+        throw new Error(`overdueDays must be integer at index ${index}`);
+      }
+
+      if (item.status && !allowedStatus.includes(item.status)) {
+        throw new Error(`Invalid status at index ${index}`);
+      }
+    };
+
+    reports.forEach((item, index) => validateReport(item, index));
+
+    // ✅ DUPLICATE CHECK (referenceNo + date)
+    const conditions = reports.map((item) => ({
+      referenceNo: item.referenceNo,
+      date: item.date,
+
+    }));
+
+    const existingReports = await Report.findAll({
+      where: {
+        [Op.or]: conditions,
+      },
+    });
+
+    if (existingReports.length > 0) {
+      const duplicates = existingReports
+        .map((r: any) => `Ref: ${r.referenceNo}, Date: ${r.date}`)
+        .join("; ");
+      badRequest(res, `Duplicate reports found: ${duplicates}`);
+      return;
+    }
+
+    // ✅ PREPARE DATA
+    const finalData = reports.map((item) => ({
+      ...item,
+      userId: userData.userId,
+      companyId: userData.companyId || userData.userId,
+    }));
+
+    let result;
+
+    if (finalData.length === 1) {
+      result = await Report.create(finalData[0]);
+    } else {
+      result = await Report.bulkCreate(finalData, {
+        validate: true,
+        returning: true,
+      });
+    }
+
+    createSuccess(res, "Report added successfully", result);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+// export const addReport = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData?.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const payload = req.body;
+
+//     // ✅ Normalize to array
+//     const reports = Array.isArray(payload) ? payload : [payload];
+
+//     if (!reports.length) {
+//       badRequest(res, "Payload cannot be empty");
+//       return;
+//     }
+
+//     // ✅ Validation function
+//     const validateReport = (item: any, index: number) => {
+//       if (!item.date) {
+//         throw new Error(`date is required at index ${index}`);
+//       }
+
+//       if (!item.referenceNo) {
+//         throw new Error(`referenceNo is required at index ${index}`);
+//       }
+
+//       if (!item.customerName) {
+//         throw new Error(`customerName is required at index ${index}`);
+//       }
+
+//       if (item.openingAmount == null || isNaN(item.openingAmount)) {
+//         throw new Error(`openingAmount must be a number at index ${index}`);
+//       }
+
+//       if (item.openingAmount < 0) {
+//         throw new Error(`openingAmount cannot be negative at index ${index}`);
+//       }
+
+//       if (item.pendingAmount == null || isNaN(item.pendingAmount)) {
+//         throw new Error(`pendingAmount must be a number at index ${index}`);
+//       }
+
+//       if (item.pendingAmount < 0) {
+//         throw new Error(`pendingAmount cannot be negative at index ${index}`);
+//       }
+
+//       if (item.pendingAmount > item.openingAmount) {
+//         throw new Error(
+//           `pendingAmount cannot be greater than openingAmount at index ${index}`
+//         );
+//       }
+
+//       if (!item.dueOn || isNaN(new Date(item.dueOn).getTime())) {
+//         throw new Error(`dueOn must be a valid date at index ${index}`);
+//       }
+
+//       if (item.overdueDays == null || !Number.isInteger(item.overdueDays)) {
+//         throw new Error(`overdueDays must be an integer at index ${index}`);
+//       }
+
+//       if (item.overdueDays < 0) {
+//         throw new Error(`overdueDays cannot be negative at index ${index}`);
+//       }
+
+//       const allowedStatus = [
+//         "draft",
+//         "imported",
+//         "sent",
+//         "accepted",
+//         "rejected",
+//       ];
+
+//       if (item.status && !allowedStatus.includes(item.status)) {
+//         throw new Error(`Invalid status at index ${index}`);
+//       }
+//     };
+
+//     // ✅ Run validation
+//     reports.forEach((item, index) => validateReport(item, index));
+
+//     // ✅ Prepare data
+//     const finalData = reports.map((item) => ({
+//       ...item,
+//       userId: userData.userId,
+//       companyId: userData.companyId || userData.userId,
+//     }));
+
+//     let result;
+
+//     if (finalData.length === 1) {
+//       result = await Report.create(finalData[0]);
+//     } else {
+//       result = await Report.bulkCreate(finalData, {
+//         validate: true,
+//         returning: true,
+//       });
+//     }
+
+//     createSuccess(
+//       res,
+//       finalData.length === 1
+//         ? "Report added successfully"
+//         : "Report added successfully",
+//       result
+//     );
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
+// export const addReport = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData?.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const payload = req.body;
+
+
+//         if (referenceNo) {
+//       whereCondition.referenceNo = referenceNo;
+//     }
+
+//     if (customerName) {
+//       whereCondition.customerName = customerName;
+//     }
+
+//     if (date) {
+//       // DB format: "2023-04-20T10:00:00.000Z"
+//       // Input: "2023-04-20"
+//       whereCondition.date = {
+//         [Op.like]: `%${date}%`,
+//       };
+//     }
+
+//     // ✅ Fetch latest matching record
+//     const report = await Report.findOne({
+//       where: whereCondition,
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     if (!report) {
+//       badRequest(res, "Report not found");
+//       return;
+//     }
+
+//     // ==============================
+//     // ✅ NORMALIZE INPUT (IMPORTANT)
+//     // ==============================
+//     let reports: any[] = [];
+
+//     if (Array.isArray(payload)) {
+//       // case: direct array
+//       reports = payload;
+//     } else if (Array.isArray(payload.data)) {
+//       // case: { data: [...] }
+//       reports = payload.data;
+//     } else {
+//       // case: single object
+//       reports = [payload];
+//     }
+
+//     if (!reports.length) {
+//       badRequest(res, "Payload cannot be empty");
+//       return;
+//     }
+
+//     // ==============================
+//     // ✅ VALIDATION
+//     // ==============================
+//     const allowedStatus = [
+//       "draft",
+//       "imported",
+//       "sent",
+//       "accepted",
+//       "rejected",
+//     ];
+
+//     const validateReport = (item: any, index: number) => {
+//       if (!item.date) {
+//         throw new Error(`date is required at index ${index}`);
+//       }
+
+//       if (!item.referenceNo) {
+//         throw new Error(`referenceNo is required at index ${index}`);
+//       }
+
+//       if (!item.customerName) {
+//         throw new Error(`customerName is required at index ${index}`);
+//       }
+
+//       if (item.openingAmount == null || isNaN(item.openingAmount)) {
+//         throw new Error(`openingAmount must be a number at index ${index}`);
+//       }
+
+//       if (item.openingAmount < 0) {
+//         throw new Error(`openingAmount cannot be negative at index ${index}`);
+//       }
+
+//       if (item.pendingAmount == null || isNaN(item.pendingAmount)) {
+//         throw new Error(`pendingAmount must be a number at index ${index}`);
+//       }
+
+//       if (item.pendingAmount < 0) {
+//         throw new Error(`pendingAmount cannot be negative at index ${index}`);
+//       }
+
+//       if (item.pendingAmount > item.openingAmount) {
+//         throw new Error(
+//           `pendingAmount cannot be greater than openingAmount at index ${index}`
+//         );
+//       }
+
+//       if (!item.dueOn || isNaN(new Date(item.dueOn).getTime())) {
+//         throw new Error(`dueOn must be a valid date at index ${index}`);
+//       }
+
+//       if (item.overdueDays == null || !Number.isInteger(item.overdueDays)) {
+//         throw new Error(`overdueDays must be an integer at index ${index}`);
+//       }
+
+//       if (item.overdueDays < 0) {
+//         throw new Error(`overdueDays cannot be negative at index ${index}`);
+//       }
+
+//       if (item.status && !allowedStatus.includes(item.status)) {
+//         throw new Error(`Invalid status at index ${index}`);
+//       }
+//     };
+
+//     // Run validation
+//     reports.forEach((item, index) => validateReport(item, index));
+
+//     // ==============================
+//     // ✅ PREPARE DATA
+//     // ==============================
+//     const finalData = reports.map((item) => ({
+//       ...item,
+//       userId: userData.userId,
+//       companyId: userData.companyId || userData.userId,
+//     }));
+
+//     // ==============================
+//     // ✅ INSERT DATA
+//     // ==============================
+//     let result;
+
+//     if (finalData.length === 1) {
+//       result = await Report.create(finalData[0]);
+//     } else {
+//       result = await Report.bulkCreate(finalData, {
+//         validate: true,
+//         returning: true,
+//       });
+//     }
+
+//     // ==============================
+//     // ✅ RESPONSE
+//     // ==============================
+//     createSuccess(
+//       res,
+//       "Report added successfully",
+//       result
+//     );
+
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+export const getReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData?.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const {
+      page = "1",
+      limit = "10",
+      search = "",
+      referenceNo,
+      startDate,
+      endDate,
+    } = req.query as any;
+
+    const pageNumber = Math.max(Number(page) || 1, 1);
+    const pageSize = Math.min(Number(limit) || 10, 50);
+    const offset = (pageNumber - 1) * pageSize;
+
+    // ✅ Use AND conditions (important)
+    const andConditions: any[] = [
+      { userId: userData.userId },
+    ];
+
+    // 🔍 Global search
+    if (search) {
+      andConditions.push({
+        [Op.or]: [
+          { referenceNo: { [Op.like]: `%${search}%` } },
+          { customerName: { [Op.like]: `%${search}%` } },
+        ],
+      });
+    }
+
+    // 🎯 Reference filter (separate from search)
+    if (referenceNo) {
+      andConditions.push({
+        referenceNo: { [Op.like]: `%${referenceNo}%` },
+      });
+    }
+
+    // 📅 Date range filter (using createdAt)
+    if (startDate && endDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.between]: [
+            new Date(startDate),
+            new Date(endDate),
+          ],
+        },
+      });
+    } else if (startDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.gte]: new Date(startDate),
+        },
+      });
+    } else if (endDate) {
+      andConditions.push({
+        createdAt: {
+          [Op.lte]: new Date(endDate),
+        },
+      });
+    }
+
+    const whereCondition = {
+      [Op.and]: andConditions,
+    };
+
+    // ✅ Fetch data
+    const { count, rows } = await Report.findAndCountAll({
+      where: whereCondition,
+      order: [["createdAt", "DESC"]],
+      limit: pageSize,
+      offset,
+    });
+
+    // ✅ Add rowIndex
+    const updatedRows = rows.map((item: any, rowIndex: number) => ({
+      ...item.toJSON(),
+      rowIndex: offset + rowIndex + 1,
+    }));
+
+    createSuccess(res, "Reports fetched successfully", {
+      totalItems: count,
+      currentPage: pageNumber,
+      totalPages: Math.ceil(count / pageSize),
+      pageSize,
+      data: updatedRows,
+    });
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+
+// export const getReportById = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+
+//     if (!userData?.userId) {
+//       badRequest(res, "Unauthorized request");
+//       return;
+//     }
+
+//     const { id } = req.params;
+
+//     const report = await Report.findOne({
+//       where: {
+//         id,
+//         // userId: userData.userId,
+//       },
+//     });
+
+//     if (!report) {
+//       badRequest(res, "Report not found");
+//       return;
+//     }
+
+//     createSuccess(res, "Report fetched successfully", report);
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
+export const getReportDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData?.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { referenceNo, customerName, date } = req.query;
+
+    // ❗ Require at least one filter
+    if (!referenceNo && !customerName && !date) {
+      badRequest(res, "At least one filter is required");
+      return;
+    }
+
+    const whereCondition: any = {
+      userId: userData.userId, // 🔐 security
+    };
+
+    // ✅ Flexible filters
+    if (referenceNo) {
+      whereCondition.referenceNo = referenceNo;
+    }
+
+    if (customerName) {
+      whereCondition.customerName = customerName;
+    }
+
+    if (date) {
+      // DB format: "2023-04-20T10:00:00.000Z"
+      // Input: "2023-04-20"
+      whereCondition.date = {
+        [Op.like]: `%${date}%`,
+      };
+    }
+
+    // ✅ Fetch latest matching record
+    const report = await Report.findOne({
+      where: whereCondition,
+      order: [["createdAt", "DESC"]],
+    });
+
+    if (!report) {
+      badRequest(res, "Report not found");
+      return;
+    }
+
+    createSuccess(res, "Report fetched successfully", report);
+
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+export const updateReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData?.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+     const { referenceNo, customerName, date } = req.query;
+
+    // ❗ require at least one identifier
+    if (!referenceNo && !customerName && !date) {
+      badRequest(res, "At least one filter is required");
+      return;
+    }
+
+    const whereCondition: any = {
+      userId: userData.userId, // keep security
+    };
+
+    // 🎯 referenceNo
+    if (referenceNo && customerName && date) {
+      whereCondition.referenceNo = referenceNo;
+      whereCondition.customerName = customerName; 
+      // whereCondition.date = date;
+    }
+
+    // 🎯 date (match full day)
+   if (date) {
+      // DB format: "2023-04-20T10:00:00.000Z"
+      // Input: "2023-04-20"
+      whereCondition.date = {
+        [Op.like]: `%${date}%`,
+      };
+    }
+    const payload = req.body;
+
+    const report = await Report.findOne({
+      where: whereCondition,
+      order: [["createdAt", "DESC"]], // latest match
+    });
+
+    if (!report) {
+      badRequest(res, "Report not found");
+      return;
+    }
+
+    const updatedReport = await report.update(payload);
+
+    createSuccess(res, "Report updated successfully", updatedReport);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

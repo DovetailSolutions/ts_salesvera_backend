@@ -12,6 +12,8 @@ import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
+import { registerIo, setUserSocket, removeUserSocket } from "./config/notificationService";
+import { startCronJobs } from "./config/cronJobs";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
@@ -58,8 +60,17 @@ app.use(
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
+
+// ✅ Global JSON syntax error handler
+app.use((err: any, req: Request, res: Response, next: any) => {
+  if (err instanceof SyntaxError && "body" in err) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON format in request body",
+    });
+  }
+  next();
+});
 
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
@@ -95,13 +106,26 @@ const io = new Server(server, {
 
 initChatSocket(io);
 
+// Register io so notificationService can deliver real-time events
+registerIo(io);
+
 // Listen for socket connections
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
+  // Track userId → socketId for targeted notifications
+  const rawUserId = socket.data?.user?.userId;
+  if (rawUserId) {
+    const userId = Number(rawUserId); // ✅ Ensure it's a number
+    setUserSocket(userId, socket.id);
+    
+    socket.on("disconnect", () => {
+      removeUserSocket(userId, socket.id);
+    });
+  }
 });
 
 // Start server (IMPORTANT)
 server.listen(PORT, () => {
   connectDB();
+  startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   console.log(`Server is running on http://localhost:${PORT}`);
 });

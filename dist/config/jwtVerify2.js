@@ -34,7 +34,8 @@ const tokenCheck = (req, res, next) => __awaiter(void 0, void 0, void 0, functio
         console.log(">>>>>>>>>>>>>>>>>token", token);
         let decoded;
         try {
-            decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
+            decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || "dovetailPharma" // ✅ Must match CreateToken fallback
+            );
         }
         catch (err) {
             return res.status(401).json({

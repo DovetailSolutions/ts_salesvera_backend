@@ -86,14 +86,17 @@ router.get("/get-fuel-expense", jwtVerify_1.tokenCheck, AdminController.getFuelE
 router.post("/addcompany", jwtVerify_1.tokenCheck, AdminController.addCompany);
 router.get("/getcompany", jwtVerify_1.tokenCheck, AdminController.getCompany);
 router.get("/getcompany/:id", jwtVerify_1.tokenCheck, AdminController.getCompanyById);
+router.patch("/updatecompany/:id", jwtVerify_1.tokenCheck, AdminController.updateCompany);
+router.delete("/deletecompany/:id", jwtVerify_1.tokenCheck, AdminController.deleteCompany);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.post("/addbranch", jwtVerify_1.tokenCheck, AdminController.addBranch);
 router.get("/getbranch", jwtVerify_1.tokenCheck, AdminController.getBranch);
 router.get("/getbranch/:id", jwtVerify_1.tokenCheck, AdminController.getBranchById);
+// router.patch("/updatebranch/:id",tokenCheck,AdminController.updateBranch);
+// router.delete("/deletebranch/:id",tokenCheck,AdminController.deleteBranch);
 router.post("/addshift", jwtVerify_1.tokenCheck, AdminController.addShift);
 router.get("/getshift", jwtVerify_1.tokenCheck, AdminController.getShift);
 router.get("/getshift/:id", jwtVerify_1.tokenCheck, AdminController.getShiftById);
-// router.get("/getshift/:id",tokenCheck,AdminController.getShiftById);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.post("/adddepartment", jwtVerify_1.tokenCheck, AdminController.addDepartment);
 router.get("/getdepartment", jwtVerify_1.tokenCheck, AdminController.getDepartment);
@@ -115,5 +118,22 @@ router.get("/get-leave", jwtVerify_1.tokenCheck, AdminController.getLeave);
 router.get("/get-leave/:id", jwtVerify_1.tokenCheck, AdminController.getLeaveById);
 // router.patch("/update-leave/:id", tokenCheck, AdminController.updateLeave);
 // router.delete("/delete-leave/:id", tokenCheck, AdminController.deleteLeave);
-// meeting apis 
+router.post("/add-bank", jwtVerify_1.tokenCheck, AdminController.addCompanyBank);
+// router.get("/get-bank",tokenCheck,AdminController.getBank);
+// router.get("/get-bank/:id",tokenCheck,AdminController.getBankById);
+// router.patch("/update-bank/:id",tokenCheck,AdminController.updateBank);
+// router.delete("/delete-bank/:id",tokenCheck,AdminController.deleteBank);
+router.get("/get-client", jwtVerify_1.tokenCheck, AdminController.getClient);
+router.post("/update-client/:id", jwtVerify_1.tokenCheck, AdminController.updateClient);
+router.post("/category/:id", jwtVerify_1.tokenCheck, AdminController.CategoryStatus);
+router.post("/sub-category/:id", jwtVerify_1.tokenCheck, AdminController.SubCategoryStatus);
+router.post("/addinvoice", jwtVerify_1.tokenCheck, AdminController.addInvoice);
+router.get("/getinvoice", jwtVerify_1.tokenCheck, AdminController.getInvoice);
+router.post("/updateinvoice/:id", jwtVerify_1.tokenCheck, AdminController.updateInvoice);
+router.get("/get-record-sale", jwtVerify_1.tokenCheck, AdminController.getRecordSale);
+router.post("/add-report", jwtVerify_1.tokenCheck, AdminController.addReport);
+router.get("/get-report", jwtVerify_1.tokenCheck, AdminController.getReport);
+router.get("/get-report-details", jwtVerify_1.tokenCheck, AdminController.getReportDetails);
+router.post("/update-report", jwtVerify_1.tokenCheck, AdminController.updateReport);
+// router.delete("/delete-report/:id",tokenCheck,AdminController.deleteReport);
 exports.default = router;

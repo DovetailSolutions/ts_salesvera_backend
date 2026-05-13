@@ -46,8 +46,10 @@ const CompanyModell = (sequelize) => {
         casualCarryForwardLimit: { type: sequelize_1.DataTypes.INTEGER, allowNull: true },
         casualCarryForwardExpiry: { type: sequelize_1.DataTypes.INTEGER, allowNull: true },
         userId: { type: sequelize_1.DataTypes.INTEGER, allowNull: true },
+        adminId: { type: sequelize_1.DataTypes.INTEGER, allowNull: true },
+        managerId: { type: sequelize_1.DataTypes.INTEGER, allowNull: true },
     }, {
-        tableName: "companiess",
+        tableName: "companies",
         timestamps: true,
     });
     return Company;
