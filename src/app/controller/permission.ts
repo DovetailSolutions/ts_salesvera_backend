@@ -23,6 +23,33 @@ interface AuthRequest extends Request {
   userData?: string | JwtPayload;
 }
 
+// Returns all subordinate userIds below a given user (does NOT include the user itself).
+// Only traverses downward — never climbs up to the company root.
+const getSubordinateIdsDown = async (userId: number): Promise<number[]> => {
+  const result: number[] = [];
+  const queue: number[] = [userId];
+  const visited = new Set<number>([userId]);
+
+  while (queue.length > 0) {
+    const pid = queue.shift()!;
+    const user = await (User as any).findByPk(pid, {
+      include: [{ model: User, as: "createdUsers", attributes: ["id", "role"], through: { attributes: [] } }],
+    });
+
+    if (user?.createdUsers) {
+      for (const child of user.createdUsers) {
+        if (!visited.has(child.id) && child.role !== "super_admin") {
+          visited.add(child.id);
+          result.push(child.id);
+          queue.push(child.id);
+        }
+      }
+    }
+  }
+
+  return result;
+};
+
 // Roles that a caller is allowed to assign TO, keyed by caller's role
 const ASSIGNABLE_ROLES: Record<string, string[]> = {
   super_admin: ["admin"],
@@ -308,13 +335,30 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
       },
     });
 
-    // Invalidate cache
     invalidatePermissionCache(Number(targetUserId), effectiveCompanyId);
+
+    // Cascade: revoke the same permissions from all subordinates of the target user
+    const onlySubordinates = await getSubordinateIdsDown(Number(targetUserId));
+
+    let cascadeRevoked = 0;
+    if (onlySubordinates.length > 0) {
+      cascadeRevoked = await UserPermission.destroy({
+        where: {
+          userId: { [Op.in]: onlySubordinates },
+          companyId: effectiveCompanyId,
+          permissionId: { [Op.in]: permissionIds },
+        },
+      });
+
+      for (const subId of onlySubordinates) {
+        invalidatePermissionCache(subId, effectiveCompanyId);
+      }
+    }
 
     return res.status(200).json({
       success: true,
-      message: `${deleted} permission(s) revoked`,
-      data: { revoked: deleted },
+      message: `${deleted} permission(s) revoked from user; ${cascadeRevoked} cascaded to ${onlySubordinates.length} subordinate(s)`,
+      data: { revoked: deleted, cascadeRevoked, subordinatesAffected: onlySubordinates.length },
     });
   } catch (err) {
     console.error("revokePermissions error:", err);
@@ -442,25 +486,12 @@ export const getMyPermissions = async (req: AuthRequest, res: Response): Promise
       });
     }
 
-    // Admin has all permissions within their company
-    if (role === "admin") {
-      const all = await Permission.findAll({ order: [["module", "ASC"], ["action", "ASC"]] });
-      return res.status(200).json({
-        success: true,
-        data: {
-          role: "admin",
-          companyId,
-          note: "Admin has ALL permissions within their company",
-          permissions: all.map((p) => `${p.module}:${p.action}`),
-        },
-      });
-    }
-
-    // Manager / Sale person — fetch from DB
+    // Admin / Manager / Sale person — fetch from DB (only what was granted)
     const records = await UserPermission.findAll({
       where: { userId, companyId },
       include: [{ model: Permission, as: "permission", attributes: ["module", "action", "description"] }],
     });
+     const all = await Permission.findAll({ order: [["module", "ASC"], ["action", "ASC"]] });
 
     const matrix: Record<string, Record<string, boolean>> = {};
     const flat: string[] = [];
@@ -471,9 +502,15 @@ export const getMyPermissions = async (req: AuthRequest, res: Response): Promise
       flat.push(`${module}:${action}`);
     }
 
+    const allPermissions: Record<string, string[]> = {};
+    for (const p of all) {
+      if (!allPermissions[p.module]) allPermissions[p.module] = [];
+      allPermissions[p.module].push(p.action);
+    }
+
     return res.status(200).json({
       success: true,
-      data: { role, companyId, permissions: flat, matrix },
+      data: { role, companyId, permissions: flat, matrix, allPermissions },
     });
   } catch (err) {
     console.error("getMyPermissions error:", err);

@@ -27,6 +27,8 @@ export const PERMISSION_SEEDS = [
   { module: "leave", action: "approve", description: "Approve leave requests" },
   { module: "leave", action: "reject",  description: "Reject leave requests" },
   { module: "leave", action: "delete",  description: "Delete leave requests" },
+  // FIX: added leave:manage for admin-level policy CRUD (add/view company leave types)
+  { module: "leave", action: "manage",  description: "Manage company leave policies (types, rules)" },
 
   // ── Meeting ──────────────────────────────────────────────
   { module: "meeting", action: "view",     description: "View meetings" },
@@ -53,6 +55,9 @@ export const PERMISSION_SEEDS = [
   { module: "invoice", action: "view",   description: "View invoices" },
   { module: "invoice", action: "create", description: "Create invoices" },
   { module: "invoice", action: "update", description: "Edit invoices" },
+
+  // ── Profile ──────────────────────────────────────────────
+  { module: "profile", action: "view",   description: "View own profile" },
 ];
 
 export const seedPermissions = async (): Promise<void> => {

@@ -12,9 +12,13 @@ import { getUserPermissionsFromCache } from "./permissionCache";
 //
 // Behaviour by role:
 //   super_admin  → always passes (global access, no DB hit)
-//   admin        → always passes (company-level gatekeeper; controller enforces companyId)
+//   admin        → checked against user_permissions cache (must have explicit permission)
 //   manager      → checked against user_permissions cache
 //   sale_person  → checked against user_permissions cache
+//
+// FIX: admin no longer bypasses permission checks — all non-super_admin roles
+//      are verified against user_permissions so that an admin without leave:*
+//      cannot access leave routes (and cannot cascade those rights to manager/sale_person).
 // ============================================================
 
 interface AuthenticatedRequest extends Request {
@@ -66,17 +70,15 @@ export const checkPermission = (module: string, action: string) => {
 
       const { role, userId, companyId } = userData as any;
 
+
+      console.log(`checkPermission: userId=${userId}, role=${role}, companyId=${companyId}, required=${module}:${action}`);
+
       // ── Super Admin: bypass all permission checks ──────────────────
       if (role === "super_admin") {
         return next();
       }
 
-      // ── Admin: bypass permission check; company enforced in controller ──
-      if (role === "admin") {
-        return next();
-      }
-
-      // ── Manager / Sale Person: check permissions table via cache ────
+      // ── Admin / Manager / Sale Person: check permissions table via cache ────
       if (!companyId) {
         return res.status(403).json({
           success: false,
@@ -92,10 +94,13 @@ export const checkPermission = (module: string, action: string) => {
 
       const required = `${module}:${action}`;
 
+      console.log(`User permissions: ${Array.from(permissionSet).join(", ")}`);
+      console.log(`Required permission: ${required}`);
+
       if (!permissionSet.has(required)) {
         return res.status(403).json({
           success: false,
-          message: `Forbidden — you do not have '${module}:${action}' permission`,
+          message: `You don’t have  '${module}" "${action}'permission`,
         });
       }
 

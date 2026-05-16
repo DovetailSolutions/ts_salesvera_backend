@@ -248,11 +248,14 @@ UserPermission.belongsTo(User, { foreignKey: "grantedBy", as: "permissionGranter
 Company.hasMany(UserPermission, { foreignKey: "companyId", as: "companyUserPermissions" });
 UserPermission.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 // Notification associations
-User.hasMany(Notification, { foreignKey: "receiverId", as: "receivedNotifications" });
-Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver" });
+// constraints: false prevents Sequelize alter:true from generating invalid
+// "ALTER COLUMN SET DEFAULT NULL REFERENCES ..." SQL on PostgreSQL.
+// FK constraints are added manually in fixConstraints() instead.
+User.hasMany(Notification, { foreignKey: "receiverId", as: "receivedNotifications", constraints: false });
+Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver", constraints: false });
 
-User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications" });
-Notification.belongsTo(User, { foreignKey: "senderId", as: "sender" });
+User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications", constraints: false });
+Notification.belongsTo(User, { foreignKey: "senderId", as: "sender", constraints: false });
 
 
 
@@ -342,6 +345,13 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "registrationNo", type: "VARCHAR(255)" },
         { name: "companyEmail", type: "VARCHAR(255)" },
         { name: "companyPhone", type: "VARCHAR(255)" },
+      ],
+    },
+    {
+      tableName: "users",
+      columns: [
+        { name: "otp", type: "VARCHAR(255)" },
+        { name: "otpExpiry", type: "TIMESTAMP WITH TIME ZONE" },
       ],
     },
   ];
@@ -541,17 +551,27 @@ const fixConstraints = async (sequelize: Sequelize) => {
     // 2️⃣ Ensure 'meetings' points to correct 'users' and 'meeting_users'
     await sequelize.query(`
       ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_user_id_fkey";
-      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_user_id_fkey" 
-      FOREIGN KEY ("user_id") REFERENCES "users" ("id") 
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_user_id_fkey"
+      FOREIGN KEY ("user_id") REFERENCES "users" ("id")
       ON DELETE CASCADE ON UPDATE CASCADE;
 
       ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_meeting_user_id_fkey";
-      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_meeting_user_id_fkey" 
-      FOREIGN KEY ("meeting_user_id") REFERENCES "meeting_users" ("id") 
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_meeting_user_id_fkey"
+      FOREIGN KEY ("meeting_user_id") REFERENCES "meeting_users" ("id")
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
 
-    
+    // 3️⃣ Notification FK constraints (managed manually — not via Sequelize alter:true)
+    await sequelize.query(`
+      ALTER TABLE "notifications" DROP CONSTRAINT IF EXISTS "notifications_receiverId_fkey";
+      ALTER TABLE "notifications" ADD CONSTRAINT "notifications_receiverId_fkey"
+      FOREIGN KEY ("receiverId") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+      ALTER TABLE "notifications" DROP CONSTRAINT IF EXISTS "notifications_senderId_fkey";
+      ALTER TABLE "notifications" ADD CONSTRAINT "notifications_senderId_fkey"
+      FOREIGN KEY ("senderId") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    `);
+
   } catch (err) {
     console.error("❌ Error fixing constraints:", err);
   }
@@ -627,7 +647,82 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
     }
   }
 
-  // 3️⃣ Table Sanitization (fix NULL values for NOT NULL columns)
+  // 3️⃣ Notifications type column: convert VARCHAR → ENUM before sync({ alter: true })
+  try {
+    const [typeCols]: any = await sequelize.query(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_name = 'notifications' AND column_name = 'type';
+    `);
+
+    if (typeCols.length > 0 && (typeCols[0].data_type === 'character varying' || typeCols[0].data_type === 'text')) {
+      await sequelize.query(`
+        UPDATE "notifications"
+        SET "type" = 'system'
+        WHERE "type" IS NULL OR "type" NOT IN ('chat', 'task', 'meeting', 'system', 'other');
+
+        ALTER TABLE "notifications" ALTER COLUMN "type" DROP DEFAULT;
+
+        DO $$ BEGIN
+          CREATE TYPE "public"."enum_notifications_type" AS ENUM('chat', 'task', 'meeting', 'system', 'other');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+
+        ALTER TABLE "notifications"
+        ALTER COLUMN "type" TYPE "public"."enum_notifications_type"
+        USING ("type"::"public"."enum_notifications_type");
+
+        ALTER TABLE "notifications" ALTER COLUMN "type" SET DEFAULT 'system';
+      `);
+      console.log('✅ Converted notifications.type from VARCHAR to ENUM');
+    }
+  } catch (err) {
+    console.error('❌ Error converting notifications.type to ENUM:', err);
+  }
+
+  // repost.status column: convert VARCHAR → ENUM before sync({ alter: true })
+  try {
+    const [repostStatusCols]: any = await sequelize.query(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_name = 'repost' AND column_name = 'status';
+    `);
+
+    if (repostStatusCols.length > 0 && (repostStatusCols[0].data_type === 'character varying' || repostStatusCols[0].data_type === 'text')) {
+      await sequelize.query(`
+        UPDATE "repost"
+        SET "status" = 'draft'
+        WHERE "status" IS NULL OR "status" NOT IN ('draft', 'imported', 'sent', 'accepted', 'rejected', 'cancelled', 'deleted');
+
+        ALTER TABLE "repost" ALTER COLUMN "status" DROP DEFAULT;
+
+        DO $$ BEGIN
+          CREATE TYPE "public"."enum_repost_status" AS ENUM('draft', 'imported', 'sent', 'accepted', 'rejected', 'cancelled', 'deleted');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+
+        ALTER TABLE "repost"
+        ALTER COLUMN "status" TYPE "public"."enum_repost_status"
+        USING ("status"::"public"."enum_repost_status");
+
+        ALTER TABLE "repost" ALTER COLUMN "status" SET DEFAULT 'draft';
+      `);
+      console.log('✅ Converted repost.status from VARCHAR to ENUM');
+    }
+
+    // Add missing enum values to existing enum_repost_status if already an ENUM
+    await sequelize.query(`
+      DO $$ BEGIN
+        ALTER TYPE "public"."enum_repost_status" ADD VALUE IF NOT EXISTS 'cancelled';
+        ALTER TYPE "public"."enum_repost_status" ADD VALUE IF NOT EXISTS 'deleted';
+      EXCEPTION WHEN others THEN null;
+      END $$;
+    `);
+  } catch (err) {
+    console.error('❌ Error converting repost.status to ENUM:', err);
+  }
+
+  // Table Sanitization (fix NULL values for NOT NULL columns)
   try {
     // Sanitize Companies table
     await sequelize.query(`

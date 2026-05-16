@@ -39,7 +39,9 @@ import {
   CompanyBank,
   Invoices,
   RecordSales,
-  Report
+  Report,
+  Permission,
+  UserPermission,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
@@ -118,10 +120,71 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       ReadableStreamDefaultController;
     }
 
+    // ✅ Resolve companyId for token: sale_person → manager → admin → company
+    const userId = user.getDataValue("id");
+    const role = user.getDataValue("role");
+    const createdBy = user.getDataValue("createdBy");
+    let companyId: number | null = null;
+
+    if (role === "admin") {
+      const company = await (Company as any).findOne({
+        where: { adminId: userId },
+        attributes: ["id"],
+      });
+      companyId = company ? company.id : null;
+    } else if (role === "manager") {
+      const company = await (Company as any).findOne({
+        where: { managerId: userId },
+        attributes: ["id"],
+      });
+      companyId = company ? company.id : null;
+    } else {
+      // Walk up the creator chain to find the root admin, then resolve company
+      let currentId = userId;
+      let rootAdminId: number | null = null;
+
+      while (true) {
+        const currentUser = await User.findByPk(currentId, {
+          include: [{
+            model: User,
+            as: "creators",
+            attributes: ["id", "role"],
+            through: { attributes: [] },
+          }],
+        });
+
+        const plain = currentUser?.get({ plain: true }) as any;
+        const creator = plain?.creators?.[0] || null;
+
+        if (!creator) {
+          if (plain?.role === "admin" || plain?.role === "super_admin") {
+            rootAdminId = currentId;
+          }
+          break;
+        }
+
+        if (creator.role === "admin" || creator.role === "super_admin") {
+          rootAdminId = creator.id;
+          break;
+        }
+
+        currentId = creator.id;
+      }
+
+      if (rootAdminId) {
+        const company = await (Company as any).findOne({
+          where: { adminId: rootAdminId },
+          attributes: ["id"],
+        });
+        companyId = company ? company.id : null;
+      }
+    }
+    console.log(`Login attempt: userId=${userId}, role=${role}, resolvedCompanyId=${companyId}`);
     // ✅ Create access & refresh tokens
     const { accessToken, refreshToken } = Middleware.CreateToken(
-      String(user.getDataValue("id")),
-      String(user.getDataValue("role"))
+      String(userId),
+      String(role),
+      companyId
     );
 
     // ✅ Save refresh token in DB
@@ -279,6 +342,23 @@ export const GetProfile = async (
       } else {
         profile.company = null;
       }
+    }
+
+    // ✅ Step 5: For sale_person — include the admin's granted permissions
+    if (userData.role === "sale_person" && rootAdminId && profile.company?.id) {
+      const adminPerms = await UserPermission.findAll({
+        where: { userId: rootAdminId, companyId: profile.company.id },
+        include: [{
+          model: Permission,
+          as: "permission",
+          attributes: ["module", "action", "description"],
+        }],
+      });
+      profile.adminPermissions = adminPerms.map((p: any) => ({
+        module: p.permission.module,
+        action: p.permission.action,
+        description: p.permission.description,
+      }));
     }
 
     createSuccess(res, "user details", profile);

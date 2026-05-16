@@ -53,6 +53,7 @@ export const tokenCheck = async (
     const id = Number(rawId);
 
     // Fetch user from DB — must be active and a valid role
+    // sale_person is intentionally excluded — admin routes are off-limits to them
     const item = await User.findOne({
       where: {
         id,
@@ -61,7 +62,6 @@ export const tokenCheck = async (
           { role: "admin" },
           { role: "super_admin" },
           { role: "manager" },
-          { role: "sale_person" },
         ],
       },
     }) as any;
@@ -70,7 +70,7 @@ export const tokenCheck = async (
       return res.status(403).json({
         code: "403",
         success: false,
-        message: "Unauthorized — user not found or inactive",
+        message: "Forbidden — user not found, inactive, or insufficient role",
       });
     }
 
@@ -82,14 +82,44 @@ export const tokenCheck = async (
 
     if (!companyId && item.role !== "super_admin") {
       if (item.role === "admin") {
-        // Admin's companyId = company where they are set as adminId
         const company = await (Company as any).findOne({
           where: { adminId: id },
           attributes: ["id"],
         });
         companyId = company ? company.id : null;
+      } else {
+        // For manager/sale_person: walk up the creator chain to find the root admin,
+        // then resolve their company (mirrors the login companyId resolution)
+        const { User: UserModel } = await import("./dbConnection");
+        let currentId = id;
+        let rootAdminId: number | null = null;
+
+        while (true) {
+          const currentUser = await (UserModel as any).findByPk(currentId, {
+            include: [{ model: UserModel, as: "creators", attributes: ["id", "role"], through: { attributes: [] } }],
+          });
+          const plain = currentUser?.get({ plain: true }) as any;
+          const creator = plain?.creators?.[0] || null;
+
+          if (!creator) {
+            if (plain?.role === "admin" || plain?.role === "super_admin") rootAdminId = currentId;
+            break;
+          }
+          if (creator.role === "admin" || creator.role === "super_admin") {
+            rootAdminId = creator.id;
+            break;
+          }
+          currentId = creator.id;
+        }
+
+        if (rootAdminId) {
+          const company = await (Company as any).findOne({
+            where: { adminId: rootAdminId },
+            attributes: ["id"],
+          });
+          companyId = company ? company.id : null;
+        }
       }
-      // manager / sale_person must include companyId in their JWT (set at login)
     }
 
     // Attach enriched userData to request (available in all controllers & middleware)

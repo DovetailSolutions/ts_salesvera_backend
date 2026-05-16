@@ -276,41 +276,50 @@ export const GetProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const user = await User.findByPk(Number(userData.userId), {
+    const { userId, role, companyId } = userData as any;
+
+    const user = await User.findByPk(Number(userId), {
       include: [
         {
           model: Company,
           as: "company",
-          include:[
-            {
-              model:Branch,
-              as:"branches"
-            },
-            {
-              model:Shift,
-              as:"shifts"
-            },
-            {
-              model:Department,
-              as:"departments"
-            },
-            // {
-            //   model:Holiday,
-            //   as:"holidays"
-            // },
-            {
-              model:CompanyLeave,
-              as:"companyLeaves"
-            },
-            {
-              model:CompanyBank,
-              as:"companyBanks"
-            }
-          ]
+          include: [
+            { model: Branch, as: "branches" },
+            { model: Shift, as: "shifts" },
+            { model: Department, as: "departments" },
+            { model: CompanyLeave, as: "companyLeaves" },
+            { model: CompanyBank, as: "companyBanks" },
+          ],
         },
       ],
     });
-    createSuccess(res, "User profile fetched successfully", user);
+
+    const permissions: string[] = [];
+    const matrix: Record<string, Record<string, boolean>> = {};
+
+    if (role === "super_admin") {
+      const all = await Permission.findAll({
+        order: [["module", "ASC"], ["action", "ASC"]],
+      });
+      for (const p of all as any[]) {
+        if (!matrix[p.module]) matrix[p.module] = {};
+        matrix[p.module][p.action] = true;
+        permissions.push(`${p.module}:${p.action}`);
+      }
+    } else {
+      const records = await UserPermission.findAll({
+        where: { userId: Number(userId), companyId: Number(companyId) },
+        include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
+      });
+      for (const r of records as any[]) {
+        const { module, action } = r.permission;
+        if (!matrix[module]) matrix[module] = {};
+        matrix[module][action] = true;
+        permissions.push(`${module}:${action}`);
+      }
+    }
+
+    createSuccess(res, "User profile fetched successfully", { user, permissions, matrix });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -522,6 +531,12 @@ export const GetAllUser = async (
           through: { attributes: [] },
           required: false,
         },
+          {
+          model: Company,
+          as: "company",
+           attributes: ["id", "companyName"],
+       
+        },
       ],
     });
 
@@ -577,7 +592,6 @@ export const AddCategory = async (
     const item = await Category.create({
       category_name,
       adminId: loggedInId,
-      managerId: loggedInId,
       status: status || "draft",
     });
     createSuccess(res, "category create successfully",item);
@@ -597,31 +611,37 @@ export const getcategory = async (
     const loggedInId = userData?.userId;
     const role = userData?.role;
 
-    let ll = loggedInId; // default (admin or fallback)
+    let ll = loggedInId; // default (admin)
 
-    let manager: any = null;
-
-    // 🔹 If logged-in user is MANAGER → fetch admin (creator)
-    if (role === "manager") {
-      manager = await User.findByPk(loggedInId, {
-        attributes: ["id", "role"],
-        include: [
-          {
-            model: User,
-            as: "creators",
-            attributes: ["id", "role"],
-            through: { attributes: [] },
-          },
-        ],
-      });
-
-      const plain = manager?.get({ plain: true }) as any;
-
-      if (plain?.creators?.length > 0) {
-        ll = plain.creators[0].id; // parent admin ID
+    if (role === "manager" || role === "sale_person") {
+      // Walk up the creator chain until we find an admin
+      let currentId = Number(loggedInId);
+      while (true) {
+        const currentUser = await User.findByPk(currentId, {
+          attributes: ["id", "role"],
+          include: [
+            {
+              model: User,
+              as: "creators",
+              attributes: ["id", "role"],
+              through: { attributes: [] },
+            },
+          ],
+        });
+        const plain = currentUser?.get({ plain: true }) as any;
+        const creator = plain?.creators?.[0];
+        if (!creator) {
+          if (plain?.role === "admin" || plain?.role === "super_admin") ll = currentId;
+          break;
+        }
+        if (creator.role === "admin" || creator.role === "super_admin") {
+          ll = creator.id;
+          break;
+        }
+        currentId = creator.id;
       }
     }
-    // 🔹 Continue with your category function
+
     const data = req.query;
     const item = await Middleware.getCategory(Category, data, "", ll);
 
@@ -994,7 +1014,6 @@ export const test = async (req: Request, res: Response): Promise<void> => {
     const offset = (pageNum - 1) * limitNum;
 
     const loggedInId = userData?.userId;
-    const mainWhere: any = { id: loggedInId };
     const createdWhere: any = {};
 
     if (search) {
@@ -1006,12 +1025,11 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       ];
     }
 
-    // Get total count
-    const totalCount = await User.count({
-      where: mainWhere,
-    });
+    if (role) {
+      createdWhere.role = role;
+    }
 
-    const rows = await User.findByPk(loggedInId, {
+    const result = await User.findByPk(loggedInId, {
       attributes: [
         "id",
         "firstName",
@@ -1037,6 +1055,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
           through: { attributes: [] },
           where: createdWhere,
           required: false,
+          order: [["createdAt", "DESC"]],
           include: [
             {
               model: User,
@@ -1051,27 +1070,41 @@ export const test = async (req: Request, res: Response): Promise<void> => {
                 "createdAt",
               ],
               through: { attributes: [] },
-              where: createdWhere,
               required: false,
             },
           ],
         },
+        {
+          model: Company,
+          as: "company",
+          attributes: ["id", "companyName"],
+        },
       ],
-      order: [["createdAt", "DESC"]],
     });
+
+    if (!result) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    let createdUsers = (result as any).createdUsers || [];
+    const total = createdUsers.length;
+    createdUsers = createdUsers.slice(offset, offset + limitNum);
+
+    const userJson = (result as any).toJSON();
+    userJson.createdUsers = createdUsers;
 
     createSuccess(res, "Users fetched successfully", {
       page: pageNum,
       limit: limitNum,
-      total: totalCount,
-      pages: Math.ceil(totalCount / limitNum),
-      user: rows,
+      total,
+      pages: Math.ceil(total / limitNum),
+      user: userJson,
     });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
-    return;
   }
 };
 
