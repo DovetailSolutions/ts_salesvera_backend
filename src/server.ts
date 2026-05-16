@@ -9,6 +9,7 @@ import http from "http";
 import { connectDB } from "./config/dbConnection";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
+import permissionRouter from "./app/router/permission";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { registerIo, setUserSocket, removeUserSocket } from "./config/notificationService";
@@ -75,6 +76,7 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.use("/admin", adminRouter);
 app.use("/api", UserRouter);
+app.use("/admin/permissions", permissionRouter);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
   swaggerOptions: {

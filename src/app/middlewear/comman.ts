@@ -62,7 +62,6 @@ export const FindByField = async (
       //   normalizedValue
       // ),
        where: {
-        // field comparison with normalization
         [Op.and]: [
           Sequelize.where(
             Sequelize.fn(
@@ -73,14 +72,7 @@ export const FindByField = async (
             ),
             normalizedValue
           ),
-
-          // 🔥 OR condition for adminId or managerId
-          {
-            [Op.or]: [
-              { adminId: id },
-              { managerId: id }
-            ]
-          }
+          { adminId: id }
         ]
       }
     });
@@ -113,15 +105,18 @@ export const FindByPhone2 = async(model:any,data:any)=>{
 //   });
 // };
 
-export const CreateToken = (userId: string, role: string) => {
+export const CreateToken = (userId: string, role: string, companyId?: string | number | null) => {
+  const payload: any = { userId, role };
+  if (companyId) payload.companyId = Number(companyId);
+console.log("Creating token with payload:", payload);
   const accessToken = jwt.sign(
-    { userId, role },
+    payload,
     process.env.JWT_SECRET || "dovetailPharma",
     { expiresIn: "30d" } // short-lived
   );
 
   const refreshToken = jwt.sign(
-    { userId, role },
+    payload,
     process.env.JWT_SECRET || "dovetailPharma",
     { expiresIn: "60d" } // long-lived
   );
@@ -585,16 +580,9 @@ export const getCategory = async (
       where.user_id = id;
     }
 
-    // 🔐 Admin / Manager access
+    // Filter categories by the admin who created them
     if (login) {
-      where[Op.and] = [
-        {
-          [Op.or]: [
-            { adminId: login },
-            { managerId: login },
-          ],
-        },
-      ];
+      where.adminId = login;
     }
 
     // -------------------------

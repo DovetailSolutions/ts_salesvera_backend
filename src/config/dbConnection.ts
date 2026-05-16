@@ -44,6 +44,11 @@ import { RecordSales } from "../app/model/saleRecord";
 import { Notification } from "../app/model/Notification";
 import { RepostModel } from "../app/model/report";
 
+
+// RBAC Models
+import { PermissionModel } from "../app/model/permission";
+import { UserPermissionModel } from "../app/model/userPermission";
+
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -55,10 +60,10 @@ const sequelize = new Sequelize(
     dialect: "postgres",
     logging: false,
     dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false,
-      },
+      // ssl: {
+      //   require: true,
+      //   rejectUnauthorized: false,
+      // },
     },
   }
 );
@@ -110,9 +115,11 @@ const CompanyBank = CompanyBankModel(sequelize);
 Invoices.initModel(sequelize);
 
 RecordSales.initModel(sequelize);
-
-// Notifications
 Notification.initModel(sequelize);
+
+// RBAC
+const Permission = PermissionModel(sequelize);
+const UserPermission = UserPermissionModel(sequelize);
 
 const Report = RepostModel(sequelize);
 
@@ -224,12 +231,31 @@ CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(CompanyBank, { foreignKey: "companyId", as: "companyBanks" });
 CompanyBank.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
-// Notification associations
-User.hasMany(Notification, { foreignKey: "receiverId", as: "receivedNotifications" });
-Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver" });
+// RBAC Associations
+// Permission ↔ UserPermission
+Permission.hasMany(UserPermission, { foreignKey: "permissionId", as: "userPermissions" });
+UserPermission.belongsTo(Permission, { foreignKey: "permissionId", as: "permission" });
 
-User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications" });
-Notification.belongsTo(User, { foreignKey: "senderId", as: "sender" });
+// User ↔ UserPermission (receiver)
+User.hasMany(UserPermission, { foreignKey: "userId", as: "assignedPermissions" });
+UserPermission.belongsTo(User, { foreignKey: "userId", as: "permissionHolder" });
+
+// User ↔ UserPermission (granter)
+User.hasMany(UserPermission, { foreignKey: "grantedBy", as: "grantedPermissions" });
+UserPermission.belongsTo(User, { foreignKey: "grantedBy", as: "permissionGranter" });
+
+// Company ↔ UserPermission
+Company.hasMany(UserPermission, { foreignKey: "companyId", as: "companyUserPermissions" });
+UserPermission.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+// Notification associations
+// constraints: false prevents Sequelize alter:true from generating invalid
+// "ALTER COLUMN SET DEFAULT NULL REFERENCES ..." SQL on PostgreSQL.
+// FK constraints are added manually in fixConstraints() instead.
+User.hasMany(Notification, { foreignKey: "receiverId", as: "receivedNotifications", constraints: false });
+Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver", constraints: false });
+
+User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications", constraints: false });
+Notification.belongsTo(User, { foreignKey: "senderId", as: "sender", constraints: false });
 
 
 
@@ -315,6 +341,17 @@ const ensureColumns = async (sequelize: Sequelize) => {
       columns: [
         { name: "adminId", type: "INTEGER" },
         { name: "managerId", type: "INTEGER" },
+        { name: "legalName", type: "VARCHAR(255)" },
+        { name: "registrationNo", type: "VARCHAR(255)" },
+        { name: "companyEmail", type: "VARCHAR(255)" },
+        { name: "companyPhone", type: "VARCHAR(255)" },
+      ],
+    },
+    {
+      tableName: "users",
+      columns: [
+        { name: "otp", type: "VARCHAR(255)" },
+        { name: "otpExpiry", type: "TIMESTAMP WITH TIME ZONE" },
       ],
     },
   ];
@@ -514,17 +551,27 @@ const fixConstraints = async (sequelize: Sequelize) => {
     // 2️⃣ Ensure 'meetings' points to correct 'users' and 'meeting_users'
     await sequelize.query(`
       ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_user_id_fkey";
-      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_user_id_fkey" 
-      FOREIGN KEY ("user_id") REFERENCES "users" ("id") 
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_user_id_fkey"
+      FOREIGN KEY ("user_id") REFERENCES "users" ("id")
       ON DELETE CASCADE ON UPDATE CASCADE;
 
       ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_meeting_user_id_fkey";
-      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_meeting_user_id_fkey" 
-      FOREIGN KEY ("meeting_user_id") REFERENCES "meeting_users" ("id") 
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_meeting_user_id_fkey"
+      FOREIGN KEY ("meeting_user_id") REFERENCES "meeting_users" ("id")
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
 
-    
+    // 3️⃣ Notification FK constraints (managed manually — not via Sequelize alter:true)
+    await sequelize.query(`
+      ALTER TABLE "notifications" DROP CONSTRAINT IF EXISTS "notifications_receiverId_fkey";
+      ALTER TABLE "notifications" ADD CONSTRAINT "notifications_receiverId_fkey"
+      FOREIGN KEY ("receiverId") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+      ALTER TABLE "notifications" DROP CONSTRAINT IF EXISTS "notifications_senderId_fkey";
+      ALTER TABLE "notifications" ADD CONSTRAINT "notifications_senderId_fkey"
+      FOREIGN KEY ("senderId") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    `);
+
   } catch (err) {
     console.error("❌ Error fixing constraints:", err);
   }
@@ -537,7 +584,7 @@ const fixConstraints = async (sequelize: Sequelize) => {
  * This prevents Foreign Key constraint violations during sync.
  */
 const ensureDataIntegrity = async (sequelize: Sequelize) => {
-  const tables = ["departments", "branches", "shifts", "holidays", "invoices"];
+  const tables = ["departments", "branches", "shifts", "holidays", "invoices", "company_leaves", "company_banks"];
 
   for (const table of tables) {
     try {
@@ -550,8 +597,7 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
 
       if (results.length > 0) {
         await sequelize.query(`
-          UPDATE "${table}" 
-          SET "companyId" = NULL 
+          DELETE FROM "${table}" 
           WHERE "companyId" IS NOT NULL 
           AND "companyId" NOT IN (SELECT "id" FROM "companies");
         `);
@@ -576,6 +622,21 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
               SET "status" = 'draft' 
               WHERE "status" IS NULL 
               OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected');
+              
+              -- 1. Create Type if not exists
+              DO $$ BEGIN 
+                CREATE TYPE "public"."enum_invoices_status" AS ENUM('draft', 'sent', 'accepted', 'rejected'); 
+              EXCEPTION WHEN duplicate_object THEN null; 
+              END $$;
+
+              -- 2. Alter column type with explicit cast
+              ALTER TABLE "invoices" 
+              ALTER COLUMN "status" TYPE "public"."enum_invoices_status" 
+              USING ("status"::"public"."enum_invoices_status");
+
+              -- 3. Set default
+              ALTER TABLE "invoices" 
+              ALTER COLUMN "status" SET DEFAULT 'draft';
             `);
            
           }
@@ -584,6 +645,114 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
     } catch (err) {
       console.error(`❌ Error during data integrity check for ${table}:`, err);
     }
+  }
+
+  // 3️⃣ Notifications type column: convert VARCHAR → ENUM before sync({ alter: true })
+  try {
+    const [typeCols]: any = await sequelize.query(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_name = 'notifications' AND column_name = 'type';
+    `);
+
+    if (typeCols.length > 0 && (typeCols[0].data_type === 'character varying' || typeCols[0].data_type === 'text')) {
+      await sequelize.query(`
+        UPDATE "notifications"
+        SET "type" = 'system'
+        WHERE "type" IS NULL OR "type" NOT IN ('chat', 'task', 'meeting', 'system', 'other');
+
+        ALTER TABLE "notifications" ALTER COLUMN "type" DROP DEFAULT;
+
+        DO $$ BEGIN
+          CREATE TYPE "public"."enum_notifications_type" AS ENUM('chat', 'task', 'meeting', 'system', 'other');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+
+        ALTER TABLE "notifications"
+        ALTER COLUMN "type" TYPE "public"."enum_notifications_type"
+        USING ("type"::"public"."enum_notifications_type");
+
+        ALTER TABLE "notifications" ALTER COLUMN "type" SET DEFAULT 'system';
+      `);
+      console.log('✅ Converted notifications.type from VARCHAR to ENUM');
+    }
+  } catch (err) {
+    console.error('❌ Error converting notifications.type to ENUM:', err);
+  }
+
+  // repost.status column: convert VARCHAR → ENUM before sync({ alter: true })
+  try {
+    const [repostStatusCols]: any = await sequelize.query(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_name = 'repost' AND column_name = 'status';
+    `);
+
+    if (repostStatusCols.length > 0 && (repostStatusCols[0].data_type === 'character varying' || repostStatusCols[0].data_type === 'text')) {
+      await sequelize.query(`
+        UPDATE "repost"
+        SET "status" = 'draft'
+        WHERE "status" IS NULL OR "status" NOT IN ('draft', 'imported', 'sent', 'accepted', 'rejected', 'cancelled', 'deleted');
+
+        ALTER TABLE "repost" ALTER COLUMN "status" DROP DEFAULT;
+
+        DO $$ BEGIN
+          CREATE TYPE "public"."enum_repost_status" AS ENUM('draft', 'imported', 'sent', 'accepted', 'rejected', 'cancelled', 'deleted');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+
+        ALTER TABLE "repost"
+        ALTER COLUMN "status" TYPE "public"."enum_repost_status"
+        USING ("status"::"public"."enum_repost_status");
+
+        ALTER TABLE "repost" ALTER COLUMN "status" SET DEFAULT 'draft';
+      `);
+      console.log('✅ Converted repost.status from VARCHAR to ENUM');
+    }
+
+    // Add missing enum values to existing enum_repost_status if already an ENUM
+    await sequelize.query(`
+      DO $$ BEGIN
+        ALTER TYPE "public"."enum_repost_status" ADD VALUE IF NOT EXISTS 'cancelled';
+        ALTER TYPE "public"."enum_repost_status" ADD VALUE IF NOT EXISTS 'deleted';
+      EXCEPTION WHEN others THEN null;
+      END $$;
+    `);
+  } catch (err) {
+    console.error('❌ Error converting repost.status to ENUM:', err);
+  }
+
+  // Table Sanitization (fix NULL values for NOT NULL columns)
+  try {
+    // Sanitize Companies table
+    await sequelize.query(`
+      UPDATE "companies" 
+      SET "legalName" = "companyName" 
+      WHERE "legalName" IS NULL;
+
+      UPDATE "companies" 
+      SET "registrationNo" = 'N/A' 
+      WHERE "registrationNo" IS NULL;
+
+      UPDATE "companies" 
+      SET "companyEmail" = 'unknown@example.com' 
+      WHERE "companyEmail" IS NULL;
+
+      UPDATE "companies" 
+      SET "companyPhone" = '0000000000' 
+      WHERE "companyPhone" IS NULL;
+    `);
+    console.log(`✅ Sanitized mandatory fields in companies table`);
+
+    // Sanitize Meetings table
+    await sequelize.query(`
+      DELETE FROM "meetings" 
+      WHERE "user_id" IS NULL 
+      OR "company_id" IS NULL;
+    `);
+    console.log(`✅ Cleaned up orphaned records from meetings table`);
+  } catch (err) {
+    console.error(`❌ Error during table sanitization:`, err);
   }
 };
 
@@ -606,8 +775,10 @@ export const connectDB = async () => {
     // 4️⃣ Standard Sequelize sync
     await sequelize.authenticate();
     await sequelize.sync({ alter: true });
-    
 
+    // 5️⃣ Seed RBAC permissions table (idempotent — safe every boot)
+    const { seedPermissions } = await import("./seedPermissions");
+    await seedPermissions();
 
   } catch (err) {
     console.error("❌ DB error:", err);
@@ -642,6 +813,9 @@ export {
   CompanyBank,
   Invoices,
   RecordSales,
+  // RBAC
+  Permission,
+  UserPermission,
   Notification,
   Report
 };

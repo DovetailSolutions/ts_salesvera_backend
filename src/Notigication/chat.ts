@@ -6,13 +6,30 @@ import {
   ChatParticipant,
   Message,
   User,
+  Permission,
+  UserPermission,
 } from "../config/dbConnection";
+import { getUserPermissionsFromCache } from "../config/permissionCache";
 import { v4 as uuid } from "uuid";
 import {
   sendNotification,
   setUserSocket,
   removeUserSocket,
 } from "../config/notificationService";
+
+// FIX: loads a user's "module:action" permission strings from the DB.
+//      Used by the socket permission check below (reuses the same cache as HTTP routes).
+const loadUserPermissionsFromDB = async (
+  userId: number,
+  companyId: number
+): Promise<string[]> => {
+  const userPerms = await UserPermission.findAll({
+    where: { userId, companyId },
+    include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
+    attributes: [],
+  });
+  return userPerms.map((up: any) => `${up.permission.module}:${up.permission.action}`);
+};
 
 type UserWithRelations = any & {
   createdUsers?: UserWithRelations[];
@@ -106,14 +123,39 @@ async function getAllRelatedUserIds(
 }
 
 export const initChatSocket = (io: Server) => {
-  // ---------- 🔐 AUTH MIDDLEWARE ----------
-  io.use((socket, next) => {
+  // ---------- 🔐 AUTH + PERMISSION MIDDLEWARE ----------
+  // FIX: connection is rejected if the user lacks chat:read permission.
+  //      This blocks the entire chat namespace for users without it —
+  //      admin without chat:read cannot connect, so their manager/sale_person
+  //      hierarchy cannot receive chat access either.
+  io.use(async (socket, next) => {
     const token = socket.handshake.headers.token as string;
 
     if (!token) return next(new Error("Authentication error"));
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET!);
+      const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
       socket.data.user = decoded;
+
+      const { userId, role, companyId } = decoded;
+
+      // super_admin bypasses all permission checks
+      if (role === "super_admin") return next();
+
+      if (!companyId) {
+        return next(new Error("Forbidden — no company context in token"));
+      }
+
+      // Baseline check: user must have chat:read to connect at all
+      const perms = await getUserPermissionsFromCache(
+        Number(userId),
+        companyId,
+        () => loadUserPermissionsFromDB(Number(userId), companyId)
+      );
+
+      if (!perms.has("chat:read")) {
+        return next(new Error("Forbidden — you do not have chat:read permission"));
+      }
+
       next();
     } catch (err) {
       next(new Error("Authentication failed"));
@@ -201,6 +243,22 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     socket.on("sendMessage", async ({ roomId, message }) => {
       try {
+        // FIX: sending a message requires chat:send permission in addition to the
+        //      chat:read check already enforced at connection time.
+        const { userId: tokenUserId, role: tokenRole, companyId: tokenCompanyId } = socket.data.user;
+        if (tokenRole !== "super_admin") {
+          const perms = await getUserPermissionsFromCache(
+            Number(tokenUserId),
+            tokenCompanyId,
+            () => loadUserPermissionsFromDB(Number(tokenUserId), tokenCompanyId)
+          );
+          if (!perms.has("chat:send")) {
+            return socket.emit("errorMessage", {
+              error: "Forbidden — you do not have chat:send permission",
+            });
+          }
+        }
+
         const room = await ChatRoom.findOne({ where: { roomId } });
 
         if (!room)

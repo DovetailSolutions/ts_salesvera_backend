@@ -7,7 +7,7 @@ interface RepostAttributes {
   customerName: string;
   openingAmount: number;
   pendingAmount: number;
-  status?: "draft" | "imported" | "sent" | "accepted" | "rejected";
+  status?: "draft" | "imported" | "sent" | "accepted" | "rejected" | "cancelled" | "deleted";
   dueOn: Date;
   overdueDays: number;
   userId: number;
@@ -26,7 +26,7 @@ export class Repost
   public customerName!: string;
   public openingAmount!: number;
   public pendingAmount!: number;
-  public status!: "draft" | "imported" | "sent" | "accepted" | "rejected";
+  public status!: "draft" | "imported" | "sent" | "accepted" | "rejected" | "cancelled" | "deleted";
   public dueOn!: Date;
   public overdueDays!: number;
   public userId!: number;
@@ -90,9 +90,11 @@ export const RepostModel = (sequelize: Sequelize) => {
           "imported",
           "sent",
           "accepted",
-          "rejected"
+          "rejected",
+          "cancelled",
+          "deleted"
         ),
-        allowNull: false, // ✅ added
+        allowNull: false,
         defaultValue: "draft",
       },
 
