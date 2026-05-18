@@ -60,10 +60,10 @@ const sequelize = new Sequelize(
     dialect: "postgres",
     logging: false,
     dialectOptions: {
-      // ssl: {
-      //   require: true,
-      //   rejectUnauthorized: false,
-      // },
+      ssl: {
+        require: true,
+        rejectUnauthorized: false,
+      },
     },
   }
 );
@@ -774,7 +774,7 @@ export const connectDB = async () => {
 
     // 4️⃣ Standard Sequelize sync
     await sequelize.authenticate();
-    await sequelize.sync({ alter: true });
+    // await sequelize.sync({ alter: true });
 
     // 5️⃣ Seed RBAC permissions table (idempotent — safe every boot)
     const { seedPermissions } = await import("./seedPermissions");
