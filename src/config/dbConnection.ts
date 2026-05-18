@@ -528,6 +528,41 @@ const ensureColumns = async (sequelize: Sequelize) => {
   } catch (err) {
     console.error(`❌ Error creating table repost:`, err);
   }
+
+  // ✅ Ensure permissions table exists (RBAC master table)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "permissions" (
+        "id" SERIAL PRIMARY KEY,
+        "module" VARCHAR(100) NOT NULL,
+        "action" VARCHAR(100) NOT NULL,
+        "description" TEXT,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "idx_permissions_module_action" UNIQUE ("module", "action")
+      );
+    `);
+  } catch (err) {
+    console.error(`❌ Error creating table permissions:`, err);
+  }
+
+  // ✅ Ensure user_permissions table exists (RBAC user assignments)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "user_permissions" (
+        "id" SERIAL PRIMARY KEY,
+        "userId" INTEGER NOT NULL,
+        "permissionId" INTEGER NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "grantedBy" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "idx_user_perm_unique" UNIQUE ("userId", "permissionId", "companyId")
+      );
+    `);
+  } catch (err) {
+    console.error(`❌ Error creating table user_permissions:`, err);
+  }
 };
 
 
