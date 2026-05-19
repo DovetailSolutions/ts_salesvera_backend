@@ -1303,9 +1303,43 @@ export const getCategory = async (
   res: Response
 ): Promise<void> => {
   try {
-    const data = req.query;
-    const item = await Middleware.getAllListCategory(Category, data);
-    createSuccess(res, "get all category", item);
+    const userData = req.userData as JwtPayload;
+    const userId = Number(userData?.userId);
+    const { page = 1, limit = 100 } = req.query;
+    const pageNumber = Number(page);
+    const pageLimit = Number(limit);
+    const offset = (pageNumber - 1) * pageLimit;
+
+    const allUserIds = await getAllSubordinateIds(userId);
+
+    const { count, rows } = await Category.findAndCountAll({
+      where: {
+        [Op.or]: [
+          { adminId: { [Op.in]: allUserIds } },
+          { managerId: { [Op.in]: allUserIds } },
+        ],
+      },
+      include: [
+        {
+          model: SubCategory,
+          as: "subCategories",
+          required: false,
+        },
+      ],
+      limit: pageLimit,
+      offset,
+    });
+
+    createSuccess(res, "get all category", {
+      success: true,
+      data: rows,
+      pagination: {
+        page: pageNumber,
+        limit: pageLimit,
+        totalRecords: count,
+        totalPages: Math.ceil(count / pageLimit),
+      },
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
@@ -2336,9 +2370,18 @@ export const getSubCategory = async (req: Request, res: Response) => {
       return;
     }
 
+    const userData = req.userData as JwtPayload;
+    const userId = Number(userData?.userId);
+
+    const allUserIds = await getAllSubordinateIds(userId);
+
     const subCategory = await SubCategory.findAll({
       where: {
         CategoryId: id,
+        [Op.or]: [
+          { adminId: { [Op.in]: allUserIds } },
+          { managerId: { [Op.in]: allUserIds } },
+        ],
       },
     });
 
