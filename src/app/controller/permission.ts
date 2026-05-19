@@ -53,7 +53,7 @@ const getSubordinateIdsDown = async (userId: number): Promise<number[]> => {
 // Roles that a caller is allowed to assign TO, keyed by caller's role
 const ASSIGNABLE_ROLES: Record<string, string[]> = {
   super_admin: ["admin"],
-  admin: ["manager"],
+  admin: ["manager", "sale_person"],
   manager: ["sale_person"],
 };
 
