@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
-import { Task, User, Device } from "../config/dbConnection";
+import { Op } from "sequelize";
+import { Task, TaskHistory, User, Device } from "../config/dbConnection";
 import { sendPushNotification } from "../config/Notification";
 
 const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
@@ -19,6 +20,27 @@ const pushToUser = async (
     }
   } catch (err) {
     console.error("task push error:", err);
+  }
+};
+
+// ─── Record a single field change in task_history ────────────────────────────
+const logHistory = async (
+  taskId: number,
+  changedBy: number,
+  field: string,
+  oldValue: any,
+  newValue: any
+) => {
+  try {
+    await TaskHistory.create({
+      taskId,
+      changedBy,
+      field,
+      oldValue: oldValue != null ? String(oldValue) : undefined,
+      newValue: newValue != null ? String(newValue) : undefined,
+    });
+  } catch (err) {
+    console.error("logHistory error:", err);
   }
 };
 
@@ -99,6 +121,8 @@ export const initTaskSocket = (io: Server): void => {
 
         broadcast("taskCreated", payload, Number(assignedTo));
 
+        await logHistory(task.id, uid, "assignedTo", null, assignedTo);
+
         await pushToUser(Number(assignedTo), "New Task Assigned", `You have a new task: ${title}`, {
           taskId: String(task.id),
           type: "task_assigned",
@@ -110,9 +134,9 @@ export const initTaskSocket = (io: Server): void => {
     });
 
     // ── GET ALL TASKS ────────────────────────────────────────────────────────
-    // client emits: getAllTasks  { status?, priority?, assignedTo?, page?, limit?, tags? }
+    // client emits: getAllTasks  { status?, priority?, assignedTo?, assignedBy?, page?, limit?, tags? }
     socket.on("getAllTasks", async (data = {}) => {
-      const { status, priority, assignedTo, page = 1, limit: limitQ = 20, tags } = data;
+      const { status, priority, assignedTo, assignedBy, page = 1, limit: limitQ = 20, tags } = data;
       const pageNum  = Math.max(1, Number(page));
       const limitNum = Math.min(50, Number(limitQ));
       const offset   = (pageNum - 1) * limitNum;
@@ -120,13 +144,15 @@ export const initTaskSocket = (io: Server): void => {
       try {
         const where: any = { companyId: Number(companyId) };
 
-        if (role === "manager")     where.assignedBy = uid;
+        if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
         if (role === "sale_person") where.assignedTo = uid;
 
         if (status)   where.status   = status;
         if (priority) where.priority = priority;
         if (tags)     where.tags     = tags;
         if (assignedTo && role !== "sale_person") where.assignedTo = Number(assignedTo);
+        // admin/super_admin can filter by who created/assigned the task
+        if (assignedBy && (role === "admin" || role === "super_admin")) where.assignedBy = Number(assignedBy);
 
         const { count, rows } = await Task.findAndCountAll({
           where,
@@ -191,7 +217,12 @@ export const initTaskSocket = (io: Server): void => {
         const task = await Task.findOne({ where });
         if (!task) return socket.emit("taskError", { message: "Task not found" });
 
-        const prevAssignee = task.assignedTo;
+        const prevAssignee   = task.assignedTo;
+        const prevStatus     = task.status;
+        const prevPriority   = task.priority;
+        const prevTitle      = task.title;
+        const prevDesc       = task.description;
+        const prevDueDate    = task.dueDate;
 
         if (role === "sale_person") {
           if (status !== undefined) task.status = status;
@@ -224,6 +255,23 @@ export const initTaskSocket = (io: Server): void => {
         }
 
         await task.save();
+
+        // Log each changed field
+        const historyLogs: Promise<void>[] = [];
+        if (assignedTo !== undefined && Number(prevAssignee) !== Number(assignedTo))
+          historyLogs.push(logHistory(task.id, uid, "assignedTo", prevAssignee, assignedTo));
+        if (status !== undefined && prevStatus !== status)
+          historyLogs.push(logHistory(task.id, uid, "status", prevStatus, status));
+        if (priority !== undefined && prevPriority !== priority)
+          historyLogs.push(logHistory(task.id, uid, "priority", prevPriority, priority));
+        if (title !== undefined && prevTitle !== title)
+          historyLogs.push(logHistory(task.id, uid, "title", prevTitle, title));
+        if (description !== undefined && prevDesc !== description)
+          historyLogs.push(logHistory(task.id, uid, "description", prevDesc, description));
+        if (dueDate !== undefined && String(prevDueDate) !== String(dueDate))
+          historyLogs.push(logHistory(task.id, uid, "dueDate", prevDueDate, dueDate));
+        await Promise.all(historyLogs);
+
         const payload = task.toJSON();
 
         broadcast("taskUpdated", payload, task.assignedTo ? Number(task.assignedTo) : undefined);
@@ -243,6 +291,37 @@ export const initTaskSocket = (io: Server): void => {
         }
       } catch (err) {
         console.error("updateTask socket error:", err);
+        socket.emit("taskError", { message: "Internal server error" });
+      }
+    });
+
+    // ── GET TASK HISTORY ─────────────────────────────────────────────────────
+    // client emits: getTaskHistory  { id }
+    // Returns the full audit trail for a task (Jira-like activity log)
+    socket.on("getTaskHistory", async ({ id }) => {
+      try {
+        const where: any = { id, companyId: Number(companyId) };
+        if (role === "manager")     where.assignedBy = uid;
+        if (role === "sale_person") where.assignedTo = uid;
+
+        const task = await Task.findOne({ where, attributes: ["id"] });
+        if (!task) return socket.emit("taskError", { message: "Task not found" });
+
+        const history = await TaskHistory.findAll({
+          where: { taskId: Number(id) },
+          include: [
+            {
+              model: User,
+              as: "changedByUser",
+              attributes: ["id", "firstName", "lastName", "email", "role"],
+            },
+          ],
+          order: [["createdAt", "ASC"]],
+        });
+
+        socket.emit("taskHistory", { success: true, taskId: Number(id), data: history });
+      } catch (err) {
+        console.error("getTaskHistory socket error:", err);
         socket.emit("taskError", { message: "Internal server error" });
       }
     });

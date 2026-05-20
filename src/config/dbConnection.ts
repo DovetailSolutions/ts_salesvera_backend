@@ -50,6 +50,7 @@ import { PermissionModel } from "../app/model/permission";
 import { UserPermissionModel } from "../app/model/userPermission";
 
 import { Task } from "../app/model/task";
+import { TaskHistory } from "../app/model/taskHistory";
 
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
@@ -127,6 +128,7 @@ const Report = RepostModel(sequelize);
 
 // Task Management
 Task.initModel(sequelize);
+TaskHistory.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -271,6 +273,13 @@ Task.belongsTo(User, { foreignKey: "assignedBy", as: "creator", constraints: fal
 
 Company.hasMany(Task, { foreignKey: "companyId", as: "tasks", constraints: false });
 Task.belongsTo(Company, { foreignKey: "companyId", as: "company", constraints: false });
+
+// TaskHistory associations
+Task.hasMany(TaskHistory, { foreignKey: "taskId", as: "history", constraints: false });
+TaskHistory.belongsTo(Task, { foreignKey: "taskId", constraints: false });
+
+User.hasMany(TaskHistory, { foreignKey: "changedBy", as: "taskChanges", constraints: false });
+TaskHistory.belongsTo(User, { foreignKey: "changedBy", as: "changedByUser", constraints: false });
 
 
 
@@ -599,6 +608,24 @@ const ensureColumns = async (sequelize: Sequelize) => {
   } catch (err) {
     console.error(`❌ Error creating table tasks:`, err);
   }
+
+  // ✅ Ensure task_history table exists (audit trail)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "task_history" (
+        "id" SERIAL PRIMARY KEY,
+        "taskId" INTEGER NOT NULL,
+        "changedBy" INTEGER NOT NULL,
+        "field" VARCHAR(100) NOT NULL,
+        "oldValue" TEXT,
+        "newValue" TEXT,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (err) {
+    console.error(`❌ Error creating table task_history:`, err);
+  }
 };
 
 
@@ -889,5 +916,6 @@ export {
   UserPermission,
   Notification,
   Report,
-  Task
+  Task,
+  TaskHistory,
 };
