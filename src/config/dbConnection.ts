@@ -49,6 +49,8 @@ import { RepostModel } from "../app/model/report";
 import { PermissionModel } from "../app/model/permission";
 import { UserPermissionModel } from "../app/model/userPermission";
 
+import { Task } from "../app/model/task";
+
 // ===== SEQUELIZE INIT =====
 const sequelize = new Sequelize(
   env.DB_NAME || "default_db",
@@ -122,6 +124,9 @@ const Permission = PermissionModel(sequelize);
 const UserPermission = UserPermissionModel(sequelize);
 
 const Report = RepostModel(sequelize);
+
+// Task Management
+Task.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -256,6 +261,16 @@ Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver", constra
 
 User.hasMany(Notification, { foreignKey: "senderId", as: "sentNotifications", constraints: false });
 Notification.belongsTo(User, { foreignKey: "senderId", as: "sender", constraints: false });
+
+// Task associations
+User.hasMany(Task, { foreignKey: "assignedTo", as: "assignedTasks", constraints: false });
+Task.belongsTo(User, { foreignKey: "assignedTo", as: "assignee", constraints: false });
+
+User.hasMany(Task, { foreignKey: "assignedBy", as: "createdTasks", constraints: false });
+Task.belongsTo(User, { foreignKey: "assignedBy", as: "creator", constraints: false });
+
+Company.hasMany(Task, { foreignKey: "companyId", as: "tasks", constraints: false });
+Task.belongsTo(Company, { foreignKey: "companyId", as: "company", constraints: false });
 
 
 
@@ -563,6 +578,27 @@ const ensureColumns = async (sequelize: Sequelize) => {
   } catch (err) {
     console.error(`❌ Error creating table user_permissions:`, err);
   }
+
+  // ✅ Ensure tasks table exists (task management)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "tasks" (
+        "id" SERIAL PRIMARY KEY,
+        "title" VARCHAR(255) NOT NULL,
+        "description" TEXT,
+        "status" VARCHAR(50) NOT NULL DEFAULT 'todo',
+        "priority" VARCHAR(50) NOT NULL DEFAULT 'medium',
+        "dueDate" TIMESTAMP WITH TIME ZONE,
+        "assignedTo" INTEGER,
+        "assignedBy" INTEGER NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (err) {
+    console.error(`❌ Error creating table tasks:`, err);
+  }
 };
 
 
@@ -852,5 +888,6 @@ export {
   Permission,
   UserPermission,
   Notification,
-  Report
+  Report,
+  Task
 };
