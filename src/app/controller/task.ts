@@ -15,7 +15,7 @@ const getUser = (req: Request) => (req as any).userData as JwtPayload;
 export const createTask = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, role, companyId } = getUser(req);
-    const { title, description, priority, dueDate, assignedTo } = req.body;
+    const { title, description, priority, dueDate, assignedTo, tags } = req.body;
 
     if (!title || !assignedTo) {
       res.status(400).json({ success: false, message: "title and assignedTo are required" });
@@ -62,6 +62,7 @@ export const createTask = async (req: Request, res: Response): Promise<void> => 
       assignedTo: Number(assignedTo),
       assignedBy: userId,
       companyId: companyId!,
+      tags: tags ?? null,
     });
 
     res.status(201).json({ success: true, message: "Task created", data: task });
