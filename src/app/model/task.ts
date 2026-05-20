@@ -13,6 +13,7 @@ interface TaskAttributes {
   assignedTo?: number;
   assignedBy: number;
   companyId: number;
+  tags?: string[]; // Optional field for tags
 }
 
 interface TaskCreationAttributes
@@ -31,6 +32,7 @@ export class Task
   public assignedTo?: number;
   public assignedBy!: number;
   public companyId!: number;
+  public tags?: string[]; // Optional field for tags
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -71,6 +73,10 @@ export class Task
         assignedBy: {
           type: DataTypes.INTEGER,
           allowNull: false,
+        },
+        tags:{
+          type: DataTypes.ARRAY(DataTypes.STRING),
+          allowNull: true,
         },
         companyId: {
           type: DataTypes.INTEGER,
