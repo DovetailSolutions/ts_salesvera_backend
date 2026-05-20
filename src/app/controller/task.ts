@@ -80,7 +80,7 @@ export const createTask = async (req: Request, res: Response): Promise<void> => 
 export const getAllTasks = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, role, companyId } = getUser(req);
-    const { status, priority, assignedTo, page, limit: limitQ } = req.query;
+    const { status, priority, assignedTo, page, limit: limitQ , tags} = req.query;
 
     const pageNum  = Math.max(1, parseInt(page as string) || 1);
     const limitNum = Math.min(50, parseInt(limitQ as string) || 20);
@@ -95,6 +95,7 @@ export const getAllTasks = async (req: Request, res: Response): Promise<void> =>
     if (status)     where.status     = status;
     if (priority)   where.priority   = priority;
     if (assignedTo) where.assignedTo = Number(assignedTo);
+    if (tags)       where.tags       = tags;
 
     const { count, rows } = await Task.findAndCountAll({
       where,

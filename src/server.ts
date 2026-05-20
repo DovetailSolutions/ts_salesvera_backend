@@ -10,49 +10,15 @@ import { connectDB } from "./config/dbConnection";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
-import taskRouter from "./app/router/task";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
+import { initTaskSocket } from "./Notigication/task";
 import { registerIo, setUserSocket, removeUserSocket } from "./config/notificationService";
 import { startCronJobs } from "./config/cronJobs";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// const allowedOrigins = [
-//   "http://localhost:5173",
-//   "https://salesvera.com",
-//   "https://www.salesvera.com",
-//   "https://api.salesvera.com",
-// ];
-
-// app.use(
-//   cors({
-//     origin: function (origin, callback) {
-//       if (!origin || allowedOrigins.includes(origin)) {
-//         callback(null, true);
-//       } else {
-//         callback(new Error("Not allowed by CORS"));
-//       }
-//     },
-//     credentials: true,
-//   })
-// );
-
-// app.use((req, res, next) => {
-//   const origin = req.headers.origin;
-//   if (allowedOrigins.includes(origin as string)) {
-//     res.header("Access-Control-Allow-Origin", origin as string);
-//   }
-//   res.header("Access-Control-Allow-Credentials", "true");
-//   res.header(
-//     "Access-Control-Allow-Headers",
-//     "Content-Type, Authorization, X-Requested-With"
-//   );
-//   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-//   next();
-// });
 app.use(
   cors({
     origin: true, // reflect request origin
@@ -78,7 +44,6 @@ app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 app.use("/admin", adminRouter);
 app.use("/api", UserRouter);
 app.use("/admin/permissions", permissionRouter);
-app.use("/admin/task", taskRouter);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
   swaggerOptions: {
@@ -107,6 +72,7 @@ const io = new Server(server, {
 });
 
 initChatSocket(io);
+initTaskSocket(io);
 
 // Register io so notificationService can deliver real-time events
 registerIo(io);
