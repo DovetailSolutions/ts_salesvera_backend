@@ -30,7 +30,7 @@ router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", tokenCheck, Controller.scheduled);
 router.post("/logout", tokenCheck, Controller.Logout);
-router.get("/getcategory", Controller.getCategory);
+router.get("/getcategory", tokenCheck, Controller.getCategory);
 
 // Attendance Summary
 // FIX: attendance routes now require explicit permissions.
