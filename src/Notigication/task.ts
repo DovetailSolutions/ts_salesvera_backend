@@ -184,7 +184,7 @@ export const initTaskSocket = (io: Server): void => {
       try {
         //  companyId: Number(companyId)
         const where: any = { id };
-        if (role === "manager")     where.assignedBy = uid;
+        if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
         if (role === "sale_person") where.assignedTo = uid;
 
         const task = await Task.findOne({
@@ -352,3 +352,8 @@ export const initTaskSocket = (io: Server): void => {
     });
   });
 };
+
+  
+
+
+
