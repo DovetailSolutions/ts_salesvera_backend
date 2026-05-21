@@ -5,10 +5,10 @@
     "description": "API documentation for SalesVera backend",
     "version": "1.0.0"
   },
-  "host": "http://98.81.102.194",
+  "host": "98.81.102.194:4000",
   "basePath": "/",
   "schemes": [
-    "https"
+    "http"
   ],
   "securityDefinitions": {
     "Bearer": {
@@ -417,6 +417,9 @@
               "properties": {
                 "category_name": {
                   "example": "Updated Category"
+                },
+                "status": {
+                  "example": "active"
                 }
               }
             }

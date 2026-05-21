@@ -688,10 +688,10 @@ export const UpdateCategory = async (
       return;
     }
 
-    if (!category_name) {
-      badRequest(res, "Category name is missing");
-      return;
-    }
+    // if (!category_name) {
+    //   badRequest(res, "Category name is missing");
+    //   return;
+    // }
      
     // ✅ Check if category with same name already exists
     const isCategoryExist = await Middleware.FindByField(
@@ -709,7 +709,7 @@ export const UpdateCategory = async (
     const updatedCategory = await Middleware.UpdateData(
       Category,
       id,
-      { category_name } // Pass as object
+      { category_name,status } // Pass as object
     );
     if (!updatedCategory) {
       badRequest(res, "Category not found");

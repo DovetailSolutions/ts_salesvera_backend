@@ -6,7 +6,7 @@ const doc = {
     title: 'SalesVera API',
     description: 'API documentation for SalesVera backend',
   },
-  host: '98.81.102.194',
+  host: '98.81.102.194:4000',
   schemes: ['http'],
   securityDefinitions: {
     Bearer: {
