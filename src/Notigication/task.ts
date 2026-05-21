@@ -182,7 +182,8 @@ export const initTaskSocket = (io: Server): void => {
     // client emits: getTaskById  { id }
     socket.on("getTaskById", async ({ id }) => {
       try {
-        const where: any = { id, companyId: Number(companyId) };
+        //  companyId: Number(companyId)
+        const where: any = { id };
         if (role === "manager")     where.assignedBy = uid;
         if (role === "sale_person") where.assignedTo = uid;
 
