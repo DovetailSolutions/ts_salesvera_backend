@@ -204,6 +204,8 @@ export const initTaskSocket = (io: Server): void => {
       }
     });
 
+
+    
     // ── UPDATE TASK ──────────────────────────────────────────────────────────
     // client emits: updateTask  { id, title?, description?, status?, priority?, dueDate?, assignedTo? }
     // sale_person can only update status of tasks assigned to them
