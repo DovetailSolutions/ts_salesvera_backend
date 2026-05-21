@@ -2076,10 +2076,17 @@ export const addSubCategory = async (
       return;
     }
     const cleanName = sub_category_name.trim();
+    const normalizedName = cleanName.replace(/\s+/g, "").toLowerCase();
     const existingSubCategory = await SubCategory.findOne({
       where: {
-        sub_category_name: cleanName,
-        CategoryId: CategoryId,
+        [Op.and]: [
+          Sequelize.where(
+            Sequelize.fn("REPLACE", Sequelize.fn("LOWER", Sequelize.col("sub_category_name")), " ", ""),
+            normalizedName
+          ),
+          { CategoryId: CategoryId },
+          { adminId: loggedInId },
+        ],
       },
     });
     if (existingSubCategory) {
@@ -2122,7 +2129,7 @@ export const updateSubCategory = async (req: Request, res: Response) => {
       return;
     }
 
-    const { sub_category_name, amount, tax, CategoryId } = req.body;
+    const { sub_category_name, amount, tax, CategoryId,status } = req.body;
 
     // Check if subcategory exists
     const existingSubCategory = await SubCategory.findByPk(id);
@@ -2148,18 +2155,28 @@ export const updateSubCategory = async (req: Request, res: Response) => {
     if (CategoryId !== undefined) {
       object.CategoryId = CategoryId;
     }
+    if (status !== undefined) {
+      object.status = status;
+    }
 
     object.managerId = loggedInId;
 
     // Duplicate check ONLY if name is being updated
     if (sub_category_name !== undefined) {
       const cleanName = sub_category_name.trim();
+      const normalizedName = cleanName.replace(/\s+/g, "").toLowerCase();
 
       const duplicate = await SubCategory.findOne({
         where: {
-          sub_category_name: cleanName,
-          CategoryId: CategoryId ?? existingSubCategory.CategoryId,
-          id: { [Op.ne]: id },
+          [Op.and]: [
+            Sequelize.where(
+              Sequelize.fn("REPLACE", Sequelize.fn("LOWER", Sequelize.col("sub_category_name")), " ", ""),
+              normalizedName
+            ),
+            { CategoryId: CategoryId ?? existingSubCategory.CategoryId },
+            { adminId: loggedInId },
+            { id: { [Op.ne]: id } },
+          ],
         },
       });
 
