@@ -1,5 +1,5 @@
 
-import { Op, fn, col, cast,literal} from "sequelize";
+import { Op, fn, col, cast,literal, Sequelize } from "sequelize";
 import {sequelize} from "../../config/dbConnection";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
@@ -682,34 +682,50 @@ export const UpdateCategory = async (
 ): Promise<void> => {
   try {
     const { id } = req.params;
-    const { category_name,status } = req.body || {};
+    const { category_name, status } = req.body || {};
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+
     if (!id) {
       badRequest(res, "Category ID is missing");
       return;
     }
 
-    // if (!category_name) {
-    //   badRequest(res, "Category name is missing");
-    //   return;
-    // }
-     
-    // ✅ Check if category with same name already exists
-    const isCategoryExist = await Middleware.FindByField(
-      Category,
-      "category_name",
-      category_name,
-      ""
-    );
-
-    if (isCategoryExist) {
-      badRequest(res, "Category already exists");
+    if (!category_name && !status) {
+      badRequest(res, "Nothing to update");
       return;
     }
+
+    // Only check for duplicate name when category_name is being updated
+    if (category_name) {
+      const normalizedName = category_name.replace(/\s+/g, "").toLowerCase();
+      const isCategoryExist = await Category.findOne({
+        where: {
+          [Op.and]: [
+            Sequelize.where(
+              Sequelize.fn("REPLACE", Sequelize.fn("LOWER", Sequelize.col("category_name")), " ", ""),
+              normalizedName
+            ),
+            { adminId: loggedInId },
+            { id: { [Op.ne]: id } },
+          ],
+        },
+      });
+      if (isCategoryExist) {
+        badRequest(res, "Category already exists");
+        return;
+      }
+    }
+
+    // Build update object with only provided fields
+    const updateData: Record<string, any> = {};
+    if (category_name) updateData.category_name = category_name;
+    if (status) updateData.status = status;
 
     const updatedCategory = await Middleware.UpdateData(
       Category,
       id,
-      { category_name,status } // Pass as object
+      updateData
     );
     if (!updatedCategory) {
       badRequest(res, "Category not found");
