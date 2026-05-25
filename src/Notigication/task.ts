@@ -211,8 +211,8 @@ export const initTaskSocket = (io: Server): void => {
       const { id, title, description, status, priority, dueDate, assignedTo } = data;
 
       try {
-        const where: any = { id};
-        if (role === "manager")     where.assignedBy = uid;
+        const where: any = { id, companyId: Number(companyId) };
+        if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
         if (role === "sale_person") where.assignedTo = uid;
 
         const task = await Task.findOne({ where });
