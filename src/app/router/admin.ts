@@ -21,6 +21,7 @@ router.get("/getalluser", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), Admi
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", tokenCheck, AdminController.getcategory);
+router.get("/getcategory-with-subcategories", tokenCheck, AdminController.getCategoryWithSubCategories);
 router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);

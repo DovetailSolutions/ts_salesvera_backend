@@ -653,6 +653,75 @@ export const getcategory = async (
   }
 };
 
+export const getCategoryWithSubCategories = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    const role = userData?.role;
+
+    let adminId: any = loggedInId;
+
+    if (role === "manager" || role === "sale_person") {
+      let currentId = Number(loggedInId);
+      while (true) {
+        const currentUser = await User.findByPk(currentId, {
+          attributes: ["id", "role"],
+          include: [
+            {
+              model: User,
+              as: "creators",
+              attributes: ["id", "role"],
+              through: { attributes: [] },
+            },
+          ],
+        });
+        const plain = currentUser?.get({ plain: true }) as any;
+        const creator = plain?.creators?.[0];
+        if (!creator) {
+          if (plain?.role === "admin" || plain?.role === "super_admin") adminId = currentId;
+          break;
+        }
+        if (creator.role === "admin" || creator.role === "super_admin") {
+          adminId = creator.id;
+          break;
+        }
+        currentId = creator.id;
+      }
+    }
+
+    const categories = await Category.findAll({
+      where: { adminId },
+      include: [
+        {
+          model: SubCategory,
+          as: "subCategories",
+          required: false,
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    const result = categories.map((cat: any) => {
+      const catObj = cat.toJSON();
+      const subCategories = (catObj.subCategories || []).map((sub: any) => ({
+        ...sub,
+        tax: sub.text,
+        text: undefined,
+      }));
+      return { ...catObj, subCategories };
+    });
+
+    createSuccess(res, "category with sub categories list", result);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
 export const categoryDetails = async (
   req: Request,
   res: Response
