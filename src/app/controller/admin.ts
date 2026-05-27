@@ -260,6 +260,8 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         email: user.get("email"),
         role: userRole,
         tallyGuid: user.get("tallyGuid") || null,
+        tallyName: user.get("tallyName") || null,
+        tallyStartDate: user.get("tallyStartDate") || null,
       },
       permissions,
     });
