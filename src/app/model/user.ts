@@ -30,6 +30,8 @@ interface UserAttributes {
   otp?: string | null;
   otpExpiry?: Date | null;
   tallyGuid?: string | null;
+  tallyName?: string | null;
+  tallyStartDate?: Date | null;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -71,6 +73,9 @@ type UserCreationAttributes = Optional<
   | "createdBy"
   |"onlineSatus"
   |"tallyGuid"
+  |"tallyName"
+  |"tallyStartDate"
+  
 >;
 
 // 3. Define the Model Instance
@@ -127,6 +132,14 @@ export const createUserModel = (sequelize: Sequelize) => {
       },
       tallyGuid: {
         type: DataTypes.STRING,
+        allowNull: true,
+      },
+      tallyName: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      tallyStartDate: {
+        type: DataTypes.DATE,
         allowNull: true,
       },
       refreshToken: {

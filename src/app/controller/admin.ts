@@ -260,6 +260,8 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         email: user.get("email"),
         role: userRole,
         tallyGuid: user.get("tallyGuid") || null,
+        tallyName: user.get("tallyName") || null,
+        tallyStartDate: user.get("tallyStartDate") || null,
       },
       permissions,
     });
@@ -336,7 +338,7 @@ export const UpdateProfile = async (
     const userData = req.userData as JwtPayload;
     const { userId } = userData as any;
 
-    const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob","tallyGuid"] as const;
+    const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob","tallyGuid", "tallyName", "tallyStartDate"] as const;
     type AllowedField = (typeof ALLOWED_FIELDS)[number];
 
     const updates: Partial<Record<AllowedField, string>> & { profile?: string } = {};
@@ -363,10 +365,15 @@ export const UpdateProfile = async (
       return;
     }
 
-    await user.update(updates);
+    const updatePayload: any = { ...updates };
+    if (updatePayload.tallyStartDate) {
+      updatePayload.tallyStartDate = new Date(updatePayload.tallyStartDate);
+    }
+
+    await user.update(updatePayload);
 
     const updatedUser = await User.findByPk(Number(userId), {
-      attributes: ["id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid"],
+      attributes: ["id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid", "tallyName", "tallyStartDate"],
     });
 
     createSuccess(res, "Profile updated successfully", { user: updatedUser });
