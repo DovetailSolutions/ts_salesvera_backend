@@ -29,6 +29,7 @@ interface UserAttributes {
   onlineSatus?: "online" | "offline";
   otp?: string | null;
   otpExpiry?: Date | null;
+  tallyGuid?: string | null;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -41,6 +42,7 @@ export class User extends Model<UserAttributes, UserCreationAttributes> {
   public addCreators!: BelongsToManyAddAssociationsMixin<User, number>;
   public removeCreator!: BelongsToManyRemoveAssociationMixin<User, number>;
   public removeCreators!: BelongsToManyRemoveAssociationsMixin<User, number>;
+
 
   public getCreatedUsers!: BelongsToManyGetAssociationsMixin<User>;
   public setCreatedUsers!: BelongsToManySetAssociationsMixin<User, number>;
@@ -68,6 +70,7 @@ type UserCreationAttributes = Optional<
   | "profile"
   | "createdBy"
   |"onlineSatus"
+  |"tallyGuid"
 >;
 
 // 3. Define the Model Instance
@@ -100,9 +103,6 @@ export const createUserModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
-
-  
-
       status: {
         type: DataTypes.ENUM("active","deActive","delete"),
         allowNull: false,
@@ -124,6 +124,10 @@ export const createUserModel = (sequelize: Sequelize) => {
         ),
         allowNull: false,
         defaultValue: "user",
+      },
+      tallyGuid: {
+        type: DataTypes.STRING,
+        allowNull: true,
       },
       refreshToken: {
         type: DataTypes.STRING,

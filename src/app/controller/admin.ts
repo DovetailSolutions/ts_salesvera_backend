@@ -259,6 +259,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         lastName: user.get("lastName"),
         email: user.get("email"),
         role: userRole,
+        tallyGuid: user.get("tallyGuid") || null,
       },
       permissions,
     });
@@ -327,6 +328,54 @@ export const GetProfile = async (
     return;
   }
 };
+export const UpdateProfile = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const { userId } = userData as any;
+
+    const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob","tallyGuid"] as const;
+    type AllowedField = (typeof ALLOWED_FIELDS)[number];
+
+    const updates: Partial<Record<AllowedField, string>> & { profile?: string } = {};
+
+    for (const field of ALLOWED_FIELDS) {
+      if (req.body[field] !== undefined && req.body[field] !== "") {
+        updates[field] = req.body[field];
+      }
+    }
+
+    if (req.file) {
+      const s3File = req.file as MulterS3File;
+      updates.profile = s3File.location;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      badRequest(res, "No fields provided to update");
+      return;
+    }
+
+    const user = await User.findByPk(Number(userId));
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    await user.update(updates);
+
+    const updatedUser = await User.findByPk(Number(userId), {
+      attributes: ["id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid"],
+    });
+
+    createSuccess(res, "Profile updated successfully", { user: updatedUser });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
 export const UpdatePassword = async (
   req: Request,
   res: Response

@@ -14,6 +14,7 @@ const csv = getUploadMiddleware("csv")
 router.post("/register", AdminController.Register);
 router.post("/login", AdminController.Login);
 router.get("/getProfile", tokenCheck, AdminController.GetProfile);
+router.patch("/updateProfile", tokenCheck, profile.single("profile"), AdminController.UpdateProfile);
 router.patch("/updatepassword", tokenCheck, AdminController.UpdatePassword);
 router.get("/mysaleperson", tokenCheck, AdminController.MySalePerson);
 router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
