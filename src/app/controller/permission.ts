@@ -3,7 +3,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { Op } from "sequelize";
 import { Permission } from "../model/permission";
 import { UserPermission } from "../model/userPermission";
-import { User } from "../../config/dbConnection";
+import { User, Company } from "../../config/dbConnection";
 import { invalidatePermissionCache, invalidateCompanyPermissionCache } from "../../config/permissionCache";
 
 // ============================================================
@@ -22,6 +22,32 @@ import { invalidatePermissionCache, invalidateCompanyPermissionCache } from "../
 interface AuthRequest extends Request {
   userData?: string | JwtPayload;
 }
+
+// BFS traversal of the creator hierarchy below rootUserId (does NOT include root itself).
+const getAllChildIds = async (rootUserId: number): Promise<number[]> => {
+  const result: number[] = [];
+  const queue: number[] = [rootUserId];
+  const visited = new Set<number>([rootUserId]);
+
+  while (queue.length > 0) {
+    const pid = queue.shift()!;
+    const user = await (User as any).findByPk(pid, {
+      include: [{ model: User, as: "createdUsers", attributes: ["id", "role"], through: { attributes: [] } }],
+    });
+
+    if (user?.createdUsers) {
+      for (const child of user.createdUsers) {
+        if (!visited.has(child.id)) {
+          visited.add(child.id);
+          result.push(child.id);
+          queue.push(child.id);
+        }
+      }
+    }
+  }
+
+  return result;
+};
 
 // Returns all subordinate userIds below a given user (does NOT include the user itself).
 // Only traverses downward — never climbs up to the company root.
@@ -417,16 +443,20 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
       }
     }
 
-    // Find all users with that role in the company
-    const targetUsers = await UserPermission.findAll({
-      where: { companyId: effectiveCompanyId },
-      attributes: ["userId"],
-      group: ["userId"],
-    });
+    // Find the company's root admin to scope the search to this company's hierarchy
+    const company = await (Company as any).findByPk(effectiveCompanyId, { attributes: ["id", "adminId"] });
+    if (!company) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
 
-    // Also get users by role directly
+    const allChildIds = await getAllChildIds(company.adminId);
+
     const roleUsers = await (User as any).findAll({
-      where: { role: targetRole, status: "active" },
+      where: {
+        id: { [Op.in]: allChildIds },
+        role: targetRole,
+        status: "active",
+      },
       attributes: ["id"],
     });
 
@@ -460,6 +490,74 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
     });
   } catch (err) {
     console.error("assignPermissionsToRole error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ============================================================
+// GET /permissions/users-by-role?role=sale_person
+// Returns all active users in the caller's company with the given role.
+// Used by admin/manager to preview who will be affected before bulk-assigning.
+// Query params: role (required), companyId (required only for super_admin)
+// ============================================================
+export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userData = req.userData as any;
+    const { role: callerRole, companyId: callerCompanyId } = userData;
+    const { role: targetRole, companyId: queryCompanyId } = req.query;
+
+    const VALID_ROLES = ["admin", "manager", "sale_person"];
+    if (!targetRole || !VALID_ROLES.includes(targetRole as string)) {
+      return res.status(400).json({
+        success: false,
+        message: "Query param 'role' is required and must be one of: admin, manager, sale_person",
+      });
+    }
+
+    // Hierarchy check: caller can only view users of roles they can assign to
+    const allowedRoles = ASSIGNABLE_ROLES[callerRole] || [];
+    if (!allowedRoles.includes(targetRole as string)) {
+      return res.status(403).json({
+        success: false,
+        message: `${callerRole} cannot fetch users with role '${targetRole}'`,
+      });
+    }
+
+    const effectiveCompanyId: number =
+      callerRole === "super_admin" ? Number(queryCompanyId) : Number(callerCompanyId);
+
+    if (!effectiveCompanyId) {
+      return res.status(400).json({ success: false, message: "companyId is required" });
+    }
+
+    const company = await (Company as any).findByPk(effectiveCompanyId, { attributes: ["id", "adminId"] });
+    if (!company) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
+
+    const allChildIds = await getAllChildIds(company.adminId);
+
+    const users = await (User as any).findAll({
+      where: {
+        id: { [Op.in]: allChildIds },
+        role: targetRole as string,
+        status: "active",
+      },
+      attributes: ["id", "firstName", "lastName", "email", "phone", "role", "profile", "createdAt"],
+      order: [["firstName", "ASC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        role: targetRole,
+        companyId: effectiveCompanyId,
+        count: users.length,
+        users,
+      },
+    });
+  } catch (err) {
+    console.error("getUsersByRole error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

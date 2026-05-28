@@ -16,6 +16,9 @@ const router = Router();
 // ── View all available permissions (permission matrix reference) ──────────
 router.get("/all",         tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.getAllPermissions);
 
+// ── Fetch users in this company filtered by role (preview before bulk assign) ─
+router.get("/users-by-role", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.getUsersByRole);
+
 // ── View calling user's own permissions ──────────────────────────────────
 router.get("/my",          tokenCheck, PermissionController.getMyPermissions);
 
