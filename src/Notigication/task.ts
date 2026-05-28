@@ -1,9 +1,25 @@
 import { Server } from "socket.io";
 import { Op } from "sequelize";
-import { Task, TaskHistory, User, Device } from "../config/dbConnection";
+import { Task, TaskHistory, User, Device, Permission, UserPermission } from "../config/dbConnection";
 import { sendPushNotification } from "../config/Notification";
+import { getUserPermissionsFromCache } from "../config/permissionCache";
 
 const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
+
+const loadUserPermissionsFromDB = async (userId: number, companyId: number): Promise<string[]> => {
+  const userPerms = await UserPermission.findAll({
+    where: { userId, companyId },
+    include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
+    attributes: [],
+  });
+  return userPerms.map((up: any) => `${up.permission.module}:${up.permission.action}`);
+};
+
+const hasPermission = async (userId: number, companyId: number, role: string, action: string): Promise<boolean> => {
+  if (role === "super_admin") return true;
+  const perms = await getUserPermissionsFromCache(userId, companyId, () => loadUserPermissionsFromDB(userId, companyId));
+  return perms.has(`task:${action}`);
+};
 
 // ─── Push notification to a user's registered devices ────────────────────────
 const pushToUser = async (
@@ -75,8 +91,8 @@ export const initTaskSocket = (io: Server): void => {
     // ── CREATE TASK ──────────────────────────────────────────────────────────
     // client emits: createTask  { title, assignedTo, description?, priority?, dueDate?, tags? }
     socket.on("createTask", async (data) => {
-      if (!ADMIN_MANAGER.includes(role)) {
-        return socket.emit("taskError", { message: "Forbidden" });
+      if (!await hasPermission(uid, companyId, role, "create")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:create permission" });
       }
 
       const { title, description, priority, dueDate, assignedTo, tags } = data;
@@ -136,6 +152,9 @@ export const initTaskSocket = (io: Server): void => {
     // ── GET ALL TASKS ────────────────────────────────────────────────────────
     // client emits: getAllTasks  { status?, priority?, assignedTo?, assignedBy?, page?, limit?, tags? }
     socket.on("getAllTasks", async (data = {}) => {
+      if (!await hasPermission(uid, companyId, role, "view")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
+      }
       const { status, priority, assignedTo, assignedBy, page = 1, limit: limitQ = 20, tags } = data;
       const pageNum  = Math.max(1, Number(page));
       const limitNum = Math.min(50, Number(limitQ));
@@ -181,6 +200,9 @@ export const initTaskSocket = (io: Server): void => {
     // ── GET TASK BY ID ───────────────────────────────────────────────────────
     // client emits: getTaskById  { id }
     socket.on("getTaskById", async ({ id }) => {
+      if (!await hasPermission(uid, companyId, role, "view")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
+      }
       try {
         //  companyId: Number(companyId)
         const where: any = { id };
@@ -208,6 +230,9 @@ export const initTaskSocket = (io: Server): void => {
     // client emits: updateTask  { id, title?, description?, status?, priority?, dueDate?, assignedTo? }
     // sale_person can only update status of tasks assigned to them
     socket.on("updateTask", async (data) => {
+      if (!await hasPermission(uid, companyId, role, "update")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:update permission" });
+      }
       const { id, title, description, status, priority, dueDate, assignedTo } = data;
 
       try {
@@ -300,6 +325,9 @@ export const initTaskSocket = (io: Server): void => {
     // client emits: getTaskHistory  { id }
     // Returns the full audit trail for a task (Jira-like activity log)
     socket.on("getTaskHistory", async ({ id }) => {
+      if (!await hasPermission(uid, companyId, role, "view")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
+      }
       try {
         const where: any = { id, companyId: Number(companyId) };
         if (role === "manager")     where.assignedBy = uid;
@@ -330,8 +358,8 @@ export const initTaskSocket = (io: Server): void => {
     // ── DELETE TASK ──────────────────────────────────────────────────────────
     // client emits: deleteTask  { id }
     socket.on("deleteTask", async ({ id }) => {
-      if (!ADMIN_MANAGER.includes(role)) {
-        return socket.emit("taskError", { message: "Forbidden" });
+      if (!await hasPermission(uid, companyId, role, "delete")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:delete permission" });
       }
 
       try {
