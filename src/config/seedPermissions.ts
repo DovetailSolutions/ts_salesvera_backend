@@ -56,6 +56,17 @@ export const PERMISSION_SEEDS = [
   { module: "invoice", action: "create", description: "Create invoices" },
   { module: "invoice", action: "update", description: "Edit invoices" },
 
+  // ── Task ─────────────────────────────────────────────────
+  { module: "task", action: "create", description: "Create tasks" },
+  { module: "task", action: "view",   description: "View task list and task details" },
+  { module: "task", action: "update", description: "Update tasks" },
+  { module: "task", action: "delete", description: "Delete tasks" },
+
+  // ── Notification ─────────────────────────────────────────
+  { module: "notification", action: "view",      description: "View notifications and unread count" },
+  { module: "notification", action: "mark_read", description: "Mark notifications as read (single or all)" },
+  { module: "notification", action: "delete",    description: "Delete notifications (single or all)" },
+
   // ── Profile ──────────────────────────────────────────────
   { module: "profile", action: "view",   description: "View own profile" },
 ];
