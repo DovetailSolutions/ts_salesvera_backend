@@ -4155,17 +4155,17 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
     }
 
     // ✅ Duplicate check (IMPORTANT)
-    const existing = await Quotations.findOne({
-      where: {
-        userId: Number(userData.userId),
-        referenceNumber: data.referenceNumber
-      }
-    });
+    // const existing = await Quotations.findOne({
+    //   where: {
+    //     userId: Number(userData.userId),
+    //     referenceNumber: data.referenceNumber
+    //   }
+    // });
 
-    if (existing) {
-       badRequest(res, "Quotation already exists with this reference number");
-       return
-    }
+    // if (existing) {
+    //    badRequest(res, "Quotation already exists with this reference number");
+    //    return
+    // }
 
     const quotationNumber = await generateQuotationNumber();
 
