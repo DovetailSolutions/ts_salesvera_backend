@@ -68,6 +68,8 @@ export const checkPermission = (module: string, action: string) => {
         });
       }
 
+      console.log("checkPermission: userData from token:", userData);
+
       const { role, userId, companyId } = userData as any;
 
 

@@ -2,18 +2,21 @@ import { Meeting } from "../config/dbConnection";
 import admin from "firebase-admin";
 
 // ✅ Initialize Firebase Admin SDK
-// Using static import ensures TypeScript copies the file to the dist/ directory.
-import serviceAccount from "../Notigication/salesvera-firebase-adminsdk-fbsvc-28c5e29ae4.json";
-
 try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const serviceAccount = require("../Notigication/salesvera-firebase-adminsdk-fbsvc-28c5e29ae4.json");
   if (!admin.apps.length) {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
     });
     console.log("🔥 Firebase Admin SDK initialized successfully.");
   }
-} catch (error) {
-  console.error("❌ Firebase Admin initialization error:", error);
+} catch (error: any) {
+  if (error?.code === "MODULE_NOT_FOUND") {
+    console.warn("⚠️  Firebase credentials file not found — push notifications disabled.");
+  } else {
+    console.error("❌ Firebase Admin initialization error:", error);
+  }
 }
 
 export interface NotifyPayload {

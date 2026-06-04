@@ -62,12 +62,16 @@ const sequelize = new Sequelize(
     port: Number(env.DB_PORT) || 5432,
     dialect: "postgres",
     logging: false,
-    dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false,
-      },
-    },
+    ...(env.DB_HOST !== "127.0.0.1" && env.DB_HOST !== "localhost"
+      ? {
+          dialectOptions: {
+            ssl: {
+              require: true,
+              rejectUnauthorized: false,
+            },
+          },
+        }
+      : {}),
   }
 );
 
@@ -718,28 +722,16 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
           // In Postgres, ENUM types often show up as 'USER-DEFINED' in information_schema
           const colInfo = statusCols[0];
           if (colInfo.data_type === 'character varying' || colInfo.data_type === 'text') {
-            await sequelize.query(`
-              UPDATE "invoices" 
-              SET "status" = 'draft' 
-              WHERE "status" IS NULL 
-              OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected');
-              
-              -- 1. Create Type if not exists
-              DO $$ BEGIN 
-                CREATE TYPE "public"."enum_invoices_status" AS ENUM('draft', 'sent', 'accepted', 'rejected'); 
-              EXCEPTION WHEN duplicate_object THEN null; 
-              END $$;
+            await sequelize.query(`UPDATE "invoices" SET "status" = 'draft' WHERE "status" IS NULL OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected')`);
 
-              -- 2. Alter column type with explicit cast
-              ALTER TABLE "invoices" 
-              ALTER COLUMN "status" TYPE "public"."enum_invoices_status" 
-              USING ("status"::"public"."enum_invoices_status");
+            await sequelize.query(`DO $$ BEGIN CREATE TYPE "public"."enum_invoices_status" AS ENUM('draft', 'sent', 'accepted', 'rejected'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
 
-              -- 3. Set default
-              ALTER TABLE "invoices" 
-              ALTER COLUMN "status" SET DEFAULT 'draft';
-            `);
-           
+            // Drop default before type conversion — PostgreSQL cannot auto-cast string default to ENUM
+            await sequelize.query(`ALTER TABLE "invoices" ALTER COLUMN "status" DROP DEFAULT`);
+
+            await sequelize.query(`ALTER TABLE "invoices" ALTER COLUMN "status" TYPE "public"."enum_invoices_status" USING ("status"::"public"."enum_invoices_status")`);
+
+            await sequelize.query(`ALTER TABLE "invoices" ALTER COLUMN "status" SET DEFAULT 'draft'::"public"."enum_invoices_status"`);
           }
         }
       }

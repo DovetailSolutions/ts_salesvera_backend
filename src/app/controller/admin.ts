@@ -3322,6 +3322,65 @@ export const deleteCompany = async (req: Request, res: Response) => {
 };
 
 
+export const getOwnCompany = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const companies = await Company.findAll({
+      where: { userId: userData.userId },
+    });
+
+    if (!companies || companies.length === 0) {
+      return badRequest(res, "No company found for this user");
+    }
+
+    const companyIds = companies.map((c: any) => c.id);
+
+    const [branches, holidays, departments, shifts, banks, leaveTypes] = await Promise.all([
+      Branch.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+      Holiday.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+      Department.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+      Shift.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+      CompanyBank.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+      CompanyLeave.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+    ]);
+
+    const result = companies.map((company: any) => {
+      const cId = company.id;
+      const companyBranches = branches.filter((b: any) => b.companyId === cId);
+
+      const enrichedBranches = companyBranches.map((branch: any) => ({
+        ...branch.toJSON(),
+        holidays: holidays.filter((h: any) => h.branchId === branch.id).map((h: any) => h.toJSON()),
+        departments: departments.filter((d: any) => d.branchId === branch.id).map((d: any) => d.toJSON()),
+        shifts: shifts.filter((s: any) => s.branchId === branch.id).map((s: any) => s.toJSON()),
+        banks: banks.filter((b: any) => b.branchId === branch.id).map((b: any) => b.toJSON()),
+        leaveTypes: leaveTypes.filter((l: any) => l.branchId === branch.id).map((l: any) => l.toJSON()),
+      }));
+
+      return {
+        ...company.toJSON(),
+        branches: enrichedBranches,
+        holidays: holidays.filter((h: any) => h.companyId === cId && !h.branchId).map((h: any) => h.toJSON()),
+        departments: departments.filter((d: any) => d.companyId === cId && !d.branchId).map((d: any) => d.toJSON()),
+        shifts: shifts.filter((s: any) => s.companyId === cId && !s.branchId).map((s: any) => s.toJSON()),
+        banks: banks.filter((b: any) => b.companyId === cId && !b.branchId).map((b: any) => b.toJSON()),
+      };
+    });
+
+    createSuccess(res, "Company fetched successfully", result);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
 export const addBranch = async (req: Request, res: Response) => {
   try {
     const userData = req.userData as JwtPayload;

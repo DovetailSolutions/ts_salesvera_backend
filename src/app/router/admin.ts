@@ -82,6 +82,7 @@ router.get("/getcompany",     tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminCo
 router.get("/getcompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompanyById);
 router.patch("/updatecompany/:id",  tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.updateCompany);
 router.delete("/deletecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.deleteCompany);
+router.get("/getowncompany",  tokenCheck, AdminController.getOwnCompany);
 
 
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
