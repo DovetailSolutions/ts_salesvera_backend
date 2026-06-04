@@ -4196,8 +4196,6 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
     //    return
     // }
 
-    // this code comment by sumit 
-
     const quotationNumber = await generateQuotationNumber();
 
     // ✅ Create quotation
