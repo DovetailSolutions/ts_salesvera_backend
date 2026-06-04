@@ -1,0 +1,23 @@
+
+> apnaghar@1.0.0 predev
+> npx kill-port 4800
+
+Process on port 4800 killed
+
+> apnaghar@1.0.0 dev
+> ts-node-dev --respawn --transpile-only src/server.ts
+
+[INFO] 01:26:07 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.2)
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 39 already existed (total=39)
