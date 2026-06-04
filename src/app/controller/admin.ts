@@ -119,7 +119,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
     };
     const item = await User.create(obj);
 
-    if ((role === "sale_person" || role === "manager" || role === "admin") && createdBy) {
+    if ((role === "sale_person" || role === "manager" || role === "admin" || role === "user") && createdBy) {
       const ids = Array.isArray(createdBy)
         ? createdBy.map((id: any) => Number(id)).filter((id) => !isNaN(id))
         : [Number(createdBy)].filter((id) => !isNaN(id));
@@ -172,11 +172,11 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Allowed roles
-    const allowedRoles = ["admin", "manager", "super_admin", "sale_person"];
+    const allowedRoles = ["admin", "manager", "super_admin", "sale_person", "user"];
     const userRole = user.get("role") as string;
 
     if (!allowedRoles.includes(userRole)) {
-      badRequest(res, "Access restricted. Only admin, manager & sales can login.");
+      badRequest(res, "Access restricted. Only admin, manager, sales & user can login.");
       return;
     }
 
@@ -211,7 +211,8 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Priority 2: Fallback — find ANY company where this user has assigned permissions
-    if (!companyId && userRole !== "super_admin") {
+    // user role spans multiple companies (like super_admin), no companyId needed
+    if (!companyId && userRole !== "super_admin" && userRole !== "user") {
       const firstPermission = await UserPermission.findOne({
         where: { userId },
         attributes: ["companyId"],
@@ -232,8 +233,8 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
 
     // ── Fetch Permissions for the Login Response ─────────────────────
     let permissions: string[] = [];
-    if (userRole === "super_admin") {
-      // Super Admin: get all master permissions
+    if (userRole === "super_admin" || userRole === "user") {
+      // Super Admin & User: get all master permissions
       const all = await Permission.findAll({ attributes: ["module", "action"] });
       permissions = all.map((p) => `${p.module}:${p.action}`);
     } else if (userRole === "admin" && companyId) {
@@ -300,7 +301,7 @@ export const GetProfile = async (
     const permissions: string[] = [];
     const matrix: Record<string, Record<string, boolean>> = {};
 
-    if (role === "super_admin") {
+    if (role === "super_admin" || role === "user") {
       const all = await Permission.findAll({
         order: [["module", "ASC"], ["action", "ASC"]],
       });
@@ -544,10 +545,11 @@ export const GetAllUser = async (
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
 
-    const loggedInId = userData?.userId; // 👈 Logged-in user ID
+    const loggedInId = userData?.userId;
+    const loggedInRole = userData?.role;
 
     const where: any = {
-      id: { [Op.ne]: loggedInId }, // ✅ Exclude logged-in user
+      id: { [Op.ne]: loggedInId },
     };
 
     if (role) where.role = role;
@@ -565,6 +567,24 @@ export const GetAllUser = async (
       creator?: any;
     };
 
+    // all roles except super_admin only see users they personally created
+    const creatorsInclude =
+      loggedInRole !== "super_admin"
+        ? {
+            model: User,
+            as: "creators",
+            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+            through: { attributes: [], where: { created_by_user_id: loggedInId } },
+            required: true,
+          }
+        : {
+            model: User,
+            as: "creators",
+            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+            through: { attributes: [] },
+            required: false,
+          };
+
     const { rows, count } = await User.findAndCountAll({
       attributes: [
         "id",
@@ -579,19 +599,20 @@ export const GetAllUser = async (
       offset,
       limit: limitNum,
       order: [["createdAt", "DESC"]],
+      distinct: true,
       include: [
+        creatorsInclude,
         {
-          model: User,
-          as: "creators",
-          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-          through: { attributes: [] },
-          required: false,
-        },
-          {
           model: Company,
           as: "company",
-           attributes: ["id", "companyName"],
-       
+          attributes: ["id", "companyName"],
+          required: false,
+        },
+        {
+          model: Company,
+          as: "managedCompany",
+          attributes: ["id", "companyName"],
+          required: false,
         },
       ],
     });
@@ -2975,6 +2996,11 @@ export const addCompany = async (
       return;
     }
 
+    if (userData.role === "user") {
+      badRequest(res, "You are not authorized to add a company");
+      return;
+    }
+
     const {
       companyName,
       legalName,
@@ -3013,6 +3039,8 @@ export const addCompany = async (
       casualCarryForwardExpiry,
       adminId,
       managerId,
+      createdBy,
+      userid
     } = req.body;
 
     // ================= VALIDATION =================
@@ -3123,10 +3151,10 @@ export const addCompany = async (
       compOffExpiryDays,
       casualCarryForwardLimit,
       casualCarryForwardExpiry,
-      userId: userData.userId,
+      userId: createdBy || userData.userId,
       adminId:adminId || null,
-      managerId:managerId || null
-    });
+      managerId:managerId || null,
+    }); 
 
     createSuccess(res, "Company added successfully", company);
   } catch (error) {
@@ -4155,17 +4183,19 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
     }
 
     // ✅ Duplicate check (IMPORTANT)
-    const existing = await Quotations.findOne({
-      where: {
-        userId: Number(userData.userId),
-        referenceNumber: data.referenceNumber
-      }
-    });
+    // const existing = await Quotations.findOne({
+    //   where: {
+    //     userId: Number(userData.userId),
+    //     referenceNumber: data.referenceNumber
+    //   }
+    // });
 
-    if (existing) {
-       badRequest(res, "Quotation already exists with this reference number");
-       return
-    }
+    // if (existing) {
+    //    badRequest(res, "Quotation already exists with this reference number");
+    //    return
+    // }
+
+    // this code comment by sumit 
 
     const quotationNumber = await generateQuotationNumber();
 
@@ -4179,6 +4209,8 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
       quotation: data,
       status: data.status || "draft",
       isConsumed: false,
+      guid: data.guid || null,
+      alterid: data.alterid || null
     });
 
     res.status(201).json({
@@ -4853,6 +4885,8 @@ export const addInvoice = async (
       QuotationNumber,
       QuotationDate,
       date,
+      guid,
+      alterid,
       ...restData
     } = data;
 
@@ -4984,6 +5018,8 @@ export const addInvoice = async (
       invoiceDate: date ? new Date(date) : null,
       invoice: restData,
       items: data.items,
+      guid: guid || null,
+      alterid: alterid || null
     };
 
     const invoiceData = await Invoices.create(invoicePayload, {
@@ -6328,3 +6364,28 @@ export const updateReport = async (req: Request, res: Response): Promise<void> =
     badRequest(res, errorMessage);
   }
 };
+
+
+export const assignAdmin = async(req:Request, res:Response):Promise<void>=>{
+  try{
+    const userData = req.userData as JwtPayload;
+
+   let obj:any={};
+    if(req.body.adminId){
+      obj.adminId=req.body.adminId;
+    }
+    if(req.body.managerId){
+      obj.managerId=req.body.managerId;
+    }
+    const item = await Company.update(obj,{
+      where:{
+        id:Number(req.params.id)
+      }
+    });
+    createSuccess(res, "Admin assigned successfully", item);
+  }catch(error){
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+}

@@ -13,6 +13,8 @@ interface InvoiceAttributes {
   quotationNumber?: string | null;
   quotationDate?: Date | null;
   invoiceDate?: Date | null;
+  guid?: string | null;
+  alterid?: string | null;
 }
 
 interface InvoiceCreationAttributes
@@ -33,6 +35,8 @@ export class Invoices
   public invoiceDate?: Date | null;
   public quotationDate?: Date | null;
   public quotationNumber?: string | null;
+  public guid?: string | null;
+  public alterid?: string | null;
   
 
   static initModel(sequelize: Sequelize) {
@@ -62,6 +66,15 @@ export class Invoices
         companyId: {
           type: DataTypes.INTEGER,
           allowNull: false,
+        },
+
+        guid:{
+          type:DataTypes.STRING,
+          allowNull: true,
+        },
+        alterid:{
+          type:DataTypes.STRING,
+          allowNull: true,
         },
 
         quotationId: {

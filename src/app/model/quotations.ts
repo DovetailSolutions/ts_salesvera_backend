@@ -12,6 +12,8 @@ interface QuotationAttributes {
   referenceNumber: string;
   customerName: string;
   isConsumed: boolean;
+  guid?: string | null;
+  alterid?: string | null;
 }
 
 interface QuotationCreationAttributes
@@ -30,6 +32,8 @@ export class Quotations
   public referenceNumber!: string;
   public customerName!: string;
   public isConsumed!: boolean;
+  public guid?: string | null;
+  public alterid?: string | null;
 
   static initModel(sequelize: Sequelize) {
     Quotations.init(
@@ -41,6 +45,14 @@ export class Quotations
         },
         quotationNumber:{
           type: DataTypes.STRING,
+          allowNull: true,
+        },
+        guid:{
+          type:DataTypes.STRING,
+          allowNull: true,
+        },
+        alterid:{
+          type:DataTypes.STRING,
           allowNull: true,
         },
         referenceNumber:{

@@ -76,11 +76,20 @@ const getSubordinateIdsDown = async (userId: number): Promise<number[]> => {
   return result;
 };
 
-// Roles that a caller is allowed to assign TO, keyed by caller's role
+// Roles a caller can assign to individual users
 const ASSIGNABLE_ROLES: Record<string, string[]> = {
-  super_admin: ["admin"],
-  admin: ["manager", "sale_person"],
-  manager: ["sale_person"],
+  super_admin: ["user", "admin", "manager", "sale_person"],
+  user:        ["admin"],
+  admin:       ["manager", "sale_person"],
+  manager:     ["sale_person"],
+};
+
+// Roles a caller can bulk-assign to via /assign-role
+const ROLE_ASSIGNABLE_ROLES: Record<string, string[]> = {
+  super_admin: ["user", "admin", "manager", "sale_person"],
+  user:        ["admin", "manager", "sale_person"],
+  admin:       ["manager", "sale_person"],
+  manager:     ["sale_person"],
 };
 
 // ─── Helper: get own permission set ────────────────────────────────────────
@@ -224,9 +233,9 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
       });
     }
 
-    // Determine effective companyId
+    // super_admin and user manage multiple companies — they pass companyId in body; others use JWT companyId
     const effectiveCompanyId: number =
-      role === "super_admin" ? Number(bodyCompanyId) : Number(callerCompanyId);
+      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
 
     if (!effectiveCompanyId) {
       return res.status(400).json({ success: false, message: "companyId is required" });
@@ -248,8 +257,9 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
     }
 
     // ── Anti-escalation: caller must own each permission they're granting ──
-    const ownPerms = await getOwnPermissions(callerId, callerCompanyId, role);
-    // ownPerms === null means super_admin (no restriction)
+    // user provides companyId in body, so use effectiveCompanyId for their permission lookup
+    const ownPermsCompanyId = role === "user" ? effectiveCompanyId : callerCompanyId;
+    const ownPerms = await getOwnPermissions(callerId, ownPermsCompanyId, role);
 
     // ── Validate all permissionIds exist ────────────────────────────
     const permsToAssign = await Permission.findAll({
@@ -331,8 +341,9 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
       });
     }
 
+    // super_admin and user manage multiple companies — they pass companyId in body
     const effectiveCompanyId: number =
-      role === "super_admin" ? Number(bodyCompanyId) : Number(callerCompanyId);
+      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
 
     if (!effectiveCompanyId) {
       return res.status(400).json({ success: false, message: "companyId is required" });
@@ -413,11 +424,12 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
       });
     }
 
+    // super_admin and user manage multiple companies — they pass companyId in body
     const effectiveCompanyId: number =
-      role === "super_admin" ? Number(bodyCompanyId) : Number(callerCompanyId);
+      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
 
     // Hierarchy check
-    const allowedRoles = ASSIGNABLE_ROLES[role] || [];
+    const allowedRoles = ROLE_ASSIGNABLE_ROLES[role] || [];
     if (!allowedRoles.includes(targetRole)) {
       return res.status(403).json({
         success: false,
@@ -506,16 +518,16 @@ export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<a
     const { role: callerRole, companyId: callerCompanyId } = userData;
     const { role: targetRole, companyId: queryCompanyId } = req.query;
 
-    const VALID_ROLES = ["admin", "manager", "sale_person"];
+    const VALID_ROLES = ["admin", "manager", "sale_person", "user"];
     if (!targetRole || !VALID_ROLES.includes(targetRole as string)) {
       return res.status(400).json({
         success: false,
-        message: "Query param 'role' is required and must be one of: admin, manager, sale_person",
+        message: "Query param 'role' is required and must be one of: admin, manager, sale_person, user",
       });
     }
 
     // Hierarchy check: caller can only view users of roles they can assign to
-    const allowedRoles = ASSIGNABLE_ROLES[callerRole] || [];
+    const allowedRoles = ROLE_ASSIGNABLE_ROLES[callerRole] || [];
     if (!allowedRoles.includes(targetRole as string)) {
       return res.status(403).json({
         success: false,
@@ -524,7 +536,7 @@ export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<a
     }
 
     const effectiveCompanyId: number =
-      callerRole === "super_admin" ? Number(queryCompanyId) : Number(callerCompanyId);
+      (callerRole === "super_admin" || callerRole === "user") ? Number(queryCompanyId) : Number(callerCompanyId);
 
     if (!effectiveCompanyId) {
       return res.status(400).json({ success: false, message: "companyId is required" });
@@ -612,6 +624,98 @@ export const getMyPermissions = async (req: AuthRequest, res: Response): Promise
     });
   } catch (err) {
     console.error("getMyPermissions error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ============================================================
+// DELETE /permissions/revoke-role
+// Revoke one or more permissions from ALL users of a given role in a company.
+// Body: { targetRole, companyId, permissionIds: number[] }
+// Callable by: super_admin (any role), admin (manager/sale_person), manager (sale_person)
+// ============================================================
+export const revokePermissionsFromRole = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userData = req.userData as any;
+    const { role, companyId: callerCompanyId } = userData;
+
+    const { targetRole, companyId: bodyCompanyId, permissionIds } = req.body;
+
+    if (!targetRole || !permissionIds || !Array.isArray(permissionIds) || permissionIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "targetRole and permissionIds[] are required",
+      });
+    }
+
+    // super_admin and user manage multiple companies — they pass companyId in body
+    const effectiveCompanyId: number =
+      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
+
+    if (!effectiveCompanyId) {
+      return res.status(400).json({ success: false, message: "companyId is required" });
+    }
+
+    // Hierarchy check
+    const allowedRoles = ROLE_ASSIGNABLE_ROLES[role] || [];
+    if (!allowedRoles.includes(targetRole)) {
+      return res.status(403).json({
+        success: false,
+        message: `${role} cannot revoke permissions from role '${targetRole}'`,
+      });
+    }
+
+    // Validate all permissionIds exist
+    const permsToRevoke = await Permission.findAll({
+      where: { id: { [Op.in]: permissionIds } },
+    });
+    if (permsToRevoke.length !== permissionIds.length) {
+      return res.status(400).json({ success: false, message: "One or more invalid permissionIds" });
+    }
+
+    // Resolve company → get all users of targetRole in this company
+    const company = await (Company as any).findByPk(effectiveCompanyId, { attributes: ["id", "adminId"] });
+    if (!company) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
+
+    const allChildIds = await getAllChildIds(company.adminId);
+
+    const roleUsers = await (User as any).findAll({
+      where: { id: { [Op.in]: allChildIds }, role: targetRole, status: "active" },
+      attributes: ["id"],
+    });
+
+    const userIds: number[] = roleUsers.map((u: any) => u.id);
+
+    if (userIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: `No active users with role '${targetRole}' found`,
+        data: { revoked: 0, usersAffected: 0 },
+      });
+    }
+
+    // Bulk delete matching rows
+    const totalRevoked = await UserPermission.destroy({
+      where: {
+        userId: { [Op.in]: userIds },
+        permissionId: { [Op.in]: permissionIds },
+        companyId: effectiveCompanyId,
+      },
+    });
+
+    for (const uid of userIds) {
+      invalidatePermissionCache(uid, effectiveCompanyId);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Revoked ${totalRevoked} permission record(s) from ${userIds.length} ${targetRole}(s)`,
+      data: { revoked: totalRevoked, usersAffected: userIds.length },
+    });
+  } catch (err) {
+    console.error("revokePermissionsFromRole error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

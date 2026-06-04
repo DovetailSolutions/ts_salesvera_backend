@@ -5,9 +5,9 @@ interface AuthenticatedRequest extends Request {
   userData?: string | JwtPayload;
 }
 
-export const ADMIN_ONLY = ["admin", "super_admin"] as const;
-export const ADMIN_AND_MANAGER = ["admin", "super_admin", "manager"] as const;
-export const ALL_STAFF = ["admin", "super_admin", "manager", "sale_person"] as const;
+export const ADMIN_ONLY = ["admin", "super_admin", "user"] as const;
+export const ADMIN_AND_MANAGER = ["admin", "super_admin", "manager", "user"] as const;
+export const ALL_STAFF = ["admin", "super_admin", "manager", "sale_person", "user"] as const;
 
 /**
  * Middleware factory that restricts a route to users whose role is in allowedRoles.

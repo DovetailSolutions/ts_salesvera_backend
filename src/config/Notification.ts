@@ -23,7 +23,7 @@ export interface NotifyPayload {
   data?: Record<string, string>; // optional
 }
 
-export const sendPushNotification = async ({
+export const  sendPushNotification = async ({
   token,
   title,
   body,

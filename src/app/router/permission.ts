@@ -27,8 +27,9 @@ router.get("/user/:userId", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), Pe
 
 // ── Assign / revoke permissions — admin, manager, and super_admin ─────────
 // Manager can assign/revoke for sale_person (enforced in controller via ASSIGNABLE_ROLES)
-router.post("/assign",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.assignPermissions);
-router.delete("/revoke",   tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.revokePermissions);
-router.post("/assign-role",tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.assignPermissionsToRole);
+router.post("/assign",       tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.assignPermissions);
+router.delete("/revoke",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.revokePermissions);
+router.post("/assign-role",  tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.assignPermissionsToRole);
+router.delete("/revoke-role",tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.revokePermissionsFromRole);
 
 export default router;
