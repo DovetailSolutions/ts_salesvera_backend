@@ -220,6 +220,9 @@ Quotations.belongsTo(User, { foreignKey: "userId" });
 User.hasOne(Company, { foreignKey: "adminId", as: "company" });
 Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
 
+User.hasOne(Company, { foreignKey: "managerId", as: "managedCompany" });
+Company.belongsTo(User, { foreignKey: "managerId", as: "manager" });
+
 Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
 Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 

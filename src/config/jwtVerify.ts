@@ -59,6 +59,7 @@ export const tokenCheck = async (
         id,
         status: "active",
         [Op.or]: [
+          { role: "user" },
           { role: "admin" },
           { role: "super_admin" },
           { role: "manager" },

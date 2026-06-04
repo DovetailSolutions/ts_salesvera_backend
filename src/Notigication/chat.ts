@@ -138,14 +138,15 @@ export const initChatSocket = (io: Server) => {
 
       const { userId, role, companyId } = decoded;
 
-      // super_admin bypasses all permission checks
-      if (role === "super_admin") return next();
+      // These roles always have chat access — no permission check needed
+      const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
+      if (rolesWithChatAccess.includes(role)) return next();
 
       if (!companyId) {
         return next(new Error("Forbidden — no company context in token"));
       }
 
-      // Baseline check: user must have chat:read to connect at all
+      // All other roles must have chat:read permission explicitly assigned
       const perms = await getUserPermissionsFromCache(
         Number(userId),
         companyId,
@@ -153,7 +154,7 @@ export const initChatSocket = (io: Server) => {
       );
 
       if (!perms.has("chat:read")) {
-        return next(new Error("Forbidden — you do not have chat:read permission"));
+        return next(new Error("You do not have permission for chat"));
       }
 
       next();
@@ -246,7 +247,8 @@ export const initChatSocket = (io: Server) => {
         // FIX: sending a message requires chat:send permission in addition to the
         //      chat:read check already enforced at connection time.
         const { userId: tokenUserId, role: tokenRole, companyId: tokenCompanyId } = socket.data.user;
-        if (tokenRole !== "super_admin") {
+        const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
+        if (!rolesWithChatAccess.includes(tokenRole)) {
           const perms = await getUserPermissionsFromCache(
             Number(tokenUserId),
             tokenCompanyId,
@@ -254,7 +256,7 @@ export const initChatSocket = (io: Server) => {
           );
           if (!perms.has("chat:send")) {
             return socket.emit("errorMessage", {
-              error: "Forbidden — you do not have chat:send permission",
+              error: "You do not have permission for chat",
             });
           }
         }

@@ -166,6 +166,9 @@ router.get("/get-report-details", tokenCheck, checkPermission("report", "view"),
 router.post("/update-report",     tokenCheck, checkPermission("report", "export"), AdminController.updateReport);
 // router.delete("/delete-report/:id",tokenCheck,AdminController.deleteReport);
 
+
+router.patch("/assign-admin/:id", tokenCheck, AdminController.assignAdmin);
+
  
 
 

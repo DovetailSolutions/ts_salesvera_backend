@@ -2114,7 +2114,8 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
       referenceNumber: data.referenceNumber,
       quotation: data,
       isConsumed: false,
-
+      guid: data.guid || null,
+      alterid: data.alterid || null,
       status: "draft"
     });
 
@@ -2425,6 +2426,8 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
       return;
     }
     quotationData.status = status;
+    quotationData.guid = req.body.guid || null;
+    quotationData.alterid = req.body.alterid || null;
     await quotationData.save();
     createSuccess(res, "Quotation updated successfully");
   } catch (error) {
@@ -2792,6 +2795,8 @@ export const addInvoice = async (
       QuotationNumber,
       QuotationDate,
       date,
+      guid,
+      alterid,
       ...restData
     } = data;
 
@@ -2895,6 +2900,8 @@ export const addInvoice = async (
       invoiceDate: date ? new Date(date) : null,
       invoice: restData,
       items: data.items,
+      guid: guid || null,
+      alterid: alterid || null,
     };
 
     const invoiceData = await Invoices.create(invoicePayload, {
