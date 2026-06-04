@@ -539,6 +539,7 @@ export const GetAllUser = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+
     const { page = 1, limit = 10, search = "", role } = req.query;
 
     const pageNum = Number(page);
@@ -548,13 +549,28 @@ export const GetAllUser = async (
     const loggedInId = userData?.userId;
     const loggedInRole = userData?.role;
 
-    const where: any = {
-      id: { [Op.ne]: loggedInId },
-    };
+    // super_admin sees all users; everyone else sees only their descendants (children + grandchildren)
+    let idFilter: any;
+    if (loggedInRole === "super_admin") {
+      idFilter = { [Op.ne]: loggedInId };
+    } else {
+      const childIds = await getAllChildUserIds(loggedInId);
+      if (childIds.length === 0) {
+        createSuccess(res, "Users fetched successfully", {
+          page: pageNum,
+          limit: limitNum,
+          total: 0,
+          finalRows: [],
+        });
+        return;
+      }
+      idFilter = { [Op.in]: childIds };
+    }
+
+    const where: any = { id: idFilter };
 
     if (role) where.role = role;
 
-    // Search filter
     if (search) {
       where[Op.or] = [
         { firstName: { [Op.iLike]: `%${search}%` } },
@@ -563,27 +579,6 @@ export const GetAllUser = async (
         { phone: { [Op.iLike]: `%${search}%` } },
       ];
     }
-    type PlainUser = ReturnType<(typeof rows)[number]["get"]> & {
-      creator?: any;
-    };
-
-    // all roles except super_admin only see users they personally created
-    const creatorsInclude =
-      loggedInRole !== "super_admin"
-        ? {
-            model: User,
-            as: "creators",
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-            through: { attributes: [], where: { created_by_user_id: loggedInId } },
-            required: true,
-          }
-        : {
-            model: User,
-            as: "creators",
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-            through: { attributes: [] },
-            required: false,
-          };
 
     const { rows, count } = await User.findAndCountAll({
       attributes: [
@@ -601,7 +596,13 @@ export const GetAllUser = async (
       order: [["createdAt", "DESC"]],
       distinct: true,
       include: [
-        creatorsInclude,
+        {
+          model: User,
+          as: "creators",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          through: { attributes: [] },
+          required: false,
+        },
         {
           model: Company,
           as: "company",
