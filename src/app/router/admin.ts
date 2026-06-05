@@ -84,6 +84,7 @@ router.patch("/updatecompany/:id",  tokenCheck, authorizeRoles(...ADMIN_ONLY), A
 router.delete("/deletecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.deleteCompany);
 
 
+
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 router.post("/addbranch",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addBranch);
@@ -168,6 +169,7 @@ router.post("/update-report",     tokenCheck, checkPermission("report", "export"
 
 
 router.patch("/assign-admin/:id", tokenCheck, AdminController.assignAdmin);
+router.get("/getowncompany",  tokenCheck, AdminController.getOwnCompany);
 
  
 
