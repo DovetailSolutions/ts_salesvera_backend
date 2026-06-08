@@ -27,6 +27,7 @@ router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
 router.post("/bulk-upload",tokenCheck,csv.single("csv"),AdminController.BulkUploads)
+router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), csv.single("csv"), AdminController.BulkAddSalePerson)
 // FIX: attendance view routes require attendance:view permission.
 router.get("/get-attendance", tokenCheck, checkPermission("attendance", "view"), AdminController.getAttendance);
 // FIX: approve/reject requires leave:approve; listing all leave requests requires leave:view.
