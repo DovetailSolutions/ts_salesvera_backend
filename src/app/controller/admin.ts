@@ -1468,7 +1468,6 @@ export const BulkAddSalePerson = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-
     badRequest(res, errorMessage);
   }
 };

@@ -17,7 +17,7 @@ export interface UserPermissionAttributes {
   id: number;
   userId: number;
   permissionId: number;
-  companyId: number;
+  companyId?: number | null;
   grantedBy: number;
   createdAt?: Date;
   updatedAt?: Date;
@@ -33,7 +33,7 @@ export class UserPermission
   public userId!: number;
   public permissionId!: number;
   public companyId!: number;
-  public grantedBy!: number;
+  public grantedBy!: number ;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -58,12 +58,12 @@ export const UserPermissionModel = (sequelize: Sequelize) => {
       },
       companyId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
         comment: "Company scope — permission only valid within this company",
       },
       grantedBy: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
         comment: "FK to users.id — the person who assigned this permission",
       },
     },

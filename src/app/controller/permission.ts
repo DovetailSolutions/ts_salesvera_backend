@@ -223,8 +223,8 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
   try {
     const userData = req.userData as any;
     const { role, userId: callerId, companyId: callerCompanyId } = userData;
-
-    const { targetUserId, permissionIds, companyId: bodyCompanyId } = req.body;
+// companyId: bodyCompanyId
+    const { targetUserId, permissionIds } = req.body;
 
     if (!targetUserId || !permissionIds || !Array.isArray(permissionIds) || permissionIds.length === 0) {
       return res.status(400).json({
@@ -295,12 +295,12 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
             permissionId: permId,
             // companyId: effectiveCompanyId,
           },
-          // defaults: {
-          //   userId: Number(targetUserId),
-          //   permissionId: permId,
-          //   // companyId: effectiveCompanyId,
-          //   grantedBy: callerId,
-          // },
+          defaults: {
+            userId: Number(targetUserId),
+            permissionId: permId,
+            // companyId: effectiveCompanyId,
+            grantedBy: callerId,
+          },
         })
       )
     );
