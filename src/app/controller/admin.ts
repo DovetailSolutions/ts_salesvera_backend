@@ -3439,15 +3439,17 @@ export const addCompany = async (
   try {
     const userData = req.userData as JwtPayload;
 
+    console.log(">>>>>>>>>>>>>>>userData>",userData)
+
     if (!userData || !userData.userId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-
-    if (userData.role === "user") {
-      badRequest(res, "You are not authorized to add a company");
-      return;
-    }
+    // console.log(userData.role)
+   if (userData.role !== "user") {
+  badRequest(res, "You are not authorized to add a company");
+  return;
+}
 
     const {
       companyName,
