@@ -10,6 +10,7 @@ import ejs from "ejs";
 import fs from "fs";
 import path from "path";
 import jwt, { JwtPayload } from "jsonwebtoken";
+import crypto from "crypto";
 import { Request, Response } from "express-serve-static-core";
 import {
   createSuccess,
@@ -41,6 +42,7 @@ import {
   Report
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
+import { sendEmail } from "../../config/email";
 import { S3 } from "@aws-sdk/client-s3";
 
 const UNIQUE_ROLES = ["super_admin"];
@@ -51,6 +53,10 @@ const getPagination = (req: Request) => {
   const offset = (page - 1) * limit;
 
   return { page, limit, offset };
+};
+
+const generateTempPassword = (): string => {
+  return crypto.randomBytes(6).toString("base64").replace(/[+/=]/g, "x");
 };
 
 const findUser = async (userId: number) => {
@@ -136,6 +142,18 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       String(item.getDataValue("role"))
     );
     await item.update({ refreshToken });
+
+    // Email login credentials in the background (no await — don't block registration)
+    sendEmail(
+      "Welcome to SalesVera - Your Login Credentials",
+      password,
+      email,
+      firstName,
+      lastName
+    ).catch((err) =>
+      console.error(`Failed to send credentials email to ${email}:`, err)
+    );
+
     createSuccess(res, `${role} registered successfully`, {
       item,
       accessToken,
@@ -1024,6 +1042,436 @@ interface MulterS3File extends Express.Multer.File {
   location?: string;
   etag?: string;
 }
+
+/**
+ * Bulk-add sale persons from a CSV file (columns: firstName, lastName, email, phone, dob).
+ * Accessible to user/admin/manager — created sale persons are assigned to the
+ * logged-in user as their creator/manager, same as the single Register flow.
+ */
+// export const BulkAddSalePerson = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const loginUser = userData?.userId;
+//     if (!loginUser) {
+//       badRequest(res, "Unauthorized");
+//       return;
+//     }
+
+//     if (!req.file) {
+//       badRequest(res, "CSV file is required");
+//       return;
+//     }
+//     const csvFile = req.file as MulterS3File;
+
+//     const s3 = new S3Client({
+//       region: process.env.AWS_REGION,
+//       credentials: {
+//         accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+//         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+//       },
+//     });
+
+//     const data = await s3.send(
+//       new GetObjectCommand({ Bucket: csvFile.bucket, Key: csvFile.key })
+//     );
+//     if (!data.Body) {
+//       badRequest(res, "Unable to read CSV from S3");
+//       return;
+//     }
+
+//     const stream = data.Body as Readable;
+//     const rows: any[] = [];
+//     stream
+//       .pipe(csv({ mapHeaders: ({ header }) => header.trim().toLowerCase() }))
+//       .on("data", (row) => {
+//         rows.push({
+//           firstName: row.firstname?.trim() || "",
+//           lastName: row.lastname?.trim() || "",
+//           email: row.email?.trim().toLowerCase() || "",
+//           phone: row.phone?.trim() || "",
+//           dob: row.dob?.trim() || "",
+//         });
+//       })
+//       .on("end", async () => {
+//         try {
+//           const invalidRows: any[] = [];
+//           const duplicateInCsv: any[] = [];
+//           const validRows: any[] = [];
+//           const seenEmails = new Set<string>();
+
+//           for (const r of rows) {
+//             if (!r.firstName || !r.lastName || !r.email || !r.phone || !r.dob) {
+//               invalidRows.push(r);
+//               continue;
+//             }
+//             if (seenEmails.has(r.email)) {
+//               duplicateInCsv.push(r);
+//               continue;
+//             }
+//             seenEmails.add(r.email);
+//             validRows.push(r);
+//           }
+
+//           // Look up existing users by email along with whether they are already
+//           // linked to this same manager/admin (i.e. same company) as a sale_person.
+//           const existingByEmail = new Map<string, any>();
+//           if (validRows.length > 0) {
+//             const existingUsers = await User.findAll({
+//               where: { email: { [Op.in]: validRows.map((r) => r.email) } },
+//               attributes: ["id", "email", "role"],
+//               include: [
+//                 {
+//                   model: User,
+//                   as: "creators",
+//                   attributes: ["id"],
+//                   where: { id: loginUser },
+//                   required: false,
+//                   through: { attributes: [] },
+//                 },
+//               ],
+//             });
+//             for (const u of existingUsers as any[]) {
+//               existingByEmail.set(u.getDataValue("email"), u);
+//             }
+//           }
+
+//           const created: any[] = [];
+//           const linkedExisting: any[] = [];
+//           const skippedDuplicate: any[] = [];
+//           const skippedRoleMismatch: any[] = [];
+
+//           for (const r of validRows) {
+//             const existing = existingByEmail.get(r.email);
+
+//             if (existing) {
+//               // Same email, but different role — can't (re)assign as a sale person.
+//               if (existing.getDataValue("role") !== "sale_person") {
+//                 skippedRoleMismatch.push(r);
+//                 continue;
+//               }
+
+//               const alreadyLinked = ((existing as any).creators || []).length > 0;
+//               if (alreadyLinked) {
+//                 // Same sale person already assigned to the same company & role.
+//                 skippedDuplicate.push(r);
+//                 continue;
+//               }
+
+//               // Existing sale person from elsewhere — link to this company without
+//               // creating a duplicate user record.
+//               await (existing as any).addCreators([loginUser]);
+//               linkedExisting.push({
+//                 id: existing.getDataValue("id"),
+//                 firstName: r.firstName,
+//                 lastName: r.lastName,
+//                 email: r.email,
+//                 phone: r.phone,
+//               });
+//               continue;
+//             }
+
+//             const tempPassword = generateTempPassword();
+//             const item = await User.create({
+//               firstName: r.firstName,
+//               lastName: r.lastName,
+//               email: r.email,
+//               phone: r.phone,
+//               dob: r.dob,
+//               password: tempPassword,
+//               role: "sale_person",
+//             });
+
+//             await (item as any).setCreators([loginUser]);
+
+//             // Email login credentials in the background (no await — don't block the bulk upload)
+//             sendEmail(
+//               "Welcome to SalesVera - Your Login Credentials",
+//               tempPassword,
+//               r.email,
+//               r.firstName,
+//               r.lastName
+//             ).catch((err) =>
+//               console.error(`Failed to send credentials email to ${r.email}:`, err)
+//             );
+
+//             created.push({
+//               id: item.getDataValue("id"),
+//               firstName: r.firstName,
+//               lastName: r.lastName,
+//               email: r.email,
+//               phone: r.phone,
+//               tempPassword,
+//             });
+//           }
+
+//           createSuccess(res, "Bulk sale person upload completed", {
+//             totalCSV: rows.length,
+//             created: created.length,
+//             linkedExisting: linkedExisting.length,
+//             skippedInvalid: invalidRows.length,
+//             skippedDuplicateInCsv: duplicateInCsv.length,
+//             skippedDuplicate: skippedDuplicate.length,
+//             skippedRoleMismatch: skippedRoleMismatch.length,
+//             createdSalePersons: created,
+//             linkedSalePersons: linkedExisting,
+//           });
+//         } catch (err) {
+//           badRequest(
+//             res,
+//             err instanceof Error ? err.message : "Bulk sale person upload failed",
+//             err
+//           );
+//         }
+//       });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
+
+
+export const BulkAddSalePerson = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    const loginUser = userData?.userId;
+    const loginRole = userData?.role;
+   console.log(">>>>>>>>>>>>>>",userData)
+    if (!loginUser) {
+      badRequest(res, "Unauthorized");
+      return;
+    }
+
+    const { createdBy } = req.body;
+
+    let creatorId: number;
+
+    if (loginRole === "manager") {
+      creatorId = Number(loginUser);
+    } else {
+      if (!createdBy) {
+        badRequest(res, "createdBy is required");
+        return;
+      }
+
+      creatorId = Number(createdBy);
+
+      if (isNaN(creatorId)) {
+        badRequest(res, "Invalid createdBy");
+        return;
+      }
+    }
+
+    if (!req.file) {
+      badRequest(res, "CSV file is required");
+      return;
+    }
+
+    const csvFile = req.file as MulterS3File;
+
+    const s3 = new S3Client({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    });
+
+    const data = await s3.send(
+      new GetObjectCommand({
+        Bucket: csvFile.bucket,
+        Key: csvFile.key,
+      })
+    );
+
+    if (!data.Body) {
+      badRequest(res, "Unable to read CSV from S3");
+      return;
+    }
+
+    const stream = data.Body as Readable;
+    const rows: any[] = [];
+
+    stream
+      .pipe(
+        csv({
+          mapHeaders: ({ header }) => header.trim().toLowerCase(),
+        })
+      )
+      .on("data", (row) => {
+        rows.push({
+          firstName: row.firstname?.trim() || "",
+          lastName: row.lastname?.trim() || "",
+          email: row.email?.trim().toLowerCase() || "",
+          phone: row.phone?.trim() || "",
+          dob: row.dob?.trim() || "",
+        });
+      })
+      .on("end", async () => {
+        try {
+          const invalidRows: any[] = [];
+          const duplicateInCsv: any[] = [];
+          const validRows: any[] = [];
+          const seenEmails = new Set<string>();
+
+          for (const r of rows) {
+            if (
+              !r.firstName ||
+              !r.lastName ||
+              !r.email ||
+              !r.phone ||
+              !r.dob
+            ) {
+              invalidRows.push(r);
+              continue;
+            }
+
+            if (seenEmails.has(r.email)) {
+              duplicateInCsv.push(r);
+              continue;
+            }
+
+            seenEmails.add(r.email);
+            validRows.push(r);
+          }
+
+          const existingByEmail = new Map<string, any>();
+
+          if (validRows.length > 0) {
+            const existingUsers = await User.findAll({
+              where: {
+                email: {
+                  [Op.in]: validRows.map((r) => r.email),
+                },
+              },
+              attributes: ["id", "email", "role"],
+              include: [
+                {
+                  model: User,
+                  as: "creators",
+                  attributes: ["id"],
+                  where: { id: creatorId },
+                  required: false,
+                  through: { attributes: [] },
+                },
+              ],
+            });
+
+            for (const user of existingUsers as any[]) {
+              existingByEmail.set(
+                user.getDataValue("email"),
+                user
+              );
+            }
+          }
+
+          const created: any[] = [];
+          const linkedExisting: any[] = [];
+          const skippedDuplicate: any[] = [];
+          const skippedRoleMismatch: any[] = [];
+
+          for (const r of validRows) {
+            const existing = existingByEmail.get(r.email);
+
+            if (existing) {
+              if (existing.getDataValue("role") !== "sale_person") {
+                skippedRoleMismatch.push(r);
+                continue;
+              }
+
+              const alreadyLinked =
+                ((existing as any).creators || []).length > 0;
+
+              if (alreadyLinked) {
+                skippedDuplicate.push(r);
+                continue;
+              }
+
+              await (existing as any).addCreators([creatorId]);
+
+              linkedExisting.push({
+                id: existing.getDataValue("id"),
+                firstName: r.firstName,
+                lastName: r.lastName,
+                email: r.email,
+                phone: r.phone,
+              });
+
+              continue;
+            }
+
+            const tempPassword = generateTempPassword();
+
+            const item = await User.create({
+              firstName: r.firstName,
+              lastName: r.lastName,
+              email: r.email,
+              phone: r.phone,
+              dob: r.dob,
+              password: tempPassword,
+              role: req.body.role,
+            });
+
+            await (item as any).setCreators([creatorId]);
+
+            sendEmail(
+              "Welcome to SalesVera - Your Login Credentials",
+              tempPassword,
+              r.email,
+              r.firstName,
+              r.lastName
+            ).catch((err) =>
+              console.error(
+                `Failed to send credentials email to ${r.email}:`,
+                err
+              )
+            );
+
+            created.push({
+              id: item.getDataValue("id"),
+              firstName: r.firstName,
+              lastName: r.lastName,
+              email: r.email,
+              phone: r.phone,
+              tempPassword,
+            });
+          }
+
+          createSuccess(res, "Bulk sale person upload completed", {
+            totalCSV: rows.length,
+            created: created.length,
+            linkedExisting: linkedExisting.length,
+            skippedInvalid: invalidRows.length,
+            skippedDuplicateInCsv: duplicateInCsv.length,
+            skippedDuplicate: skippedDuplicate.length,
+            skippedRoleMismatch: skippedRoleMismatch.length,
+            createdSalePersons: created,
+            linkedSalePersons: linkedExisting,
+          });
+        } catch (err) {
+          badRequest(
+            res,
+            err instanceof Error
+              ? err.message
+              : "Bulk sale person upload failed",
+            err
+          );
+        }
+      });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+
+    badRequest(res, errorMessage);
+  }
+};
 
 export const BulkUploads = async (
   req: Request,
@@ -3330,49 +3778,58 @@ export const getOwnCompany = async (req: Request, res: Response) => {
       return badRequest(res, "Unauthorized request");
     }
 
-    const companies = await Company.findAll({
-      where: { userId: userData.userId },
-    });
+ const companies = await Company.findAll({
+  where: {
+    userId: userData.userId,
+  },
+  include: [
+    { model: Branch, as: "branches" },
+    { model: Shift, as: "shifts" },
+    { model: Department, as: "departments" },
+    { model: CompanyLeave, as: "companyLeaves" },
+    { model: CompanyBank, as: "companyBanks" },
+  ],
+});
 
     if (!companies || companies.length === 0) {
       return badRequest(res, "No company found for this user");
     }
 
-    const companyIds = companies.map((c: any) => c.id);
+    // const companyIds = companies.map((c: any) => c.id);
 
-    const [branches, holidays, departments, shifts, banks, leaveTypes] = await Promise.all([
-      Branch.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-      Holiday.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-      Department.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-      Shift.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-      CompanyBank.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-      CompanyLeave.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-    ]);
+    // const [branches, holidays, departments, shifts, banks, leaveTypes] = await Promise.all([
+    //   Branch.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+    //   Holiday.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+    //   Department.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+    //   Shift.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+    //   CompanyBank.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+    //   CompanyLeave.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+    // ]);
 
-    const result = companies.map((company: any) => {
-      const cId = company.id;
-      const companyBranches = branches.filter((b: any) => b.companyId === cId);
+    // const result = companies.map((company: any) => {
+    //   const cId = company.id;
+    //   const companyBranches = branches.filter((b: any) => b.companyId === cId);
 
-      const enrichedBranches = companyBranches.map((branch: any) => ({
-        ...branch.toJSON(),
-        holidays: holidays.filter((h: any) => h.branchId === branch.id).map((h: any) => h.toJSON()),
-        departments: departments.filter((d: any) => d.branchId === branch.id).map((d: any) => d.toJSON()),
-        shifts: shifts.filter((s: any) => s.branchId === branch.id).map((s: any) => s.toJSON()),
-        banks: banks.filter((b: any) => b.branchId === branch.id).map((b: any) => b.toJSON()),
-        leaveTypes: leaveTypes.filter((l: any) => l.branchId === branch.id).map((l: any) => l.toJSON()),
-      }));
+    //   const enrichedBranches = companyBranches.map((branch: any) => ({
+    //     ...branch.toJSON(),
+    //     holidays: holidays.filter((h: any) => h.branchId === branch.id).map((h: any) => h.toJSON()),
+    //     departments: departments.filter((d: any) => d.branchId === branch.id).map((d: any) => d.toJSON()),
+    //     shifts: shifts.filter((s: any) => s.branchId === branch.id).map((s: any) => s.toJSON()),
+    //     banks: banks.filter((b: any) => b.branchId === branch.id).map((b: any) => b.toJSON()),
+    //     leaveTypes: leaveTypes.filter((l: any) => l.branchId === branch.id).map((l: any) => l.toJSON()),
+    //   }));
 
-      return {
-        ...company.toJSON(),
-        branches: enrichedBranches,
-        holidays: holidays.filter((h: any) => h.companyId === cId && !h.branchId).map((h: any) => h.toJSON()),
-        departments: departments.filter((d: any) => d.companyId === cId && !d.branchId).map((d: any) => d.toJSON()),
-        shifts: shifts.filter((s: any) => s.companyId === cId && !s.branchId).map((s: any) => s.toJSON()),
-        banks: banks.filter((b: any) => b.companyId === cId && !b.branchId).map((b: any) => b.toJSON()),
-      };
-    });
+    //   return {
+    //     ...company.toJSON(),
+    //     branches: enrichedBranches,
+    //     holidays: holidays.filter((h: any) => h.companyId === cId && !h.branchId).map((h: any) => h.toJSON()),
+    //     departments: departments.filter((d: any) => d.companyId === cId && !d.branchId).map((d: any) => d.toJSON()),
+    //     shifts: shifts.filter((s: any) => s.companyId === cId && !s.branchId).map((s: any) => s.toJSON()),
+    //     banks: banks.filter((b: any) => b.companyId === cId && !b.branchId).map((b: any) => b.toJSON()),
+    //   };
+    // });
 
-    createSuccess(res, "Company fetched successfully", result);
+    createSuccess(res, "Company fetched successfully", companies);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

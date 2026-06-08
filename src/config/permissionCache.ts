@@ -52,8 +52,10 @@ export async function getUserPermissionsFromCache(
  * Invalidates the cache for a specific user+company.
  * Call this after any permission update/delete.
  */
-export function invalidatePermissionCache(userId: number, companyId: number): void {
-  const key = `${userId}:${companyId}`;
+//  companyId: number
+// :${companyId}
+export function invalidatePermissionCache(userId: number): void {
+  const key = `${userId}`;
   cache.delete(key);
 }
 

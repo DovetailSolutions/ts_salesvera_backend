@@ -95,14 +95,14 @@ const ROLE_ASSIGNABLE_ROLES: Record<string, string[]> = {
 // ─── Helper: get own permission set ────────────────────────────────────────
 const getOwnPermissions = async (
   userId: number,
-  companyId: number | null,
+  // companyId: number | null,
   role: string
 ): Promise<Set<string> | null> => {
   // super_admin has all permissions — return null to signal "no check needed"
   if (role === "super_admin") return null;
 
   const whereClause: any = { userId };
-  if (companyId) whereClause.companyId = companyId;
+  // if (companyId) whereClause.companyId = companyId;
 
   const records = await UserPermission.findAll({
     where: whereClause,
@@ -115,7 +115,7 @@ const getOwnPermissions = async (
 // ─── Helper: find target user and validate they belong to same company ──────
 const findTargetUser = async (
   targetUserId: number,
-  companyId: number
+  // companyId: number
 ): Promise<{ id: number; role: string } | null> => {
   // We need the user's companyId — stored in user_permissions or via Company table.
   // Simple approach: check user_permissions for companyId OR join Company.
@@ -234,15 +234,15 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
     }
 
     // super_admin and user manage multiple companies — they pass companyId in body; others use JWT companyId
-    const effectiveCompanyId: number =
-      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
+    // const effectiveCompanyId: number =
+    //   (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
 
-    if (!effectiveCompanyId) {
-      return res.status(400).json({ success: false, message: "companyId is required" });
-    }
+    // if (!effectiveCompanyId) {
+    //   return res.status(400).json({ success: false, message: "companyId is required" });
+    // }
 
     // ── Validate target user exists ─────────────────────────────────
-    const targetUser = await findTargetUser(Number(targetUserId), effectiveCompanyId);
+    const targetUser = await findTargetUser(Number(targetUserId));
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "Target user not found or inactive" });
     }
@@ -258,9 +258,9 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
 
     // ── Anti-escalation: caller must own each permission they're granting ──
     // user provides companyId in body, so use effectiveCompanyId for their permission lookup
-    const ownPermsCompanyId = role === "user" ? effectiveCompanyId : callerCompanyId;
-    const ownPerms = await getOwnPermissions(callerId, ownPermsCompanyId, role);
-
+    // const ownPermsCompanyId = role === "user" ? effectiveCompanyId : callerCompanyId;
+    const ownPerms = await getOwnPermissions(callerId, role); 
+// ownPermsCompanyId
     // ── Validate all permissionIds exist ────────────────────────────
     const permsToAssign = await Permission.findAll({
       where: { id: { [Op.in]: permissionIds } },
@@ -293,14 +293,14 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
           where: {
             userId: Number(targetUserId),
             permissionId: permId,
-            companyId: effectiveCompanyId,
+            // companyId: effectiveCompanyId,
           },
-          defaults: {
-            userId: Number(targetUserId),
-            permissionId: permId,
-            companyId: effectiveCompanyId,
-            grantedBy: callerId,
-          },
+          // defaults: {
+          //   userId: Number(targetUserId),
+          //   permissionId: permId,
+          //   // companyId: effectiveCompanyId,
+          //   grantedBy: callerId,
+          // },
         })
       )
     );
@@ -309,8 +309,8 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
     const skipped = results.length - created;
 
     // Invalidate cache for the target user
-    invalidatePermissionCache(Number(targetUserId), effectiveCompanyId);
-
+    invalidatePermissionCache(Number(targetUserId));
+// effectiveCompanyId
     return res.status(200).json({
       success: true,
       message: `Permissions assigned: ${created} new, ${skipped} already existed`,
@@ -350,7 +350,8 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
     }
 
     // Validate target user
-    const targetUser = await findTargetUser(Number(targetUserId), effectiveCompanyId);
+    // effectiveCompanyId
+    const targetUser = await findTargetUser(Number(targetUserId));
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "Target user not found" });
     }
@@ -371,8 +372,8 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
         permissionId: { [Op.in]: permissionIds },
       },
     });
-
-    invalidatePermissionCache(Number(targetUserId), effectiveCompanyId);
+// effectiveCompanyId
+    invalidatePermissionCache(Number(targetUserId));
 
     // Cascade: revoke the same permissions from all subordinates of the target user
     const onlySubordinates = await getSubordinateIdsDown(Number(targetUserId));
@@ -387,8 +388,9 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
         },
       });
 
+      // effectiveCompanyId
       for (const subId of onlySubordinates) {
-        invalidatePermissionCache(subId, effectiveCompanyId);
+        invalidatePermissionCache(subId,);
       }
     }
 
@@ -438,7 +440,8 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
     }
 
     // Anti-escalation check
-    const ownPerms = await getOwnPermissions(callerId, callerCompanyId, role);
+    const ownPerms = await getOwnPermissions(callerId, role);
+    // callerCompanyId
     const permsToAssign = await Permission.findAll({
       where: { id: { [Op.in]: permissionIds } },
     });
@@ -492,7 +495,8 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
         });
         if (wasCreated) totalAssigned++;
       }
-      invalidatePermissionCache(uid, effectiveCompanyId);
+      // effectiveCompanyId
+      invalidatePermissionCache(uid, );
     }
 
     return res.status(200).json({
@@ -706,7 +710,8 @@ export const revokePermissionsFromRole = async (req: AuthRequest, res: Response)
     });
 
     for (const uid of userIds) {
-      invalidatePermissionCache(uid, effectiveCompanyId);
+      // effectiveCompanyId
+      invalidatePermissionCache(uid);
     }
 
     return res.status(200).json({
