@@ -627,7 +627,8 @@ export const GetAllUser = async (
     let idFilter: any;
     if (loggedInRole === "super_admin") {
       idFilter = { [Op.ne]: loggedInId };
-    } else {
+    } 
+    else {
       const childIds = await getAllChildUserIds(loggedInId);
       if (childIds.length === 0) {
         createSuccess(res, "Users fetched successfully", {
@@ -1939,7 +1940,7 @@ type UserWithChildren = any & {
 
 async function getAllChildUserIds(userId: number): Promise<number[]> {
   const result = new Set<number>();
-
+console.log(">>>>>>>>>>>>>>>>>>>>>>>>first")
   async function fetchLevel(id: number) {
     const user = (await User.findByPk(id, {
       include: [
@@ -1951,7 +1952,7 @@ async function getAllChildUserIds(userId: number): Promise<number[]> {
         },
       ],
     })) as UserWithChildren;
-
+    console.log("second",user)
     if (!user?.createdUsers) return;
 
     for (const child of user.createdUsers) {
@@ -3855,31 +3856,22 @@ export const getOwnCompany = async (req: Request, res: Response) => {
   try {
     const userData = req.userData as JwtPayload;
 
-    console.log(">>>>>>>>>>>>",userData)
-
     if (!userData || !userData.userId) {
       return badRequest(res, "Unauthorized request");
     }
 
- const { userId, role } = userData as any;
-
-    const whereClause: any =
-      role === "admin"
-        ? { adminId: userId }
-        : role === "manager"
-        ? { managerId: userId }
-        : { userId };
-
-    const companies = await Company.findAll({
-      where: whereClause,
-      include: [
-        { model: Branch, as: "branches" },
-        { model: Shift, as: "shifts" },
-        { model: Department, as: "departments" },
-        { model: CompanyLeave, as: "companyLeaves" },
-        { model: CompanyBank, as: "companyBanks" },
-      ],
-    });
+ const companies = await Company.findAll({
+  where: {
+    userId: userData.userId,
+  },
+  include: [
+    { model: Branch, as: "branches" },
+    { model: Shift, as: "shifts" },
+    { model: Department, as: "departments" },
+    { model: CompanyLeave, as: "companyLeaves" },
+    { model: CompanyBank, as: "companyBanks" },
+  ],
+});
 
     if (!companies || companies.length === 0) {
       return badRequest(res, "No company found for this user");
