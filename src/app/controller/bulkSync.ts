@@ -201,8 +201,6 @@ export const bulkQuotations = async (
 };
 
 // ─── POST /admin/bulk/clients ─────────────────────────────────────────────────
-// Clients are masters (no date range). Dedup on mobile or email since MeetingUser
-// does not have a guid column yet — add one if you want full GUID-based upsert.
 
 export const bulkClients = async (
   req: Request,
@@ -230,16 +228,24 @@ export const bulkClients = async (
       }
 
       try {
-        const duplicateChecks: any[] = [];
-        if (mobile) duplicateChecks.push({ mobile });
-        if (email) duplicateChecks.push({ email });
-
-        const existing = duplicateChecks.length
-          ? await MeetingUser.findOne({ where: { [Op.or]: duplicateChecks } })
+        // 1. GUID-first lookup
+        let existing = tallyGuid
+          ? await MeetingUser.findOne({ where: { tallyGuid } })
           : null;
+
+        // 2. Fallback to mobile / email
+        if (!existing) {
+          const duplicateChecks: any[] = [];
+          if (mobile) duplicateChecks.push({ mobile });
+          if (email) duplicateChecks.push({ email });
+          if (duplicateChecks.length) {
+            existing = await MeetingUser.findOne({ where: { [Op.or]: duplicateChecks } });
+          }
+        }
 
         if (existing) {
           await existing.update({
+            tallyGuid: tallyGuid || (existing as any).tallyGuid,
             name: record.name ?? existing.name,
             companyName: record.companyName ?? existing.companyName,
             state: record.state ?? existing.state,
@@ -248,10 +254,12 @@ export const bulkClients = async (
             address: record.address ?? existing.address,
             gstNumber: record.gstNumber ?? existing.gstNumber,
             panNumber: record.panNumber ?? existing.panNumber,
+            status: "imported",
           });
           results.push({ tallyGuid, status: "updated", id: (existing as any).id });
         } else {
           const created = await MeetingUser.create({
+            tallyGuid: tallyGuid || null,
             name: record.name || "",
             email: email || null,
             mobile: mobile || null,
@@ -264,7 +272,7 @@ export const bulkClients = async (
             gstNumber: record.gstNumber || null,
             panNumber: record.panNumber || null,
             userId: Number(userId),
-            status: "draft",
+            status: "imported",
           });
           results.push({ tallyGuid, status: "created", id: (created as any).id });
         }
@@ -291,7 +299,6 @@ export const bulkClients = async (
 };
 
 // ─── POST /admin/bulk/stock-items ─────────────────────────────────────────────
-// Stock items map to SubCategory (products). Dedup on sub_category_name + CategoryId.
 
 export const bulkStockItems = async (
   req: Request,
@@ -319,13 +326,21 @@ export const bulkStockItems = async (
       }
 
       try {
-        const where: any = { sub_category_name: name, adminId: Number(userId) };
-        if (categoryId) where.CategoryId = categoryId;
+        // 1. GUID-first lookup
+        let existing = tallyGuid
+          ? await SubCategory.findOne({ where: { tallyGuid, adminId: Number(userId) } })
+          : null;
 
-        const existing = await SubCategory.findOne({ where });
+        // 2. Fallback to name + CategoryId
+        if (!existing) {
+          const where: any = { sub_category_name: name, adminId: Number(userId) };
+          if (categoryId) where.CategoryId = categoryId;
+          existing = await SubCategory.findOne({ where });
+        }
 
         if (existing) {
           await existing.update({
+            tallyGuid: tallyGuid || existing.tallyGuid,
             amount: record.amount ?? record.rate ?? existing.amount,
             text: record.tax ?? record.gst ?? existing.text,
             unit: record.unit ?? existing.unit,
@@ -335,6 +350,7 @@ export const bulkStockItems = async (
           results.push({ tallyGuid, status: "updated", id: (existing as any).id });
         } else {
           const created = await SubCategory.create({
+            tallyGuid: tallyGuid || undefined,
             sub_category_name: name,
             CategoryId: categoryId || null,
             adminId: Number(userId),
