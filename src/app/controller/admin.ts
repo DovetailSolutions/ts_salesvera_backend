@@ -3855,22 +3855,31 @@ export const getOwnCompany = async (req: Request, res: Response) => {
   try {
     const userData = req.userData as JwtPayload;
 
+    console.log(">>>>>>>>>>>>",userData)
+
     if (!userData || !userData.userId) {
       return badRequest(res, "Unauthorized request");
     }
 
- const companies = await Company.findAll({
-  where: {
-    userId: userData.userId,
-  },
-  include: [
-    { model: Branch, as: "branches" },
-    { model: Shift, as: "shifts" },
-    { model: Department, as: "departments" },
-    { model: CompanyLeave, as: "companyLeaves" },
-    { model: CompanyBank, as: "companyBanks" },
-  ],
-});
+ const { userId, role } = userData as any;
+
+    const whereClause: any =
+      role === "admin"
+        ? { adminId: userId }
+        : role === "manager"
+        ? { managerId: userId }
+        : { userId };
+
+    const companies = await Company.findAll({
+      where: whereClause,
+      include: [
+        { model: Branch, as: "branches" },
+        { model: Shift, as: "shifts" },
+        { model: Department, as: "departments" },
+        { model: CompanyLeave, as: "companyLeaves" },
+        { model: CompanyBank, as: "companyBanks" },
+      ],
+    });
 
     if (!companies || companies.length === 0) {
       return badRequest(res, "No company found for this user");
