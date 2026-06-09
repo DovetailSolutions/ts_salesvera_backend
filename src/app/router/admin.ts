@@ -18,8 +18,6 @@ router.patch("/updateProfile", tokenCheck, profile.single("profile"), AdminContr
 router.patch("/updatepassword", tokenCheck, AdminController.UpdatePassword);
 router.get("/mysaleperson", tokenCheck, AdminController.MySalePerson);
 router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
-router.get("/getalluser", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.GetAllUser)
-router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", tokenCheck, AdminController.getcategory);
 router.get("/getcategory-with-subcategories", tokenCheck, AdminController.getCategoryWithSubCategories);

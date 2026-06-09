@@ -11,6 +11,7 @@ import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
 import taskRouter from "./app/router/task";
+import bulkSyncRouter from "./app/router/bulkSync";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -46,6 +47,7 @@ app.use("/admin", adminRouter);
 app.use("/api", UserRouter);
 app.use("/admin/permissions", permissionRouter);
 app.use("/admin/task", taskRouter);
+app.use("/admin/bulk", bulkSyncRouter);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
   swaggerOptions: {
