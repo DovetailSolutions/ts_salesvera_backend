@@ -44,6 +44,7 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { sendEmail } from "../../config/email";
 import { S3 } from "@aws-sdk/client-s3";
+import { invalidatePermissionCache } from "../../config/permissionCache";
 
 const UNIQUE_ROLES = ["super_admin"];
 
@@ -77,6 +78,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       dob,
       role,
       createdBy,
+      permissionIds,
     } = req.body;
     /** ✅ Required field validation */
     const requiredFields: Record<string, any> = {
@@ -133,6 +135,60 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       if (ids.length > 0) {
         // ✅ Connect relations
         await (item as any).setCreators(ids);
+      }
+
+      // When a new admin is created by a user, inherit that user's permissions
+      if (role === "admin" && ids.length > 0) {
+        const newAdminId = item.getDataValue("id") as number;
+        for (const creatorId of ids) {
+          const creator = await User.findOne({
+            where: { id: creatorId, role: "user" },
+            attributes: ["id"],
+          });
+          if (!creator) continue;
+
+          const creatorPerms = await UserPermission.findAll({
+            where: { userId: creatorId },
+            attributes: ["permissionId"],
+          });
+
+          if (creatorPerms.length > 0) {
+            await Promise.all(
+              creatorPerms.map((p: any) =>
+                UserPermission.findOrCreate({
+                  where: { userId: newAdminId, permissionId: p.permissionId, companyId: null },
+                  defaults: { userId: newAdminId, permissionId: p.permissionId, companyId: null, grantedBy: creatorId },
+                })
+              )
+            );
+          }
+        }
+      }
+    }
+
+    // When super_admin creates a user (role="user"), assign permissions immediately if provided
+    if (role === "user" && Array.isArray(permissionIds) && permissionIds.length > 0 && createdBy) {
+      const granterId = Number(createdBy);
+      const granterUser = await User.findOne({
+        where: { id: granterId, role: "super_admin" },
+        attributes: ["id"],
+      });
+
+      if (granterUser) {
+        const newUserId = item.getDataValue("id") as number;
+        const validPerms = await Permission.findAll({
+          where: { id: { [Op.in]: permissionIds } },
+          attributes: ["id"],
+        });
+
+        await Promise.all(
+          validPerms.map((p: any) =>
+            UserPermission.findOrCreate({
+              where: { userId: newUserId, permissionId: p.id, companyId: null },
+              defaults: { userId: newUserId, permissionId: p.id, companyId: null, grantedBy: granterId },
+            })
+          )
+        );
       }
     }
 
@@ -3604,7 +3660,31 @@ export const addCompany = async (
       userId: createdBy || userData.userId,
       adminId:adminId || null,
       managerId:managerId || null,
-    }); 
+    });
+
+    // When a company is linked to an admin, propagate the creator-user's permissions
+    // to that admin scoped to this company. Company is optional — if no adminId, skip.
+    if (adminId) {
+      const creatorUserId = Number(userData.userId);
+      const newCompanyId = (company as any).id;
+
+      const creatorPerms = await UserPermission.findAll({
+        where: { userId: creatorUserId },
+        attributes: ["permissionId"],
+      });
+
+      if (creatorPerms.length > 0) {
+        await Promise.all(
+          creatorPerms.map((p: any) =>
+            UserPermission.findOrCreate({
+              where: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId },
+              defaults: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId, grantedBy: creatorUserId },
+            })
+          )
+        );
+        invalidatePermissionCache(Number(adminId));
+      }
+    }
 
     createSuccess(res, "Company added successfully", company);
   } catch (error) {
