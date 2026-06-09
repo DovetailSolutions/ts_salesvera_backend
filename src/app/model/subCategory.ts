@@ -12,6 +12,7 @@ export interface SubCategoryAttributes {
   status: string;
   gst:string
   unit?:string
+  tallyGuid?: string;
 }
 
 export interface SubCategoryCreationAttributes
@@ -32,6 +33,7 @@ export class SubCategory
   public status!: string;
   public gst!:string;
   public unit!:string;
+  public tallyGuid?: string;
 
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
@@ -76,6 +78,11 @@ export class SubCategory
         unit:{
           type:DataTypes.STRING,
           allowNull:true
+        },
+        tallyGuid: {
+          type: DataTypes.STRING,
+          allowNull: true,
+          field: "tally_guid",
         },
         status: {
           type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected"),

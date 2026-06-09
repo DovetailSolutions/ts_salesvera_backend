@@ -94,6 +94,23 @@ Every endpoint accepts the same outer envelope structure:
 
 ---
 
+## Dedup Strategy
+
+All four endpoints are **idempotent** — safe to call multiple times with the same data.
+
+| Endpoint | Primary key (GUID-first) | Fallback key |
+|----------|--------------------------|--------------|
+| `/invoices` | `tallyGuid` + `companyId` | — (no fallback; `tallyGuid` required) |
+| `/quotations` | `tallyGuid` + `companyId` | — (no fallback; `tallyGuid` required) |
+| `/clients` | `tallyGuid` | `mobile` OR `email` |
+| `/stock-items` | `tallyGuid` + `adminId` | `name` + `CategoryId` + `adminId` |
+
+**Fallback backfill** — For `/clients` and `/stock-items`, when an existing record is matched via the fallback key, the `tallyGuid` is immediately written back onto that row. This means the first sync may use the fallback; every subsequent sync will hit the fast GUID path instead.
+
+> **DB migration required** — The `tally_guid` column must be added to `meeting_users` and `sub_categories` tables before deploying the new dedup logic.
+
+---
+
 ## Endpoints
 
 ---
@@ -102,7 +119,7 @@ Every endpoint accepts the same outer envelope structure:
 
 Push sales vouchers (invoices) from Tally.
 
-**Dedup key:** `guid` (tallyGuid) + `companyId`
+**Dedup key:** `tallyGuid` + `companyId` (GUID required — no fallback)
 
 #### Record fields
 
@@ -166,7 +183,7 @@ Push sales vouchers (invoices) from Tally.
 
 Push quotation vouchers from Tally.
 
-**Dedup key:** `guid` (tallyGuid) + `companyId`
+**Dedup key:** `tallyGuid` + `companyId` (GUID required — no fallback)
 
 #### Record fields
 
@@ -219,9 +236,16 @@ Push quotation vouchers from Tally.
 
 Push ledger master (Sundry Debtors) as clients.
 
-**Dedup key:** `mobile` OR `email` (whichever is present — uses OR match)
+**Dedup key:** `tallyGuid` first → falls back to `mobile` OR `email`
 
-> Note: If neither `tallyGuid`, `mobile`, nor `email` is provided, the record is skipped with `status: "failed"`.
+**Lookup order:**
+1. If `tallyGuid` is present, search `meeting_users` by `tallyGuid`
+2. If not found, search by `mobile` OR `email` (whichever are present)
+3. On a fallback match, `tallyGuid` is backfilled onto the row
+
+> If none of `tallyGuid`, `mobile`, or `email` is provided the record is skipped with `status: "failed"`.
+
+**Row status** — both new and updated records are set to `"imported"`.
 
 #### Record fields
 
@@ -244,10 +268,10 @@ Push ledger master (Sundry Debtors) as clients.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `tallyGuid` / `guid` | string | No* | GUID from Tally ledger |
+| `tallyGuid` / `guid` | string | No* | GUID from Tally ledger — **primary dedup key** |
 | `name` | string | No | Full name of the client |
-| `email` | string | No* | Email (used for dedup) |
-| `mobile` / `phone` | string | No* | Mobile number (used for dedup) |
+| `email` | string | No* | Email — used as fallback dedup key |
+| `mobile` / `phone` | string | No* | Mobile number — used as fallback dedup key |
 | `companyName` | string | No | Client's company name |
 | `customerType` | string | No | `"existing"` or `"new"` (default: `"existing"`) |
 | `address` | string | No | Full address |
@@ -302,7 +326,12 @@ Push ledger master (Sundry Debtors) as clients.
 
 Push stock item master from Tally (maps to product sub-categories).
 
-**Dedup key:** `name` (stock item name) + `CategoryId` + `adminId` (from token)
+**Dedup key:** `tallyGuid` + `adminId` first → falls back to `name` + `CategoryId` + `adminId`
+
+**Lookup order:**
+1. If `tallyGuid` is present, search `sub_categories` by `tallyGuid` + `adminId`
+2. If not found, search by `sub_category_name` + `CategoryId` + `adminId`
+3. On a fallback match, `tallyGuid` is backfilled onto the row
 
 > If `name` is missing the record is skipped with `status: "failed"`.
 
@@ -324,9 +353,9 @@ Push stock item master from Tally (maps to product sub-categories).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `tallyGuid` / `guid` | string | No | GUID from Tally stock item |
-| `name` / `stockItemName` | string | **Yes** | Stock item / product name |
-| `CategoryId` / `categoryId` | number | No | Category ID in SalesVera |
+| `tallyGuid` / `guid` | string | No | GUID from Tally stock item — **primary dedup key** |
+| `name` / `stockItemName` | string | **Yes** | Stock item / product name — fallback dedup key |
+| `CategoryId` / `categoryId` | number | No | Category ID in SalesVera — used in fallback dedup |
 | `amount` / `rate` | number | No | Unit price / rate |
 | `unit` | string | No | Unit of measure (e.g. `"NOS"`, `"KG"`, `"LTR"`) |
 | `hsnCode` | string | No | HSN / SAC code |
@@ -371,7 +400,9 @@ Push stock item master from Tally (maps to product sub-categories).
 
 1. **Batching** — There is no enforced batch size limit server-side, but it is recommended to send **100–500 records per request** to avoid timeouts.
 2. **Idempotency** — All endpoints are safe to call multiple times. Records are upserted (insert or update) based on the dedup keys described above.
-3. **Partial failure is normal** — A 200 response does not mean all records succeeded. Always check `summary.failed` and `results[].status` per record.
-4. **Extra fields are allowed** — Any additional fields sent inside a record object are stored as-is in the JSON column (`invoice`, `quotation`). There is no strict schema rejection for extra fields.
-5. **Date format** — Use `YYYY-MM-DD` for all dates (e.g. `"2024-06-15"`).
-6. **Auth token** — The JWT token is obtained from the login endpoint. Pass it as `Authorization: Bearer <token>` on every request.
+3. **GUID-first dedup** — Always include `tallyGuid` in every record. For `/clients` and `/stock-items`, the first sync may match on mobile/email/name; from the second sync onward the GUID is stored on the row and used directly — faster and unambiguous.
+4. **Partial failure is normal** — A 200 response does not mean all records succeeded. Always check `summary.failed` and `results[].status` per record.
+5. **Extra fields are allowed** — Any additional fields sent inside a record object are stored as-is in the JSON column (`invoice`, `quotation`). There is no strict schema rejection for extra fields.
+6. **Date format** — Use `YYYY-MM-DD` for all dates (e.g. `"2024-06-15"`).
+7. **Auth token** — The JWT token is obtained from the login endpoint. Pass it as `Authorization: Bearer <token>` on every request.
+8. **DB migration** — The `tally_guid` column must be added to `meeting_users` and `sub_categories` before deploying. No migration is needed for `invoices` or `quotations` — those tables already have a `guid` column.
