@@ -33,9 +33,10 @@ interface RecordResult {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const validateEnvelope = (body: any): body is BulkEnvelope => {
+  
   return (
     body &&
-    typeof body.company?.guid === "string" &&
+    typeof body.guid === "string" &&
     Array.isArray(body.records) &&
     body.records.length > 0
   );
@@ -209,10 +210,12 @@ export const bulkClients = async (
   try {
     const { userId } = req.userData as JwtPayload;
 
-    if (!validateEnvelope(req.body)) {
-      badRequest(res, "Invalid envelope: company.guid and records[] are required");
-      return;
-    }
+    console.log(">>>>>>>>>>>>>",req.body.guid)
+
+    // if (!validateEnvelope(req.body.guid)) {
+    //   badRequest(res, "Invalid envelope: company.guid and records[] are required");
+    //   return;
+    // }
 
     const { records } = req.body as BulkEnvelope;
     const results: RecordResult[] = [];
