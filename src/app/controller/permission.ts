@@ -310,7 +310,55 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
 
     // Invalidate cache for the target user
     invalidatePermissionCache(Number(targetUserId));
-// effectiveCompanyId
+
+    // Propagate new permissions to all admins created by this user
+    if (targetUser.role === "user") {
+      const userWithAdmins = await (User as any).findByPk(Number(targetUserId), {
+        include: [{
+          model: User,
+          as: "createdUsers",
+          where: { role: "admin", status: "active" },
+          required: false,
+          attributes: ["id"],
+          through: { attributes: [] },
+        }],
+        attributes: ["id"],
+      });
+
+      const adminUsers: any[] = userWithAdmins?.createdUsers || [];
+
+      for (const admin of adminUsers) {
+        // null-scoped (admin not yet linked to a company)
+        await Promise.all(
+          permissionIds.map((permId: number) =>
+            UserPermission.findOrCreate({
+              where: { userId: admin.id, permissionId: permId, companyId: null },
+              defaults: { userId: admin.id, permissionId: permId, companyId: null, grantedBy: callerId },
+            })
+          )
+        );
+
+        // company-scoped (for each company this admin is linked to)
+        const adminCompanies = await (Company as any).findAll({
+          where: { adminId: admin.id },
+          attributes: ["id"],
+        });
+
+        for (const company of adminCompanies) {
+          await Promise.all(
+            permissionIds.map((permId: number) =>
+              UserPermission.findOrCreate({
+                where: { userId: admin.id, permissionId: permId, companyId: company.id },
+                defaults: { userId: admin.id, permissionId: permId, companyId: company.id, grantedBy: callerId },
+              })
+            )
+          );
+        }
+
+        invalidatePermissionCache(admin.id);
+      }
+    }
+
     return res.status(200).json({
       success: true,
       message: `Permissions assigned: ${created} new, ${skipped} already existed`,
@@ -391,6 +439,44 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
       // effectiveCompanyId
       for (const subId of onlySubordinates) {
         invalidatePermissionCache(subId,);
+      }
+    }
+
+    // Propagate revocation to all admins created by this user
+    if (targetUser.role === "user") {
+      const userWithAdmins = await (User as any).findByPk(Number(targetUserId), {
+        include: [{
+          model: User,
+          as: "createdUsers",
+          where: { role: "admin", status: "active" },
+          required: false,
+          attributes: ["id"],
+          through: { attributes: [] },
+        }],
+        attributes: ["id"],
+      });
+
+      const adminUsers: any[] = userWithAdmins?.createdUsers || [];
+
+      for (const admin of adminUsers) {
+        // revoke null-scoped
+        await UserPermission.destroy({
+          where: { userId: admin.id, permissionId: { [Op.in]: permissionIds }, companyId: null },
+        });
+
+        // revoke from each company the admin is linked to
+        const adminCompanies = await (Company as any).findAll({
+          where: { adminId: admin.id },
+          attributes: ["id"],
+        });
+
+        for (const company of adminCompanies) {
+          await UserPermission.destroy({
+            where: { userId: admin.id, permissionId: { [Op.in]: permissionIds }, companyId: company.id },
+          });
+        }
+
+        invalidatePermissionCache(admin.id);
       }
     }
 
