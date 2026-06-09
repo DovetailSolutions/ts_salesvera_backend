@@ -9,9 +9,9 @@ const router = Router();
 // POST /admin/bulk/clients       — full ledger (Sundry Debtors) master push
 // POST /admin/bulk/stock-items   — full stock item master push
 
-router.post("/invoices",     tokenCheck, BulkSyncController.bulkInvoices);
-router.post("/quotations",   tokenCheck, BulkSyncController.bulkQuotations);
-router.post("/clients",      tokenCheck, BulkSyncController.bulkClients);
-router.post("/stock-items",  tokenCheck, BulkSyncController.bulkStockItems);
+router.get("/invoices",     tokenCheck, BulkSyncController.bulkInvoices);
+router.get("/quotations",   tokenCheck, BulkSyncController.bulkQuotations);
+router.get("/clients",      tokenCheck, BulkSyncController.bulkClients);
+router.get("/stock-items",  tokenCheck, BulkSyncController.bulkStockItems);
 
 export default router;
