@@ -170,6 +170,8 @@ router.post("/update-report",     tokenCheck, checkPermission("report", "export"
 router.patch("/assign-admin/:id", tokenCheck, AdminController.assignAdmin);
 router.get("/getowncompany",  tokenCheck, AdminController.getOwnCompany);
 
+router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
+
  
 
 
