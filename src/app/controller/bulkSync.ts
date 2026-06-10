@@ -86,7 +86,7 @@ export const bulkInvoices = async (
             customerName: record.party ?? existing.customerName,
             invoiceDate: record.date ? new Date(record.date) : existing.invoiceDate,
             invoice: record,
-            status: "imported",
+            status: record.status,
             alterid: record.alterId ?? existing.alterid,
           });
           results.push({ tallyGuid, status: "updated", id: existing.id });
@@ -97,7 +97,7 @@ export const bulkInvoices = async (
             customerName: record.party || "",
             invoiceDate: record.date ? new Date(record.date) : null,
             invoice: record,
-            status: "imported",
+            status:  record.status,
             userId: Number(userId),
             companyId: Number(companyId),
             alterid: record.alterId ?? null,
@@ -161,7 +161,7 @@ export const bulkQuotations = async (
             quotationNumber: record.voucherNumber ?? existing.quotationNumber,
             customerName: record.party ?? existing.customerName,
             quotation: record,
-            status: "imported",
+            status:  record.status,
             alterid: record.alterId ?? existing.alterid,
           });
           results.push({ tallyGuid, status: "updated", id: existing.id });
@@ -172,7 +172,7 @@ export const bulkQuotations = async (
             referenceNumber: record.referenceNumber || "",
             customerName: record.party || "",
             quotation: record,
-            status: "imported",
+            status: record.status,
             isConsumed: false,
             userId: Number(userId),
             companyId: Number(companyId),
@@ -256,7 +256,7 @@ export const bulkClients = async (
             address: record.address ?? existing.address,
             gstNumber: record.gstNumber ?? existing.gstNumber,
             panNumber: record.panNumber ?? existing.panNumber,
-            status: "imported",
+            status:  record.status,
           });
           results.push({ tallyGuid, status: "updated", id: (existing as any).id });
         } else {
@@ -274,7 +274,7 @@ export const bulkClients = async (
             gstNumber: record.gstNumber || null,
             panNumber: record.panNumber || null,
             userId: Number(userId),
-            status: "imported",
+            status:  record.status,
           });
           results.push({ tallyGuid, status: "created", id: (created as any).id });
         }
@@ -362,7 +362,7 @@ export const bulkStockItems = async (
             gst: record.gst ?? null,
             unit: record.unit ?? null,
             hsnCode: record.hsnCode ?? null,
-            status: "draft",
+            status:  record.status,
           });
           results.push({ tallyGuid, status: "created", id: (created as any).id });
         }
