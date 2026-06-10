@@ -15,3 +15,4 @@ router.post("/clients",      tokenCheck, BulkSyncController.bulkClients);
 router.post("/stock-items",  tokenCheck, BulkSyncController.bulkStockItems);
 
 export default router;
+ 
