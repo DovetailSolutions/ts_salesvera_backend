@@ -49,7 +49,7 @@ export class SubCategory
         },
         CategoryId: {
           type: DataTypes.INTEGER.UNSIGNED,
-          allowNull: false,
+          allowNull: true,
         },
         adminId: {
           type: DataTypes.INTEGER.UNSIGNED,

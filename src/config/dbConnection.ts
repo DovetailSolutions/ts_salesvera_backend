@@ -385,6 +385,18 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "otpExpiry", type: "TIMESTAMP WITH TIME ZONE" },
       ],
     },
+    {
+      tableName: "sub_categories",
+      columns: [
+        { name: "tally_guid", type: "VARCHAR(255)" },
+      ],
+    },
+    {
+      tableName: "meeting_users",
+      columns: [
+        { name: "tally_guid", type: "VARCHAR(255)" },
+      ],
+    },
   ];
 
 
