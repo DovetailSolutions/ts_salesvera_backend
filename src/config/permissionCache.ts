@@ -25,10 +25,9 @@ const TTL_MS = Number(process.env.PERMISSION_CACHE_TTL_MS) || 15 * 60 * 1000; //
  */
 export async function getUserPermissionsFromCache(
   userId: number,
-  companyId: number,
   loader: () => Promise<string[]>
 ): Promise<Set<string>> {
-  const key = `${userId}:${companyId}`;
+  const key = `${userId}`;
   const now = Date.now();
 
   const entry = cache.get(key);

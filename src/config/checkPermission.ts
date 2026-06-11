@@ -31,11 +31,10 @@ interface AuthenticatedRequest extends Request {
  * Eager-loads Permission model to avoid N+1.
  */
 const loadUserPermissionsFromDB = async (
-  userId: number,
-  companyId: number
+  userId: number
 ): Promise<string[]> => {
   const userPerms = await UserPermission.findAll({
-    where: { userId, companyId },
+    where: { userId },
     include: [
       {
         model: Permission,
@@ -43,7 +42,7 @@ const loadUserPermissionsFromDB = async (
         attributes: ["module", "action"],
       },
     ],
-    attributes: [], // Only need the joined permission columns
+    attributes: [],
   });
 
   return userPerms.map((up: any) => `${up.permission.module}:${up.permission.action}`);
@@ -90,8 +89,7 @@ export const checkPermission = (module: string, action: string) => {
 
       const permissionSet = await getUserPermissionsFromCache(
         userId,
-        companyId,
-        () => loadUserPermissionsFromDB(userId, companyId)
+        () => loadUserPermissionsFromDB(userId)
       );
 
       const required = `${module}:${action}`;

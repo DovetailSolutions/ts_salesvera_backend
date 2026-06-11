@@ -6,9 +6,9 @@ import { getUserPermissionsFromCache } from "../config/permissionCache";
 
 const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
 
-const loadUserPermissionsFromDB = async (userId: number, companyId: number): Promise<string[]> => {
+const loadUserPermissionsFromDB = async (userId: number): Promise<string[]> => {
   const userPerms = await UserPermission.findAll({
-    where: { userId, companyId },
+    where: { userId },
     include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
     attributes: [],
   });
@@ -17,7 +17,7 @@ const loadUserPermissionsFromDB = async (userId: number, companyId: number): Pro
 
 const hasPermission = async (userId: number, companyId: number, role: string, action: string): Promise<boolean> => {
   if (role === "super_admin") return true;
-  const perms = await getUserPermissionsFromCache(userId, companyId, () => loadUserPermissionsFromDB(userId, companyId));
+  const perms = await getUserPermissionsFromCache(userId, () => loadUserPermissionsFromDB(userId));
   return perms.has(`task:${action}`);
 };
 
