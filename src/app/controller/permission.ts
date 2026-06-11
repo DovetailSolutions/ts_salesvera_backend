@@ -162,12 +162,16 @@ export const getAllPermissions = async (req: AuthRequest, res: Response): Promis
 export const getUserPermissions = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userData = req.userData as any;
+
+    console.log(">>>>>>>>>>>>>",userData)
     const { role, userId: callerId, companyId } = userData;
     const targetUserId = Number(req.params.userId);
 
-    // Non-super_admin must be in the same company
+    console.log(">>>>targetUserId>",targetUserId)
+
+    // Non-super_admin / non-user must be in the same company
     const whereClause: any = { userId: targetUserId };
-    if (role !== "super_admin") {
+    if (role !== "super_admin" && role !== "user") {
       if (!companyId) return res.status(403).json({ success: false, message: "No company context" });
       whereClause.companyId = companyId;
     }
@@ -687,8 +691,9 @@ export const getMyPermissions = async (req: AuthRequest, res: Response): Promise
     }
 
     // Admin / Manager / Sale person — fetch from DB (only what was granted)
+    // companyId intentionally omitted: permissions are stored without companyId scope
     const records = await UserPermission.findAll({
-      where: { userId, companyId },
+      where: { userId },
       include: [{ model: Permission, as: "permission", attributes: ["module", "action", "description"] }],
     });
      const all = await Permission.findAll({ order: [["module", "ASC"], ["action", "ASC"]] });
