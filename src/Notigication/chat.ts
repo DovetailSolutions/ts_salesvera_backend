@@ -20,11 +20,10 @@ import {
 // FIX: loads a user's "module:action" permission strings from the DB.
 //      Used by the socket permission check below (reuses the same cache as HTTP routes).
 const loadUserPermissionsFromDB = async (
-  userId: number,
-  companyId: number
+  userId: number
 ): Promise<string[]> => {
   const userPerms = await UserPermission.findAll({
-    where: { userId, companyId },
+    where: { userId },
     include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
     attributes: [],
   });
@@ -149,8 +148,7 @@ export const initChatSocket = (io: Server) => {
       // All other roles must have chat:read permission explicitly assigned
       const perms = await getUserPermissionsFromCache(
         Number(userId),
-        companyId,
-        () => loadUserPermissionsFromDB(Number(userId), companyId)
+        () => loadUserPermissionsFromDB(Number(userId))
       );
 
       if (!perms.has("chat:read")) {
@@ -251,8 +249,7 @@ export const initChatSocket = (io: Server) => {
         if (!rolesWithChatAccess.includes(tokenRole)) {
           const perms = await getUserPermissionsFromCache(
             Number(tokenUserId),
-            tokenCompanyId,
-            () => loadUserPermissionsFromDB(Number(tokenUserId), tokenCompanyId)
+            () => loadUserPermissionsFromDB(Number(tokenUserId))
           );
           if (!perms.has("chat:send")) {
             return socket.emit("errorMessage", {
