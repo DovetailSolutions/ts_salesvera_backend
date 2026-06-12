@@ -383,6 +383,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
       columns: [
         { name: "otp", type: "VARCHAR(255)" },
         { name: "otpExpiry", type: "TIMESTAMP WITH TIME ZONE" },
+        { name: "tenantId", type: "INTEGER" },
       ],
     },
     {

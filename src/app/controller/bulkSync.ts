@@ -381,7 +381,7 @@ export const bulkClients = async (
     if (emails.length) orClauses.push({ email: { [Op.in]: emails } });
 
     const existingRows = await MeetingUser.findAll({
-      where: { [Op.or]: orClauses },
+      where: { userId: Number(userId), [Op.or]: orClauses },
     });
 
     // Build lookup maps

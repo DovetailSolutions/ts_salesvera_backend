@@ -59,14 +59,12 @@ export function invalidatePermissionCache(userId: number): void {
 }
 
 /**
- * Invalidates ALL cached entries for a given company.
- * Use when bulk-updating an entire company's permissions.
+ * Clears all cached permissions for every user in a given tenant.
+ * Use when bulk-updating an entire tenant's permissions.
  */
-export function invalidateCompanyPermissionCache(companyId: number): void {
-  for (const key of cache.keys()) {
-    if (key.endsWith(`:${companyId}`)) {
-      cache.delete(key);
-    }
+export function invalidateCompanyPermissionCache(tenantUserIds: number[]): void {
+  for (const uid of tenantUserIds) {
+    cache.delete(`${uid}`);
   }
 }
 

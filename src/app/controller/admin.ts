@@ -97,8 +97,39 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
         return;
       }
     }
-    /** ✅ Check if user with same email exists */
-    const isExist = await Middleware.FindByEmail(User, email);
+    const primaryCreatorId = Array.isArray(createdBy)
+      ? Number(createdBy[0])
+      : createdBy
+      ? Number(createdBy)
+      : undefined;
+
+    // ── Resolve tenantId for the new user ──────────────────────────────
+    // super_admin / standalone user creation: no tenantId yet (set after create)
+    // All other roles inherit tenantId from their creator's tree
+    let resolvedTenantId: number | null = null;
+
+    if (primaryCreatorId && !isNaN(primaryCreatorId) && role !== "super_admin") {
+      const creator = await User.findByPk(primaryCreatorId, {
+        attributes: ["id", "role", "tenantId"],
+      }) as any;
+
+      if (creator) {
+        if (creator.role === "user") {
+          // creator IS the tenant root
+          resolvedTenantId = creator.id;
+        } else if (creator.tenantId) {
+          // creator already belongs to a tenant tree
+          resolvedTenantId = creator.tenantId;
+        }
+        // creator is super_admin → new user will become a tenant root (set after create)
+      }
+    }
+
+    /** ✅ Check if user with same email exists — scoped to tenant */
+    // super_admin and user (tenant roots) are globally unique
+    // admin/manager/sale_person are unique only within their tenant
+    const emailCheckTenantId = (role === "super_admin" || role === "user") ? null : resolvedTenantId;
+    const isExist = await Middleware.FindByEmailInTenant(User, email, emailCheckTenantId);
     if (isExist) {
       badRequest(res, "Email already exists");
       return;
@@ -124,8 +155,15 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       phone,
       dob,
       role,
+      tenantId: resolvedTenantId,
+      ...(primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}),
     };
     const item = await User.create(obj);
+
+    // If this is a tenant root (user role created by super_admin), point tenantId at self
+    if (role === "user" && !resolvedTenantId) {
+      await item.update({ tenantId: item.getDataValue("id") });
+    }
 
     if ((role === "sale_person" || role === "manager" || role === "admin" || role === "user") && createdBy) {
       const ids = Array.isArray(createdBy)
@@ -230,7 +268,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
 
 export const Login = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body || {};
+    const { email, password, tenantId } = req.body || {};
 
     // Validate input
     if (!email || !password) {
@@ -238,8 +276,9 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Find user
-    const user = await Middleware.FindByEmail(User, email);
+    // Tenant-scoped lookup: if tenantId provided, scope to that tenant; otherwise global
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const user = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
     if (!user) {
       badRequest(res, "Invalid email or password");
       return;
@@ -1322,6 +1361,20 @@ export const BulkAddSalePerson = async (
       }
     }
 
+    // Resolve tenantId from the creator so bulk-created users are scoped correctly
+    const creatorRecord = await User.findByPk(creatorId, {
+      attributes: ["id", "role", "tenantId"],
+    }) as any;
+
+    let resolvedTenantId: number | null = null;
+    if (creatorRecord) {
+      if (creatorRecord.role === "user") {
+        resolvedTenantId = creatorRecord.id;
+      } else if (creatorRecord.tenantId) {
+        resolvedTenantId = creatorRecord.tenantId;
+      }
+    }
+
     if (!req.file) {
       badRequest(res, "CSV file is required");
       return;
@@ -1400,9 +1453,9 @@ export const BulkAddSalePerson = async (
           if (validRows.length > 0) {
             const existingUsers = await User.findAll({
               where: {
-                email: {
-                  [Op.in]: validRows.map((r) => r.email),
-                },
+                email: { [Op.in]: validRows.map((r) => r.email) },
+                // scope to this tenant so the same email in another tenant is not treated as a duplicate
+                ...(resolvedTenantId ? { tenantId: resolvedTenantId } : {}),
               },
               attributes: ["id", "email", "role"],
               include: [
@@ -1470,6 +1523,8 @@ export const BulkAddSalePerson = async (
               dob: r.dob,
               password: tempPassword,
               role: req.body.role,
+              createdBy: creatorId,
+              tenantId: resolvedTenantId,
             });
 
             await (item as any).setCreators([creatorId]);
@@ -6985,16 +7040,15 @@ export const assignAdmin = async(req:Request, res:Response):Promise<void>=>{
 
 export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email } = req.body || {};
+    const { email, tenantId } = req.body || {};
 
     if (!email) {
       badRequest(res, "Email is missing");
       return;
     }
 
-    const user: any = await User.findOne({
-      where: { email, role: ["admin", "manager", "user"] },
-    });
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
 
     if (!user) {
       badRequest(res, "User not found");
@@ -7017,16 +7071,15 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
 
 export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, otp } = req.body || {};
+    const { email, otp, tenantId } = req.body || {};
 
     if (!email || !otp) {
       badRequest(res, "Email and OTP are required");
       return;
     }
 
-    const user: any = await User.findOne({
-      where: { email, role: ["admin", "manager", "user"] },
-    });
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
 
     if (!user) {
       badRequest(res, "User not found");
@@ -7056,16 +7109,15 @@ export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
 
 export const changePassword = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, newPassword } = req.body || {};
+    const { email, newPassword, tenantId } = req.body || {};
 
     if (!email || !newPassword) {
       badRequest(res, "Email and new password are required");
       return;
     }
 
-    const user: any = await User.findOne({
-      where: { email, role: ["admin", "manager", "user"] },
-    });
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
 
     if (!user) {
       badRequest(res, "User not found");
