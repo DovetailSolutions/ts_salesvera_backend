@@ -172,6 +172,10 @@ router.get("/getowncompany",  tokenCheck, AdminController.getOwnCompany);
 
 router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
 
+router.post("/forgot-password", AdminController.forgotPassword);
+router.post("/verify-otp", AdminController.verifyOtp);
+router.post("/reset-password", AdminController.changePassword);
+
  
 
 
