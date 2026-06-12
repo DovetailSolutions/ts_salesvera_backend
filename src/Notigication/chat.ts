@@ -598,6 +598,18 @@ export const initChatSocket = (io: Server) => {
           return socket.emit("addGroupMembers", { error: "You are not a member of this group." });
         }
 
+        // Tenant isolation: only allow adding users from the same tenant
+        const requester = await User.findByPk(userId, { attributes: ["tenantId"] }) as any;
+        if (requester?.tenantId) {
+          const validMembers = await User.findAll({
+            where: { id: { [Op.in]: newMembers }, tenantId: requester.tenantId },
+            attributes: ["id"],
+          }) as any[];
+          if (validMembers.length !== newMembers.length) {
+            return socket.emit("addGroupMembers", { error: "Cannot add users from a different tenant." });
+          }
+        }
+
         // Add the new members
         const bulk = newMembers.map((m: any) => ({
           chatRoomId: room.id,

@@ -30,6 +30,24 @@ export const FindByEmail = async (model:any, email: string) => {
   }
 };
 
+// Tenant-scoped email lookup — same email can exist in different tenant trees
+export const FindByEmailInTenant = async (
+  model: any,
+  email: string,
+  tenantId: number | null
+): Promise<any> => {
+  try {
+    if (tenantId === null || tenantId === undefined) {
+      // super_admin / user (tenant root) — global uniqueness
+      return await model.findOne({ where: { email } });
+    }
+    return await model.findOne({ where: { email, tenantId } });
+  } catch (error) {
+    console.error("Error in FindByEmailInTenant:", error);
+    throw error;
+  }
+};
+
 
 export const findByRole = async(model:any, role: string)=>{
   try{
@@ -819,6 +837,22 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
             queue.push(child.id);
           }
         }
+      }
+    }
+
+    // Fallback: also pick up users linked via the direct createdBy FK column
+    // (covers users created before the junction table was populated, or whose
+    // junction-table row is missing for any other reason).
+    const childrenByCreatedBy = await User.findAll({
+      where: { createdBy: pid, role: { [Op.ne]: "super_admin" } },
+      attributes: ["id", "role"],
+    }) as any[];
+
+    for (const child of childrenByCreatedBy) {
+      if (!processedIds.has(child.id)) {
+        processedIds.add(child.id);
+        teamUserIds.push(child.id);
+        queue.push(child.id);
       }
     }
   }

@@ -24,12 +24,21 @@ export const createTask = async (req: Request, res: Response): Promise<void> => 
 
     // Validate assignee exists
     const assignee = await (User as any).findByPk(assignedTo, {
-      attributes: ["id", "role", "status"],
+      attributes: ["id", "role", "status", "tenantId"],
     });
 
     if (!assignee || assignee.status !== "active") {
       res.status(404).json({ success: false, message: "Assigned user not found or inactive" });
       return;
+    }
+
+    // Tenant isolation: cannot assign tasks across tenant boundaries
+    if (role !== "super_admin") {
+      const caller = await (User as any).findByPk(userId, { attributes: ["tenantId"] });
+      if (caller?.tenantId && caller.tenantId !== assignee.tenantId) {
+        res.status(403).json({ success: false, message: "Cannot assign tasks to users outside your tenant" });
+        return;
+      }
     }
 
     const assigneeRole: string = assignee.role;
@@ -184,12 +193,21 @@ export const updateTask = async (req: Request, res: Response): Promise<void> => 
     // If reassigning, validate new assignee
     if (assignedTo !== undefined) {
       const assignee = await (User as any).findByPk(assignedTo, {
-        attributes: ["id", "role", "status"],
+        attributes: ["id", "role", "status", "tenantId"],
       });
 
       if (!assignee || assignee.status !== "active") {
         res.status(404).json({ success: false, message: "Assigned user not found or inactive" });
         return;
+      }
+
+      // Tenant isolation on reassignment
+      if (role !== "super_admin") {
+        const caller = await (User as any).findByPk(userId, { attributes: ["tenantId"] });
+        if (caller?.tenantId && caller.tenantId !== assignee.tenantId) {
+          res.status(403).json({ success: false, message: "Cannot assign tasks to users outside your tenant" });
+          return;
+        }
       }
 
       const assigneeRole: string = assignee.role;

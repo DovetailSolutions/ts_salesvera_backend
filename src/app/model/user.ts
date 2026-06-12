@@ -32,6 +32,7 @@ interface UserAttributes {
   tallyGuid?: string | null;
   tallyName?: string | null;
   tallyStartDate?: Date | null;
+  tenantId?: number | null; // root "user" id that owns this account's company tree
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -71,11 +72,11 @@ type UserCreationAttributes = Optional<
   | "status"
   | "profile"
   | "createdBy"
-  |"onlineSatus"
-  |"tallyGuid"
-  |"tallyName"
-  |"tallyStartDate"
-  
+  | "onlineSatus"
+  | "tallyGuid"
+  | "tallyName"
+  | "tallyStartDate"
+  | "tenantId"
 >;
 
 // 3. Define the Model Instance
@@ -161,6 +162,11 @@ export const createUserModel = (sequelize: Sequelize) => {
       otpExpiry: {
         type: DataTypes.DATE,
         allowNull: true,
+      },
+      tenantId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
       },
     },
     {

@@ -103,11 +103,19 @@ export const initTaskSocket = (io: Server): void => {
 
       try {
         const assignee = await (User as any).findByPk(assignedTo, {
-          attributes: ["id", "role", "status"],
+          attributes: ["id", "role", "status", "tenantId"],
         });
 
         if (!assignee || assignee.status !== "active") {
           return socket.emit("taskError", { message: "Assigned user not found or inactive" });
+        }
+
+        // Tenant isolation: cannot assign tasks across tenant boundaries
+        if (role !== "super_admin") {
+          const caller = await (User as any).findByPk(uid, { attributes: ["tenantId"] });
+          if (caller?.tenantId && caller.tenantId !== assignee.tenantId) {
+            return socket.emit("taskError", { message: "Cannot assign tasks to users outside your tenant" });
+          }
         }
 
         const assigneeRole: string = assignee.role;
@@ -255,10 +263,17 @@ export const initTaskSocket = (io: Server): void => {
         } else {
           if (assignedTo !== undefined) {
             const assignee = await (User as any).findByPk(assignedTo, {
-              attributes: ["id", "role", "status"],
+              attributes: ["id", "role", "status", "tenantId"],
             });
             if (!assignee || assignee.status !== "active") {
               return socket.emit("taskError", { message: "Assigned user not found or inactive" });
+            }
+            // Tenant isolation on reassignment
+            if (role !== "super_admin") {
+              const caller = await (User as any).findByPk(uid, { attributes: ["tenantId"] });
+              if (caller?.tenantId && caller.tenantId !== assignee.tenantId) {
+                return socket.emit("taskError", { message: "Cannot assign tasks to users outside your tenant" });
+              }
             }
             const assigneeRole: string = assignee.role;
             if (role === "manager" && assigneeRole !== "sale_person") {

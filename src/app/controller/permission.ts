@@ -251,6 +251,20 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
       return res.status(404).json({ success: false, message: "Target user not found or inactive" });
     }
 
+    // ── Tenant isolation: caller cannot touch users in a different tenant ──
+    if (role !== "super_admin") {
+      const [callerRecord, targetRecord] = await Promise.all([
+        (User as any).findByPk(callerId, { attributes: ["tenantId"] }),
+        (User as any).findByPk(Number(targetUserId), { attributes: ["tenantId"] }),
+      ]);
+      if (callerRecord?.tenantId && callerRecord.tenantId !== targetRecord?.tenantId) {
+        return res.status(403).json({
+          success: false,
+          message: "Cannot assign permissions to users outside your tenant",
+        });
+      }
+    }
+
     // ── Hierarchy check: can caller assign to target's role? ─────────
     const allowedRoles = ASSIGNABLE_ROLES[role] || [];
     if (!allowedRoles.includes(targetUser.role)) {
@@ -402,10 +416,23 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
     }
 
     // Validate target user
-    // effectiveCompanyId
     const targetUser = await findTargetUser(Number(targetUserId));
     if (!targetUser) {
       return res.status(404).json({ success: false, message: "Target user not found" });
+    }
+
+    // ── Tenant isolation ─────────────────────────────────────────────
+    if (role !== "super_admin") {
+      const [callerRecord, targetRecord] = await Promise.all([
+        (User as any).findByPk(callerId, { attributes: ["tenantId"] }),
+        (User as any).findByPk(Number(targetUserId), { attributes: ["tenantId"] }),
+      ]);
+      if (callerRecord?.tenantId && callerRecord.tenantId !== targetRecord?.tenantId) {
+        return res.status(403).json({
+          success: false,
+          message: "Cannot revoke permissions from users outside your tenant",
+        });
+      }
     }
 
     // Hierarchy check

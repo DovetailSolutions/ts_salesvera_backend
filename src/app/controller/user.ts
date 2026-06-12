@@ -82,6 +82,8 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       phone,
       role: "user",
     });
+    // tenant root: points to itself
+    await item.update({ tenantId: (item as any).id });
     createSuccess(res, "admin register done", item);
   } catch (error) {
     const errorMessage =
@@ -95,6 +97,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     const {
       email,
       password,
+      tenantId,
       deviceToken,
       devicemodel,
       devicename,
@@ -106,8 +109,9 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // ✅ Check if user exists
-    const user = await Middleware.FindByEmail(User, email);
+    // Tenant-scoped lookup: if tenantId provided, scope to that tenant; otherwise global
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const user = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
     if (!user) {
       badRequest(res, "Invalid email or password");
       return;
@@ -2934,9 +2938,20 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     const offset = (pageNumber - 1) * pageSize;
 
 
-    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
+    // Anchor the hierarchy at the company admin so that all siblings are
+    // included regardless of whether the logged-in user's own junction-table
+    // entries are intact.
+    let hierarchyRootId = Number(userData.userId);
+    if (userData.companyId) {
+      const company = await Company.findByPk(Number(userData.companyId), { attributes: ["adminId"] });
+      if (company?.adminId) {
+        hierarchyRootId = company.adminId;
+      }
+    }
 
-    console.log(allUserIds,"allUserIdsdadaaddadad")
+    const allUserIds = await Middleware.getAllSubordinateIds(hierarchyRootId);
+
+    console.log(">>>>>>>>>>>>>allUserIds>",allUserIds)
 
     // ✅ Dynamic where condition
     const whereCondition: any = {
@@ -3422,13 +3437,14 @@ export const forgotPassword = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { email } = req.body || {};
+    const { email, tenantId } = req.body || {};
 
     if (!email) {
       badRequest(res, "Email is missing");
       return;
     }
-    const user: any = await User.findOne({ where: { email } });
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
     if (!user) {
       badRequest(res, "User not found");
       return;
@@ -3455,14 +3471,15 @@ export const forgotPassword = async (
 
 export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, otp } = req.body || {};
+    const { email, otp, tenantId } = req.body || {};
 
     if (!email || !otp) {
       badRequest(res, "Email and OTP are required");
       return;
     }
 
-    const user: any = await User.findOne({ where: { email } });
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
 
     if (!user) {
       badRequest(res, "User not found");
@@ -3500,7 +3517,7 @@ export const changePassword = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { email, newPassword } = req.body || {};
+    const { email, newPassword, tenantId } = req.body || {};
 
     if (!email || !newPassword) {
       badRequest(res, "Email and new password are required");
@@ -3510,6 +3527,10 @@ export const changePassword = async (
     // ✅ Hash password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
+    const loginTenantId = tenantId ? Number(tenantId) : null;
+    const whereClause: any = { email };
+    if (loginTenantId) whereClause.tenantId = loginTenantId;
+
     const [updatedRows] = await User.update(
       {
         password: hashedPassword,
@@ -3517,7 +3538,7 @@ export const changePassword = async (
         otpExpiry: null,
       },
       {
-        where: { email },
+        where: whereClause,
       }
     );
 
