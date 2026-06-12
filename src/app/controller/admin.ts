@@ -42,7 +42,7 @@ import {
   Report
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
-import { sendEmail } from "../../config/email";
+import { sendEmail, forgotpassword } from "../../config/email";
 import { S3 } from "@aws-sdk/client-s3";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 
@@ -493,12 +493,8 @@ export const UpdatePassword = async (
       return;
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const newHashedPassword = await bcrypt.hash(newPassword, salt);
-
-    await Middleware.Update(User, Number(userData.userId), {
-      password: newHashedPassword,
-    });
+    user.set("password", newPassword);
+    await user.save();
 
     createSuccess(res, "Password updated successfully");
   } catch (error) {
@@ -6986,3 +6982,102 @@ export const assignAdmin = async(req:Request, res:Response):Promise<void>=>{
     badRequest(res, errorMessage);
   }
 }
+
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body || {};
+
+    if (!email) {
+      badRequest(res, "Email is missing");
+      return;
+    }
+
+    const user: any = await User.findOne({
+      where: { email, role: ["admin", "manager", "user"] },
+    });
+
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    user.otp = otp;
+    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+    await user.save();
+
+    createSuccess(res, "OTP sent to your email");
+
+    forgotpassword("Password Reset OTP", otp, user.email);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, otp } = req.body || {};
+
+    if (!email || !otp) {
+      badRequest(res, "Email and OTP are required");
+      return;
+    }
+
+    const user: any = await User.findOne({
+      where: { email, role: ["admin", "manager", "user"] },
+    });
+
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    if (user.otp !== otp) {
+      badRequest(res, "Invalid OTP");
+      return;
+    }
+
+    if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
+      badRequest(res, "OTP has expired");
+      return;
+    }
+
+    user.otp = null;
+    user.otpExpiry = null;
+    await user.save();
+
+    createSuccess(res, "OTP verified successfully");
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, newPassword } = req.body || {};
+
+    if (!email || !newPassword) {
+      badRequest(res, "Email and new password are required");
+      return;
+    }
+
+    const user: any = await User.findOne({
+      where: { email, role: ["admin", "manager", "user"] },
+    });
+
+    if (!user) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    user.set("password", newPassword);
+    await user.save();
+
+    createSuccess(res, "Password changed successfully");
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};

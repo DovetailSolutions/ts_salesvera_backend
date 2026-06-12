@@ -1855,12 +1855,8 @@ export const UpdatePassword = async (
       return;
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const newHashedPassword = await bcrypt.hash(newPassword, salt);
-
-    await Middleware.Update(User, Number(userData.userId), {
-      password: newHashedPassword,
-    });
+    user.set("password", newPassword);
+    await user.save();
 
     createSuccess(res, "Password updated successfully");
   } catch (error) {
