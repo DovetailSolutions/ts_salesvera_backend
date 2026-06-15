@@ -393,6 +393,8 @@ export const GetProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+
+    console.log(">>>>>>>getprofile",userData)
     const { userId, role, companyId } = userData as any;
 
     const user = await User.findByPk(Number(userId), {
