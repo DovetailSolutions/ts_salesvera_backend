@@ -397,21 +397,13 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
     const userData = req.userData as any;
     const { role, userId: callerId, companyId: callerCompanyId } = userData;
 
-    const { targetUserId, permissionIds, companyId: bodyCompanyId } = req.body;
+    const { targetUserId, permissionIds } = req.body;
 
     if (!targetUserId || !permissionIds || !Array.isArray(permissionIds)) {
       return res.status(400).json({
         success: false,
         message: "targetUserId and permissionIds[] are required",
       });
-    }
-
-    // super_admin and user manage multiple companies — they pass companyId in body
-    const effectiveCompanyId: number =
-      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
-
-    if (!effectiveCompanyId) {
-      return res.status(400).json({ success: false, message: "companyId is required" });
     }
 
     // Validate target user
@@ -446,11 +438,10 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
     const deleted = await UserPermission.destroy({
       where: {
         userId: Number(targetUserId),
-        companyId: effectiveCompanyId,
         permissionId: { [Op.in]: permissionIds },
       },
     });
-// effectiveCompanyId
+
     invalidatePermissionCache(Number(targetUserId));
 
     // Cascade: revoke the same permissions from all subordinates of the target user
@@ -461,14 +452,12 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
       cascadeRevoked = await UserPermission.destroy({
         where: {
           userId: { [Op.in]: onlySubordinates },
-          companyId: effectiveCompanyId,
           permissionId: { [Op.in]: permissionIds },
         },
       });
 
-      // effectiveCompanyId
       for (const subId of onlySubordinates) {
-        invalidatePermissionCache(subId,);
+        invalidatePermissionCache(subId);
       }
     }
 
@@ -542,9 +531,10 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
       });
     }
 
-    // super_admin and user manage multiple companies — they pass companyId in body
-    const effectiveCompanyId: number =
-      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
+    // companyId is optional in body — falls back to JWT-resolved companyId
+    const effectiveCompanyId: number | null = bodyCompanyId
+      ? Number(bodyCompanyId)
+      : callerCompanyId ? Number(callerCompanyId) : null;
 
     // Hierarchy check
     const allowedRoles = ROLE_ASSIGNABLE_ROLES[role] || [];
@@ -655,8 +645,10 @@ export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<a
       });
     }
 
-    const effectiveCompanyId: number =
-      (callerRole === "super_admin" || callerRole === "user") ? Number(queryCompanyId) : Number(callerCompanyId);
+    // companyId is optional in query — falls back to JWT-resolved companyId
+    const effectiveCompanyId: number | null = queryCompanyId
+      ? Number(queryCompanyId)
+      : callerCompanyId ? Number(callerCompanyId) : null;
 
     if (!effectiveCompanyId) {
       return res.status(400).json({ success: false, message: "companyId is required" });
@@ -770,9 +762,10 @@ export const revokePermissionsFromRole = async (req: AuthRequest, res: Response)
       });
     }
 
-    // super_admin and user manage multiple companies — they pass companyId in body
-    const effectiveCompanyId: number =
-      (role === "super_admin" || role === "user") ? Number(bodyCompanyId) : Number(callerCompanyId);
+    // companyId is optional in body — falls back to JWT-resolved companyId
+    const effectiveCompanyId: number | null = bodyCompanyId
+      ? Number(bodyCompanyId)
+      : callerCompanyId ? Number(callerCompanyId) : null;
 
     if (!effectiveCompanyId) {
       return res.status(400).json({ success: false, message: "companyId is required" });
@@ -823,12 +816,10 @@ export const revokePermissionsFromRole = async (req: AuthRequest, res: Response)
       where: {
         userId: { [Op.in]: userIds },
         permissionId: { [Op.in]: permissionIds },
-        companyId: effectiveCompanyId,
       },
     });
 
     for (const uid of userIds) {
-      // effectiveCompanyId
       invalidatePermissionCache(uid);
     }
 
