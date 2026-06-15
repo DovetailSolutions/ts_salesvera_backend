@@ -169,12 +169,9 @@ export const getUserPermissions = async (req: AuthRequest, res: Response): Promi
 
     console.log(">>>>targetUserId>",targetUserId)
 
-    // Non-super_admin / non-user must be in the same company
+    // Individual permissions are stored without companyId (see assignPermissions).
+    // Access is controlled by role hierarchy — no companyId filter needed here.
     const whereClause: any = { userId: targetUserId };
-    if (role !== "super_admin" && role !== "user") {
-      if (!companyId) return res.status(403).json({ success: false, message: "No company context" });
-      whereClause.companyId = companyId;
-    }
 
     const records = await UserPermission.findAll({
       where: whereClause,
@@ -226,6 +223,8 @@ export const getUserPermissions = async (req: AuthRequest, res: Response): Promi
 export const assignPermissions = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userData = req.userData as any;
+
+    console.log(">>>>>>>>>>>>>>>>>>>>>assignPermissions>>>",userData)
     const { role, userId: callerId, companyId: callerCompanyId } = userData;
 // companyId: bodyCompanyId
     const { targetUserId, permissionIds } = req.body;
@@ -702,6 +701,7 @@ export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<a
 export const getMyPermissions = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userData = req.userData as any;
+        console.log(">>>>>>>>>>>>>>>>>>>>>getMyPermissions>>>",userData)
     const { role, userId, companyId } = userData;
 
     // Super admin has everything
