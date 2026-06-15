@@ -69,8 +69,12 @@ export const checkPermission = (module: string, action: string) => {
 
       console.log("checkPermission: userData from token:", userData);
 
-      const { role, userId, companyId } = userData as any;
-
+      const { role, userId } = userData as any;
+      const companyId =
+        (userData as any).companyId ??
+        req.body?.companyId ??
+        req.params?.companyId ??
+        req.query?.companyId;
 
       console.log(`checkPermission: userId=${userId}, role=${role}, companyId=${companyId}, required=${module}:${action}`);
 
@@ -79,7 +83,7 @@ export const checkPermission = (module: string, action: string) => {
         return next();
       }
 
-      // ── Admin / Manager / Sale Person: check permissions table via cache ────
+      // ── Admin / Manager / Sale Person / User: check permissions table via cache ────
       if (!companyId) {
         return res.status(403).json({
           success: false,
