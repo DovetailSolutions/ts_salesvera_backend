@@ -31,7 +31,9 @@ const uploadToS3 = async (
   fileName: string,
   mimeType: string
 ): Promise<string> => {
-  const buffer = Buffer.from(base64Data, "base64");
+  // Strip data URL prefix if Flutter sends "data:image/jpeg;base64,..."
+  const raw = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
+  const buffer = Buffer.from(raw, "base64");
   const ext = fileName.split(".").pop() || "bin";
   const key = `salesvera/chat/${uuid()}.${ext}`;
 
@@ -451,9 +453,12 @@ export const initChatSocket = (io: Server) => {
             data: { roomId, messageId: String(newMessage.id) },
           });
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Send file message error:", error);
-        socket.emit("errorMessage", { error: "Failed to send file message" });
+        socket.emit("errorMessage", {
+          error: "Failed to send file message",
+          detail: error?.message ?? String(error),
+        });
       }
     });
 

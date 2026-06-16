@@ -398,6 +398,16 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "tally_guid", type: "VARCHAR(255)" },
       ],
     },
+    {
+      tableName: "messages",
+      columns: [
+        { name: "mediaUrl", type: "TEXT" },
+        { name: "mediaType", type: "VARCHAR(50)" },
+        { name: "fileName", type: "VARCHAR(255)" },
+        { name: "replyTo", type: "INTEGER" },
+        { name: "status", type: "VARCHAR(10) DEFAULT 'unseen'" },
+      ],
+    },
   ];
 
 
