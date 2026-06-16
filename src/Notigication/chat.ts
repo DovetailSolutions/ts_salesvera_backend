@@ -311,7 +311,18 @@ export const initChatSocket = (io: Server) => {
           message,
         });
 
-        io.to(roomId).emit("receiveMessage", newMessage);
+        // Attach quoted message data so frontend can render WhatsApp-style reply preview
+        let replyToMessage: any = null;
+        if ((newMessage as any).replyTo) {
+          replyToMessage = await Message.findByPk((newMessage as any).replyTo, {
+            attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
+          });
+        }
+
+        io.to(roomId).emit("receiveMessage", {
+          ...newMessage.toJSON(),
+          replyToMessage: replyToMessage ? replyToMessage.toJSON() : null,
+        });
 
         // 🔔 Notify all OTHER participants in real-time
         const participants = await ChatParticipant.findAll({
@@ -421,7 +432,18 @@ export const initChatSocket = (io: Server) => {
           replyTo: replyTo ?? null,
         });
 
-        io.to(roomId).emit("receiveFileMessage", newMessage);
+        // Attach quoted message data so frontend can render WhatsApp-style reply preview
+        let replyToMessage: any = null;
+        if (replyTo) {
+          replyToMessage = await Message.findByPk(replyTo, {
+            attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
+          });
+        }
+
+        io.to(roomId).emit("receiveFileMessage", {
+          ...newMessage.toJSON(),
+          replyToMessage: replyToMessage ? replyToMessage.toJSON() : null,
+        });
 
         // 🔔 Notify other participants
         const participants = await ChatParticipant.findAll({
@@ -599,13 +621,19 @@ export const initChatSocket = (io: Server) => {
         const result = await Message.findAndCountAll({
           where: {
             chatRoomId: chatRoom?.id,
-            ...searchCondition, // <-- add search here
+            ...searchCondition,
           },
           offset,
           limit,
-          raw: true,
-          nest: true,
           order: [["createdAt", "DESC"]],
+          include: [
+            {
+              model: Message,
+              as: "repliedMessage",
+              required: false,
+              attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
+            },
+          ],
         });
 
         io.to(socket.id).emit("mychats", {
