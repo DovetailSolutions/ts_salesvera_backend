@@ -26,6 +26,7 @@ import {
   Attendance,
   Leave,
   Expense,
+  ExpenseImage,
   // Quotation,
   SubCategory,
   Quotations,
@@ -1931,6 +1932,10 @@ export const GetExpense = async (
     const { rows, count } = await Expense.findAndCountAll({
       where: expenseWhere, // 👈 final merged condition
       include: [
+        {
+                  model: ExpenseImage,
+                  as: "images",
+                },
         {
           model: User,
           as: "user",
