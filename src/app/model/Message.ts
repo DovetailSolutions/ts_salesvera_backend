@@ -7,6 +7,7 @@ export class Message extends Model {
   public message!: string | null;
   public mediaUrl!: string | null;
   public mediaType!: string | null;
+  public fileName!: string | null;
   public replyTo!: number | null;
   public status!: "seen" |"unseen"
  
@@ -36,6 +37,10 @@ export class Message extends Model {
           allowNull: true,
         },
         mediaType: {
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+        fileName: {
           type: DataTypes.STRING,
           allowNull: true,
         },

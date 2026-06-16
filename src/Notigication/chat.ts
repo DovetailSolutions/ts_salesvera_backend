@@ -16,6 +16,36 @@ import {
   setUserSocket,
   removeUserSocket,
 } from "../config/notificationService";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+const uploadToS3 = async (
+  base64Data: string,
+  fileName: string,
+  mimeType: string
+): Promise<string> => {
+  const buffer = Buffer.from(base64Data, "base64");
+  const ext = fileName.split(".").pop() || "bin";
+  const key = `salesvera/chat/${uuid()}.${ext}`;
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET!,
+      Key: key,
+      Body: buffer,
+      ContentType: mimeType,
+    })
+  );
+
+  return `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+};
 
 // FIX: loads a user's "module:action" permission strings from the DB.
 //      Used by the socket permission check below (reuses the same cache as HTTP routes).
@@ -317,6 +347,159 @@ export const initChatSocket = (io: Server) => {
     });
 
     // --------------------------------------------------------
+    // 🟦 SEND FILE MESSAGE (image · video · audio · document · any file)
+    // --------------------------------------------------------
+    // Payload:
+    //   roomId   : string
+    //   fileData : base64 encoded file content
+    //   fileName : original file name e.g. "photo.jpg"
+    //   mimeType : e.g. "image/jpeg", "video/mp4", "application/pdf"
+    //   caption? : optional text with the file
+    //   replyTo? : optional message id being replied to
+    socket.on("sendFileMessage", async ({ roomId, fileData, fileName, mimeType, caption, replyTo }) => {
+      try {
+        if (!fileData || !fileName || !mimeType) {
+          return socket.emit("errorMessage", {
+            error: "fileData, fileName and mimeType are required",
+          });
+        }
+
+        const { userId: tokenUserId, role: tokenRole } = socket.data.user;
+        const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
+        if (!rolesWithChatAccess.includes(tokenRole)) {
+          const perms = await getUserPermissionsFromCache(
+            Number(tokenUserId),
+            () => loadUserPermissionsFromDB(Number(tokenUserId))
+          );
+          if (!perms.has("chat:send")) {
+            return socket.emit("errorMessage", {
+              error: "You do not have permission for chat",
+            });
+          }
+        }
+
+        const room = await ChatRoom.findOne({ where: { roomId } });
+        if (!room)
+          return socket.emit("errorMessage", { error: "Invalid roomId" });
+
+        const isParticipant = await ChatParticipant.findOne({
+          where: { chatRoomId: room.id, userId },
+        });
+        if (!isParticipant) {
+          return socket.emit("errorMessage", { error: "You are not a room member" });
+        }
+
+        // Upload file to S3 and get public URL
+        const mediaUrl = await uploadToS3(fileData, fileName, mimeType);
+
+        // Derive mediaType from mimeType
+        let mediaType = "file";
+        if (mimeType.startsWith("image/"))       mediaType = "image";
+        else if (mimeType.startsWith("video/"))  mediaType = "video";
+        else if (mimeType.startsWith("audio/"))  mediaType = "audio";
+        else if (
+          mimeType === "application/pdf" ||
+          mimeType.includes("word") ||
+          mimeType.includes("excel") ||
+          mimeType.includes("spreadsheet") ||
+          mimeType.includes("presentation") ||
+          mimeType.includes("powerpoint") ||
+          mimeType === "text/plain"
+        ) {
+          mediaType = "document";
+        }
+
+        const newMessage = await Message.create({
+          chatRoomId: room.id,
+          senderId: userId,
+          message: caption ?? null,
+          mediaUrl,
+          mediaType,
+          fileName: fileName ?? null,
+          replyTo: replyTo ?? null,
+        });
+
+        io.to(roomId).emit("receiveFileMessage", newMessage);
+
+        // 🔔 Notify other participants
+        const participants = await ChatParticipant.findAll({
+          where: { chatRoomId: room.id },
+        });
+
+        const sender = await User.findByPk(userId, {
+          attributes: ["firstName", "lastName"],
+        }) as any;
+        const senderName = sender
+          ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
+          : "Someone";
+
+        const notificationBody =
+          mediaType === "image"    ? "📷 Image" :
+          mediaType === "video"    ? "🎥 Video" :
+          mediaType === "audio"    ? "🎵 Audio" :
+          mediaType === "document" ? "📄 Document" :
+                                     "📎 File";
+
+        for (const participant of participants) {
+          if (participant.userId === userId) continue;
+          await sendNotification({
+            receiverId: participant.userId,
+            senderId: userId,
+            type: "chat",
+            title: `New message from ${senderName}`,
+            body: notificationBody,
+            data: { roomId, messageId: String(newMessage.id) },
+          });
+        }
+      } catch (error) {
+        console.error("Send file message error:", error);
+        socket.emit("errorMessage", { error: "Failed to send file message" });
+      }
+    });
+
+    // --------------------------------------------------------
+    // 🟦 FORWARD MESSAGE  (copy a message into another room)
+    // --------------------------------------------------------
+    // Payload: { messageId, toRoomId }
+    socket.on("forwardMessage", async ({ messageId, toRoomId }) => {
+      try {
+        const originalMsg = await Message.findByPk(messageId);
+        if (!originalMsg) {
+          return socket.emit("errorMessage", { error: "Original message not found" });
+        }
+
+        const targetRoom = await ChatRoom.findOne({ where: { roomId: toRoomId } });
+        if (!targetRoom) {
+          return socket.emit("errorMessage", { error: "Target room not found" });
+        }
+
+        const isParticipant = await ChatParticipant.findOne({
+          where: { chatRoomId: targetRoom.id, userId },
+        });
+        if (!isParticipant) {
+          return socket.emit("errorMessage", { error: "You are not a member of the target room" });
+        }
+
+        const forwarded = await Message.create({
+          chatRoomId: targetRoom.id,
+          senderId: userId,
+          message: originalMsg.message ?? null,
+          mediaUrl: originalMsg.mediaUrl ?? null,
+          mediaType: originalMsg.mediaType ?? null,
+          fileName: originalMsg.fileName ?? null,
+          replyTo: null,
+        });
+
+        io.to(toRoomId).emit("receiveFileMessage", { ...forwarded.toJSON(), forwarded: true });
+
+        socket.emit("forwardMessage", { success: true, messageId: forwarded.id });
+      } catch (error) {
+        console.error("Forward message error:", error);
+        socket.emit("errorMessage", { error: "Failed to forward message" });
+      }
+    });
+
+    // --------------------------------------------------------
     // 🟦 TYPING INDICATOR
     // --------------------------------------------------------
     socket.on("typing", (data) => {
@@ -339,19 +522,19 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     socket.on("seenMessage", async (msg) => {
       try {
-        const [updated] = await Message.update(
-          { status: "seen" },
-          { where: { id: msg.msg_id } }
-        );
+        const message = await Message.findByPk(msg.msg_id);
 
-        if (!updated) {
-        }
+        if (!message) return;
+
+        await message.update({ status: "seen" });
 
         io.to(msg.roomId).emit("seenMessage", {
           success: true,
-          data: updated,
           msg_id: msg.msg_id,
-          seenBy: userId
+          seenBy: userId,
+          fileName: message.fileName,
+          mediaUrl: message.mediaUrl,
+          mediaType: message.mediaType,
         });
       } catch (err) {
         console.error("Seen message error:", err);
@@ -363,16 +546,22 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     socket.on("messageToDelete", async (data) => {
       try {
-        const deletedMessage = await Message.destroy({
-          where: {
-            id: data.id,
-            senderId: data.senderId,
-          },
+        const msg = await Message.findOne({
+          where: { id: data.id, senderId: data.senderId },
         });
 
-        if (deletedMessage) {
-          io.emit("Deleted", { id: data.id });
-        }
+        if (!msg) return;
+
+        const { fileName, mediaUrl, mediaType } = msg;
+
+        await msg.destroy();
+
+        io.emit("Deleted", {
+          id: data.id,
+          fileName,
+          mediaUrl,
+          mediaType,
+        });
       } catch (error) {
         console.error("Error deleting message:", error);
       }

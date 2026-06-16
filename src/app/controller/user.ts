@@ -1050,7 +1050,8 @@ export const EndMeeting = async (
     });
 
     // ✅ Current Meeting Distance
-    let legDistance = 0;
+    let legDistanceKm = 0;      // used for arithmetic
+    let legDistanceDisplay = "0 m"; // used for saving / response
 
     // =========================================================
     // ✅ FIRST MEETING
@@ -1062,35 +1063,16 @@ export const EndMeeting = async (
         isExist.latitude_out &&
         isExist.longitude_out
       ) {
-        const lat1 = parseFloat(
-          attendance.latitude_in
-        );
+        const lat1 = parseFloat(attendance.latitude_in);
+        const lon1 = parseFloat(attendance.longitude_in);
+        const lat2 = parseFloat(isExist.latitude_out);
+        const lon2 = parseFloat(isExist.longitude_out);
 
-        const lon1 = parseFloat(
-          attendance.longitude_in
-        );
-
-        const lat2 = parseFloat(
-          isExist.latitude_out
-        );
-
-        const lon2 = parseFloat(
-          isExist.longitude_out
-        );
-
-        if (
-          !isNaN(lat1) &&
-          !isNaN(lon1) &&
-          !isNaN(lat2) &&
-          !isNaN(lon2)
-        ) {
-          // ✅ GOOGLE MAP DISTANCE
-          legDistance = await Middleware.getDistance(
-            lat1,
-            lon1,
-            lat2,
-            lon2
-          );
+        if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+          // saves to DB if >= 1 meter
+          const result = await Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
+          legDistanceKm = result.km;
+          legDistanceDisplay = result.display;
         }
       }
     }
@@ -1099,10 +1081,7 @@ export const EndMeeting = async (
     // ✅ NEXT MEETINGS
     // =========================================================
     else {
-      const lastMeeting =
-        previousMeetings[
-          previousMeetings.length - 1
-        ];
+      const lastMeeting = previousMeetings[previousMeetings.length - 1];
 
       if (
         lastMeeting.latitude_out &&
@@ -1110,61 +1089,36 @@ export const EndMeeting = async (
         isExist.latitude_out &&
         isExist.longitude_out
       ) {
-        const lat1 = parseFloat(
-          lastMeeting.latitude_out
-        );
+        const lat1 = parseFloat(lastMeeting.latitude_out);
+        const lon1 = parseFloat(lastMeeting.longitude_out);
+        const lat2 = parseFloat(isExist.latitude_out);
+        const lon2 = parseFloat(isExist.longitude_out);
 
-        const lon1 = parseFloat(
-          lastMeeting.longitude_out
-        );
-
-        const lat2 = parseFloat(
-          isExist.latitude_out
-        );
-
-        const lon2 = parseFloat(
-          isExist.longitude_out
-        );
-
-        if (
-          !isNaN(lat1) &&
-          !isNaN(lon1) &&
-          !isNaN(lat2) &&
-          !isNaN(lon2)
-        ) {
-          // ✅ GOOGLE MAP DISTANCE
-          legDistance = await Middleware.getDistance(
-            lat1,
-            lon1,
-            lat2,
-            lon2
-          );
+        if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+          // saves to DB if >= 1 meter
+          const result = await Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
+          legDistanceKm = result.km;
+          legDistanceDisplay = result.display;
         }
       }
     }
 
-    // ✅ Previous Total Distance
-    const previousTotal =
-      previousMeetings.reduce((sum, m) => {
-        const leg = parseFloat(
-          m.legDistance || "0"
-        );
-
-        return sum + (isNaN(leg) ? 0 : leg);
-      }, 0);
+    // ✅ Previous Total Distance (sum of previous leg km values)
+    const previousTotal = previousMeetings.reduce((sum, m) => {
+      const leg = parseFloat(m.legDistance || "0");
+      return sum + (isNaN(leg) ? 0 : leg);
+    }, 0);
 
     // ✅ Total Distance
-    const totalDistance =
-      previousTotal + legDistance;
+    const totalDistanceKm = previousTotal + legDistanceKm;
+    const totalDistanceDisplay =
+      totalDistanceKm * 1000 < 1000
+        ? `${Math.round(totalDistanceKm * 1000)} m`
+        : `${totalDistanceKm.toFixed(3)} km`;
 
     // ✅ Save Distance
-    isExist.legDistance = legDistance
-      .toFixed(2)
-      .toString();
-
-    isExist.totalDistance = totalDistance
-      .toFixed(2)
-      .toString();
+    isExist.legDistance = legDistanceDisplay;
+    isExist.totalDistance = totalDistanceDisplay;
 
     await isExist.save();
 
@@ -1174,8 +1128,8 @@ export const EndMeeting = async (
       "Meeting ended successfully",
       {
         meetingId: isExist.id,
-        legDistance: `${isExist.legDistance} km`,
-        totalDistance: `${isExist.totalDistance} km`,
+        legDistance: isExist.legDistance,
+        totalDistance: isExist.totalDistance,
       }
     );
   } catch (error) {
