@@ -1,6 +1,6 @@
 import { Model,FindOptions,Op,WhereOptions  ,Sequelize ,CreationAttributes,Includeable } from "sequelize";
 import jwt from "jsonwebtoken";
-import { User, Category, SubCategory } from "../../config/dbConnection";
+import { User, Category, SubCategory, Meeting } from "../../config/dbConnection";
 import { promises } from "dns";
 import { Mode } from "fs";
 import axios from "axios";
@@ -866,11 +866,11 @@ export const getDistance = async (
   lat1: number,
   lng1: number,
   lat2: number,
-  lng2: number
-): Promise<number> => {
+  lng2: number,
+  meetingId?: number
+): Promise<{ meters: number; km: number; display: string }> => {
   try {
-    const url =
-      "https://maps.googleapis.com/maps/api/distancematrix/json";
+    const url = "https://maps.googleapis.com/maps/api/distancematrix/json";
 
     const response = await axios.get(url, {
       params: {
@@ -886,19 +886,29 @@ export const getDistance = async (
       data.status === "OK" &&
       data.rows?.[0]?.elements?.[0]?.status === "OK"
     ) {
-      // Distance in meters
-      const distanceInMeters =
-        data.rows[0].elements[0].distance.value;
+      const distanceInMeters: number = data.rows[0].elements[0].distance.value;
+      const distanceInKm = Number((distanceInMeters / 1000).toFixed(3));
 
-      // Convert to KM
-      const distanceInKm = distanceInMeters / 1000;
+      // < 1 km → show in meters, >= 1 km → show in km
+      const display =
+        distanceInMeters < 1000
+          ? `${distanceInMeters} m`
+          : `${distanceInKm} km`;
 
-      return Number(distanceInKm.toFixed(2));
+      // Save to meeting if distance >= 1 meter
+      if (distanceInMeters >= 1 && meetingId) {
+        await Meeting.update(
+          { legDistance: display },
+          { where: { id: meetingId } }
+        );
+      }
+
+      return { meters: distanceInMeters, km: distanceInKm, display };
     }
 
-    return 0;
+    return { meters: 0, km: 0, display: "0 m" };
   } catch (error) {
     console.log("Distance API Error:", error);
-    return 0;
+    return { meters: 0, km: 0, display: "0 m" };
   }
 };
