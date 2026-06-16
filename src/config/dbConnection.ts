@@ -181,6 +181,9 @@ Message.belongsTo(ChatRoom, { foreignKey: "chatRoomId" });
 User.hasMany(Message, { foreignKey: "senderId" });
 Message.belongsTo(User, { foreignKey: "senderId" });
 
+// Self-referential: reply-to chain (WhatsApp-style quoted messages)
+Message.belongsTo(Message, { foreignKey: "replyTo", as: "repliedMessage" });
+
 User.hasMany(ChatParticipant, {
   foreignKey: "userId",
   as: "chatParticipants",
