@@ -23,10 +23,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllSubordinateIds = exports.getAllListCategory = exports.withuserlogin = exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmail = void 0;
+exports.getDistance = exports.getAllSubordinateIds = exports.getAllListCategory = exports.withuserlogin = exports.getCategory = exports.findOneByCondition = exports.deleteByCondition = exports.findAllWithInclude = exports.findOneWithInclude = exports.updateByCondition = exports.UpdateData = exports.findByOTP = exports.Pipeline = exports.Update = exports.getById = exports.DeleteItembyId = exports.getAllList2 = exports.getAllList3 = exports.getAllList = exports.GetPost = exports.CreateData2 = exports.CreateData = exports.CreateToken = exports.FindByPhone2 = exports.FindByPhone = exports.FindByField = exports.findByRole = exports.FindByEmailInTenant = exports.FindByEmail = void 0;
 const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../../config/dbConnection");
+const axios_1 = __importDefault(require("axios"));
 // Find by email (Sequelize version)
 const FindByEmail = (model, email) => __awaiter(void 0, void 0, void 0, function* () {
     try {
@@ -38,6 +39,21 @@ const FindByEmail = (model, email) => __awaiter(void 0, void 0, void 0, function
     }
 });
 exports.FindByEmail = FindByEmail;
+// Tenant-scoped email lookup — same email can exist in different tenant trees
+const FindByEmailInTenant = (model, email, tenantId) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        if (tenantId === null || tenantId === undefined) {
+            // super_admin / user (tenant root) — global uniqueness
+            return yield model.findOne({ where: { email } });
+        }
+        return yield model.findOne({ where: { email, tenantId } });
+    }
+    catch (error) {
+        console.error("Error in FindByEmailInTenant:", error);
+        throw error;
+    }
+});
+exports.FindByEmailInTenant = FindByEmailInTenant;
 const findByRole = (model, role) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         return yield model.findOne({ where: { role } });
@@ -62,16 +78,9 @@ const FindByField = (model, fieldName, fieldValue, id) => __awaiter(void 0, void
             //   normalizedValue
             // ),
             where: {
-                // field comparison with normalization
                 [sequelize_1.Op.and]: [
                     sequelize_1.Sequelize.where(sequelize_1.Sequelize.fn("REPLACE", sequelize_1.Sequelize.fn("LOWER", sequelize_1.Sequelize.col(fieldName)), " ", ""), normalizedValue),
-                    // 🔥 OR condition for adminId or managerId
-                    {
-                        [sequelize_1.Op.or]: [
-                            { adminId: id },
-                            { managerId: id }
-                        ]
-                    }
+                    { adminId: id }
                 ]
             }
         });
@@ -106,10 +115,14 @@ exports.FindByPhone2 = FindByPhone2;
 //     expiresIn: "1d",
 //   });
 // };
-const CreateToken = (userId, role) => {
-    const accessToken = jsonwebtoken_1.default.sign({ userId, role }, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "30d" } // short-lived
+const CreateToken = (userId, role, companyId) => {
+    const payload = { userId, role };
+    if (companyId)
+        payload.companyId = Number(companyId);
+    console.log("Creating token with payload:", payload);
+    const accessToken = jsonwebtoken_1.default.sign(payload, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "30d" } // short-lived
     );
-    const refreshToken = jsonwebtoken_1.default.sign({ userId, role }, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "60d" } // long-lived
+    const refreshToken = jsonwebtoken_1.default.sign(payload, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "60d" } // long-lived
     );
     return { accessToken, refreshToken };
 };
@@ -117,7 +130,6 @@ exports.CreateToken = CreateToken;
 // crate data 
 const CreateData = (model, data) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        console.log("Creating data with:", JSON.stringify(data, null, 2));
         return yield model.create(data);
     }
     catch (error) {
@@ -212,7 +224,6 @@ const getAllList3 = (model_1, ...args_1) => __awaiter(void 0, [model_1, ...args_
             offset,
             order: [["createdAt", "DESC"]],
         });
-        console.log(rows.length);
         let count = rows.length;
         return {
             success: true,
@@ -251,7 +262,6 @@ const getAllList2 = (model_1, ...args_1) => __awaiter(void 0, [model_1, ...args_
             distinct: true, // ✅ ensures unique lead IDs in count
         });
         let count = result.count;
-        // console.log(">>>>>>>>>>>>>>>>>>count",count)
         return {
             data: result.rows,
             pagination: {
@@ -439,93 +449,6 @@ const findOneByCondition = (model, condition) => __awaiter(void 0, void 0, void 
     }
 });
 exports.findOneByCondition = findOneByCondition;
-// export const getCategory = async (
-//   Model: any,
-//   data: { page?: number; limit?: number; search?: string; category_id?: number },
-//   id = "",
-//   login = ""
-// ): Promise<{
-//   rows: any[];
-//   pagination: {
-//     totalItems: number;
-//     currentPage: number;
-//     totalPages: number;
-//     limit: number;
-//   };
-// }> => {
-//   try {
-//     const { page = 1, limit = 10, search = "", category_id } = data;
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-//     console.log(">>>>>>>>>>>>>>>>>> login:", login);
-//     // -------------------------
-//     // MAIN WHERE
-//     // -------------------------
-//     const where: any = {};
-//     if (search) {
-//       where.name = { [Op.iLike]: `%${search}%` };
-//     }
-//     if (id) {
-//       where.user_id = id;
-//     }
-//     // 🔥 FIXED: OR condition for admin/manager
-//     if (login) {
-//       where[Op.or] = [
-//         { adminId: login },
-//         { managerId: login }
-//       ];
-//     }
-//     // -------------------------
-//     // INCLUDE CATEGORY FILTER
-//     // -------------------------
-//     const include: any[] = [];
-//     if (category_id) {
-//       include.push({
-//         model: Category,
-//         as: "categories",
-//         where: {
-//           id: Number(category_id),
-//           [Op.or]: [
-//             { adminId: login },
-//             { managerId: login }
-//           ]
-//         },
-//         through: { attributes: [] },
-//       });
-//     }
-//     // -------------------------
-//     // COUNT
-//     // -------------------------
-//     const totalItems = await Model.count({
-//       where,
-//       include: include.length ? include : undefined,
-//       distinct: true,
-//     });
-//     // -------------------------
-//     // FETCH ROWS
-//     // -------------------------
-//     const rows = await Model.findAll({
-//       where,
-//       include: include.length ? include : undefined,
-//       limit: limitNum,
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//     });
-//     return {
-//       rows,
-//       pagination: {
-//         totalItems,
-//         currentPage: pageNum,
-//         totalPages: Math.ceil(totalItems / limitNum),
-//         limit: limitNum,
-//       },
-//     };
-//   } catch (error) {
-//     throw error;
-//   }
-// };
-// import { Op } from "sequelize";
 const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, data_1, ...args_1], void 0, function* (Model, data, id = "", login = "") {
     try {
         const { page = 1, limit = 10, search = "", category_id } = data;
@@ -547,16 +470,9 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
         if (id) {
             where.user_id = id;
         }
-        // 🔐 Admin / Manager access
+        // Filter categories by the admin who created them
         if (login) {
-            where[sequelize_1.Op.and] = [
-                {
-                    [sequelize_1.Op.or]: [
-                        { adminId: login },
-                        { managerId: login },
-                    ],
-                },
-            ];
+            where.adminId = login;
         }
         // -------------------------
         // INCLUDE CATEGORY FILTER
@@ -704,10 +620,12 @@ const getAllListCategory = (model_1, ...args_1) => __awaiter(void 0, [model_1, .
 exports.getAllListCategory = getAllListCategory;
 const getAllSubordinateIds = (userId) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
-    let teamUserIds = [userId];
+    let rootId = userId;
     let currentId = userId;
+    // 1. Climb UP to find the highest 'admin' or 'manager' (Company Root)
+    // This ensures we capture the entire company tree starting from the top.
     while (true) {
-        const userWithCreators = (yield dbConnection_1.User.findByPk(currentId, {
+        const userWithCreators = yield dbConnection_1.User.findByPk(currentId, {
             include: [
                 {
                     model: dbConnection_1.User,
@@ -716,22 +634,105 @@ const getAllSubordinateIds = (userId) => __awaiter(void 0, void 0, void 0, funct
                     through: { attributes: [] },
                 },
             ],
-        }));
+        });
         if (!userWithCreators)
             break;
-        const plainUser = userWithCreators.get({ plain: true });
-        const creator = ((_a = plainUser.creators) === null || _a === void 0 ? void 0 : _a[0]) || null;
+        const creator = (_a = userWithCreators.creators) === null || _a === void 0 ? void 0 : _a[0];
         if (!creator)
             break;
-        if (!teamUserIds.includes(creator.id)) {
-            teamUserIds.push(creator.id);
-        }
-        // Stop if the creator is an admin or super_admin
-        if (["admin", "super_admin"].includes(creator.role)) {
+        // If we hit a super_admin, we stop climbing and keep the previous valid root
+        if (creator.role === "super_admin") {
             break;
         }
+        // Update rootId to the creator if they are an admin or manager
+        if (["admin", "manager"].includes(creator.role)) {
+            rootId = creator.id;
+        }
+        // Move up to the next level
         currentId = creator.id;
+    }
+    // 2. Fetch all subordinates DOWN from the rootId (Full hierarchy)
+    let teamUserIds = [];
+    // Check if root itself is not super_admin
+    const rootUser = yield dbConnection_1.User.findByPk(rootId);
+    if (rootUser && rootUser.role !== "super_admin") {
+        teamUserIds.push(rootId);
+    }
+    let queue = [rootId];
+    let processedIds = new Set([rootId]);
+    while (queue.length > 0) {
+        const pid = queue.shift();
+        const userWithCreated = yield dbConnection_1.User.findByPk(pid, {
+            include: [
+                {
+                    model: dbConnection_1.User,
+                    as: "createdUsers",
+                    attributes: ["id", "role"],
+                    through: { attributes: [] },
+                },
+            ],
+        });
+        if (userWithCreated === null || userWithCreated === void 0 ? void 0 : userWithCreated.createdUsers) {
+            for (const child of userWithCreated.createdUsers) {
+                if (!processedIds.has(child.id)) {
+                    processedIds.add(child.id);
+                    // Only include manager, sale_person, admin etc. but NOT super_admin
+                    if (child.role !== "super_admin") {
+                        teamUserIds.push(child.id);
+                        queue.push(child.id);
+                    }
+                }
+            }
+        }
+        // Fallback: also pick up users linked via the direct createdBy FK column
+        // (covers users created before the junction table was populated, or whose
+        // junction-table row is missing for any other reason).
+        const childrenByCreatedBy = yield dbConnection_1.User.findAll({
+            where: { createdBy: pid, role: { [sequelize_1.Op.ne]: "super_admin" } },
+            attributes: ["id", "role"],
+        });
+        for (const child of childrenByCreatedBy) {
+            if (!processedIds.has(child.id)) {
+                processedIds.add(child.id);
+                teamUserIds.push(child.id);
+                queue.push(child.id);
+            }
+        }
     }
     return teamUserIds;
 });
 exports.getAllSubordinateIds = getAllSubordinateIds;
+const getDistance = (lat1, lng1, lat2, lng2, meetingId) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c, _d;
+    try {
+        const url = "https://maps.googleapis.com/maps/api/distancematrix/json";
+        const response = yield axios_1.default.get(url, {
+            params: {
+                origins: `${lat1},${lng1}`,
+                destinations: `${lat2},${lng2}`,
+                key: process.env.GOOGLE_MAP_API_KEY,
+            },
+        });
+        const data = response.data;
+        if (data.status === "OK" &&
+            ((_d = (_c = (_b = (_a = data.rows) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.elements) === null || _c === void 0 ? void 0 : _c[0]) === null || _d === void 0 ? void 0 : _d.status) === "OK") {
+            const distanceInMeters = data.rows[0].elements[0].distance.value;
+            const distanceInKm = Number((distanceInMeters / 1000).toFixed(3));
+            // < 1 km → show in meters, >= 1 km → show in km
+            const display = distanceInMeters < 1000
+                ? `${distanceInMeters} m`
+                : `${distanceInKm} km`;
+            // Save to meeting if distance >= 1 meter
+            if (distanceInMeters >= 1 && meetingId) {
+                yield dbConnection_1.Meeting.update({ legDistance: display }, { where: { id: meetingId } });
+            }
+            return { meters: distanceInMeters, km: distanceInKm, display };
+        }
+        return { meters: 0, km: 0, display: "0 m" };
+    }
+    catch (error) {
+        console.log("Distance API Error:", error);
+        return { meters: 0, km: 0, display: "0 m" };
+    }
+});
+exports.getDistance = getDistance;

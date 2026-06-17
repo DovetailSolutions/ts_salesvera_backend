@@ -26,6 +26,14 @@ class Invoices extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: false,
             },
+            guid: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
+            alterid: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
             quotationId: {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,

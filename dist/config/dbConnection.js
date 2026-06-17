@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -12,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Report = exports.Notification = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.TaskHistory = exports.Task = exports.Report = exports.Notification = exports.UserPermission = exports.Permission = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const sequelize_1 = require("sequelize");
@@ -57,19 +90,24 @@ Object.defineProperty(exports, "RecordSales", { enumerable: true, get: function 
 const Notification_1 = require("../app/model/Notification");
 Object.defineProperty(exports, "Notification", { enumerable: true, get: function () { return Notification_1.Notification; } });
 const report_1 = require("../app/model/report");
+// RBAC Models
+const permission_1 = require("../app/model/permission");
+const userPermission_1 = require("../app/model/userPermission");
+const task_1 = require("../app/model/task");
+Object.defineProperty(exports, "Task", { enumerable: true, get: function () { return task_1.Task; } });
+const taskHistory_1 = require("../app/model/taskHistory");
+Object.defineProperty(exports, "TaskHistory", { enumerable: true, get: function () { return taskHistory_1.TaskHistory; } });
 // ===== SEQUELIZE INIT =====
-const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", {
-    host: env.DB_HOST,
-    port: Number(env.DB_PORT) || 5432,
-    dialect: "postgres",
-    logging: false,
-    dialectOptions: {
-        ssl: {
-            require: true,
-            rejectUnauthorized: false,
+const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", Object.assign({ host: env.DB_HOST, port: Number(env.DB_PORT) || 5432, dialect: "postgres", logging: false }, (env.DB_HOST !== "127.0.0.1" && env.DB_HOST !== "localhost"
+    ? {
+        dialectOptions: {
+            ssl: {
+                require: true,
+                rejectUnauthorized: false,
+            },
         },
-    },
-});
+    }
+    : {})));
 exports.sequelize = sequelize;
 // ===== INIT MODELS =====
 // Core
@@ -119,10 +157,17 @@ const CompanyBank = (0, bank_1.CompanyBankModel)(sequelize);
 exports.CompanyBank = CompanyBank;
 Invoice_1.Invoices.initModel(sequelize);
 saleRecord_1.RecordSales.initModel(sequelize);
-// Notifications
 Notification_1.Notification.initModel(sequelize);
+// RBAC
+const Permission = (0, permission_1.PermissionModel)(sequelize);
+exports.Permission = Permission;
+const UserPermission = (0, userPermission_1.UserPermissionModel)(sequelize);
+exports.UserPermission = UserPermission;
 const Report = (0, report_1.RepostModel)(sequelize);
 exports.Report = Report;
+// Task Management
+task_1.Task.initModel(sequelize);
+taskHistory_1.TaskHistory.initModel(sequelize);
 // ===== ASSOCIATIONS =====
 // User self relation
 User.belongsToMany(User, {
@@ -160,6 +205,8 @@ chatRoom_1.ChatRoom.hasMany(Message_1.Message, {
 Message_1.Message.belongsTo(chatRoom_1.ChatRoom, { foreignKey: "chatRoomId" });
 User.hasMany(Message_1.Message, { foreignKey: "senderId" });
 Message_1.Message.belongsTo(User, { foreignKey: "senderId" });
+// Self-referential: reply-to chain (WhatsApp-style quoted messages)
+Message_1.Message.belongsTo(Message_1.Message, { foreignKey: "replyTo", as: "repliedMessage" });
 User.hasMany(ChatParticipant_1.ChatParticipant, {
     foreignKey: "userId",
     as: "chatParticipants",
@@ -193,6 +240,8 @@ quotations_1.Quotations.belongsTo(User, { foreignKey: "userId" });
 // User / Company
 User.hasOne(Company, { foreignKey: "adminId", as: "company" });
 Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
+User.hasOne(Company, { foreignKey: "managerId", as: "managedCompany" });
+Company.belongsTo(User, { foreignKey: "managerId", as: "manager" });
 Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
 Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
@@ -205,11 +254,39 @@ Company.hasMany(Leave_1.CompanyLeave, { foreignKey: "companyId", as: "companyLea
 Leave_1.CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(CompanyBank, { foreignKey: "companyId", as: "companyBanks" });
 CompanyBank.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+// RBAC Associations
+// Permission ↔ UserPermission
+Permission.hasMany(UserPermission, { foreignKey: "permissionId", as: "userPermissions" });
+UserPermission.belongsTo(Permission, { foreignKey: "permissionId", as: "permission" });
+// User ↔ UserPermission (receiver)
+User.hasMany(UserPermission, { foreignKey: "userId", as: "assignedPermissions" });
+UserPermission.belongsTo(User, { foreignKey: "userId", as: "permissionHolder" });
+// User ↔ UserPermission (granter)
+User.hasMany(UserPermission, { foreignKey: "grantedBy", as: "grantedPermissions" });
+UserPermission.belongsTo(User, { foreignKey: "grantedBy", as: "permissionGranter" });
+// Company ↔ UserPermission
+Company.hasMany(UserPermission, { foreignKey: "companyId", as: "companyUserPermissions" });
+UserPermission.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 // Notification associations
-User.hasMany(Notification_1.Notification, { foreignKey: "receiverId", as: "receivedNotifications" });
-Notification_1.Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver" });
-User.hasMany(Notification_1.Notification, { foreignKey: "senderId", as: "sentNotifications" });
-Notification_1.Notification.belongsTo(User, { foreignKey: "senderId", as: "sender" });
+// constraints: false prevents Sequelize alter:true from generating invalid
+// "ALTER COLUMN SET DEFAULT NULL REFERENCES ..." SQL on PostgreSQL.
+// FK constraints are added manually in fixConstraints() instead.
+User.hasMany(Notification_1.Notification, { foreignKey: "receiverId", as: "receivedNotifications", constraints: false });
+Notification_1.Notification.belongsTo(User, { foreignKey: "receiverId", as: "receiver", constraints: false });
+User.hasMany(Notification_1.Notification, { foreignKey: "senderId", as: "sentNotifications", constraints: false });
+Notification_1.Notification.belongsTo(User, { foreignKey: "senderId", as: "sender", constraints: false });
+// Task associations
+User.hasMany(task_1.Task, { foreignKey: "assignedTo", as: "assignedTasks", constraints: false });
+task_1.Task.belongsTo(User, { foreignKey: "assignedTo", as: "assignee", constraints: false });
+User.hasMany(task_1.Task, { foreignKey: "assignedBy", as: "createdTasks", constraints: false });
+task_1.Task.belongsTo(User, { foreignKey: "assignedBy", as: "creator", constraints: false });
+Company.hasMany(task_1.Task, { foreignKey: "companyId", as: "tasks", constraints: false });
+task_1.Task.belongsTo(Company, { foreignKey: "companyId", as: "company", constraints: false });
+// TaskHistory associations
+task_1.Task.hasMany(taskHistory_1.TaskHistory, { foreignKey: "taskId", as: "history", constraints: false });
+taskHistory_1.TaskHistory.belongsTo(task_1.Task, { foreignKey: "taskId", constraints: false });
+User.hasMany(taskHistory_1.TaskHistory, { foreignKey: "changedBy", as: "taskChanges", constraints: false });
+taskHistory_1.TaskHistory.belongsTo(User, { foreignKey: "changedBy", as: "changedByUser", constraints: false });
 /**
  * 🛠️ MANUAL MIGRATION HELPER
  * This ensures the 'meeting_user_id' column exists in essential tables.
@@ -290,6 +367,40 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
             columns: [
                 { name: "adminId", type: "INTEGER" },
                 { name: "managerId", type: "INTEGER" },
+                { name: "legalName", type: "VARCHAR(255)" },
+                { name: "registrationNo", type: "VARCHAR(255)" },
+                { name: "companyEmail", type: "VARCHAR(255)" },
+                { name: "companyPhone", type: "VARCHAR(255)" },
+            ],
+        },
+        {
+            tableName: "users",
+            columns: [
+                { name: "otp", type: "VARCHAR(255)" },
+                { name: "otpExpiry", type: "TIMESTAMP WITH TIME ZONE" },
+                { name: "tenantId", type: "INTEGER" },
+            ],
+        },
+        {
+            tableName: "sub_categories",
+            columns: [
+                { name: "tally_guid", type: "VARCHAR(255)" },
+            ],
+        },
+        {
+            tableName: "meeting_users",
+            columns: [
+                { name: "tally_guid", type: "VARCHAR(255)" },
+            ],
+        },
+        {
+            tableName: "messages",
+            columns: [
+                { name: "mediaUrl", type: "TEXT" },
+                { name: "mediaType", type: "VARCHAR(50)" },
+                { name: "fileName", type: "VARCHAR(255)" },
+                { name: "replyTo", type: "INTEGER" },
+                { name: "status", type: "VARCHAR(10) DEFAULT 'unseen'" },
             ],
         },
     ];
@@ -313,7 +424,6 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
             "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
           );
         `);
-                console.log(`✅ Ensured table exists: shifts`);
             }
             catch (err) {
                 console.error(`❌ Error creating table shifts:`, err);
@@ -326,7 +436,6 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
           ALTER TABLE "${config.tableName}" 
           ADD COLUMN IF NOT EXISTS "${column.name}" ${column.type};
         `);
-                console.log(`✅ Checked/Added ${column.name} to table: ${config.tableName}`);
             }
             catch (err) {
                 console.error(`❌ Error checking/adding ${column.name} to ${config.tableName}:`, err);
@@ -343,7 +452,6 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
     for (const item of constraintsToDrop) {
         try {
             yield sequelize.query(`ALTER TABLE "${item.table}" DROP CONSTRAINT IF EXISTS "${item.constraint}";`);
-            console.log(`✅ Dropped unique constraint ${item.constraint} from ${item.table}`);
         }
         catch (err) {
             // Ignore if doesn't exist
@@ -369,7 +477,6 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-        console.log(`✅ Ensured table exists: company_banks`);
     }
     catch (err) {
         console.error(`❌ Error creating table company_banks:`, err);
@@ -393,7 +500,6 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-        console.log(`✅ Ensured table exists: invoices`);
     }
     catch (err) {
         console.error(`❌ Error creating table invoices:`, err);
@@ -414,7 +520,6 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-        console.log(`✅ Ensured table exists: notifications`);
     }
     catch (err) {
         console.error(`❌ Error creating table notifications:`, err);
@@ -435,7 +540,6 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-        console.log(`✅ Ensured table exists: record_sales`);
     }
     catch (err) {
         console.error(`❌ Error creating table record_sales:`, err);
@@ -459,10 +563,83 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
         "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-        console.log(`✅ Ensured table exists: repost`);
     }
     catch (err) {
         console.error(`❌ Error creating table repost:`, err);
+    }
+    // ✅ Ensure permissions table exists (RBAC master table)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "permissions" (
+        "id" SERIAL PRIMARY KEY,
+        "module" VARCHAR(100) NOT NULL,
+        "action" VARCHAR(100) NOT NULL,
+        "description" TEXT,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "idx_permissions_module_action" UNIQUE ("module", "action")
+      );
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table permissions:`, err);
+    }
+    // ✅ Ensure user_permissions table exists (RBAC user assignments)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "user_permissions" (
+        "id" SERIAL PRIMARY KEY,
+        "userId" INTEGER NOT NULL,
+        "permissionId" INTEGER NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "grantedBy" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "idx_user_perm_unique" UNIQUE ("userId", "permissionId", "companyId")
+      );
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table user_permissions:`, err);
+    }
+    // ✅ Ensure tasks table exists (task management)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "tasks" (
+        "id" SERIAL PRIMARY KEY,
+        "title" VARCHAR(255) NOT NULL,
+        "description" TEXT,
+        "status" VARCHAR(50) NOT NULL DEFAULT 'todo',
+        "priority" VARCHAR(50) NOT NULL DEFAULT 'medium',
+        "dueDate" TIMESTAMP WITH TIME ZONE,
+        "assignedTo" INTEGER,
+        "assignedBy" INTEGER NOT NULL,
+        "companyId" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table tasks:`, err);
+    }
+    // ✅ Ensure task_history table exists (audit trail)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "task_history" (
+        "id" SERIAL PRIMARY KEY,
+        "taskId" INTEGER NOT NULL,
+        "changedBy" INTEGER NOT NULL,
+        "field" VARCHAR(100) NOT NULL,
+        "oldValue" TEXT,
+        "newValue" TEXT,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table task_history:`, err);
     }
 });
 /**
@@ -482,16 +659,25 @@ const fixConstraints = (sequelize) => __awaiter(void 0, void 0, void 0, function
         // 2️⃣ Ensure 'meetings' points to correct 'users' and 'meeting_users'
         yield sequelize.query(`
       ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_user_id_fkey";
-      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_user_id_fkey" 
-      FOREIGN KEY ("user_id") REFERENCES "users" ("id") 
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_user_id_fkey"
+      FOREIGN KEY ("user_id") REFERENCES "users" ("id")
       ON DELETE CASCADE ON UPDATE CASCADE;
 
       ALTER TABLE "meetings" DROP CONSTRAINT IF EXISTS "meetings_meeting_user_id_fkey";
-      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_meeting_user_id_fkey" 
-      FOREIGN KEY ("meeting_user_id") REFERENCES "meeting_users" ("id") 
+      ALTER TABLE "meetings" ADD CONSTRAINT "meetings_meeting_user_id_fkey"
+      FOREIGN KEY ("meeting_user_id") REFERENCES "meeting_users" ("id")
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
-        console.log("✅ Fixed all meeting-related database constraints");
+        // 3️⃣ Notification FK constraints (managed manually — not via Sequelize alter:true)
+        yield sequelize.query(`
+      ALTER TABLE "notifications" DROP CONSTRAINT IF EXISTS "notifications_receiverId_fkey";
+      ALTER TABLE "notifications" ADD CONSTRAINT "notifications_receiverId_fkey"
+      FOREIGN KEY ("receiverId") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+      ALTER TABLE "notifications" DROP CONSTRAINT IF EXISTS "notifications_senderId_fkey";
+      ALTER TABLE "notifications" ADD CONSTRAINT "notifications_senderId_fkey"
+      FOREIGN KEY ("senderId") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    `);
     }
     catch (err) {
         console.error("❌ Error fixing constraints:", err);
@@ -504,7 +690,7 @@ const fixConstraints = (sequelize) => __awaiter(void 0, void 0, void 0, function
  * This prevents Foreign Key constraint violations during sync.
  */
 const ensureDataIntegrity = (sequelize) => __awaiter(void 0, void 0, void 0, function* () {
-    const tables = ["departments", "branches", "shifts", "holidays", "invoices"];
+    const tables = ["departments", "branches", "shifts", "holidays", "invoices", "company_leaves", "company_banks"];
     for (const table of tables) {
         try {
             // 1️⃣ Check if table and companyId column exist before running update
@@ -515,12 +701,10 @@ const ensureDataIntegrity = (sequelize) => __awaiter(void 0, void 0, void 0, fun
       `);
             if (results.length > 0) {
                 yield sequelize.query(`
-          UPDATE "${table}" 
-          SET "companyId" = NULL 
+          DELETE FROM "${table}" 
           WHERE "companyId" IS NOT NULL 
           AND "companyId" NOT IN (SELECT "id" FROM "companies");
         `);
-                console.log(`✅ Ensured data integrity (companyId) for table: ${table}`);
             }
             // 2️⃣ Handle Invoices specific data integrity (status ENUM conversion)
             if (table === "invoices") {
@@ -534,13 +718,12 @@ const ensureDataIntegrity = (sequelize) => __awaiter(void 0, void 0, void 0, fun
                     // In Postgres, ENUM types often show up as 'USER-DEFINED' in information_schema
                     const colInfo = statusCols[0];
                     if (colInfo.data_type === 'character varying' || colInfo.data_type === 'text') {
-                        yield sequelize.query(`
-              UPDATE "invoices" 
-              SET "status" = 'draft' 
-              WHERE "status" IS NULL 
-              OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected');
-            `);
-                        console.log(`✅ Sanitized Invoice status values for ENUM conversion`);
+                        yield sequelize.query(`UPDATE "invoices" SET "status" = 'draft' WHERE "status" IS NULL OR "status" NOT IN ('draft', 'sent', 'accepted', 'rejected')`);
+                        yield sequelize.query(`DO $$ BEGIN CREATE TYPE "public"."enum_invoices_status" AS ENUM('draft', 'sent', 'accepted', 'rejected'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+                        // Drop default before type conversion — PostgreSQL cannot auto-cast string default to ENUM
+                        yield sequelize.query(`ALTER TABLE "invoices" ALTER COLUMN "status" DROP DEFAULT`);
+                        yield sequelize.query(`ALTER TABLE "invoices" ALTER COLUMN "status" TYPE "public"."enum_invoices_status" USING ("status"::"public"."enum_invoices_status")`);
+                        yield sequelize.query(`ALTER TABLE "invoices" ALTER COLUMN "status" SET DEFAULT 'draft'::"public"."enum_invoices_status"`);
                     }
                 }
             }
@@ -549,11 +732,114 @@ const ensureDataIntegrity = (sequelize) => __awaiter(void 0, void 0, void 0, fun
             console.error(`❌ Error during data integrity check for ${table}:`, err);
         }
     }
+    // 3️⃣ Notifications type column: convert VARCHAR → ENUM before sync({ alter: true })
+    try {
+        const [typeCols] = yield sequelize.query(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_name = 'notifications' AND column_name = 'type';
+    `);
+        if (typeCols.length > 0 && (typeCols[0].data_type === 'character varying' || typeCols[0].data_type === 'text')) {
+            yield sequelize.query(`
+        UPDATE "notifications"
+        SET "type" = 'system'
+        WHERE "type" IS NULL OR "type" NOT IN ('chat', 'task', 'meeting', 'system', 'other');
+
+        ALTER TABLE "notifications" ALTER COLUMN "type" DROP DEFAULT;
+
+        DO $$ BEGIN
+          CREATE TYPE "public"."enum_notifications_type" AS ENUM('chat', 'task', 'meeting', 'system', 'other');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+
+        ALTER TABLE "notifications"
+        ALTER COLUMN "type" TYPE "public"."enum_notifications_type"
+        USING ("type"::"public"."enum_notifications_type");
+
+        ALTER TABLE "notifications" ALTER COLUMN "type" SET DEFAULT 'system';
+      `);
+            console.log('✅ Converted notifications.type from VARCHAR to ENUM');
+        }
+    }
+    catch (err) {
+        console.error('❌ Error converting notifications.type to ENUM:', err);
+    }
+    // repost.status column: convert VARCHAR → ENUM before sync({ alter: true })
+    try {
+        const [repostStatusCols] = yield sequelize.query(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE table_name = 'repost' AND column_name = 'status';
+    `);
+        if (repostStatusCols.length > 0 && (repostStatusCols[0].data_type === 'character varying' || repostStatusCols[0].data_type === 'text')) {
+            yield sequelize.query(`
+        UPDATE "repost"
+        SET "status" = 'draft'
+        WHERE "status" IS NULL OR "status" NOT IN ('draft', 'imported', 'sent', 'accepted', 'rejected', 'cancelled', 'deleted');
+
+        ALTER TABLE "repost" ALTER COLUMN "status" DROP DEFAULT;
+
+        DO $$ BEGIN
+          CREATE TYPE "public"."enum_repost_status" AS ENUM('draft', 'imported', 'sent', 'accepted', 'rejected', 'cancelled', 'deleted');
+        EXCEPTION WHEN duplicate_object THEN null;
+        END $$;
+
+        ALTER TABLE "repost"
+        ALTER COLUMN "status" TYPE "public"."enum_repost_status"
+        USING ("status"::"public"."enum_repost_status");
+
+        ALTER TABLE "repost" ALTER COLUMN "status" SET DEFAULT 'draft';
+      `);
+            console.log('✅ Converted repost.status from VARCHAR to ENUM');
+        }
+        // Add missing enum values to existing enum_repost_status if already an ENUM
+        yield sequelize.query(`
+      DO $$ BEGIN
+        ALTER TYPE "public"."enum_repost_status" ADD VALUE IF NOT EXISTS 'cancelled';
+        ALTER TYPE "public"."enum_repost_status" ADD VALUE IF NOT EXISTS 'deleted';
+      EXCEPTION WHEN others THEN null;
+      END $$;
+    `);
+    }
+    catch (err) {
+        console.error('❌ Error converting repost.status to ENUM:', err);
+    }
+    // Table Sanitization (fix NULL values for NOT NULL columns)
+    try {
+        // Sanitize Companies table
+        yield sequelize.query(`
+      UPDATE "companies" 
+      SET "legalName" = "companyName" 
+      WHERE "legalName" IS NULL;
+
+      UPDATE "companies" 
+      SET "registrationNo" = 'N/A' 
+      WHERE "registrationNo" IS NULL;
+
+      UPDATE "companies" 
+      SET "companyEmail" = 'unknown@example.com' 
+      WHERE "companyEmail" IS NULL;
+
+      UPDATE "companies" 
+      SET "companyPhone" = '0000000000' 
+      WHERE "companyPhone" IS NULL;
+    `);
+        console.log(`✅ Sanitized mandatory fields in companies table`);
+        // Sanitize Meetings table
+        yield sequelize.query(`
+      DELETE FROM "meetings" 
+      WHERE "user_id" IS NULL 
+      OR "company_id" IS NULL;
+    `);
+        console.log(`✅ Cleaned up orphaned records from meetings table`);
+    }
+    catch (err) {
+        console.error(`❌ Error during table sanitization:`, err);
+    }
 });
 // ===== DB CONNECTION =====
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        console.log("✅ Database connection established successfully");
         // 1️⃣ Run manual migration for specific missing columns
         yield ensureColumns(sequelize);
         // 2️⃣ Fix foreign key constraints for meeting tables
@@ -562,7 +848,10 @@ const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
         yield ensureDataIntegrity(sequelize);
         // 4️⃣ Standard Sequelize sync
         yield sequelize.authenticate();
-        yield sequelize.sync({ alter: true });
+        // await sequelize.sync({ alter: true });
+        // 5️⃣ Seed RBAC permissions table (idempotent — safe every boot)
+        const { seedPermissions } = yield Promise.resolve().then(() => __importStar(require("./seedPermissions")));
+        yield seedPermissions();
     }
     catch (err) {
         console.error("❌ DB error:", err);

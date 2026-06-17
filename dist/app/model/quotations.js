@@ -14,6 +14,14 @@ class Quotations extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
             },
+            guid: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
+            alterid: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
             referenceNumber: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,

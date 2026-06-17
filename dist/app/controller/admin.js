@@ -56,8 +56,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDepartmentById = exports.getDepartment = exports.addDepartment = exports.getShiftById = exports.getShift = exports.addShift = exports.getBranchById = exports.getBranch = exports.addBranch = exports.deleteCompany = exports.updateCompany = exports.getCompanyById = exports.getCompany = exports.addCompany = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.GetProfile = exports.Login = exports.Register = void 0;
-exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.updateClient = exports.getClient = exports.addCompanyBank = exports.getLeaveById = exports.getLeave = exports.addLeave = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.getHolidayById = exports.getHoliday = exports.addHoliday = void 0;
+exports.getShift = exports.addShift = exports.getBranchById = exports.getBranch = exports.addBranch = exports.getOwnCompany = exports.deleteCompany = exports.updateCompany = exports.getCompanyById = exports.getCompany = exports.addCompany = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.BulkAddSalePerson = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getCategoryWithSubCategories = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.changePassword = exports.verifyOtp = exports.forgotPassword = exports.assignAdmin = exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.updateClient = exports.getClient = exports.addCompanyBank = exports.getLeaveById = exports.getLeave = exports.addLeave = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.getHolidayById = exports.getHoliday = exports.addHoliday = exports.getDepartmentById = exports.getDepartment = exports.addDepartment = exports.getShiftById = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const client_s3_1 = require("@aws-sdk/client-s3");
@@ -67,15 +67,21 @@ const puppeteer_1 = __importDefault(require("puppeteer"));
 const ejs_1 = __importDefault(require("ejs"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
+const crypto_1 = __importDefault(require("crypto"));
 const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_2 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
+const email_1 = require("../../config/email");
+const permissionCache_1 = require("../../config/permissionCache");
 const UNIQUE_ROLES = ["super_admin"];
 const getPagination = (req) => {
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 10);
     const offset = (page - 1) * limit;
     return { page, limit, offset };
+};
+const generateTempPassword = () => {
+    return crypto_1.default.randomBytes(6).toString("base64").replace(/[+/=]/g, "x");
 };
 const findUser = (userId) => __awaiter(void 0, void 0, void 0, function* () {
     return dbConnection_2.User.findOne({
@@ -85,7 +91,7 @@ const findUser = (userId) => __awaiter(void 0, void 0, void 0, function* () {
 });
 const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { email, password, firstName, lastName, phone, dob, role, createdBy, } = req.body;
+        const { email, password, firstName, lastName, phone, dob, role, createdBy, permissionIds, } = req.body;
         /** ✅ Required field validation */
         const requiredFields = {
             email,
@@ -102,8 +108,36 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 return;
             }
         }
-        /** ✅ Check if user with same email exists */
-        const isExist = yield Middleware.FindByEmail(dbConnection_2.User, email);
+        const primaryCreatorId = Array.isArray(createdBy)
+            ? Number(createdBy[0])
+            : createdBy
+                ? Number(createdBy)
+                : undefined;
+        // ── Resolve tenantId for the new user ──────────────────────────────
+        // super_admin / standalone user creation: no tenantId yet (set after create)
+        // All other roles inherit tenantId from their creator's tree
+        let resolvedTenantId = null;
+        if (primaryCreatorId && !isNaN(primaryCreatorId) && role !== "super_admin") {
+            const creator = yield dbConnection_2.User.findByPk(primaryCreatorId, {
+                attributes: ["id", "role", "tenantId"],
+            });
+            if (creator) {
+                if (creator.role === "user") {
+                    // creator IS the tenant root
+                    resolvedTenantId = creator.id;
+                }
+                else if (creator.tenantId) {
+                    // creator already belongs to a tenant tree
+                    resolvedTenantId = creator.tenantId;
+                }
+                // creator is super_admin → new user will become a tenant root (set after create)
+            }
+        }
+        /** ✅ Check if user with same email exists — scoped to tenant */
+        // super_admin and user (tenant roots) are globally unique
+        // admin/manager/sale_person are unique only within their tenant
+        const emailCheckTenantId = (role === "super_admin" || role === "user") ? null : resolvedTenantId;
+        const isExist = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, emailCheckTenantId);
         if (isExist) {
             (0, errorMessage_1.badRequest)(res, "Email already exists");
             return;
@@ -116,17 +150,19 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 return;
             }
         }
-        const obj = {
-            email,
+        const obj = Object.assign({ email,
             password,
             firstName,
             lastName,
             phone,
             dob,
-            role,
-        };
+            role, tenantId: resolvedTenantId }, (primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}));
         const item = yield dbConnection_2.User.create(obj);
-        if ((role === "sale_person" || role === "manager" || role === "admin") && createdBy) {
+        // If this is a tenant root (user role created by super_admin), point tenantId at self
+        if (role === "user" && !resolvedTenantId) {
+            yield item.update({ tenantId: item.getDataValue("id") });
+        }
+        if ((role === "sale_person" || role === "manager" || role === "admin" || role === "user") && createdBy) {
             const ids = Array.isArray(createdBy)
                 ? createdBy.map((id) => Number(id)).filter((id) => !isNaN(id))
                 : [Number(createdBy)].filter((id) => !isNaN(id));
@@ -134,10 +170,53 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 // ✅ Connect relations
                 yield item.setCreators(ids);
             }
+            // When a new admin is created by a user, inherit that user's permissions
+            if (role === "admin" && ids.length > 0) {
+                const newAdminId = item.getDataValue("id");
+                for (const creatorId of ids) {
+                    const creator = yield dbConnection_2.User.findOne({
+                        where: { id: creatorId, role: "user" },
+                        attributes: ["id"],
+                    });
+                    if (!creator)
+                        continue;
+                    const creatorPerms = yield dbConnection_2.UserPermission.findAll({
+                        where: { userId: creatorId },
+                        attributes: ["permissionId"],
+                    });
+                    if (creatorPerms.length > 0) {
+                        yield Promise.all(creatorPerms.map((p) => dbConnection_2.UserPermission.findOrCreate({
+                            where: { userId: newAdminId, permissionId: p.permissionId, companyId: null },
+                            defaults: { userId: newAdminId, permissionId: p.permissionId, companyId: null, grantedBy: creatorId },
+                        })));
+                    }
+                }
+            }
+        }
+        // When super_admin creates a user (role="user"), assign permissions immediately if provided
+        if (role === "user" && Array.isArray(permissionIds) && permissionIds.length > 0 && createdBy) {
+            const granterId = Number(createdBy);
+            const granterUser = yield dbConnection_2.User.findOne({
+                where: { id: granterId, role: "super_admin" },
+                attributes: ["id"],
+            });
+            if (granterUser) {
+                const newUserId = item.getDataValue("id");
+                const validPerms = yield dbConnection_2.Permission.findAll({
+                    where: { id: { [sequelize_1.Op.in]: permissionIds } },
+                    attributes: ["id"],
+                });
+                yield Promise.all(validPerms.map((p) => dbConnection_2.UserPermission.findOrCreate({
+                    where: { userId: newUserId, permissionId: p.id, companyId: null },
+                    defaults: { userId: newUserId, permissionId: p.id, companyId: null, grantedBy: granterId },
+                })));
+            }
         }
         /** ✅ JWT Tokens */
         const { accessToken, refreshToken } = Middleware.CreateToken(String(item.getDataValue("id")), String(item.getDataValue("role")));
         yield item.update({ refreshToken });
+        // Email login credentials in the background (no await — don't block registration)
+        (0, email_1.sendEmail)("Welcome to SalesVera - Your Login Credentials", password, email, firstName, lastName).catch((err) => console.error(`Failed to send credentials email to ${email}:`, err));
         (0, errorMessage_1.createSuccess)(res, `${role} registered successfully`, {
             item,
             accessToken,
@@ -152,22 +231,24 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 exports.Register = Register;
 const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { email, password } = req.body || {};
+        const { email, password, tenantId } = req.body || {};
         // Validate input
         if (!email || !password) {
             (0, errorMessage_1.badRequest)(res, "Email and password are required");
             return;
         }
-        // Find user
-        const user = yield Middleware.FindByEmail(dbConnection_2.User, email);
+        // Tenant-scoped lookup: if tenantId provided, scope to that tenant; otherwise global
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
         if (!user) {
             (0, errorMessage_1.badRequest)(res, "Invalid email or password");
             return;
         }
         // Allowed roles
-        const allowedRoles = ["admin", "manager", "super_admin"];
-        if (!allowedRoles.includes(user.get("role"))) {
-            (0, errorMessage_1.badRequest)(res, "Access restricted. Only admin & manager can login.");
+        const allowedRoles = ["admin", "manager", "super_admin", "sale_person", "user"];
+        const userRole = user.get("role");
+        if (!allowedRoles.includes(userRole)) {
+            (0, errorMessage_1.badRequest)(res, "Access restricted. Only admin, manager, sales & user can login.");
             return;
         }
         // Validate password
@@ -177,14 +258,74 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             (0, errorMessage_1.badRequest)(res, "Invalid email or password");
             return;
         }
-        // Create tokens
-        const { accessToken, refreshToken } = Middleware.CreateToken(String(user.get("id")), String(user.get("role")));
+        const userId = user.get("id");
+        // ── Resolve companyId for the JWT ─────────────────────────────────
+        let companyId = null;
+        if (userRole === "admin") {
+            // Priority 1: Primary admin of a company
+            const company = yield dbConnection_2.Company.findOne({
+                where: { adminId: userId },
+                attributes: ["id"],
+            });
+            companyId = company ? company.id : null;
+        }
+        else if (userRole === "manager" || userRole === "sale_person") {
+            // Priority 1: Primary manager of a company
+            const company = yield dbConnection_2.Company.findOne({
+                where: { managerId: userId },
+                attributes: ["id"],
+            });
+            companyId = company ? company.id : null;
+        }
+        // Priority 2: Fallback — find ANY company where this user has assigned permissions
+        // user role spans multiple companies (like super_admin), no companyId needed
+        if (!companyId && userRole !== "super_admin" && userRole !== "user") {
+            const firstPermission = yield dbConnection_2.UserPermission.findOne({
+                where: { userId },
+                attributes: ["companyId"],
+            });
+            companyId = firstPermission ? firstPermission.companyId : null;
+        }
+        // super_admin: companyId remains null (global access)
+        // Create tokens (companyId embedded in JWT)
+        const { accessToken, refreshToken } = Middleware.CreateToken(String(userId), userRole, companyId);
         // Save refresh token
         yield user.update({ refreshToken });
+        // ── Fetch Permissions for the Login Response ─────────────────────
+        let permissions = [];
+        if (userRole === "super_admin" || userRole === "user") {
+            // Super Admin & User: get all master permissions
+            const all = yield dbConnection_2.Permission.findAll({ attributes: ["module", "action"] });
+            permissions = all.map((p) => `${p.module}:${p.action}`);
+        }
+        else if (userRole === "admin" && companyId) {
+            // Admin: has all permissions within their company
+            const all = yield dbConnection_2.Permission.findAll({ attributes: ["module", "action"] });
+            permissions = all.map((p) => `${p.module}:${p.action}`);
+        }
+        else if (companyId) {
+            // Manager / Sales: fetch specific assigned permissions
+            const records = yield dbConnection_2.UserPermission.findAll({
+                where: { userId, companyId },
+                include: [{ model: dbConnection_2.Permission, as: "permission", attributes: ["module", "action"] }],
+            });
+            permissions = records.map((r) => `${r.permission.module}:${r.permission.action}`);
+        }
         (0, errorMessage_1.createSuccess)(res, "Login successful", {
             accessToken,
             refreshToken,
-            user,
+            companyId,
+            user: {
+                id: user.get("id"),
+                firstName: user.get("firstName"),
+                lastName: user.get("lastName"),
+                email: user.get("email"),
+                role: userRole,
+                tallyGuid: user.get("tallyGuid") || null,
+                tallyName: user.get("tallyName") || null,
+                tallyStartDate: user.get("tallyStartDate") || null,
+            },
+            permissions,
         });
     }
     catch (error) {
@@ -196,41 +337,50 @@ exports.Login = Login;
 const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const user = yield dbConnection_2.User.findByPk(Number(userData.userId), {
+        console.log(">>>>>>>getprofile", userData);
+        const { userId, role, companyId } = userData;
+        const user = yield dbConnection_2.User.findByPk(Number(userId), {
             include: [
                 {
                     model: dbConnection_2.Company,
                     as: "company",
                     include: [
-                        {
-                            model: dbConnection_2.Branch,
-                            as: "branches"
-                        },
-                        {
-                            model: dbConnection_2.Shift,
-                            as: "shifts"
-                        },
-                        {
-                            model: dbConnection_2.Department,
-                            as: "departments"
-                        },
-                        // {
-                        //   model:Holiday,
-                        //   as:"holidays"
-                        // },
-                        {
-                            model: dbConnection_2.CompanyLeave,
-                            as: "companyLeaves"
-                        },
-                        {
-                            model: dbConnection_2.CompanyBank,
-                            as: "companyBanks"
-                        }
-                    ]
+                        { model: dbConnection_2.Branch, as: "branches" },
+                        { model: dbConnection_2.Shift, as: "shifts" },
+                        { model: dbConnection_2.Department, as: "departments" },
+                        { model: dbConnection_2.CompanyLeave, as: "companyLeaves" },
+                        { model: dbConnection_2.CompanyBank, as: "companyBanks" },
+                    ],
                 },
             ],
         });
-        (0, errorMessage_1.createSuccess)(res, "User profile fetched successfully", user);
+        const permissions = [];
+        const matrix = {};
+        if (role === "super_admin" || role === "user") {
+            const all = yield dbConnection_2.Permission.findAll({
+                order: [["module", "ASC"], ["action", "ASC"]],
+            });
+            for (const p of all) {
+                if (!matrix[p.module])
+                    matrix[p.module] = {};
+                matrix[p.module][p.action] = true;
+                permissions.push(`${p.module}:${p.action}`);
+            }
+        }
+        else {
+            const records = yield dbConnection_2.UserPermission.findAll({
+                where: { userId: Number(userId), companyId: Number(companyId) },
+                include: [{ model: dbConnection_2.Permission, as: "permission", attributes: ["module", "action"] }],
+            });
+            for (const r of records) {
+                const { module, action } = r.permission;
+                if (!matrix[module])
+                    matrix[module] = {};
+                matrix[module][action] = true;
+                permissions.push(`${module}:${action}`);
+            }
+        }
+        (0, errorMessage_1.createSuccess)(res, "User profile fetched successfully", { user, permissions, matrix });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
@@ -239,6 +389,46 @@ const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.GetProfile = GetProfile;
+const UpdateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const { userId } = userData;
+        const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob", "tallyGuid", "tallyName", "tallyStartDate"];
+        const updates = {};
+        for (const field of ALLOWED_FIELDS) {
+            if (req.body[field] !== undefined && req.body[field] !== "") {
+                updates[field] = req.body[field];
+            }
+        }
+        if (req.file) {
+            const s3File = req.file;
+            updates.profile = s3File.location;
+        }
+        if (Object.keys(updates).length === 0) {
+            (0, errorMessage_1.badRequest)(res, "No fields provided to update");
+            return;
+        }
+        const user = yield dbConnection_2.User.findByPk(Number(userId));
+        if (!user) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        const updatePayload = Object.assign({}, updates);
+        if (updatePayload.tallyStartDate) {
+            updatePayload.tallyStartDate = new Date(updatePayload.tallyStartDate);
+        }
+        yield user.update(updatePayload);
+        const updatedUser = yield dbConnection_2.User.findByPk(Number(userId), {
+            attributes: ["id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid", "tallyName", "tallyStartDate"],
+        });
+        (0, errorMessage_1.createSuccess)(res, "Profile updated successfully", { user: updatedUser });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.UpdateProfile = UpdateProfile;
 const UpdatePassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -263,11 +453,8 @@ const UpdatePassword = (req, res) => __awaiter(void 0, void 0, void 0, function*
             (0, errorMessage_1.badRequest)(res, "Old password is incorrect");
             return;
         }
-        const salt = yield bcrypt_1.default.genSalt(10);
-        const newHashedPassword = yield bcrypt_1.default.hash(newPassword, salt);
-        yield Middleware.Update(dbConnection_2.User, Number(userData.userId), {
-            password: newHashedPassword,
-        });
+        user.set("password", newPassword);
+        yield user.save();
         (0, errorMessage_1.createSuccess)(res, "Password updated successfully");
     }
     catch (error) {
@@ -364,13 +551,29 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
-        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId; // 👈 Logged-in user ID
-        const where = {
-            id: { [sequelize_1.Op.ne]: loggedInId }, // ✅ Exclude logged-in user
-        };
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const loggedInRole = userData === null || userData === void 0 ? void 0 : userData.role;
+        // super_admin sees all users; everyone else sees only their descendants (children + grandchildren)
+        let idFilter;
+        if (loggedInRole === "super_admin") {
+            idFilter = { [sequelize_1.Op.ne]: loggedInId };
+        }
+        else {
+            const childIds = yield getAllChildUserIds(loggedInId);
+            if (childIds.length === 0) {
+                (0, errorMessage_1.createSuccess)(res, "Users fetched successfully", {
+                    page: pageNum,
+                    limit: limitNum,
+                    total: 0,
+                    finalRows: [],
+                });
+                return;
+            }
+            idFilter = { [sequelize_1.Op.in]: childIds };
+        }
+        const where = { id: idFilter };
         if (role)
             where.role = role;
-        // Search filter
         if (search) {
             where[sequelize_1.Op.or] = [
                 { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
@@ -393,12 +596,25 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             offset,
             limit: limitNum,
             order: [["createdAt", "DESC"]],
+            distinct: true,
             include: [
                 {
                     model: dbConnection_2.User,
                     as: "creators",
                     attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
                     through: { attributes: [] },
+                    required: false,
+                },
+                {
+                    model: dbConnection_2.Company,
+                    as: "company",
+                    attributes: ["id", "companyName"],
+                    required: false,
+                },
+                {
+                    model: dbConnection_2.Company,
+                    as: "managedCompany",
+                    attributes: ["id", "companyName"],
                     required: false,
                 },
             ],
@@ -440,7 +656,6 @@ const AddCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         const item = yield dbConnection_2.Category.create({
             category_name,
             adminId: loggedInId,
-            managerId: loggedInId,
             status: status || "draft",
         });
         (0, errorMessage_1.createSuccess)(res, "category create successfully", item);
@@ -458,27 +673,36 @@ const getcategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         const userData = req.userData;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
         const role = userData === null || userData === void 0 ? void 0 : userData.role;
-        let ll = loggedInId; // default (admin or fallback)
-        let manager = null;
-        // 🔹 If logged-in user is MANAGER → fetch admin (creator)
-        if (role === "manager") {
-            manager = yield dbConnection_2.User.findByPk(loggedInId, {
-                attributes: ["id", "role"],
-                include: [
-                    {
-                        model: dbConnection_2.User,
-                        as: "creators",
-                        attributes: ["id", "role"],
-                        through: { attributes: [] },
-                    },
-                ],
-            });
-            const plain = manager === null || manager === void 0 ? void 0 : manager.get({ plain: true });
-            if (((_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a.length) > 0) {
-                ll = plain.creators[0].id; // parent admin ID
+        let ll = loggedInId; // default (admin)
+        if (role === "manager" || role === "sale_person") {
+            // Walk up the creator chain until we find an admin
+            let currentId = Number(loggedInId);
+            while (true) {
+                const currentUser = yield dbConnection_2.User.findByPk(currentId, {
+                    attributes: ["id", "role"],
+                    include: [
+                        {
+                            model: dbConnection_2.User,
+                            as: "creators",
+                            attributes: ["id", "role"],
+                            through: { attributes: [] },
+                        },
+                    ],
+                });
+                const plain = currentUser === null || currentUser === void 0 ? void 0 : currentUser.get({ plain: true });
+                const creator = (_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a[0];
+                if (!creator) {
+                    if ((plain === null || plain === void 0 ? void 0 : plain.role) === "admin" || (plain === null || plain === void 0 ? void 0 : plain.role) === "super_admin")
+                        ll = currentId;
+                    break;
+                }
+                if (creator.role === "admin" || creator.role === "super_admin") {
+                    ll = creator.id;
+                    break;
+                }
+                currentId = creator.id;
             }
         }
-        // 🔹 Continue with your category function
         const data = req.query;
         const item = yield Middleware.getCategory(dbConnection_2.Category, data, "", ll);
         (0, errorMessage_1.createSuccess)(res, "category list", item);
@@ -489,6 +713,65 @@ const getcategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.getcategory = getcategory;
+const getCategoryWithSubCategories = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const role = userData === null || userData === void 0 ? void 0 : userData.role;
+        let adminId = loggedInId;
+        if (role === "manager" || role === "sale_person") {
+            let currentId = Number(loggedInId);
+            while (true) {
+                const currentUser = yield dbConnection_2.User.findByPk(currentId, {
+                    attributes: ["id", "role"],
+                    include: [
+                        {
+                            model: dbConnection_2.User,
+                            as: "creators",
+                            attributes: ["id", "role"],
+                            through: { attributes: [] },
+                        },
+                    ],
+                });
+                const plain = currentUser === null || currentUser === void 0 ? void 0 : currentUser.get({ plain: true });
+                const creator = (_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a[0];
+                if (!creator) {
+                    if ((plain === null || plain === void 0 ? void 0 : plain.role) === "admin" || (plain === null || plain === void 0 ? void 0 : plain.role) === "super_admin")
+                        adminId = currentId;
+                    break;
+                }
+                if (creator.role === "admin" || creator.role === "super_admin") {
+                    adminId = creator.id;
+                    break;
+                }
+                currentId = creator.id;
+            }
+        }
+        const categories = yield dbConnection_2.Category.findAll({
+            where: { adminId },
+            include: [
+                {
+                    model: dbConnection_2.SubCategory,
+                    as: "subCategories",
+                    required: false,
+                },
+            ],
+            order: [["createdAt", "DESC"]],
+        });
+        const result = categories.map((cat) => {
+            const catObj = cat.toJSON();
+            const subCategories = (catObj.subCategories || []).map((sub) => (Object.assign(Object.assign({}, sub), { tax: sub.text, text: undefined })));
+            return Object.assign(Object.assign({}, catObj), { subCategories });
+        });
+        (0, errorMessage_1.createSuccess)(res, "category with sub categories list", result);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getCategoryWithSubCategories = getCategoryWithSubCategories;
 const categoryDetails = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { id } = req.params;
@@ -513,22 +796,40 @@ const UpdateCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
     try {
         const { id } = req.params;
         const { category_name, status } = req.body || {};
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
         if (!id) {
             (0, errorMessage_1.badRequest)(res, "Category ID is missing");
             return;
         }
-        if (!category_name) {
-            (0, errorMessage_1.badRequest)(res, "Category name is missing");
+        if (!category_name && !status) {
+            (0, errorMessage_1.badRequest)(res, "Nothing to update");
             return;
         }
-        // ✅ Check if category with same name already exists
-        const isCategoryExist = yield Middleware.FindByField(dbConnection_2.Category, "category_name", category_name, "");
-        if (isCategoryExist) {
-            (0, errorMessage_1.badRequest)(res, "Category already exists");
-            return;
+        // Only check for duplicate name when category_name is being updated
+        if (category_name) {
+            const normalizedName = category_name.replace(/\s+/g, "").toLowerCase();
+            const isCategoryExist = yield dbConnection_2.Category.findOne({
+                where: {
+                    [sequelize_1.Op.and]: [
+                        sequelize_1.Sequelize.where(sequelize_1.Sequelize.fn("REPLACE", sequelize_1.Sequelize.fn("LOWER", sequelize_1.Sequelize.col("category_name")), " ", ""), normalizedName),
+                        { adminId: loggedInId },
+                        { id: { [sequelize_1.Op.ne]: id } },
+                    ],
+                },
+            });
+            if (isCategoryExist) {
+                (0, errorMessage_1.badRequest)(res, "Category already exists");
+                return;
+            }
         }
-        const updatedCategory = yield Middleware.UpdateData(dbConnection_2.Category, id, { category_name } // Pass as object
-        );
+        // Build update object with only provided fields
+        const updateData = {};
+        if (category_name)
+            updateData.category_name = category_name;
+        if (status)
+            updateData.status = status;
+        const updatedCategory = yield Middleware.UpdateData(dbConnection_2.Category, id, updateData);
         if (!updatedCategory) {
             (0, errorMessage_1.badRequest)(res, "Category not found");
             return;
@@ -651,6 +952,197 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     }
 });
 exports.getMeeting = getMeeting;
+const BulkAddSalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loginUser = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const loginRole = userData === null || userData === void 0 ? void 0 : userData.role;
+        console.log(">>>>>>>>>>>>>>", userData);
+        if (!loginUser) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized");
+            return;
+        }
+        const { createdBy } = req.body;
+        let creatorId;
+        if (loginRole === "manager") {
+            creatorId = Number(loginUser);
+        }
+        else {
+            if (!createdBy) {
+                (0, errorMessage_1.badRequest)(res, "createdBy is required");
+                return;
+            }
+            creatorId = Number(createdBy);
+            if (isNaN(creatorId)) {
+                (0, errorMessage_1.badRequest)(res, "Invalid createdBy");
+                return;
+            }
+        }
+        // Resolve tenantId from the creator so bulk-created users are scoped correctly
+        const creatorRecord = yield dbConnection_2.User.findByPk(creatorId, {
+            attributes: ["id", "role", "tenantId"],
+        });
+        let resolvedTenantId = null;
+        if (creatorRecord) {
+            if (creatorRecord.role === "user") {
+                resolvedTenantId = creatorRecord.id;
+            }
+            else if (creatorRecord.tenantId) {
+                resolvedTenantId = creatorRecord.tenantId;
+            }
+        }
+        if (!req.file) {
+            (0, errorMessage_1.badRequest)(res, "CSV file is required");
+            return;
+        }
+        const csvFile = req.file;
+        const s3 = new client_s3_1.S3Client({
+            region: process.env.AWS_REGION,
+            credentials: {
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            },
+        });
+        const data = yield s3.send(new client_s3_1.GetObjectCommand({
+            Bucket: csvFile.bucket,
+            Key: csvFile.key,
+        }));
+        if (!data.Body) {
+            (0, errorMessage_1.badRequest)(res, "Unable to read CSV from S3");
+            return;
+        }
+        const stream = data.Body;
+        const rows = [];
+        stream
+            .pipe((0, csv_parser_1.default)({
+            mapHeaders: ({ header }) => header.trim().toLowerCase(),
+        }))
+            .on("data", (row) => {
+            var _a, _b, _c, _d, _e;
+            rows.push({
+                firstName: ((_a = row.firstname) === null || _a === void 0 ? void 0 : _a.trim()) || "",
+                lastName: ((_b = row.lastname) === null || _b === void 0 ? void 0 : _b.trim()) || "",
+                email: ((_c = row.email) === null || _c === void 0 ? void 0 : _c.trim().toLowerCase()) || "",
+                phone: ((_d = row.phone) === null || _d === void 0 ? void 0 : _d.trim()) || "",
+                dob: ((_e = row.dob) === null || _e === void 0 ? void 0 : _e.trim()) || "",
+            });
+        })
+            .on("end", () => __awaiter(void 0, void 0, void 0, function* () {
+            try {
+                const invalidRows = [];
+                const duplicateInCsv = [];
+                const validRows = [];
+                const seenEmails = new Set();
+                for (const r of rows) {
+                    if (!r.firstName ||
+                        !r.lastName ||
+                        !r.email ||
+                        !r.phone ||
+                        !r.dob) {
+                        invalidRows.push(r);
+                        continue;
+                    }
+                    if (seenEmails.has(r.email)) {
+                        duplicateInCsv.push(r);
+                        continue;
+                    }
+                    seenEmails.add(r.email);
+                    validRows.push(r);
+                }
+                const existingByEmail = new Map();
+                if (validRows.length > 0) {
+                    const existingUsers = yield dbConnection_2.User.findAll({
+                        where: Object.assign({ email: { [sequelize_1.Op.in]: validRows.map((r) => r.email) } }, (resolvedTenantId ? { tenantId: resolvedTenantId } : {})),
+                        attributes: ["id", "email", "role"],
+                        include: [
+                            {
+                                model: dbConnection_2.User,
+                                as: "creators",
+                                attributes: ["id"],
+                                where: { id: creatorId },
+                                required: false,
+                                through: { attributes: [] },
+                            },
+                        ],
+                    });
+                    for (const user of existingUsers) {
+                        existingByEmail.set(user.getDataValue("email"), user);
+                    }
+                }
+                const created = [];
+                const linkedExisting = [];
+                const skippedDuplicate = [];
+                const skippedRoleMismatch = [];
+                for (const r of validRows) {
+                    const existing = existingByEmail.get(r.email);
+                    if (existing) {
+                        if (existing.getDataValue("role") !== "sale_person") {
+                            skippedRoleMismatch.push(r);
+                            continue;
+                        }
+                        const alreadyLinked = (existing.creators || []).length > 0;
+                        if (alreadyLinked) {
+                            skippedDuplicate.push(r);
+                            continue;
+                        }
+                        yield existing.addCreators([creatorId]);
+                        linkedExisting.push({
+                            id: existing.getDataValue("id"),
+                            firstName: r.firstName,
+                            lastName: r.lastName,
+                            email: r.email,
+                            phone: r.phone,
+                        });
+                        continue;
+                    }
+                    const tempPassword = generateTempPassword();
+                    const item = yield dbConnection_2.User.create({
+                        firstName: r.firstName,
+                        lastName: r.lastName,
+                        email: r.email,
+                        phone: r.phone,
+                        dob: r.dob,
+                        password: tempPassword,
+                        role: req.body.role,
+                        createdBy: creatorId,
+                        tenantId: resolvedTenantId,
+                    });
+                    yield item.setCreators([creatorId]);
+                    (0, email_1.sendEmail)("Welcome to SalesVera - Your Login Credentials", tempPassword, r.email, r.firstName, r.lastName).catch((err) => console.error(`Failed to send credentials email to ${r.email}:`, err));
+                    created.push({
+                        id: item.getDataValue("id"),
+                        firstName: r.firstName,
+                        lastName: r.lastName,
+                        email: r.email,
+                        phone: r.phone,
+                        tempPassword,
+                    });
+                }
+                (0, errorMessage_1.createSuccess)(res, "Bulk sale person upload completed", {
+                    totalCSV: rows.length,
+                    created: created.length,
+                    linkedExisting: linkedExisting.length,
+                    skippedInvalid: invalidRows.length,
+                    skippedDuplicateInCsv: duplicateInCsv.length,
+                    skippedDuplicate: skippedDuplicate.length,
+                    skippedRoleMismatch: skippedRoleMismatch.length,
+                    createdSalePersons: created,
+                    linkedSalePersons: linkedExisting,
+                });
+            }
+            catch (err) {
+                (0, errorMessage_1.badRequest)(res, err instanceof Error
+                    ? err.message
+                    : "Bulk sale person upload failed", err);
+            }
+        }));
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.BulkAddSalePerson = BulkAddSalePerson;
 const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -780,7 +1272,6 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const mainWhere = { id: loggedInId };
         const createdWhere = {};
         if (search) {
             createdWhere[sequelize_1.Op.or] = [
@@ -790,11 +1281,10 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
             ];
         }
-        // Get total count
-        const totalCount = yield dbConnection_2.User.count({
-            where: mainWhere,
-        });
-        const rows = yield dbConnection_2.User.findByPk(loggedInId, {
+        if (role) {
+            createdWhere.role = role;
+        }
+        const result = yield dbConnection_2.User.findByPk(loggedInId, {
             attributes: [
                 "id",
                 "firstName",
@@ -820,6 +1310,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                     through: { attributes: [] },
                     where: createdWhere,
                     required: false,
+                    order: [["createdAt", "DESC"]],
                     include: [
                         {
                             model: dbConnection_2.User,
@@ -834,26 +1325,37 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                                 "createdAt",
                             ],
                             through: { attributes: [] },
-                            where: createdWhere,
                             required: false,
                         },
                     ],
                 },
+                {
+                    model: dbConnection_2.Company,
+                    as: "company",
+                    attributes: ["id", "companyName"],
+                },
             ],
-            order: [["createdAt", "DESC"]],
         });
+        if (!result) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        let createdUsers = result.createdUsers || [];
+        const total = createdUsers.length;
+        createdUsers = createdUsers.slice(offset, offset + limitNum);
+        const userJson = result.toJSON();
+        userJson.createdUsers = createdUsers;
         (0, errorMessage_1.createSuccess)(res, "Users fetched successfully", {
             page: pageNum,
             limit: limitNum,
-            total: totalCount,
-            pages: Math.ceil(totalCount / limitNum),
-            user: rows,
+            total,
+            pages: Math.ceil(total / limitNum),
+            user: userJson,
         });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
     }
 });
 exports.test = test;
@@ -907,6 +1409,7 @@ exports.UpdateExpense = UpdateExpense;
 function getAllChildUserIds(userId) {
     return __awaiter(this, void 0, void 0, function* () {
         const result = new Set();
+        console.log(">>>>>>>>>>>>>>>>>>>>>>>>first");
         function fetchLevel(id) {
             return __awaiter(this, void 0, void 0, function* () {
                 const user = (yield dbConnection_2.User.findByPk(id, {
@@ -919,6 +1422,7 @@ function getAllChildUserIds(userId) {
                         },
                     ],
                 }));
+                console.log("second", user);
                 if (!(user === null || user === void 0 ? void 0 : user.createdUsers))
                     return;
                 for (const child of user.createdUsers) {
@@ -1019,6 +1523,10 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const { rows, count } = yield dbConnection_2.Expense.findAndCountAll({
             where: expenseWhere, // 👈 final merged condition
             include: [
+                {
+                    model: dbConnection_2.ExpenseImage,
+                    as: "images",
+                },
                 {
                     model: dbConnection_2.User,
                     as: "user",
@@ -1549,7 +2057,7 @@ const addSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        const { sub_category_name, amount, tax, status, CategoryId } = req.body;
+        const { sub_category_name, amount, tax, status, CategoryId, gst, unit, hsnCode } = req.body;
         if (!(sub_category_name === null || sub_category_name === void 0 ? void 0 : sub_category_name.trim())) {
             (0, errorMessage_1.badRequest)(res, "Sub category name is required");
             return;
@@ -1559,10 +2067,14 @@ const addSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             return;
         }
         const cleanName = sub_category_name.trim();
+        const normalizedName = cleanName.replace(/\s+/g, "").toLowerCase();
         const existingSubCategory = yield dbConnection_2.SubCategory.findOne({
             where: {
-                sub_category_name: cleanName,
-                CategoryId: CategoryId,
+                [sequelize_1.Op.and]: [
+                    sequelize_1.Sequelize.where(sequelize_1.Sequelize.fn("REPLACE", sequelize_1.Sequelize.fn("LOWER", sequelize_1.Sequelize.col("sub_category_name")), " ", ""), normalizedName),
+                    { CategoryId: CategoryId },
+                    { adminId: loggedInId },
+                ],
             },
         });
         if (existingSubCategory) {
@@ -1577,6 +2089,9 @@ const addSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             amount: amount !== null && amount !== void 0 ? amount : null,
             text: tax !== null && tax !== void 0 ? tax : null,
             status: status || "draft",
+            gst: gst !== null && gst !== void 0 ? gst : null,
+            unit: unit !== null && unit !== void 0 ? unit : null,
+            hsnCode: hsnCode !== null && hsnCode !== void 0 ? hsnCode : null,
         });
         (0, errorMessage_1.createSuccess)(res, "Sub category created successfully", subCategory);
     }
@@ -1599,7 +2114,7 @@ const updateSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, functi
             (0, errorMessage_1.badRequest)(res, "SubCategory id is required");
             return;
         }
-        const { sub_category_name, amount, tax, CategoryId } = req.body;
+        const { sub_category_name, amount, tax, CategoryId, status } = req.body;
         // Check if subcategory exists
         const existingSubCategory = yield dbConnection_2.SubCategory.findByPk(id);
         if (!existingSubCategory) {
@@ -1619,15 +2134,22 @@ const updateSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, functi
         if (CategoryId !== undefined) {
             object.CategoryId = CategoryId;
         }
+        if (status !== undefined) {
+            object.status = status;
+        }
         object.managerId = loggedInId;
         // Duplicate check ONLY if name is being updated
         if (sub_category_name !== undefined) {
             const cleanName = sub_category_name.trim();
+            const normalizedName = cleanName.replace(/\s+/g, "").toLowerCase();
             const duplicate = yield dbConnection_2.SubCategory.findOne({
                 where: {
-                    sub_category_name: cleanName,
-                    CategoryId: CategoryId !== null && CategoryId !== void 0 ? CategoryId : existingSubCategory.CategoryId,
-                    id: { [sequelize_1.Op.ne]: id },
+                    [sequelize_1.Op.and]: [
+                        sequelize_1.Sequelize.where(sequelize_1.Sequelize.fn("REPLACE", sequelize_1.Sequelize.fn("LOWER", sequelize_1.Sequelize.col("sub_category_name")), " ", ""), normalizedName),
+                        { CategoryId: CategoryId !== null && CategoryId !== void 0 ? CategoryId : existingSubCategory.CategoryId },
+                        { adminId: loggedInId },
+                        { id: { [sequelize_1.Op.ne]: id } },
+                    ],
                 },
             });
             if (duplicate) {
@@ -1681,13 +2203,15 @@ const getQuotationPdfList = (req, res) => __awaiter(void 0, void 0, void 0, func
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        console.log("userData", userData);
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 10;
         const offset = (page - 1) * limit;
         const { count, rows } = yield dbConnection_2.Quotations.findAndCountAll({
             where: {
-            // userId: userData.userId
+                // userId: userData.userId
+                status: {
+                    [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
+                }
             },
             include: [
                 {
@@ -2168,15 +2692,21 @@ exports.getFuelExpense = getFuelExpense;
 const addCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
+        console.log(">>>>>>>>>>>>>>>userData>", userData);
         if (!userData || !userData.userId) {
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        // console.log(userData.role)
+        if (userData.role !== "user") {
+            (0, errorMessage_1.badRequest)(res, "You are not authorized to add a company");
             return;
         }
         const { companyName, legalName, registrationNo, gst, pan, industry, companySize, website, companyEmail, companyPhone, city, timezone, currency, 
         // Bank
         bankAccountHolder, bankName, bankAccountNumber, bankIfsc, bankBranchName, bankAccountType, bankMicr, upiId, 
         // HR Config
-        payrollCycle, lateMarkAfter, autoHalfDayAfter, casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice, compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry, adminId, managerId, } = req.body;
+        payrollCycle, lateMarkAfter, autoHalfDayAfter, casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice, compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry, adminId, managerId, createdBy, userid } = req.body;
         // ================= VALIDATION =================
         if (!companyName || companyName.trim().length < 2) {
             (0, errorMessage_1.badRequest)(res, "Company name is required (min 2 chars)");
@@ -2269,10 +2799,27 @@ const addCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             compOffExpiryDays,
             casualCarryForwardLimit,
             casualCarryForwardExpiry,
-            userId: userData.userId,
+            userId: createdBy || userData.userId,
             adminId: adminId || null,
-            managerId: managerId || null
+            managerId: managerId || null,
         });
+        // When a company is linked to an admin, propagate the creator-user's permissions
+        // to that admin scoped to this company. Company is optional — if no adminId, skip.
+        if (adminId) {
+            const creatorUserId = Number(userData.userId);
+            const newCompanyId = company.id;
+            const creatorPerms = yield dbConnection_2.UserPermission.findAll({
+                where: { userId: creatorUserId },
+                attributes: ["permissionId"],
+            });
+            if (creatorPerms.length > 0) {
+                yield Promise.all(creatorPerms.map((p) => dbConnection_2.UserPermission.findOrCreate({
+                    where: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId },
+                    defaults: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId, grantedBy: creatorUserId },
+                })));
+                (0, permissionCache_1.invalidatePermissionCache)(Number(adminId));
+            }
+        }
         (0, errorMessage_1.createSuccess)(res, "Company added successfully", company);
     }
     catch (error) {
@@ -2406,6 +2953,64 @@ const deleteCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.deleteCompany = deleteCompany;
+const getOwnCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+        }
+        const companies = yield dbConnection_2.Company.findAll({
+            where: {
+                userId: userData.userId,
+            },
+            include: [
+                { model: dbConnection_2.Branch, as: "branches" },
+                { model: dbConnection_2.Shift, as: "shifts" },
+                { model: dbConnection_2.Department, as: "departments" },
+                { model: dbConnection_2.CompanyLeave, as: "companyLeaves" },
+                { model: dbConnection_2.CompanyBank, as: "companyBanks" },
+            ],
+        });
+        if (!companies || companies.length === 0) {
+            return (0, errorMessage_1.badRequest)(res, "No company found for this user");
+        }
+        // const companyIds = companies.map((c: any) => c.id);
+        // const [branches, holidays, departments, shifts, banks, leaveTypes] = await Promise.all([
+        //   Branch.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+        //   Holiday.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+        //   Department.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+        //   Shift.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+        //   CompanyBank.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+        //   CompanyLeave.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
+        // ]);
+        // const result = companies.map((company: any) => {
+        //   const cId = company.id;
+        //   const companyBranches = branches.filter((b: any) => b.companyId === cId);
+        //   const enrichedBranches = companyBranches.map((branch: any) => ({
+        //     ...branch.toJSON(),
+        //     holidays: holidays.filter((h: any) => h.branchId === branch.id).map((h: any) => h.toJSON()),
+        //     departments: departments.filter((d: any) => d.branchId === branch.id).map((d: any) => d.toJSON()),
+        //     shifts: shifts.filter((s: any) => s.branchId === branch.id).map((s: any) => s.toJSON()),
+        //     banks: banks.filter((b: any) => b.branchId === branch.id).map((b: any) => b.toJSON()),
+        //     leaveTypes: leaveTypes.filter((l: any) => l.branchId === branch.id).map((l: any) => l.toJSON()),
+        //   }));
+        //   return {
+        //     ...company.toJSON(),
+        //     branches: enrichedBranches,
+        //     holidays: holidays.filter((h: any) => h.companyId === cId && !h.branchId).map((h: any) => h.toJSON()),
+        //     departments: departments.filter((d: any) => d.companyId === cId && !d.branchId).map((d: any) => d.toJSON()),
+        //     shifts: shifts.filter((s: any) => s.companyId === cId && !s.branchId).map((s: any) => s.toJSON()),
+        //     banks: banks.filter((b: any) => b.companyId === cId && !b.branchId).map((b: any) => b.toJSON()),
+        //   };
+        // });
+        (0, errorMessage_1.createSuccess)(res, "Company fetched successfully", companies);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getOwnCompany = getOwnCompany;
 const addBranch = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -2913,7 +3518,6 @@ const addHoliday = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             }
         }
         // ================= DEBUG (optional) =================
-        // console.log(JSON.stringify(holidayData, null, 2));
         // ================= BULK CREATE =================
         const holidaysCreated = yield dbConnection_2.Holiday.bulkCreate(holidayData);
         return (0, errorMessage_1.createSuccess)(res, "Holidays added successfully", holidaysCreated);
@@ -3034,16 +3638,16 @@ const addQuotation2 = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             }
         }
         // ✅ Duplicate check (IMPORTANT)
-        const existing = yield dbConnection_2.Quotations.findOne({
-            where: {
-                userId: Number(userData.userId),
-                referenceNumber: data.referenceNumber
-            }
-        });
-        if (existing) {
-            (0, errorMessage_1.badRequest)(res, "Quotation already exists with this reference number");
-            return;
-        }
+        // const existing = await Quotations.findOne({
+        //   where: {
+        //     userId: Number(userData.userId),
+        //     referenceNumber: data.referenceNumber
+        //   }
+        // });
+        // if (existing) {
+        //    badRequest(res, "Quotation already exists with this reference number");
+        //    return
+        // }
         const quotationNumber = yield generateQuotationNumber();
         // ✅ Create quotation
         const quotation = yield dbConnection_2.Quotations.create({
@@ -3055,6 +3659,8 @@ const addQuotation2 = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             quotation: data,
             status: data.status || "draft",
             isConsumed: false,
+            guid: data.guid || null,
+            alterid: data.alterid || null
         });
         res.status(201).json({
             success: true,
@@ -3084,6 +3690,11 @@ const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, fun
         // ✅ Filters
         const status = String(req.query.status || "").toLowerCase();
         const companyName = String(req.query.companyName || "").toLowerCase();
+        // ✅ Validate status
+        const allowedStatus = ["draft", "accepted", "rejected"];
+        if (status && !allowedStatus.includes(status)) {
+            return (0, errorMessage_1.badRequest)(res, "Invalid status value");
+        }
         // 🟢 HIERARCHY LOGIC 🟢
         // Admin > Manager > Sales Person
         // We fetch all sub-users created by the logged-in user, and their sub-users too.
@@ -3117,11 +3728,13 @@ const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, fun
             // Move to the next generation
             currentParentIds = nextLevelParentIds;
         }
-        console.log("Final Team User IDs (Recursive):", teamUserIds);
         // ✅ Base where condition for Quotations
         // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
         let whereCondition = {
             userId: { [sequelize_1.Op.in]: teamUserIds },
+            status: {
+                [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
+            }
         };
         // ✅ Status filter
         if (status) {
@@ -3168,7 +3781,6 @@ const updateQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function
     try {
         const { id } = req.params;
         const { status } = req.body || {};
-        console.log("id", id, "status", status);
         if (!id) {
             (0, errorMessage_1.badRequest)(res, "Quotation id is required");
             return;
@@ -3191,7 +3803,6 @@ exports.updateQuotation = updateQuotation;
 const addLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        console.log("userData", userData);
         if (!userData || !userData.userId) {
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
@@ -3571,7 +4182,7 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 (0, errorMessage_1.badRequest)(res, "Item quantity must be greater than 0");
             }
         }
-        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date"]);
+        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date, guid, alterid } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date", "guid", "alterid"]);
         let quotationRecord = null;
         // =========================================
         // 🔁 QUOTATION HANDLING (FIXED LOGIC)
@@ -3653,6 +4264,8 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             invoiceDate: date ? new Date(date) : null,
             invoice: restData,
             items: data.items,
+            guid: guid || null,
+            alterid: alterid || null
         };
         const invoiceData = yield dbConnection_2.Invoices.create(invoicePayload, {
             transaction,
@@ -3824,7 +4437,6 @@ exports.addInvoice = addInvoice;
 const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        console.log("userDatagetInvoice", userData);
         if (!userData || !userData.userId) {
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
@@ -3859,10 +4471,12 @@ const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             });
             currentParentIds = nextLevelParentIds;
         }
-        console.log("Final Team User IDs (Recursive):", teamUserIds);
         // ✅ FIX: Use ONLY ONE whereCondition
         let whereCondition = {
             userId: { [sequelize_1.Op.in]: teamUserIds },
+            status: {
+                [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
+            }
         };
         // 🔍 Global search
         if (search) {
@@ -4264,6 +4878,23 @@ const addReport = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             }
         };
         reports.forEach((item, index) => validateReport(item, index));
+        // ✅ DUPLICATE CHECK (referenceNo + date)
+        const conditions = reports.map((item) => ({
+            referenceNo: item.referenceNo,
+            date: item.date,
+        }));
+        const existingReports = yield dbConnection_2.Report.findAll({
+            where: {
+                [sequelize_1.Op.or]: conditions,
+            },
+        });
+        if (existingReports.length > 0) {
+            const duplicates = existingReports
+                .map((r) => `Ref: ${r.referenceNo}, Date: ${r.date}`)
+                .join("; ");
+            (0, errorMessage_1.badRequest)(res, `Duplicate reports found: ${duplicates}`);
+            return;
+        }
         // ✅ PREPARE DATA
         const finalData = reports.map((item) => (Object.assign(Object.assign({}, item), { userId: userData.userId, companyId: userData.companyId || userData.userId })));
         let result;
@@ -4711,3 +5342,107 @@ const updateReport = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.updateReport = updateReport;
+const assignAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        let obj = {};
+        if (req.body.adminId) {
+            obj.adminId = req.body.adminId;
+        }
+        if (req.body.managerId) {
+            obj.managerId = req.body.managerId;
+        }
+        const item = yield dbConnection_2.Company.update(obj, {
+            where: {
+                id: Number(req.params.id)
+            }
+        });
+        (0, errorMessage_1.createSuccess)(res, "Admin assigned successfully", item);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.assignAdmin = assignAdmin;
+const forgotPassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { email, tenantId } = req.body || {};
+        if (!email) {
+            (0, errorMessage_1.badRequest)(res, "Email is missing");
+            return;
+        }
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
+        if (!user) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        user.otp = otp;
+        user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+        yield user.save();
+        (0, errorMessage_1.createSuccess)(res, "OTP sent to your email");
+        (0, email_1.forgotpassword)("Password Reset OTP", otp, user.email);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.forgotPassword = forgotPassword;
+const verifyOtp = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { email, otp, tenantId } = req.body || {};
+        if (!email || !otp) {
+            (0, errorMessage_1.badRequest)(res, "Email and OTP are required");
+            return;
+        }
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
+        if (!user) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        if (user.otp !== otp) {
+            (0, errorMessage_1.badRequest)(res, "Invalid OTP");
+            return;
+        }
+        if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
+            (0, errorMessage_1.badRequest)(res, "OTP has expired");
+            return;
+        }
+        user.otp = null;
+        user.otpExpiry = null;
+        yield user.save();
+        (0, errorMessage_1.createSuccess)(res, "OTP verified successfully");
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.verifyOtp = verifyOtp;
+const changePassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { email, newPassword, tenantId } = req.body || {};
+        if (!email || !newPassword) {
+            (0, errorMessage_1.badRequest)(res, "Email and new password are required");
+            return;
+        }
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
+        if (!user) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        user.set("password", newPassword);
+        yield user.save();
+        (0, errorMessage_1.createSuccess)(res, "Password changed successfully");
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.changePassword = changePassword;

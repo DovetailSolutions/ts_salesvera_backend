@@ -42,6 +42,11 @@ const UserModel = (sequelize) => {
         gstNumber: sequelize_1.DataTypes.STRING,
         companyName: sequelize_1.DataTypes.STRING,
         panNumber: sequelize_1.DataTypes.STRING,
+        tallyGuid: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+            field: "tally_guid",
+        },
         status: {
             type: sequelize_1.DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),
             defaultValue: "draft",

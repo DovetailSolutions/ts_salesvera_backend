@@ -47,8 +47,8 @@ const RepostModel = (sequelize) => {
             field: "overdue_days",
         },
         status: {
-            type: sequelize_1.DataTypes.ENUM("draft", "imported", "sent", "accepted", "rejected"),
-            allowNull: false, // ✅ added
+            type: sequelize_1.DataTypes.ENUM("draft", "imported", "sent", "accepted", "rejected", "cancelled", "deleted"),
+            allowNull: false,
             defaultValue: "draft",
         },
         userId: {

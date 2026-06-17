@@ -30,6 +30,10 @@ class Message extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
             },
+            fileName: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
             replyTo: {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,

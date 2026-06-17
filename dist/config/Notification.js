@@ -15,18 +15,23 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendNewChatNotification = exports.sendPushNotification = void 0;
 const firebase_admin_1 = __importDefault(require("firebase-admin"));
 // ✅ Initialize Firebase Admin SDK
-// Using static import ensures TypeScript copies the file to the dist/ directory.
-const salesvera_firebase_adminsdk_fbsvc_28c5e29ae4_json_1 = __importDefault(require("../Notigication/salesvera-firebase-adminsdk-fbsvc-28c5e29ae4.json"));
 try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const serviceAccount = require("../Notigication/salesvera-firebase-adminsdk-fbsvc-28c5e29ae4.json");
     if (!firebase_admin_1.default.apps.length) {
         firebase_admin_1.default.initializeApp({
-            credential: firebase_admin_1.default.credential.cert(salesvera_firebase_adminsdk_fbsvc_28c5e29ae4_json_1.default),
+            credential: firebase_admin_1.default.credential.cert(serviceAccount),
         });
         console.log("🔥 Firebase Admin SDK initialized successfully.");
     }
 }
 catch (error) {
-    console.error("❌ Firebase Admin initialization error:", error);
+    if ((error === null || error === void 0 ? void 0 : error.code) === "MODULE_NOT_FOUND") {
+        console.warn("⚠️  Firebase credentials file not found — push notifications disabled.");
+    }
+    else {
+        console.error("❌ Firebase Admin initialization error:", error);
+    }
 }
 const sendPushNotification = (_a) => __awaiter(void 0, [_a], void 0, function* ({ token, title, body, data = {}, }) {
     try {

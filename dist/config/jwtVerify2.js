@@ -27,50 +27,54 @@ const tokenCheck = (req, res, next) => __awaiter(void 0, void 0, void 0, functio
             return res.status(401).json({
                 code: 401,
                 success: false,
-                errorMessage: "Please provide bearer token",
+                message: "Unauthorized — please provide a Bearer token",
             });
         }
         const token = req.headers.authorization.split(" ")[1];
-        console.log(">>>>>>>>>>>>>>>>>token", token);
         let decoded;
         try {
-            decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || "dovetailPharma" // ✅ Must match CreateToken fallback
-            );
+            decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || "dovetailPharma");
         }
         catch (err) {
             return res.status(401).json({
                 code: "401",
                 success: false,
-                message: "Unauthorized",
+                message: "Unauthorized — invalid or expired token",
             });
         }
-        req.userData = decoded;
-        console.log(">>>>>>>>>>>>>>>>>>>>>", req.userData);
-        // support both possible token fields
-        const rawId = (_a = decoded.userId) !== null && _a !== void 0 ? _a : decoded.userId;
+        const rawId = (_a = decoded.userId) !== null && _a !== void 0 ? _a : decoded.id;
         const id = Number(rawId);
-        // Fetch both tables in parallel (you asked to include Users table)
-        const [item] = yield Promise.all([
-            dbConnection_1.User.findOne({
-                where: {
-                    id,
-                    [sequelize_1.Op.or]: [{ role: "user" }, { role: "manager" }, { role: "sale_person" }],
-                },
-            }),
-        ]);
-        if ((item && item.role === "user") ||
-            (item === null || item === void 0 ? void 0 : item.role) === "manager" ||
-            (item === null || item === void 0 ? void 0 : item.role) === "sale_person") {
-            return next();
-        }
-        return res.status(403).json({
-            code: "403",
-            success: false,
-            message: "Unauthorized",
+        // Verify user is active and has a valid non-admin role
+        const item = yield dbConnection_1.User.findOne({
+            where: {
+                id,
+                status: "active",
+                [sequelize_1.Op.or]: [
+                    { role: "user" },
+                    { role: "manager" },
+                    { role: "sale_person" },
+                ],
+            },
         });
+        if (!item) {
+            return res.status(403).json({
+                code: "403",
+                success: false,
+                message: "Forbidden — user not found, inactive, or insufficient role",
+            });
+        }
+        // Enrich userData: spread decoded JWT (which includes companyId if present),
+        // then override userId and role with the DB-verified values
+        req.userData = Object.assign(Object.assign({}, decoded), { userId: id, role: item.role });
+        return next();
     }
     catch (error) {
-        console.error(error);
+        console.error("tokenCheck (user) error:", error);
+        return res.status(500).json({
+            code: "500",
+            success: false,
+            message: "Internal server error",
+        });
     }
 });
 exports.tokenCheck = tokenCheck;
