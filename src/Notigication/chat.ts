@@ -272,7 +272,7 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     // 🟦 SEND MESSAGE
     // --------------------------------------------------------
-    socket.on("sendMessage", async ({ roomId, message }) => {
+    socket.on("sendMessage", async ({ roomId, message, replyTo }) => {
       try {
         // FIX: sending a message requires chat:send permission in addition to the
         //      chat:read check already enforced at connection time.
@@ -309,12 +309,13 @@ export const initChatSocket = (io: Server) => {
           chatRoomId: room.id,
           senderId: userId,
           message,
+          replyTo: replyTo ?? null,
         });
 
         // Attach quoted message data so frontend can render WhatsApp-style reply preview
         let replyToMessage: any = null;
-        if ((newMessage as any).replyTo) {
-          replyToMessage = await Message.findByPk((newMessage as any).replyTo, {
+        if (replyTo) {
+          replyToMessage = await Message.findByPk(replyTo, {
             attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
           });
         }
@@ -636,12 +637,18 @@ export const initChatSocket = (io: Server) => {
           ],
         });
 
+        const messages = result.rows.map((msg: any) => {
+          const plain = msg.get({ plain: true });
+          const { repliedMessage, ...rest } = plain;
+          return { ...rest, replyToMessage: repliedMessage ?? null };
+        });
+
         io.to(socket.id).emit("mychats", {
           success: true,
           total: result.count,
           totalPages: Math.ceil(result.count / limit),
           currentPage: page,
-          data: result.rows,
+          data: messages,
         });
       } catch (error) {
         console.log("Error in mychats:", error);
