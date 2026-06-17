@@ -40,7 +40,9 @@ const express_1 = require("express");
 const router = (0, express_1.Router)();
 const Controller = __importStar(require("../controller/user"));
 const NotificationController = __importStar(require("../controller/notification"));
+const PermissionController = __importStar(require("../controller/permission"));
 const jwtVerify2_1 = require("../../config/jwtVerify2");
+const checkPermission_1 = require("../../config/checkPermission");
 const fileUploads_1 = __importDefault(require("../../config/fileUploads"));
 const profile = (0, fileUploads_1.default)("image");
 const meeting = (0, fileUploads_1.default)("image");
@@ -56,30 +58,39 @@ router.post("/endmeeting", jwtVerify2_1.tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", jwtVerify2_1.tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", jwtVerify2_1.tokenCheck, Controller.scheduled);
 router.post("/logout", jwtVerify2_1.tokenCheck, Controller.Logout);
-router.get("/getcategory", Controller.getCategory);
+router.get("/getcategory", jwtVerify2_1.tokenCheck, Controller.getCategory);
 // Attendance Summary
-router.post("/attendance/punch-in", jwtVerify2_1.tokenCheck, Controller.AttendancePunchIn);
-router.post("/attendance/punch-out", jwtVerify2_1.tokenCheck, Controller.AttendancePunchOut);
-router.get("/attendance/today", jwtVerify2_1.tokenCheck, Controller.getTodayAttendance);
-router.get("/attendancelist", jwtVerify2_1.tokenCheck, Controller.AttendanceList);
-router.post("/leave", jwtVerify2_1.tokenCheck, Controller.requestLeave);
-router.get("/leave-list", jwtVerify2_1.tokenCheck, Controller.LeaveList);
-//Expense
-router.post("/expense", jwtVerify2_1.tokenCheck, expense.array("billImage"), Controller.CreateExpense);
-router.get("/getexpense", jwtVerify2_1.tokenCheck, Controller.GetExpense);
+// FIX: attendance routes now require explicit permissions.
+router.post("/attendance/punch-in", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "create"), Controller.AttendancePunchIn);
+router.post("/attendance/punch-out", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "update"), Controller.AttendancePunchOut);
+router.get("/attendance/today", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), Controller.getTodayAttendance);
+router.get("/attendancelist", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), Controller.AttendanceList);
+// FIX: leave routes now require explicit leave permissions —
+//      without leave:apply / leave:view the request is rejected with 403.
+router.post("/leave", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("leave", "apply"), Controller.requestLeave);
+router.get("/leave-list", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("leave", "view"), Controller.LeaveList);
+// Expense
+// FIX: expense routes now require explicit permissions.
+router.post("/expense", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("expense", "create"), expense.any(), Controller.CreateExpense);
+router.get("/getexpense", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("expense", "view"), Controller.GetExpense);
 router.get("/refreshtoken", jwtVerify2_1.tokenCheck, Controller.ReFressToken);
+router.get("/my-permissions", jwtVerify2_1.tokenCheck, PermissionController.getMyPermissions);
 router.patch("/updatepassword", jwtVerify2_1.tokenCheck, Controller.UpdatePassword);
+// Quotation
+// FIX: quotation routes now require explicit permissions.
 // router.get("/getquotation",tokenCheck,Controller.getQuotation)
-router.post("/getquotationpdf", jwtVerify2_1.tokenCheck, Controller.getQuotationPdf);
-router.get("/getquotationpdflist", jwtVerify2_1.tokenCheck, Controller.getQuotationPdfList);
-router.get("/downloadquotationpdf/:id", jwtVerify2_1.tokenCheck, Controller.downloadQuotationPdf);
+router.post("/getquotationpdf", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("quotation", "view"), Controller.getQuotationPdf);
+router.get("/getquotationpdflist", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("quotation", "view"), Controller.getQuotationPdfList);
+router.get("/downloadquotationpdf/:id", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("quotation", "view"), Controller.downloadQuotationPdf);
 router.get("/getsubcategory/:id", jwtVerify2_1.tokenCheck, Controller.getSubCategory);
-router.post("/addquotation", jwtVerify2_1.tokenCheck, Controller.addQuotation);
-router.post('/updatequotation/:id', jwtVerify2_1.tokenCheck, Controller.updateQuotation);
+router.post("/addquotation", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("quotation", "create"), Controller.addQuotation);
+router.post('/updatequotation/:id', jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("quotation", "update"), Controller.updateQuotation);
 router.get("/getcompany", jwtVerify2_1.tokenCheck, Controller.getCompany);
 router.get("/getcompanydetails/:id", jwtVerify2_1.tokenCheck, Controller.getCompanyDetails);
-router.post("/addinvoice", jwtVerify2_1.tokenCheck, Controller.addInvoice);
-router.get("/getinvoice", jwtVerify2_1.tokenCheck, Controller.getInvoice);
+// Invoice
+// FIX: invoice routes now require explicit permissions.
+router.post("/addinvoice", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("invoice", "create"), Controller.addInvoice);
+router.get("/getinvoice", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("invoice", "view"), Controller.getInvoice);
 //  router.post("/quotationToInvoice/:id",tokenCheck,Controller.quotationToInvoice);
 // record  sale
 router.post("/recordsale", jwtVerify2_1.tokenCheck, Controller.recordSale);
@@ -96,8 +107,10 @@ router.delete("/notifications/clear-all", jwtVerify2_1.tokenCheck, NotificationC
 router.delete("/notifications/:id", jwtVerify2_1.tokenCheck, NotificationController.deleteNotification);
 // router.post("/notifications/test",           tokenCheck, NotificationController.testNotification);
 router.post("/create-client", jwtVerify2_1.tokenCheck, Controller.createClient);
-router.get("/tally-report", jwtVerify2_1.tokenCheck, Controller.getTallyReport);
-// router.post("/forgot-password", Controller.forgotPassword);
-// router.post("/verify-opt", Controller.verifyOtp);
-// router.post("/reset-password", Controller.changePassword);
+// FIX: tally report requires report:view permission.
+router.get("/tally-report", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("report", "view"), Controller.getTallyReport);
+router.post("/forgot-password", Controller.forgotPassword);
+router.post("/verify-otp", Controller.verifyOtp);
+router.post("/reset-password", Controller.changePassword);
+router.get("/dashboardmobile", jwtVerify2_1.tokenCheck, Controller.getDashboardMobile);
 exports.default = router;

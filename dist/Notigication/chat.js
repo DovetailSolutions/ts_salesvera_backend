@@ -8,6 +8,17 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __rest = (this && this.__rest) || function (s, e) {
+    var t = {};
+    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
+        t[p] = s[p];
+    if (s != null && typeof Object.getOwnPropertySymbols === "function")
+        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
+            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
+                t[p[i]] = s[p[i]];
+        }
+    return t;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -16,8 +27,41 @@ exports.initChatSocket = void 0;
 const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../config/dbConnection");
+const permissionCache_1 = require("../config/permissionCache");
 const uuid_1 = require("uuid");
 const notificationService_1 = require("../config/notificationService");
+const client_s3_1 = require("@aws-sdk/client-s3");
+const s3 = new client_s3_1.S3Client({
+    region: process.env.AWS_REGION,
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    },
+});
+const uploadToS3 = (base64Data, fileName, mimeType) => __awaiter(void 0, void 0, void 0, function* () {
+    // Strip data URL prefix if Flutter sends "data:image/jpeg;base64,..."
+    const raw = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
+    const buffer = Buffer.from(raw, "base64");
+    const ext = fileName.split(".").pop() || "bin";
+    const key = `salesvera/chat/${(0, uuid_1.v4)()}.${ext}`;
+    yield s3.send(new client_s3_1.PutObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+    }));
+    return `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+});
+// FIX: loads a user's "module:action" permission strings from the DB.
+//      Used by the socket permission check below (reuses the same cache as HTTP routes).
+const loadUserPermissionsFromDB = (userId) => __awaiter(void 0, void 0, void 0, function* () {
+    const userPerms = yield dbConnection_1.UserPermission.findAll({
+        where: { userId },
+        include: [{ model: dbConnection_1.Permission, as: "permission", attributes: ["module", "action"] }],
+        attributes: [],
+    });
+    return userPerms.map((up) => `${up.permission.module}:${up.permission.action}`);
+});
 function getAllRelatedUserIds(userId_1) {
     return __awaiter(this, arguments, void 0, function* (userId, includeSelf = false) {
         const result = new Set();
@@ -96,28 +140,42 @@ function getAllRelatedUserIds(userId_1) {
     });
 }
 const initChatSocket = (io) => {
-    // ---------- 🔐 AUTH MIDDLEWARE ----------
-    io.use((socket, next) => {
+    // ---------- 🔐 AUTH + PERMISSION MIDDLEWARE ----------
+    // FIX: connection is rejected if the user lacks chat:read permission.
+    //      This blocks the entire chat namespace for users without it —
+    //      admin without chat:read cannot connect, so their manager/sale_person
+    //      hierarchy cannot receive chat access either.
+    io.use((socket, next) => __awaiter(void 0, void 0, void 0, function* () {
         const token = socket.handshake.headers.token;
         if (!token)
             return next(new Error("Authentication error"));
         try {
             const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
             socket.data.user = decoded;
+            const { userId, role, companyId } = decoded;
+            // These roles always have chat access — no permission check needed
+            const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
+            if (rolesWithChatAccess.includes(role))
+                return next();
+            if (!companyId) {
+                return next(new Error("Forbidden — no company context in token"));
+            }
+            // All other roles must have chat:read permission explicitly assigned
+            const perms = yield (0, permissionCache_1.getUserPermissionsFromCache)(Number(userId), () => loadUserPermissionsFromDB(Number(userId)));
+            if (!perms.has("chat:read")) {
+                return next(new Error("You do not have permission for chat"));
+            }
             next();
         }
         catch (err) {
             next(new Error("Authentication failed"));
         }
-    });
+    }));
     io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
-        console.log("Chat connected:", socket.id, "User:", socket.data.user.userId);
         const userId = Number(socket.data.user.userId); // ✅ Cast to number
         const userRole = socket.data.user.role;
         // 📡 Register this user's socket for targeted notifications
         (0, notificationService_1.setUserSocket)(userId, socket.id);
-        console.log(">>>>>>>>>>>>>>userId", userId);
-        console.log(">>>>>>>>>>>>>>userRole", userRole);
         yield dbConnection_1.User.update({ onlineSatus: "online" }, { where: { id: userId } });
         // 📡 Broadcast this user's online status to ALL connected clients
         io.emit("userStatusChange", { userId, onlineSatus: "online" });
@@ -134,7 +192,6 @@ const initChatSocket = (io) => {
                         roomId: newRoomId,
                         type,
                     });
-                    console.log("New room created:", newRoomId);
                 }
                 // Use DB primary key for relations (VERY IMPORTANT)
                 const dbRoomId = room.id;
@@ -163,7 +220,6 @@ const initChatSocket = (io) => {
                     roomId: room.roomId,
                     type: room.type,
                 });
-                console.log(`User ${userId} joined room ${room.roomId}`);
             }
             catch (error) {
                 console.error("Join room error:", error);
@@ -173,10 +229,21 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         // 🟦 SEND MESSAGE
         // --------------------------------------------------------
-        socket.on("sendMessage", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, message }) {
+        socket.on("sendMessage", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, message, replyTo }) {
             var _b, _c;
-            console.log(`📩 Incoming sendMessage from User ${userId} in Room ${roomId}: "${message}"`);
             try {
+                // FIX: sending a message requires chat:send permission in addition to the
+                //      chat:read check already enforced at connection time.
+                const { userId: tokenUserId, role: tokenRole, companyId: tokenCompanyId } = socket.data.user;
+                const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
+                if (!rolesWithChatAccess.includes(tokenRole)) {
+                    const perms = yield (0, permissionCache_1.getUserPermissionsFromCache)(Number(tokenUserId), () => loadUserPermissionsFromDB(Number(tokenUserId)));
+                    if (!perms.has("chat:send")) {
+                        return socket.emit("errorMessage", {
+                            error: "You do not have permission for chat",
+                        });
+                    }
+                }
                 const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId } });
                 if (!room)
                     return socket.emit("errorMessage", { error: "Invalid roomId" });
@@ -192,8 +259,16 @@ const initChatSocket = (io) => {
                     chatRoomId: room.id,
                     senderId: userId,
                     message,
+                    replyTo: replyTo !== null && replyTo !== void 0 ? replyTo : null,
                 });
-                io.to(roomId).emit("receiveMessage", newMessage);
+                // Attach quoted message data so frontend can render WhatsApp-style reply preview
+                let replyToMessage = null;
+                if (replyTo) {
+                    replyToMessage = yield dbConnection_1.Message.findByPk(replyTo, {
+                        attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
+                    });
+                }
+                io.to(roomId).emit("receiveMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
                 // 🔔 Notify all OTHER participants in real-time
                 const participants = yield dbConnection_1.ChatParticipant.findAll({
                     where: { chatRoomId: room.id },
@@ -227,6 +302,153 @@ const initChatSocket = (io) => {
             }
         }));
         // --------------------------------------------------------
+        // 🟦 SEND FILE MESSAGE (image · video · audio · document · any file)
+        // --------------------------------------------------------
+        // Payload:
+        //   roomId   : string
+        //   fileData : base64 encoded file content
+        //   fileName : original file name e.g. "photo.jpg"
+        //   mimeType : e.g. "image/jpeg", "video/mp4", "application/pdf"
+        //   caption? : optional text with the file
+        //   replyTo? : optional message id being replied to
+        socket.on("sendFileMessage", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, fileData, fileName, mimeType, caption, replyTo }) {
+            var _b, _c, _d;
+            try {
+                if (!fileData || !fileName || !mimeType) {
+                    return socket.emit("errorMessage", {
+                        error: "fileData, fileName and mimeType are required",
+                    });
+                }
+                const { userId: tokenUserId, role: tokenRole } = socket.data.user;
+                const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
+                if (!rolesWithChatAccess.includes(tokenRole)) {
+                    const perms = yield (0, permissionCache_1.getUserPermissionsFromCache)(Number(tokenUserId), () => loadUserPermissionsFromDB(Number(tokenUserId)));
+                    if (!perms.has("chat:send")) {
+                        return socket.emit("errorMessage", {
+                            error: "You do not have permission for chat",
+                        });
+                    }
+                }
+                const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId } });
+                if (!room)
+                    return socket.emit("errorMessage", { error: "Invalid roomId" });
+                const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: room.id, userId },
+                });
+                if (!isParticipant) {
+                    return socket.emit("errorMessage", { error: "You are not a room member" });
+                }
+                // Upload file to S3 and get public URL
+                const mediaUrl = yield uploadToS3(fileData, fileName, mimeType);
+                // Derive mediaType from mimeType
+                let mediaType = "file";
+                if (mimeType.startsWith("image/"))
+                    mediaType = "image";
+                else if (mimeType.startsWith("video/"))
+                    mediaType = "video";
+                else if (mimeType.startsWith("audio/"))
+                    mediaType = "audio";
+                else if (mimeType === "application/pdf" ||
+                    mimeType.includes("word") ||
+                    mimeType.includes("excel") ||
+                    mimeType.includes("spreadsheet") ||
+                    mimeType.includes("presentation") ||
+                    mimeType.includes("powerpoint") ||
+                    mimeType === "text/plain") {
+                    mediaType = "document";
+                }
+                const newMessage = yield dbConnection_1.Message.create({
+                    chatRoomId: room.id,
+                    senderId: userId,
+                    message: caption !== null && caption !== void 0 ? caption : null,
+                    mediaUrl,
+                    mediaType,
+                    fileName: fileName !== null && fileName !== void 0 ? fileName : null,
+                    replyTo: replyTo !== null && replyTo !== void 0 ? replyTo : null,
+                });
+                // Attach quoted message data so frontend can render WhatsApp-style reply preview
+                let replyToMessage = null;
+                if (replyTo) {
+                    replyToMessage = yield dbConnection_1.Message.findByPk(replyTo, {
+                        attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
+                    });
+                }
+                io.to(roomId).emit("receiveFileMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
+                // 🔔 Notify other participants
+                const participants = yield dbConnection_1.ChatParticipant.findAll({
+                    where: { chatRoomId: room.id },
+                });
+                const sender = yield dbConnection_1.User.findByPk(userId, {
+                    attributes: ["firstName", "lastName"],
+                });
+                const senderName = sender
+                    ? `${(_b = sender.firstName) !== null && _b !== void 0 ? _b : ""} ${(_c = sender.lastName) !== null && _c !== void 0 ? _c : ""}`.trim()
+                    : "Someone";
+                const notificationBody = mediaType === "image" ? "📷 Image" :
+                    mediaType === "video" ? "🎥 Video" :
+                        mediaType === "audio" ? "🎵 Audio" :
+                            mediaType === "document" ? "📄 Document" :
+                                "📎 File";
+                for (const participant of participants) {
+                    if (participant.userId === userId)
+                        continue;
+                    yield (0, notificationService_1.sendNotification)({
+                        receiverId: participant.userId,
+                        senderId: userId,
+                        type: "chat",
+                        title: `New message from ${senderName}`,
+                        body: notificationBody,
+                        data: { roomId, messageId: String(newMessage.id) },
+                    });
+                }
+            }
+            catch (error) {
+                console.error("Send file message error:", error);
+                socket.emit("errorMessage", {
+                    error: "Failed to send file message",
+                    detail: (_d = error === null || error === void 0 ? void 0 : error.message) !== null && _d !== void 0 ? _d : String(error),
+                });
+            }
+        }));
+        // --------------------------------------------------------
+        // 🟦 FORWARD MESSAGE  (copy a message into another room)
+        // --------------------------------------------------------
+        // Payload: { messageId, toRoomId }
+        socket.on("forwardMessage", (_a) => __awaiter(void 0, [_a], void 0, function* ({ messageId, toRoomId }) {
+            var _b, _c, _d, _e;
+            try {
+                const originalMsg = yield dbConnection_1.Message.findByPk(messageId);
+                if (!originalMsg) {
+                    return socket.emit("errorMessage", { error: "Original message not found" });
+                }
+                const targetRoom = yield dbConnection_1.ChatRoom.findOne({ where: { roomId: toRoomId } });
+                if (!targetRoom) {
+                    return socket.emit("errorMessage", { error: "Target room not found" });
+                }
+                const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: targetRoom.id, userId },
+                });
+                if (!isParticipant) {
+                    return socket.emit("errorMessage", { error: "You are not a member of the target room" });
+                }
+                const forwarded = yield dbConnection_1.Message.create({
+                    chatRoomId: targetRoom.id,
+                    senderId: userId,
+                    message: (_b = originalMsg.message) !== null && _b !== void 0 ? _b : null,
+                    mediaUrl: (_c = originalMsg.mediaUrl) !== null && _c !== void 0 ? _c : null,
+                    mediaType: (_d = originalMsg.mediaType) !== null && _d !== void 0 ? _d : null,
+                    fileName: (_e = originalMsg.fileName) !== null && _e !== void 0 ? _e : null,
+                    replyTo: null,
+                });
+                io.to(toRoomId).emit("receiveFileMessage", Object.assign(Object.assign({}, forwarded.toJSON()), { forwarded: true }));
+                socket.emit("forwardMessage", { success: true, messageId: forwarded.id });
+            }
+            catch (error) {
+                console.error("Forward message error:", error);
+                socket.emit("errorMessage", { error: "Failed to forward message" });
+            }
+        }));
+        // --------------------------------------------------------
         // 🟦 TYPING INDICATOR
         // --------------------------------------------------------
         socket.on("typing", (data) => {
@@ -248,15 +470,17 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         socket.on("seenMessage", (msg) => __awaiter(void 0, void 0, void 0, function* () {
             try {
-                const [updated] = yield dbConnection_1.Message.update({ status: "seen" }, { where: { id: msg.msg_id } });
-                if (!updated) {
-                    console.log("Message not found");
-                }
+                const message = yield dbConnection_1.Message.findByPk(msg.msg_id);
+                if (!message)
+                    return;
+                yield message.update({ status: "seen" });
                 io.to(msg.roomId).emit("seenMessage", {
                     success: true,
-                    data: updated,
                     msg_id: msg.msg_id,
-                    seenBy: userId
+                    seenBy: userId,
+                    fileName: message.fileName,
+                    mediaUrl: message.mediaUrl,
+                    mediaType: message.mediaType,
                 });
             }
             catch (err) {
@@ -268,18 +492,19 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         socket.on("messageToDelete", (data) => __awaiter(void 0, void 0, void 0, function* () {
             try {
-                const deletedMessage = yield dbConnection_1.Message.destroy({
-                    where: {
-                        id: data.id,
-                        senderId: data.senderId,
-                    },
+                const msg = yield dbConnection_1.Message.findOne({
+                    where: { id: data.id, senderId: data.senderId },
                 });
-                if (deletedMessage) {
-                    io.emit("Deleted", { id: data.id });
-                }
-                else {
-                    console.log("Message not found or already deleted");
-                }
+                if (!msg)
+                    return;
+                const { fileName, mediaUrl, mediaType } = msg;
+                yield msg.destroy();
+                io.emit("Deleted", {
+                    id: data.id,
+                    fileName,
+                    mediaUrl,
+                    mediaType,
+                });
             }
             catch (error) {
                 console.error("Error deleting message:", error);
@@ -312,16 +537,27 @@ const initChatSocket = (io) => {
                     where: Object.assign({ chatRoomId: chatRoom === null || chatRoom === void 0 ? void 0 : chatRoom.id }, searchCondition),
                     offset,
                     limit,
-                    raw: true,
-                    nest: true,
                     order: [["createdAt", "DESC"]],
+                    include: [
+                        {
+                            model: dbConnection_1.Message,
+                            as: "repliedMessage",
+                            required: false,
+                            attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
+                        },
+                    ],
+                });
+                const messages = result.rows.map((msg) => {
+                    const plain = msg.get({ plain: true });
+                    const { repliedMessage } = plain, rest = __rest(plain, ["repliedMessage"]);
+                    return Object.assign(Object.assign({}, rest), { replyToMessage: repliedMessage !== null && repliedMessage !== void 0 ? repliedMessage : null });
                 });
                 io.to(socket.id).emit("mychats", {
                     success: true,
                     total: result.count,
                     totalPages: Math.ceil(result.count / limit),
                     currentPage: page,
-                    data: result.rows,
+                    data: messages,
                 });
             }
             catch (error) {
@@ -333,9 +569,14 @@ const initChatSocket = (io) => {
                 const offset = (page - 1) * limit;
                 const cleanedSearch = typeof search === "string" ? search.trim() : "";
                 const childIds = yield getAllRelatedUserIds(userId);
-                console.log(">>>>>>>>>>>>>>>>childIds", childIds);
                 const validUserIds = [userId, ...childIds];
-                console.log(">>>>>>>>>>>>>>>>validUserIds", validUserIds);
+                console.log(validUserIds, 'validUserIds');
+                // 🟢 Get all rooms I am part of to filter unread messages correctly
+                const myParticipations = yield dbConnection_1.ChatParticipant.findAll({
+                    where: { userId },
+                    attributes: ["chatRoomId"],
+                });
+                const myRoomIds = myParticipations.map((p) => p.chatRoomId);
                 let userSearchCondition = {};
                 if (cleanedSearch !== "") {
                     userSearchCondition = {
@@ -359,18 +600,19 @@ const initChatSocket = (io) => {
                         "role",
                         "onlineSatus",
                     ],
-                    include: [
-                        {
-                            model: dbConnection_1.Message,
-                            as: "Messages",
-                            where: {
-                                status: "unseen",
-                            },
-                            required: false,
-                            separate: true, // 🔥 important: does not break pagination
-                            attributes: ["id", "status"],
-                        },
-                    ],
+                    // include: [
+                    //   {
+                    //     model: Message,
+                    //     as: "Messages",
+                    //     where: {
+                    //       status: "unseen",
+                    //       chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
+                    //     },
+                    //     required: false,
+                    //     separate: true, // 🔥 important: does not break pagination
+                    //     attributes: ["id", "status"],
+                    //   },
+                    // ],
                     order: [["id", "DESC"]],
                     limit,
                     offset,
@@ -382,7 +624,6 @@ const initChatSocket = (io) => {
                     const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
                     return Object.assign(Object.assign({}, userObj), { unreadCount });
                 });
-                console.log(">>>>>>>>usersWithUnreadCounts", usersWithUnreadCounts);
                 io.to(socket.id).emit("UserList", {
                     success: true,
                     total: result.count,
@@ -392,7 +633,6 @@ const initChatSocket = (io) => {
                 });
             }
             catch (error) {
-                console.error("UserList Error:", error);
                 socket.emit("UserList", {
                     success: false,
                     error: "Unable to fetch user list",
@@ -404,7 +644,6 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         socket.on("createGroup", (_a) => __awaiter(void 0, [_a], void 0, function* ({ members = [], name = "New Group" }) {
             try {
-                console.log(">>>>>>>>>>>>>>>members", members);
                 if (!members || members.length === 0) {
                     return socket.emit("createGroup", { error: "Group members are required" });
                 }
@@ -437,7 +676,6 @@ const initChatSocket = (io) => {
                     groupName: room.groupName,
                     members: [userId, ...members],
                 });
-                console.log(`User ${userId} created group ${room.roomId}`);
             }
             catch (error) {
                 console.error("Create group error:", error);
@@ -463,6 +701,17 @@ const initChatSocket = (io) => {
                 if (!isParticipant) {
                     return socket.emit("addGroupMembers", { error: "You are not a member of this group." });
                 }
+                // Tenant isolation: only allow adding users from the same tenant
+                const requester = yield dbConnection_1.User.findByPk(userId, { attributes: ["tenantId"] });
+                if (requester === null || requester === void 0 ? void 0 : requester.tenantId) {
+                    const validMembers = yield dbConnection_1.User.findAll({
+                        where: { id: { [sequelize_1.Op.in]: newMembers }, tenantId: requester.tenantId },
+                        attributes: ["id"],
+                    });
+                    if (validMembers.length !== newMembers.length) {
+                        return socket.emit("addGroupMembers", { error: "Cannot add users from a different tenant." });
+                    }
+                }
                 // Add the new members
                 const bulk = newMembers.map((m) => ({
                     chatRoomId: room.id,
@@ -476,10 +725,8 @@ const initChatSocket = (io) => {
                     addedMembers: newMembers,
                     addedBy: userId
                 });
-                // console.log(`User ${userId} added members ${newMembers} to group ${roomId}`);
             }
             catch (error) {
-                // console.error("Add members error:", error);
                 socket.emit("addGroupMembers", { error: "Unable to add members to group." });
             }
         }));
@@ -512,14 +759,12 @@ const initChatSocket = (io) => {
                         removedMember: memberIdToRemove,
                         removedBy: userId
                     });
-                    // console.log(`User ${userId} removed member ${memberIdToRemove} from group ${roomId}`);
                 }
                 else {
                     socket.emit("leaveGroup", { error: "Member not found in group." });
                 }
             }
             catch (error) {
-                // console.error("Remove member error:", error);
                 socket.emit("leaveGroup", { error: "Unable to remove member from group." });
             }
         }));
@@ -545,7 +790,6 @@ const initChatSocket = (io) => {
                         leftMember: userId
                     });
                     socket.emit("leaveGroup", { roomId });
-                    // console.log(`User ${userId} left group ${roomId}`);
                 }
                 else {
                     socket.emit("leaveGroup", { error: "You are not a member of this group." });
@@ -672,7 +916,6 @@ const initChatSocket = (io) => {
                     newName: room.groupName,
                     updatedBy: userId
                 });
-                console.log(`User ${userId} updated group ${roomId} name to "${room.groupName}"`);
             }
             catch (error) {
                 console.error("Update group name error:", error);
@@ -709,7 +952,6 @@ const initChatSocket = (io) => {
                 });
                 // Force all sockets to leave the room
                 io.in(roomId).socketsLeave(roomId);
-                console.log(`User ${userId} deleted group ${roomId}`);
             }
             catch (error) {
                 console.error("Delete group error:", error);
@@ -722,8 +964,7 @@ const initChatSocket = (io) => {
             // 📡 Broadcast this user's offline status to ALL connected clients
             io.emit("userStatusChange", { userId, onlineSatus: "offline" });
             // Clean up notification socket map
-            (0, notificationService_1.removeUserSocket)(userId);
-            console.log("Disconnected:", socket.id);
+            (0, notificationService_1.removeUserSocket)(userId, socket.id);
         }));
     }));
 };

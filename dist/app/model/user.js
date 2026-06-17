@@ -56,6 +56,18 @@ const createUserModel = (sequelize) => {
             allowNull: false,
             defaultValue: "user",
         },
+        tallyGuid: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+        },
+        tallyName: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+        },
+        tallyStartDate: {
+            type: sequelize_1.DataTypes.DATE,
+            allowNull: true,
+        },
         refreshToken: {
             type: sequelize_1.DataTypes.STRING,
             allowNull: true,
@@ -68,14 +80,19 @@ const createUserModel = (sequelize) => {
             type: sequelize_1.DataTypes.STRING,
             allowNull: true,
         },
-        // createdBy: {
-        //   type: DataTypes.INTEGER,
-        //   allowNull: true,
-        //   references: {
-        //     model: "users", // If FK
-        //     key: "id",
-        //   },
-        // },
+        otp: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+        },
+        otpExpiry: {
+            type: sequelize_1.DataTypes.DATE,
+            allowNull: true,
+        },
+        tenantId: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: null,
+        },
     }, {
         tableName: "users",
         timestamps: true,

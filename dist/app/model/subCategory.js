@@ -16,7 +16,7 @@ class SubCategory extends sequelize_1.Model {
             },
             CategoryId: {
                 type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
-                allowNull: false,
+                allowNull: true,
             },
             adminId: {
                 type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
@@ -37,6 +37,19 @@ class SubCategory extends sequelize_1.Model {
             hsnCode: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
+            },
+            gst: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            unit: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            tallyGuid: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+                field: "tally_guid",
             },
             status: {
                 type: sequelize_1.DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),

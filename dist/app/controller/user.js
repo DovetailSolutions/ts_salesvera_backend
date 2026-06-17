@@ -56,7 +56,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createClient = exports.getTallyReport = exports.deleteRecordSale = exports.updateRecordSale = exports.getRecordSaleById = exports.getRecordSale = exports.recordSale = exports.getInvoice = exports.addInvoice = exports.getCompanyDetails = exports.getCompany = exports.updateQuotation = exports.getSubCategory = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.addQuotation = exports.getQuotationPdf = exports.UpdatePassword = exports.ReFressToken = exports.GetExpense = exports.CreateExpense = exports.LeaveList = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.getLastMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.getDashboardMobile = exports.changePassword = exports.verifyOtp = exports.forgotPassword = exports.createClient = exports.getTallyReport = exports.deleteRecordSale = exports.updateRecordSale = exports.getRecordSaleById = exports.getRecordSale = exports.recordSale = exports.getInvoice = exports.addInvoice = exports.getCompanyDetails = exports.getCompany = exports.updateQuotation = exports.getSubCategory = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.addQuotation = exports.getQuotationPdf = exports.UpdatePassword = exports.ReFressToken = exports.GetExpense = exports.CreateExpense = exports.LeaveList = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.getLastMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const puppeteer_1 = __importDefault(require("puppeteer"));
@@ -66,10 +66,11 @@ const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const errorMessage_1 = require("../middlewear/errorMessage");
-// import { sendEmail, forgotpassword } from "../../config/email";
+const email_1 = require("../../config/email");
 const dbConnection_2 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
 const web_1 = require("stream/web");
+const comman_1 = require("../middlewear/comman");
 function getDistance(lat1, lon1, lat2, lon2) {
     const toRad = (value) => (value * Math.PI) / 180;
     const R = 6371; // Earth radius in KM
@@ -96,6 +97,8 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             phone,
             role: "user",
         });
+        // tenant root: points to itself
+        yield item.update({ tenantId: item.id });
         (0, errorMessage_1.createSuccess)(res, "admin register done", item);
     }
     catch (error) {
@@ -105,14 +108,16 @@ const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 });
 exports.Register = Register;
 const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
-        const { email, password, deviceToken, devicemodel, devicename, deviceType, deviceId, } = req.body || {};
+        const { email, password, tenantId, deviceToken, devicemodel, devicename, deviceType, deviceId, } = req.body || {};
         if (!email || !password) {
             (0, errorMessage_1.badRequest)(res, "Email and password are required");
             return;
         }
-        // ✅ Check if user exists
-        const user = yield Middleware.FindByEmail(dbConnection_2.User, email);
+        // Tenant-scoped lookup: if tenantId provided, scope to that tenant; otherwise global
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
         if (!user) {
             (0, errorMessage_1.badRequest)(res, "Invalid email or password");
             return;
@@ -124,12 +129,75 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             (0, errorMessage_1.badRequest)(res, "Invalid email or password");
             web_1.ReadableStreamDefaultController;
         }
+        // ✅ Resolve companyId for token: sale_person → manager → admin → company
+        const userId = user.getDataValue("id");
+        const role = user.getDataValue("role");
+        const createdBy = user.getDataValue("createdBy");
+        let companyId = null;
+        if (role === "admin") {
+            const company = yield dbConnection_2.Company.findOne({
+                where: { adminId: userId },
+                attributes: ["id"],
+            });
+            companyId = company ? company.id : null;
+        }
+        else if (role === "manager") {
+            const company = yield dbConnection_2.Company.findOne({
+                where: { managerId: userId },
+                attributes: ["id"],
+            });
+            companyId = company ? company.id : null;
+        }
+        else {
+            // Walk up the creator chain to find the root admin, then resolve company
+            let currentId = userId;
+            let rootAdminId = null;
+            while (true) {
+                const currentUser = yield dbConnection_2.User.findByPk(currentId, {
+                    include: [{
+                            model: dbConnection_2.User,
+                            as: "creators",
+                            attributes: ["id", "role"],
+                            through: { attributes: [] },
+                        }],
+                });
+                const plain = currentUser === null || currentUser === void 0 ? void 0 : currentUser.get({ plain: true });
+                const creator = ((_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a[0]) || null;
+                if (!creator) {
+                    if ((plain === null || plain === void 0 ? void 0 : plain.role) === "admin" || (plain === null || plain === void 0 ? void 0 : plain.role) === "super_admin") {
+                        rootAdminId = currentId;
+                    }
+                    break;
+                }
+                if (creator.role === "admin" || creator.role === "super_admin") {
+                    rootAdminId = creator.id;
+                    break;
+                }
+                currentId = creator.id;
+            }
+            if (rootAdminId) {
+                const company = yield dbConnection_2.Company.findOne({
+                    where: { adminId: rootAdminId },
+                    attributes: ["id"],
+                });
+                companyId = company ? company.id : null;
+            }
+        }
+        console.log(`Login attempt: userId=${userId}, role=${role}, resolvedCompanyId=${companyId}`);
         // ✅ Create access & refresh tokens
-        const { accessToken, refreshToken } = Middleware.CreateToken(String(user.getDataValue("id")), String(user.getDataValue("role")));
+        const { accessToken, refreshToken } = Middleware.CreateToken(String(userId), String(role), companyId);
         // ✅ Save refresh token in DB
         yield user.update({ refreshToken });
         if (deviceToken) {
-            const existing = yield dbConnection_2.Device.findOne({ where: { deviceToken } });
+            // ✅ Check if this device (token or ID) is already registered
+            const existing = yield dbConnection_2.Device.findOne({
+                where: {
+                    [sequelize_1.Op.or]: [
+                        { deviceToken },
+                        ...(deviceId ? [{ deviceId }] : [])
+                    ]
+                }
+            });
             if (!existing) {
                 yield dbConnection_2.Device.create({
                     userId: user === null || user === void 0 ? void 0 : user.id,
@@ -142,8 +210,10 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 });
             }
             else {
+                // ✅ If it exists (even for another user), transfer it to the current user
                 yield existing.update({
                     userId: user.id,
+                    deviceToken, // Update token in case it's new (e.g. after reinstall)
                     deviceType,
                     devicemodel,
                     devicename,
@@ -171,7 +241,7 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 });
 exports.Login = Login;
 const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+    var _a, _b;
     try {
         const userData = req.userData;
         const loggedInId = Number(userData.userId);
@@ -252,6 +322,22 @@ const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             else {
                 profile.company = null;
             }
+        }
+        // ✅ Step 5: For sale_person — include the admin's granted permissions
+        if (userData.role === "sale_person" && rootAdminId && ((_b = profile.company) === null || _b === void 0 ? void 0 : _b.id)) {
+            const adminPerms = yield dbConnection_2.UserPermission.findAll({
+                where: { userId: rootAdminId, companyId: profile.company.id },
+                include: [{
+                        model: dbConnection_2.Permission,
+                        as: "permission",
+                        attributes: ["module", "action", "description"],
+                    }],
+            });
+            profile.adminPermissions = adminPerms.map((p) => ({
+                module: p.permission.module,
+                action: p.permission.action,
+                description: p.permission.description,
+            }));
         }
         (0, errorMessage_1.createSuccess)(res, "user details", profile);
     }
@@ -347,72 +433,6 @@ const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.MySalePerson = MySalePerson;
-// export const getLastMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     console.log("finalUserId", finalUserId);
-//     const { page = 1, limit = 10, search } = req.query as any;
-//     const offset = (Number(page) - 1) * Number(limit);
-//     const whereCondition: any = {
-//       userId: finalUserId
-//     };
-//     // Client/MeetingUser search logic
-//     if (search) {
-//       whereCondition[Op.or] = [
-//         {
-//           name: {
-//             [Op.iLike]: `${search}%`, // ✅ case-insensitive
-//           },
-//         },
-//       ];
-//     }
-//     const companyWhereCondition: any = {};
-//     const meetingWhereCondition: any = { userId: finalUserId };
-//     const { rows, count } = await MeetingUser.findAndCountAll({
-//       where: Object.keys(whereCondition).length ? whereCondition : undefined,
-//       limit: Number(limit),
-//       offset,
-//       order: [["createdAt", "DESC"]],
-//       include: [
-//         {
-//           model: MeetingCompany, // Include their associated companies
-//           required: false,
-//           include: [
-//             {
-//               model: Meeting,
-//               where: meetingWhereCondition, // Only fetch meetings that belong to the logged-in employee
-//               required: false,
-//               include: [
-//                 {
-//                   model: MeetingImage
-//                 }
-//               ]
-//             }
-//           ]
-//         }
-//       ],
-//       distinct: true,
-//     });
-//     res.status(200).json({
-//       success: true,
-//       data: rows,
-//       pagination: {
-//         page: Number(page),
-//         limit: Number(limit),
-//         totalRecords: count,
-//         totalPages: Math.ceil(count / Number(limit)),
-//       },
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
 const getLastMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -426,7 +446,6 @@ const getLastMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const pageLimit = Number(limit);
         const offset = (pageNumber - 1) * pageLimit;
         const allUserIds = yield Middleware.getAllSubordinateIds(Number(finalUserId));
-        console.log("allUserIds", allUserIds);
         // ✅ Root filter (ONLY this controls main records)
         const whereCondition = {
             userId: { [sequelize_1.Op.in]: allUserIds },
@@ -485,7 +504,6 @@ const getLastMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function*
 });
 exports.getLastMeeting = getLastMeeting;
 const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    console.log("req.body create meeting ");
     const transaction = yield dbConnection_1.sequelize.transaction();
     try {
         const userData = req.userData;
@@ -501,7 +519,6 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         //   return;
         // }
         let { userName, userMobile, userEmail, companyName, personName, mobileNumber, customerType, companyEmail, meetingPurpose, categoryId, status, latitude_in, longitude_in, meetingTimeIn, scheduledTime, state, city, country, address, gstNumber, remarks, pincode, } = req.body || {};
-        console.log("req.body create meeting ", req.body);
         // Trim all string inputs to avoid trailing space errors in enums
         if (typeof customerType === "string")
             customerType = customerType.trim();
@@ -572,8 +589,6 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         /** --------------------------
          * 2️⃣ Check Active Meeting
          * -------------------------- */
-        console.log("finalUserId", finalUserId);
-        console.log("meetingContactUser", meetingContactUser);
         const activeMeeting = yield dbConnection_2.Meeting.findOne({
             where: {
                 userId: finalUserId,
@@ -656,11 +671,132 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.CreateMeeting = CreateMeeting;
+// export const EndMeeting = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const finalUserId = userData?.userId;
+//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
+//     // ✅ Validations
+//     if (!meetingId) {
+//       badRequest(res, "meetingId is required");
+//       return;
+//     }
+//     if (!latitude_out || !longitude_out) {
+//       badRequest(res, "latitude_out and longitude_out are required");
+//       return;
+//     }
+//     // ✅ Check meeting exists and is active
+//     const isExist = await Meeting.findOne({
+//       where: {
+//         id: meetingId,
+//         userId: finalUserId,
+//         status: "in",
+//       },
+//     });
+//     if (!isExist) {
+//       badRequest(res, "No active meeting found with this meetingId");
+//       return;
+//     }
+//     // ✅ Update remarks if provided
+//     if (remarks) {
+//       const company = await MeetingCompany.findByPk(isExist.companyId);
+//       if (company) await company.update({ remarks });
+//     }
+//     // ✅ Mark meeting as ended
+//     isExist.status = "out";
+//     isExist.latitude_out = latitude_out;
+//     isExist.longitude_out = longitude_out;
+//     isExist.meetingTimeOut = new Date();
+//     await isExist.save();
+//     // ✅ Day range
+//     const startOfDay = new Date();
+//     startOfDay.setHours(0, 0, 0, 0);
+//     const endOfDay = new Date();
+//     endOfDay.setHours(23, 59, 59, 999);
+//     // ✅ Get today's attendance (starting point)
+//     const attendance = await Attendance.findOne({
+//       where: {
+//         employee_id: finalUserId,
+//         date: { [Op.between]: [startOfDay, endOfDay] },
+//       },
+//       attributes: ["id", "latitude_in", "longitude_in"],
+//     });
+//     // ✅ Get all OTHER completed meetings today (excluding current)
+//     const previousMeetings = await Meeting.findAll({
+//       where: {
+//         userId: finalUserId,
+//         status: "out",
+//         id: { [Op.ne]: isExist.id },
+//         meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
+//       },
+//       attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut", "legDistance"],
+//       order: [["meetingTimeOut", "ASC"]],
+//     });
+//     // ✅ Calculate leg distance (previous point → this meeting)
+//     let legDistance = 0;
+//     if (previousMeetings.length === 0) {
+//       // First meeting of the day → distance from attendance check-in
+//       if (
+//         attendance?.latitude_in &&
+//         attendance?.longitude_in &&
+//         isExist.latitude_out &&
+//         isExist.longitude_out
+//       ) {
+//         const lat1 = parseFloat(attendance.latitude_in);
+//         const lon1 = parseFloat(attendance.longitude_in);
+//         const lat2 = parseFloat(isExist.latitude_out);
+//         const lon2 = parseFloat(isExist.longitude_out);
+//         if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+//           legDistance = getDistance(lat1, lon1, lat2, lon2);
+//         }
+//       }
+//     } else {
+//       // Nth meeting → distance from last completed meeting
+//       const lastMeeting = previousMeetings[previousMeetings.length - 1];
+//       if (
+//         lastMeeting.latitude_out &&
+//         lastMeeting.longitude_out &&
+//         isExist.latitude_out &&
+//         isExist.longitude_out
+//       ) {
+//         const lat1 = parseFloat(lastMeeting.latitude_out);
+//         const lon1 = parseFloat(lastMeeting.longitude_out);
+//         const lat2 = parseFloat(isExist.latitude_out);
+//         const lon2 = parseFloat(isExist.longitude_out);
+//         if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
+//           legDistance = getDistance(lat1, lon1, lat2, lon2);
+//         }
+//       }
+//     }
+//     // ✅ Sum all previous leg distances + current leg = total for the day
+//     const previousTotal = previousMeetings.reduce((sum, m) => {
+//       const leg = parseFloat(m.legDistance || "0");
+//       return sum + (isNaN(leg) ? 0 : leg);
+//     }, 0);
+//     const totalDistance = previousTotal + legDistance;
+//     // ✅ Save leg + total on current meeting
+//     isExist.legDistance = legDistance.toFixed(2).toString();
+//     isExist.totalDistance = totalDistance.toFixed(2).toString();
+//     await isExist.save();
+//     createSuccess(res, "Meeting ended successfully", {
+//       meetingId: isExist.id,
+//       legDistance: `${isExist.legDistance} km`,   // e.g. "7.00 km"  (M1 → M2)
+//       totalDistance: `${isExist.totalDistance} km`, // e.g. "12.00 km" (A → M1 → M2)
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//   }
+// };
 const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
+        const { meetingId, latitude_out, longitude_out, remarks, } = req.body || {};
         // ✅ Validations
         if (!meetingId) {
             (0, errorMessage_1.badRequest)(res, "meetingId is required");
@@ -670,7 +806,7 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             (0, errorMessage_1.badRequest)(res, "latitude_out and longitude_out are required");
             return;
         }
-        // ✅ Check meeting exists and is active
+        // ✅ Check meeting exists
         const isExist = yield dbConnection_2.Meeting.findOne({
             where: {
                 id: meetingId,
@@ -682,46 +818,66 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             (0, errorMessage_1.badRequest)(res, "No active meeting found with this meetingId");
             return;
         }
-        // ✅ Update remarks if provided
+        // ✅ Update remarks
         if (remarks) {
             const company = yield dbConnection_2.MeetingCompany.findByPk(isExist.companyId);
-            if (company)
+            if (company) {
                 yield company.update({ remarks });
+            }
         }
-        // ✅ Mark meeting as ended
+        // ✅ End Meeting
         isExist.status = "out";
         isExist.latitude_out = latitude_out;
         isExist.longitude_out = longitude_out;
         isExist.meetingTimeOut = new Date();
         yield isExist.save();
-        // ✅ Day range
+        // ✅ Day Start & End
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date();
         endOfDay.setHours(23, 59, 59, 999);
-        // ✅ Get today's attendance (starting point)
+        // ✅ Get Attendance
         const attendance = yield dbConnection_2.Attendance.findOne({
             where: {
                 employee_id: finalUserId,
-                date: { [sequelize_1.Op.between]: [startOfDay, endOfDay] },
+                date: {
+                    [sequelize_1.Op.between]: [startOfDay, endOfDay],
+                },
             },
-            attributes: ["id", "latitude_in", "longitude_in"],
+            attributes: [
+                "id",
+                "latitude_in",
+                "longitude_in",
+            ],
         });
-        // ✅ Get all OTHER completed meetings today (excluding current)
+        // ✅ Previous Meetings
         const previousMeetings = yield dbConnection_2.Meeting.findAll({
             where: {
                 userId: finalUserId,
                 status: "out",
-                id: { [sequelize_1.Op.ne]: isExist.id },
-                meetingTimeOut: { [sequelize_1.Op.between]: [startOfDay, endOfDay] },
+                id: {
+                    [sequelize_1.Op.ne]: isExist.id,
+                },
+                meetingTimeOut: {
+                    [sequelize_1.Op.between]: [startOfDay, endOfDay],
+                },
             },
-            attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut", "legDistance"],
+            attributes: [
+                "id",
+                "latitude_out",
+                "longitude_out",
+                "meetingTimeOut",
+                "legDistance",
+            ],
             order: [["meetingTimeOut", "ASC"]],
         });
-        // ✅ Calculate leg distance (previous point → this meeting)
-        let legDistance = 0;
+        // ✅ Current Meeting Distance
+        let legDistanceKm = 0; // used for arithmetic
+        let legDistanceDisplay = "0 m"; // used for saving / response
+        // =========================================================
+        // ✅ FIRST MEETING
+        // =========================================================
         if (previousMeetings.length === 0) {
-            // First meeting of the day → distance from attendance check-in
             if ((attendance === null || attendance === void 0 ? void 0 : attendance.latitude_in) &&
                 (attendance === null || attendance === void 0 ? void 0 : attendance.longitude_in) &&
                 isExist.latitude_out &&
@@ -731,12 +887,17 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 const lat2 = parseFloat(isExist.latitude_out);
                 const lon2 = parseFloat(isExist.longitude_out);
                 if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
-                    legDistance = getDistance(lat1, lon1, lat2, lon2);
+                    // saves to DB if >= 1 meter
+                    const result = yield Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
+                    legDistanceKm = result.km;
+                    legDistanceDisplay = result.display;
                 }
             }
         }
+        // =========================================================
+        // ✅ NEXT MEETINGS
+        // =========================================================
         else {
-            // Nth meeting → distance from last completed meeting
             const lastMeeting = previousMeetings[previousMeetings.length - 1];
             if (lastMeeting.latitude_out &&
                 lastMeeting.longitude_out &&
@@ -747,304 +908,83 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 const lat2 = parseFloat(isExist.latitude_out);
                 const lon2 = parseFloat(isExist.longitude_out);
                 if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
-                    legDistance = getDistance(lat1, lon1, lat2, lon2);
+                    // saves to DB if >= 1 meter
+                    const result = yield Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
+                    legDistanceKm = result.km;
+                    legDistanceDisplay = result.display;
                 }
             }
         }
-        // ✅ Sum all previous leg distances + current leg = total for the day
+        // ✅ Previous Total Distance (sum of previous leg km values)
         const previousTotal = previousMeetings.reduce((sum, m) => {
             const leg = parseFloat(m.legDistance || "0");
             return sum + (isNaN(leg) ? 0 : leg);
         }, 0);
-        const totalDistance = previousTotal + legDistance;
-        // ✅ Save leg + total on current meeting
-        isExist.legDistance = legDistance.toFixed(2).toString();
-        isExist.totalDistance = totalDistance.toFixed(2).toString();
+        // ✅ Total Distance
+        const totalDistanceKm = previousTotal + legDistanceKm;
+        const totalDistanceDisplay = totalDistanceKm * 1000 < 1000
+            ? `${Math.round(totalDistanceKm * 1000)} m`
+            : `${totalDistanceKm.toFixed(3)} km`;
+        // ✅ Save Distance
+        isExist.legDistance = legDistanceDisplay;
+        isExist.totalDistance = totalDistanceDisplay;
         yield isExist.save();
+        // ✅ Final Response
         (0, errorMessage_1.createSuccess)(res, "Meeting ended successfully", {
             meetingId: isExist.id,
-            legDistance: `${isExist.legDistance} km`, // e.g. "7.00 km"  (M1 → M2)
-            totalDistance: `${isExist.totalDistance} km`, // e.g. "12.00 km" (A → M1 → M2)
+            legDistance: isExist.legDistance,
+            totalDistance: isExist.totalDistance,
         });
     }
     catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        const errorMessage = error instanceof Error
+            ? error.message
+            : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
     }
 });
 exports.EndMeeting = EndMeeting;
-// export const EndMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
-//     if (!meetingId) {
-//       badRequest(res, "meetingId is required");
-//       return;
-//     }
-//     if (!latitude_out || !longitude_out) {
-//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
-//       return;
-//     }
-//     /** ✅ Check meeting exist for this user & active */
-//     const isExist = await Meeting.findOne({
-//       where: {
-//         id: meetingId,
-//         userId: finalUserId,
-//         status: "in",
-//       },
-//     });
-//     if (!isExist) {
-//       badRequest(res, "No active meeting found with this meetingId");
-//       return;
-//     }
-//     // Since remarks is on the meeting_companies table (not Meetings), we need to update it there
-//     if (remarks) {
-//       const company = await MeetingCompany.findByPk(isExist.companyId);
-//       if (company) {
-//         await company.update({ remarks });
-//       }
-//     }
-//     // /** ✅ Update meeting */
-//     isExist.status = "out"; // Use 'out' as per schema instead of 'completed'
-//     isExist.latitude_out = latitude_out;
-//     isExist.longitude_out = longitude_out;
-//     isExist.meetingTimeOut = new Date();
-//     await isExist.save();
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0, 0, 0, 0);
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23, 59, 59, 999);
-//     const attendance = await Attendance.findOne({
-//       where: {
-//         employee_id: finalUserId,
-//         date: {
-//           [Op.between]: [startOfDay, endOfDay],
-//         },
-//       },
-//       attributes:["id","latitude_in","longitude_in"]
-//     });
-//     // console.log("attendance",attendance)
-//     const item = await Meeting.findAll({  
-//       where: {
-//         userId: finalUserId,
-//         // status: "in",
-//         createdAt: {
-//           [Op.between]: [startOfDay, endOfDay],
-//         },
-//       },
-//       attributes:["id","latitude_out","longitude_out"]
-//     });
-//   if (!item.length) {
-//      createSuccess(res, "Meeting ended successfully", []);
-//   }
-//       let totalDistance = 0;
-//     for (let i = 1; i < item.length; i++) {
-//       const prev = item[i - 1];
-//       const curr = item[i];
-//       const lat1 = parseFloat(prev.latitude_out);
-//       const lon1 = parseFloat(prev.longitude_out);
-//       const lat2 = parseFloat(curr.latitude_out);
-//       const lon2 = parseFloat(curr.longitude_out);
-//       // skip invalid data
-//       if (!lat1 || !lon1 || !lat2 || !lon2) continue;
-//       const distance = getDistance(lat1, lon1, lat2, lon2);
-//       totalDistance += distance;
-//     }
-//     isExist.totalDistance = totalDistance.toString();
-//     await isExist.save();
-//     createSuccess(res, "Meeting ended successfully", item);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-// export const EndMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     const { meetingId, latitude_out, longitude_out, remarks } = req.body || {};
-//     if (!meetingId) {
-//       badRequest(res, "meetingId is required");
-//       return;
-//     }
-//     if (!latitude_out || !longitude_out) {
-//       badRequest(res, "latitude_out and longitude_out are required to end a meeting");
-//       return;
-//     }
-//     /** ✅ Check meeting exist for this user & active */
-//     const isExist = await Meeting.findOne({
-//       where: {
-//         id: meetingId,
-//         userId: finalUserId,
-//         status: "in",
-//       },
-//     });
-//     if (!isExist) {
-//       badRequest(res, "No active meeting found with this meetingId");
-//       return;
-//     }
-//     // Update remarks on meeting_companies table
-//     if (remarks) {
-//       const company = await MeetingCompany.findByPk(isExist.companyId);
-//       if (company) {
-//         await company.update({ remarks });
-//       }
-//     }
-//     // ✅ Update current meeting as ended
-//     isExist.status = "out";
-//     isExist.latitude_out = latitude_out;
-//     isExist.longitude_out = longitude_out;
-//     isExist.meetingTimeOut = new Date();
-//     await isExist.save();
-//     // ✅ Day range
-//     const startOfDay = new Date();
-//     startOfDay.setHours(0, 0, 0, 0);
-//     const endOfDay = new Date();
-//     endOfDay.setHours(23, 59, 59, 999);
-//     // ✅ Fetch today's attendance (starting point)
-//     const attendance = await Attendance.findOne({
-//       where: {
-//         employee_id: finalUserId,
-//         date: { [Op.between]: [startOfDay, endOfDay] },
-//       },
-//       attributes: ["id", "latitude_in", "longitude_in"],
-//     });
-//     // ✅ Fetch ALL completed meetings today, ordered by time
-//     //    Use findAll (not findOne) so we get an array
-//     const todayMeetings = await Meeting.findAll({
-//       where: {
-//         userId: finalUserId,
-//         status: "out", // only completed meetings have latitude_out
-//         meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
-//       },
-//       attributes: ["id", "latitude_out", "longitude_out", "meetingTimeOut"],
-//       order: [["meetingTimeOut", "ASC"]], // sort chronologically
-//     });
-//     if (!todayMeetings.length) {
-//       createSuccess(res, "Meeting ended successfully", []);
-//       return; // ✅ was missing return — code would continue after this
-//     }
-//     let totalDistance = 0;
-//     /**
-//      * Distance chain:
-//      *
-//      *  Attendance (check-in location)
-//      *       ↓
-//      *   Meeting 1 (latitude_out / longitude_out)
-//      *       ↓
-//      *   Meeting 2 (latitude_out / longitude_out)
-//      *       ↓
-//      *   Meeting N ...
-//      *
-//      * If attendance exists → first leg is attendance → meeting1
-//      * Otherwise           → first leg is meeting1 → meeting2
-//      */
-//     if (attendance && attendance.latitude_in && attendance.longitude_in) {
-//       // Leg 0: attendance check-in → first meeting end point
-//       const lat1 = parseFloat(attendance.latitude_in);
-//       const lon1 = parseFloat(attendance.longitude_in);
-//       const lat2 = parseFloat(todayMeetings[0].latitude_out);
-//       const lon2 = parseFloat(todayMeetings[0].longitude_out);
-//       if (lat1 && lon1 && lat2 && lon2) {
-//         totalDistance += getDistance(lat1, lon1, lat2, lon2);
-//       }
-//     }
-//     // Legs between consecutive meetings: meeting[i-1] → meeting[i]
-//     for (let i = 1; i < todayMeetings.length; i++) {
-//       const prev = todayMeetings[i - 1];
-//       const curr = todayMeetings[i];
-//       const lat1 = parseFloat(prev.latitude_out);
-//       const lon1 = parseFloat(prev.longitude_out);
-//       const lat2 = parseFloat(curr.latitude_out);
-//       const lon2 = parseFloat(curr.longitude_out);
-//       if (!lat1 || !lon1 || !lat2 || !lon2) continue; // skip invalid GPS
-//       totalDistance += getDistance(lat1, lon1, lat2, lon2);
-//     }
-//     // ✅ Save total distance on the meeting that was just ended
-//     isExist.totalDistance = totalDistance.toFixed(2).toString(); // e.g. "12.34"
-//     await isExist.save();
-//     createSuccess(res, "Meeting ended successfully", todayMeetings);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
 const GetMeetingList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = 1, limit = 10, search = "", status } = req.query;
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
+        const { page = "1", limit = "10", search = "", status } = req.query;
+        const pageNum = Math.max(Number(page) || 1, 1);
+        const limitNum = Math.min(Number(limit) || 10, 50);
         const offset = (pageNum - 1) * limitNum;
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        console.log("finalUserId", finalUserId);
         if (!finalUserId) {
             (0, errorMessage_1.badRequest)(res, "UserId not found");
             return;
         }
-        /** ✅ Search condition */
-        const where = {
+        /** ✅ Meeting filter */
+        const meetingWhere = {
             userId: finalUserId,
         };
-        if (search) {
-            where[sequelize_1.Op.or] = [
-                { companyName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { personName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { mobileNumber: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { remarks: { [sequelize_1.Op.iLike]: `%${search}%` } },
-            ];
-        }
         if (status) {
-            where.status = status;
+            meetingWhere.status = status;
         }
-        /** ✅ Query with pagination + count */
-        const { rows, count } = yield dbConnection_2.MeetingUser.findAndCountAll({
-            where: where,
-            limit: Number(limit),
+        /** ⚠️ NOTE: search not applied (same as your original) */
+        // You created companyWhere but didn't use it in query
+        /** ✅ Query */
+        const { rows, count } = yield dbConnection_2.Meeting.findAndCountAll({
+            where: meetingWhere,
+            limit: limitNum,
             offset,
-            order: [["createdAt", "DESC"]],
-            include: [
-                {
-                    model: dbConnection_2.MeetingCompany, // Include their associated companies
-                    required: false,
-                    include: [
-                        {
-                            model: dbConnection_2.Meeting,
-                            where: where, // Only fetch meetings that belong to the logged-in employee
-                            required: true,
-                            include: [
-                                {
-                                    model: dbConnection_2.MeetingImage
-                                }
-                            ]
-                        }
-                    ]
-                }
-            ],
+            order: [["updatedAt", "DESC"]],
             distinct: true,
         });
-        /** ✅ Pagination Info */
-        const pageInfo = {
+        /** ✅ Flat Pagination Response */
+        (0, errorMessage_1.createSuccess)(res, "Meeting list fetched", {
             currentPage: pageNum,
             pageSize: limitNum,
             totalItems: count,
             totalPages: Math.ceil(count / limitNum),
-        };
-        (0, errorMessage_1.createSuccess)(res, "Meeting list fetched", { pageInfo, data: rows });
+            data: rows,
+        });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
     }
 });
 exports.GetMeetingList = GetMeetingList;
@@ -1092,7 +1032,8 @@ const Logout = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { deviceId } = req.body;
         if (!deviceId) {
-            (0, errorMessage_1.badRequest)(res, "device token is missing");
+            (0, errorMessage_1.badRequest)(res, "device ID is missing");
+            return;
         }
         yield dbConnection_2.Device.destroy({ where: { deviceId } });
         (0, errorMessage_1.createSuccess)(res, "logout sussfully");
@@ -1106,9 +1047,40 @@ const Logout = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 exports.Logout = Logout;
 const getCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const data = req.query;
-        const item = yield Middleware.getAllListCategory(dbConnection_2.Category, data);
-        (0, errorMessage_1.createSuccess)(res, "get all category", item);
+        const userData = req.userData;
+        const userId = Number(userData === null || userData === void 0 ? void 0 : userData.userId);
+        const { page = 1, limit = 100 } = req.query;
+        const pageNumber = Number(page);
+        const pageLimit = Number(limit);
+        const offset = (pageNumber - 1) * pageLimit;
+        const allUserIds = yield (0, comman_1.getAllSubordinateIds)(userId);
+        const { count, rows } = yield dbConnection_2.Category.findAndCountAll({
+            where: {
+                [sequelize_1.Op.or]: [
+                    { adminId: { [sequelize_1.Op.in]: allUserIds } },
+                    { managerId: { [sequelize_1.Op.in]: allUserIds } },
+                ],
+            },
+            include: [
+                {
+                    model: dbConnection_2.SubCategory,
+                    as: "subCategories",
+                    required: false,
+                },
+            ],
+            limit: pageLimit,
+            offset,
+        });
+        (0, errorMessage_1.createSuccess)(res, "get all category", {
+            success: true,
+            data: rows,
+            pagination: {
+                page: pageNumber,
+                limit: pageLimit,
+                totalRecords: count,
+                totalPages: Math.ceil(count / pageLimit),
+            },
+        });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
@@ -1351,49 +1323,6 @@ const LeaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.LeaveList = LeaveList;
-// export const CreateExpense = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     const finalUserId = userData?.userId;
-//     if (!finalUserId) {
-//       badRequest(res, "Invalid user");
-//       return;
-//     }
-//     const { title, total_amount, date, category, amount, description, location } = req.body ?? {};
-//     // Keep title as required for backward compatibility, or you can adjust this
-//     if (!title && !description) {
-//       badRequest(res, "Title or Description is required");
-//       return;
-//     }
-//     const payload: any = {
-//       userId: finalUserId,
-//       title: title || description,
-//       total_amount: total_amount || amount,
-//       date,
-//       category,
-//       amount: amount || total_amount,
-//       description: description || title,
-//       location
-//     };
-//     // ✅ files from multer (S3 upload)
-//     const files = req.files as Express.MulterS3.File[];
-//     if (Array.isArray(files) && files.length > 0) {
-//       payload.billImage = files.map((file) => file.location);
-//     }
-//     // ✅ Create entry
-//     const created = await Expense.create(payload);
-//     createSuccess(res, "Expense added successfully", created);
-//   } catch (error) {
-//     console.error("Error in CreateExpense:", error);
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//     return;
-//   }
-// };
 const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const transaction = yield dbConnection_1.sequelize.transaction();
@@ -1416,7 +1345,7 @@ const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
                     if (!imageMap[index]) {
                         imageMap[index] = [];
                     }
-                    imageMap[index].push(file.originalname);
+                    imageMap[index].push(file.location);
                 }
             });
         }
@@ -1556,11 +1485,8 @@ const UpdatePassword = (req, res) => __awaiter(void 0, void 0, void 0, function*
             (0, errorMessage_1.badRequest)(res, "Old password is incorrect");
             return;
         }
-        const salt = yield bcrypt_1.default.genSalt(10);
-        const newHashedPassword = yield bcrypt_1.default.hash(newPassword, salt);
-        yield Middleware.Update(dbConnection_2.User, Number(userData.userId), {
-            password: newHashedPassword,
-        });
+        user.set("password", newPassword);
+        yield user.save();
         (0, errorMessage_1.createSuccess)(res, "Password updated successfully");
     }
     catch (error) {
@@ -1570,141 +1496,6 @@ const UpdatePassword = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.UpdatePassword = UpdatePassword;
-// export const getQuotation = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     // const userData = req.userData as JwtPayload;
-//     // if (!userData || !userData.userId) {
-//     //   badRequest(res, "Unauthorized request");
-//     //   return;
-//     // }
-//     const { page = 1, limit = 10 } = req.query;
-//     const pageNumber = Number(page);
-//     const pageSize = Number(limit);
-//     const offset = (pageNumber - 1) * pageSize;
-//     const { count, rows } = await Quotation.findAndCountAll({
-//       where: {
-//         // userId: userData.userId
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit: pageSize,
-//       offset: offset
-//     });
-//     createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page: pageNumber,
-//       totalPages: Math.ceil(count / pageSize),
-//       data: rows
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage, error);
-//   }
-// };
-// export const getQuotationPdf = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//       const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const data = req.body;
-//     // ✅ Helper: read local file → base64 data URI (works with Puppeteer setContent)
-//     const toBase64 = (filePath: string): string => {
-//       try {
-//         if (fs.existsSync(filePath)) {
-//           const ext = filePath.split(".").pop()?.toLowerCase();
-//           const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
-//           const buf = fs.readFileSync(filePath);
-//           return `data:${mime};base64,${buf.toString("base64")}`;
-//         }
-//       } catch (_) {}
-//       return "";
-//     };
-//     const logo      = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
-//     const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
-//     const stamp     = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
-//     // ✅ Calculations
-//     const subtotal = data.items.reduce((sum: number, item: any) => {
-//       return sum + Number(item.amount || 0);
-//     }, 0);
-//     const discount = Number(data.discount || 0);
-//     const taxableAmount = subtotal - discount;
-//     const gstAmount = (taxableAmount * Number(data.gstRate || 0)) / 100;
-//     const finalAmount = taxableAmount + gstAmount;
-//     // ✅ Render EJS
-//     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
-//     const html = await ejs.renderFile(filePath, {
-//       ...data,
-//       logo,
-//       signature,
-//       stamp,
-//       subtotal,
-//       discount,
-//       taxableAmount,
-//       gstAmount,
-//       finalAmount
-//     });
-//     // ✅ SAVE TO DB HERE
-// await Quotations.create({
-//   userId: Number(userData?.userId),
-//   companyId: data.companyId || 0,
-//   quotation: data,
-//   status: "draft"
-// });
-//     // ✅ Puppeteer
-//     const browser = await puppeteer.launch({
-//       args: ["--no-sandbox", "--disable-setuid-sandbox"]
-//     });
-//     const page = await browser.newPage();
-//     await page.setContent(html as string, { waitUntil: "load" });
-//     const pdfBuffer = await page.pdf({
-//       format: "a4",
-//       printBackground: true,
-//       margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
-//     });
-//     await browser.close();
-//     res.set({
-//       "Content-Type": "application/pdf",
-//       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
-//     });
-//     res.send(pdfBuffer);
-//   } catch (error) {
-//     res.status(400).json({ error: "Something went wrong" });
-//   }
-// };
-// export const getQuotationPdfList = async(req:Request,res:Response)=>{
-//   try{
-//     const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 10;
-//     const offset = (page - 1) * limit;
-//     const ownstate = req.query.ownstate;
-//     const clientState = req.query.clientState;
-//     const { count, rows } = await Quotations.findAndCountAll({
-//       where: {
-//         userId: userData.userId
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit: limit,
-//       offset: offset
-//     });
-//     createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page: page,
-//       totalPages: Math.ceil(count / limit),
-//       data: rows
-//     });
-//   }catch(error){
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage, error);
-//   }
-// }
 // ✅ Generates a serial 10-digit quotation number (e.g. 0000000001)
 const generateQuotationNumber = () => {
     const timestamp = Date.now().toString().slice(-6); // last 6 digits
@@ -1901,6 +1692,8 @@ const addQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             referenceNumber: data.referenceNumber,
             quotation: data,
             isConsumed: false,
+            guid: data.guid || null,
+            alterid: data.alterid || null,
             status: "draft"
         });
         res.status(201).json({
@@ -1915,74 +1708,6 @@ const addQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.addQuotation = addQuotation;
-// export const getQuotationPdfList = async (req: Request, res: Response) => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       return badRequest(res, "Unauthorized request");
-//     }
-//     const page = Number(req.query.page) || 1;
-//     const limit = Number(req.query.limit) || 10;
-//     const offset = (page - 1) * limit;
-//     const ownstate = String(req.query.ownstate || "").toLowerCase();
-//     const clientState = String(req.query.clientState || "").toLowerCase();
-//     // if (!ownstate || !clientState) {
-//     //   return badRequest(res, "ownstate and clientState are required");
-//     // }
-//     const { count, rows } = await Quotations.findAndCountAll({
-//       where: {
-//         userId: userData.userId,
-//       },
-//       order: [["createdAt", "DESC"]],
-//       limit,
-//       offset,
-//     });
-//     const updatedRows = rows.map((item: any) => {
-//       const data = item.toJSON();
-//       const quotation = data.quotation;
-//       // ✅ Calculate total amount
-//       const totalAmount =
-//         quotation?.items?.reduce(
-//           (sum: number, i: any) => sum + Number(i.amount || 0),
-//           0
-//         ) || 0;
-//       const gstRate = Number(quotation?.gstRate || 0);
-//       const totalGST = (totalAmount * gstRate) / 100;
-//       let cgst = 0;
-//       let sgst = 0;
-//       let igst = 0;
-//       // ✅ GST Logic (India)
-//       if (ownstate === clientState) {
-//         cgst = totalGST / 2;
-//         sgst = totalGST / 2;
-//       } else {
-//         igst = totalGST;
-//       }
-//       return {
-//         ...data,
-//         gstDetails: {
-//           totalAmount,
-//           gstRate,
-//           cgst,
-//           sgst,
-//           igst,
-//           totalGST,
-//           totalWithGST: totalAmount + totalGST,
-//         },
-//       };
-//     });
-//     return createSuccess(res, "Quotation list fetched successfully", {
-//       total: count,
-//       page,
-//       totalPages: Math.ceil(count / limit),
-//       data: updatedRows,
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     return badRequest(res, errorMessage, error);
-//   }
-// };
 const getQuotationPdfList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -2010,6 +1735,9 @@ const getQuotationPdfList = (req, res) => __awaiter(void 0, void 0, void 0, func
         let whereCondition = {
             userId: {
                 [sequelize_1.Op.in]: allUserIds
+            },
+            status: {
+                [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
             }
         };
         // ✅ Status filter
@@ -2166,9 +1894,16 @@ const getSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             (0, errorMessage_1.badRequest)(res, "Category id is required");
             return;
         }
+        const userData = req.userData;
+        const userId = Number(userData === null || userData === void 0 ? void 0 : userData.userId);
+        const allUserIds = yield (0, comman_1.getAllSubordinateIds)(userId);
         const subCategory = yield dbConnection_2.SubCategory.findAll({
             where: {
                 CategoryId: id,
+                [sequelize_1.Op.or]: [
+                    { adminId: { [sequelize_1.Op.in]: allUserIds } },
+                    { managerId: { [sequelize_1.Op.in]: allUserIds } },
+                ],
             },
         });
         // 🔥 Transform "text" → "tax"
@@ -2188,7 +1923,6 @@ const updateQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function
     try {
         const { id } = req.params;
         const { status } = req.body || {};
-        console.log("id", id, "status", status);
         if (!id) {
             (0, errorMessage_1.badRequest)(res, "Quotation id is required");
             return;
@@ -2199,6 +1933,8 @@ const updateQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function
             return;
         }
         quotationData.status = status;
+        quotationData.guid = req.body.guid || null;
+        quotationData.alterid = req.body.alterid || null;
         yield quotationData.save();
         (0, errorMessage_1.createSuccess)(res, "Quotation updated successfully");
     }
@@ -2481,7 +2217,7 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             }
         }
         // 🧩 Extract fields
-        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date"]);
+        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date, guid, alterid } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date", "guid", "alterid"]);
         let quotationRecord = null;
         // ============================
         // 🔁 HANDLE QUOTATION UPDATE
@@ -2545,6 +2281,8 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             invoiceDate: date ? new Date(date) : null,
             invoice: restData,
             items: data.items,
+            guid: guid || null,
+            alterid: alterid || null,
         };
         const invoiceData = yield dbConnection_2.Invoices.create(invoicePayload, {
             transaction,
@@ -2572,11 +2310,25 @@ const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const pageNumber = Number(page);
         const pageSize = Math.min(Number(limit), 50); // safety limit
         const offset = (pageNumber - 1) * pageSize;
-        const allUserIds = yield Middleware.getAllSubordinateIds(Number(userData.userId));
+        // Anchor the hierarchy at the company admin so that all siblings are
+        // included regardless of whether the logged-in user's own junction-table
+        // entries are intact.
+        let hierarchyRootId = Number(userData.userId);
+        if (userData.companyId) {
+            const company = yield dbConnection_2.Company.findByPk(Number(userData.companyId), { attributes: ["adminId"] });
+            if (company === null || company === void 0 ? void 0 : company.adminId) {
+                hierarchyRootId = company.adminId;
+            }
+        }
+        const allUserIds = yield Middleware.getAllSubordinateIds(hierarchyRootId);
+        console.log(">>>>>>>>>>>>>allUserIds>", allUserIds);
         // ✅ Dynamic where condition
         const whereCondition = {
             userId: {
                 [sequelize_1.Op.in]: allUserIds
+            },
+            status: {
+                [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
             }
         };
         // 🔍 Global search
@@ -2837,7 +2589,6 @@ const deleteRecordSale = (req, res) => __awaiter(void 0, void 0, void 0, functio
 });
 exports.deleteRecordSale = deleteRecordSale;
 const getTallyReport = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
     try {
         const userData = req.userData;
         if (!(userData === null || userData === void 0 ? void 0 : userData.userId)) {
@@ -2851,93 +2602,13 @@ const getTallyReport = (req, res) => __awaiter(void 0, void 0, void 0, function*
         // ==============================
         // 🔼 STEP 1: FIND PARENT & ROOT
         // ==============================
-        let currentId = userData.userId;
-        let rootAdmin = null;
-        let parentUser = null;
-        let isFirstStep = true;
-        while (true) {
-            const userWithCreators = yield dbConnection_2.User.findByPk(currentId, {
-                include: [
-                    {
-                        model: dbConnection_2.User,
-                        as: "creators",
-                        attributes: ["id", "firstName", "lastName", "email", "role"],
-                        through: { attributes: [] },
-                    },
-                ],
-            });
-            if (!userWithCreators)
-                break;
-            const plainUser = userWithCreators.get({ plain: true });
-            const creator = ((_a = plainUser.creators) === null || _a === void 0 ? void 0 : _a[0]) || null;
-            if (isFirstStep) {
-                parentUser = creator
-                    ? {
-                        id: creator.id,
-                        firstName: creator.firstName,
-                        lastName: creator.lastName,
-                        email: creator.email,
-                        role: creator.role,
-                    }
-                    : null;
-                isFirstStep = false;
-            }
-            if (!creator) {
-                if (["admin", "super_admin"].includes(plainUser.role)) {
-                    rootAdmin = {
-                        id: plainUser.id,
-                        firstName: plainUser.firstName,
-                        lastName: plainUser.lastName,
-                        email: plainUser.email,
-                        role: plainUser.role,
-                    };
-                }
-                break;
-            }
-            if (["admin", "super_admin"].includes(creator.role)) {
-                rootAdmin = {
-                    id: creator.id,
-                    firstName: creator.firstName,
-                    lastName: creator.lastName,
-                    email: creator.email,
-                    role: creator.role,
-                };
-                break;
-            }
-            currentId = creator.id;
-        }
+        const allUserIds = yield Middleware.getAllSubordinateIds(Number(userData.userId));
+        console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>", allUserIds);
         // ==============================
-        // 🔽 STEP 2: TEAM USERS
-        // ==============================
-        let teamUserIds = [userData.userId];
-        let currentParentIds = [userData.userId];
-        while (currentParentIds.length > 0) {
-            const subUsers = yield dbConnection_2.User.findAll({
-                where: { id: { [sequelize_1.Op.in]: currentParentIds } },
-                include: [
-                    {
-                        model: dbConnection_2.User,
-                        as: "createdUsers",
-                        attributes: ["id"],
-                    },
-                ],
-            });
-            let nextLevel = [];
-            subUsers.forEach((u) => {
-                (u.createdUsers || []).forEach((child) => {
-                    if (!teamUserIds.includes(child.id)) {
-                        teamUserIds.push(child.id);
-                        nextLevel.push(child.id);
-                    }
-                });
-            });
-            currentParentIds = nextLevel;
-        }
-        // ==============================
-        // ✅ STEP 3: FILTERS (FIXED)
+        // ✅ STEP 2: FILTERS
         // ==============================
         const andConditions = [
-            { userId: rootAdmin ? rootAdmin.id : { [sequelize_1.Op.in]: teamUserIds } },
+            { userId: { [sequelize_1.Op.in]: allUserIds } },
         ];
         // 🔍 Search
         if (search) {
@@ -3080,100 +2751,145 @@ const createClient = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.createClient = createClient;
-// export const forgotPassword = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { email } = req.body || {};
-//     if (!email) {
-//       badRequest(res, "Email is missing");
-//       return;
-//     }
-//     const user: any = await User.findOne({ where: { email } });
-//     if (!user) {
-//       badRequest(res, "User not found");
-//       return;
-//     }
-//     // Generate 6-digit OTP
-//     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-//     // Save OTP + Expiry (10 minutes)
-//     user.otp = otp;
-//     user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-//     await user.save();
-//     // Send response FIRST
-//     createSuccess(res, "OTP sent to your email");
-//     // Send email in background (no await required)
-//     forgotpassword("Password Reset OTP", otp, user.email);
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-// export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const { email, otp } = req.body || {};
-//     if (!email || !otp) {
-//       badRequest(res, "Email and OTP are required");
-//       return;
-//     }
-//     const user: any = await User.findOne({ where: { email } });
-//     if (!user) {
-//       badRequest(res, "User not found");
-//       return;
-//     }
-//     // Check OTP match
-//     if (user.otp !== otp) {
-//       badRequest(res, "Invalid OTP");
-//       return;
-//     }
-//     // Check OTP expiry
-//     if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
-//       badRequest(res, "OTP has expired");
-//       return;
-//     }
-//     // OTP verified → clear OTP fields
-//     user.otp = null;
-//     user.otpExpiry = null;
-//     await user.save();
-//     createSuccess(res, "OTP verified successfully");
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
-// export const changePassword = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const { email, newPassword } = req.body || {};
-//     if (!email || !newPassword) {
-//       badRequest(res, "Email and new password are required");
-//       return;
-//     }
-//     // ✅ Hash password
-//     const hashedPassword = await bcrypt.hash(newPassword, 10);
-//     const [updatedRows] = await User.update(
-//       {
-//         password: hashedPassword,
-//         otp: null,
-//         otpExpiry: null,
-//       },
-//       {
-//         where: { email },
-//       }
-//     );
-//     if (updatedRows === 0) {
-//       badRequest(res, "User not found");
-//       return;
-//     }
-//     createSuccess(res, "Password changed successfully");
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//   }
-// };
+const forgotPassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { email, tenantId } = req.body || {};
+        if (!email) {
+            (0, errorMessage_1.badRequest)(res, "Email is missing");
+            return;
+        }
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
+        if (!user) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        // Generate 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        // Save OTP + Expiry (10 minutes)
+        user.otp = otp;
+        user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+        yield user.save();
+        // Send response FIRST
+        (0, errorMessage_1.createSuccess)(res, "OTP sent to your email");
+        // Send email in background (no await required)
+        (0, email_1.forgotpassword)("Password Reset OTP", otp, user.email);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.forgotPassword = forgotPassword;
+const verifyOtp = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { email, otp, tenantId } = req.body || {};
+        if (!email || !otp) {
+            (0, errorMessage_1.badRequest)(res, "Email and OTP are required");
+            return;
+        }
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
+        if (!user) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        // Check OTP match
+        if (user.otp !== otp) {
+            (0, errorMessage_1.badRequest)(res, "Invalid OTP");
+            return;
+        }
+        // Check OTP expiry
+        if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
+            (0, errorMessage_1.badRequest)(res, "OTP has expired");
+            return;
+        }
+        // OTP verified → clear OTP fields
+        user.otp = null;
+        user.otpExpiry = null;
+        yield user.save();
+        (0, errorMessage_1.createSuccess)(res, "OTP verified successfully");
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.verifyOtp = verifyOtp;
+const changePassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { email, newPassword, tenantId } = req.body || {};
+        if (!email || !newPassword) {
+            (0, errorMessage_1.badRequest)(res, "Email and new password are required");
+            return;
+        }
+        // ✅ Hash password
+        const hashedPassword = yield bcrypt_1.default.hash(newPassword, 10);
+        const loginTenantId = tenantId ? Number(tenantId) : null;
+        const whereClause = { email };
+        if (loginTenantId)
+            whereClause.tenantId = loginTenantId;
+        const [updatedRows] = yield dbConnection_2.User.update({
+            password: hashedPassword,
+            otp: null,
+            otpExpiry: null,
+        }, {
+            where: whereClause,
+        });
+        if (updatedRows === 0) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        (0, errorMessage_1.createSuccess)(res, "Password changed successfully");
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.changePassword = changePassword;
+const getDashboardMobile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { userId } = req.userData;
+        const allUserIds = yield Middleware.getAllSubordinateIds(Number(userId));
+        const commonFilter = {
+            userId: { [sequelize_1.Op.in]: allUserIds },
+            status: { [sequelize_1.Op.notIn]: ["cancelled", "deleted"] },
+        };
+        const saleordercount = yield dbConnection_2.Quotations.count({
+            where: commonFilter,
+        });
+        const perfomaInvoice = yield dbConnection_2.Invoices.count({
+            where: {
+                userId: { [sequelize_1.Op.in]: allUserIds },
+                [sequelize_1.Op.and]: [
+                    { status: { [sequelize_1.Op.in]: ["draft", "imported"] } },
+                    { status: { [sequelize_1.Op.notIn]: ["cancelled", "deleted"] } },
+                ],
+            },
+        });
+        const invoice = yield dbConnection_2.Invoices.count({
+            where: {
+                userId: { [sequelize_1.Op.in]: allUserIds },
+                [sequelize_1.Op.and]: [
+                    { status: "accepted" },
+                    { status: { [sequelize_1.Op.notIn]: ["cancelled", "deleted"] } },
+                ],
+            },
+        });
+        const Reports = yield dbConnection_2.Report.count({
+            where: commonFilter,
+        });
+        (0, errorMessage_1.createSuccess)(res, "Dashboard data fetched successfully", {
+            saleordercount,
+            perfomaInvoice,
+            invoice,
+            Reports,
+        });
+    }
+    catch (error) {
+        console.error(error);
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
+    }
+});
+exports.getDashboardMobile = getDashboardMobile;

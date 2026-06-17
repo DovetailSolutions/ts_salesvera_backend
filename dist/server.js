@@ -12,49 +12,22 @@ const http_1 = __importDefault(require("http"));
 const dbConnection_1 = require("./config/dbConnection");
 const admin_1 = __importDefault(require("./app/router/admin"));
 const user_1 = __importDefault(require("./app/router/user"));
+const permission_1 = __importDefault(require("./app/router/permission"));
+const task_1 = __importDefault(require("./app/router/task"));
+const bulkSync_1 = __importDefault(require("./app/router/bulkSync"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const chat_1 = require("./Notigication/chat");
+const task_2 = require("./Notigication/task");
 const notificationService_1 = require("./config/notificationService");
 const cronJobs_1 = require("./config/cronJobs");
 const swaggerFile = require(path_1.default.join(__dirname, "../swagger-output.json"));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
-// const allowedOrigins = [
-//   "http://localhost:5173",
-//   "https://salesvera.com",
-//   "https://www.salesvera.com",
-//   "https://api.salesvera.com",
-// ];
-// app.use(
-//   cors({
-//     origin: function (origin, callback) {
-//       if (!origin || allowedOrigins.includes(origin)) {
-//         callback(null, true);
-//       } else {
-//         callback(new Error("Not allowed by CORS"));
-//       }
-//     },
-//     credentials: true,
-//   })
-// );
-// app.use((req, res, next) => {
-//   const origin = req.headers.origin;
-//   if (allowedOrigins.includes(origin as string)) {
-//     res.header("Access-Control-Allow-Origin", origin as string);
-//   }
-//   res.header("Access-Control-Allow-Credentials", "true");
-//   res.header(
-//     "Access-Control-Allow-Headers",
-//     "Content-Type, Authorization, X-Requested-With"
-//   );
-//   res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-//   next();
-// });
 app.use((0, cors_1.default)({
     origin: true, // reflect request origin
     credentials: true,
 }));
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: "50mb" }));
 app.use(express_1.default.urlencoded({ extended: true, limit: "50mb" }));
 // ✅ Global JSON syntax error handler
 app.use((err, req, res, next) => {
@@ -69,6 +42,9 @@ app.use((err, req, res, next) => {
 app.use("/uploads", express_1.default.static(path_1.default.join(__dirname, "../uploads")));
 app.use("/admin", admin_1.default);
 app.use("/api", user_1.default);
+app.use("/admin/permissions", permission_1.default);
+app.use("/admin/task", task_1.default);
+app.use("/admin/bulk", bulkSync_1.default);
 app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile, {
     swaggerOptions: {
         requestInterceptor: (req) => {
@@ -91,19 +67,19 @@ const io = new socket_io_1.Server(server, {
     },
 });
 (0, chat_1.initChatSocket)(io);
+(0, task_2.initTaskSocket)(io);
 // Register io so notificationService can deliver real-time events
 (0, notificationService_1.registerIo)(io);
 // Listen for socket connections
 io.on("connection", (socket) => {
     var _a, _b;
-    console.log("User connected:", socket.id);
     // Track userId → socketId for targeted notifications
     const rawUserId = (_b = (_a = socket.data) === null || _a === void 0 ? void 0 : _a.user) === null || _b === void 0 ? void 0 : _b.userId;
     if (rawUserId) {
         const userId = Number(rawUserId); // ✅ Ensure it's a number
         (0, notificationService_1.setUserSocket)(userId, socket.id);
         socket.on("disconnect", () => {
-            (0, notificationService_1.removeUserSocket)(userId);
+            (0, notificationService_1.removeUserSocket)(userId, socket.id);
         });
     }
 });
