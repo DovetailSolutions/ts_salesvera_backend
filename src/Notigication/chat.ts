@@ -688,6 +688,9 @@ export const initChatSocket = (io: Server) => {
           };
         }
 
+
+
+        
         const result = await User.findAndCountAll({
           where: {
             id: {
