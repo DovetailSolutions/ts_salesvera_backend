@@ -695,7 +695,7 @@ export const initChatSocket = (io: Server) => {
           where: {
             id: {
               [Op.in]: validUserIds,
-              [Op.ne]: userId, // ❌ exclude logged-in user
+              // [Op.ne]: userId, // ❌ exclude logged-in user
             },
             ...userSearchCondition, // Add search conditions
           },
