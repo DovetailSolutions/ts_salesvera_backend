@@ -664,7 +664,7 @@ export const initChatSocket = (io: Server) => {
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
         const childIds = await getAllRelatedUserIds(userId);
-        const validUserIds = [userId, ...childIds];
+        const validUserIds = [ ...childIds];
 
         console.log(validUserIds,'validUserIds')
         
@@ -695,7 +695,7 @@ export const initChatSocket = (io: Server) => {
           where: {
             id: {
               [Op.in]: validUserIds,
-              // [Op.ne]: userId, // ❌ exclude logged-in user
+              [Op.ne]: userId, // ❌ exclude logged-in user
             },
             ...userSearchCondition, // Add search conditions
           },
