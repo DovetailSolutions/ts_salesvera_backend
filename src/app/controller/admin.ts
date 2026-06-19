@@ -286,7 +286,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Allowed roles
-    const allowedRoles = ["admin", "manager", "super_admin", "sale_person", "user"];
+    const allowedRoles = ["admin", "manager", "super_admin", "user"];
     const userRole = user.get("role") as string;
 
     if (!allowedRoles.includes(userRole)) {

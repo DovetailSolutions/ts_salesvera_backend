@@ -664,20 +664,16 @@ export const initChatSocket = (io: Server) => {
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
         const childIds = await getAllRelatedUserIds(userId);
-        const validUserIds = [ ...childIds];
+        const validUserIds = [userId, ...childIds];
 
         console.log(validUserIds,'validUserIds')
-        
-
         // 🟢 Get all rooms I am part of to filter unread messages correctly
         const myParticipations = await ChatParticipant.findAll({
           where: { userId },
           attributes: ["chatRoomId"],
         });
         const myRoomIds = myParticipations.map((p: any) => p.chatRoomId);
-
         let userSearchCondition = {};
-
         if (cleanedSearch !== "") {
           userSearchCondition = {
             [Op.or]: [
@@ -687,10 +683,6 @@ export const initChatSocket = (io: Server) => {
             ],
           };
         }
-
-
-
-        
         const result = await User.findAndCountAll({
           where: {
             id: {
