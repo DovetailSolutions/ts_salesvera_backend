@@ -146,8 +146,8 @@ async function getAllRelatedUserIds(
   // Execute all logic
   await Promise.all([
     fetchRelations(userId, "children"),
-    fetchRelations(userId, "parents"),
-    fetchPeers(userId),
+    // fetchRelations(userId, "parents"),
+    // fetchPeers(userId),
   ]);
 
   return Array.from(result);
@@ -662,8 +662,11 @@ export const initChatSocket = (io: Server) => {
       try {
         const offset = (page - 1) * limit;
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
-
+        console.log(">>>>>>userId",userId)
         const childIds = await getAllRelatedUserIds(userId);
+
+
+        console.log(">>>>>>>>>>>childIds>",childIds)
         const validUserIds = [userId, ...childIds];
 
         console.log(validUserIds,'validUserIds')

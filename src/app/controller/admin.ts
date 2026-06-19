@@ -290,7 +290,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     const userRole = user.get("role") as string;
 
     if (!allowedRoles.includes(userRole)) {
-      badRequest(res, "Access restricted. Only admin, manager, sales & user can login.");
+      badRequest(res, "Access restricted. Only admin, manager & user can login.");
       return;
     }
 
@@ -1889,7 +1889,7 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-export const GetExpense = async (
+export const  GetExpense = async (
   req: Request,
   res: Response
 ): Promise<void> => {
@@ -1900,7 +1900,9 @@ export const GetExpense = async (
     const { page, limit, offset } = getPagination(req);
     const childIds = await getAllChildUserIds(loggedInId);
 
-    const allUserIds = [loggedInId, ...childIds];
+    const allUserIds = [ ...childIds];
+    console.log("userData",userData)
+    console.log("<<>>>>>>>>>>>>>",allUserIds)
 
     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
 
