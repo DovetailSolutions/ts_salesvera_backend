@@ -1107,6 +1107,12 @@ export const getMeeting = async (
       //   "userId",
       // ],
       where,
+      include: [
+        {
+          model: Meeting, // joined via Meeting.meetingUserId -> MeetingUser.id
+        },
+      ],
+      distinct: true, // avoid inflated count from the hasMany join
       offset,
       limit: limitNum,
       order: [["createdAt", "DESC"]],
