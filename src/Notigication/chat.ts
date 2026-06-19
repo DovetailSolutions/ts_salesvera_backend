@@ -17,6 +17,7 @@ import {
   removeUserSocket,
 } from "../config/notificationService";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {getAllSubordinateIds} from "../app/middlewear/comman"
 
 const s3 = new S3Client({
   region: process.env.AWS_REGION,
@@ -146,7 +147,7 @@ async function getAllRelatedUserIds(
   // Execute all logic
   await Promise.all([
     fetchRelations(userId, "children"),
-    // fetchRelations(userId, "parents"),
+    fetchRelations(userId, "parents"),
     // fetchPeers(userId),
   ]);
 
@@ -664,10 +665,11 @@ export const initChatSocket = (io: Server) => {
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
         console.log(">>>>>>userId",userId)
         const childIds = await getAllRelatedUserIds(userId);
+        // const childIds = await getAllSubordinateIds(userId)
 
 
         console.log(">>>>>>>>>>>childIds>",childIds)
-        const validUserIds = [userId, ...childIds];
+        const validUserIds = [ ...childIds];
 
         console.log(validUserIds,'validUserIds')
         // 🟢 Get all rooms I am part of to filter unread messages correctly
