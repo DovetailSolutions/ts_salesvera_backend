@@ -12,6 +12,8 @@ export interface SubCategoryAttributes {
   status: string;
   gst:string
   unit?:string
+  baseUnit?: string;
+  secandryUnit?: string;
   tallyGuid?: string;
 }
 
@@ -33,6 +35,8 @@ export class SubCategory
   public status!: string;
   public gst!:string;
   public unit!:string;
+  public baseUnit?: string;
+  public secandryUnit?: string;
   public tallyGuid?: string;
 
   static initModel(sequelize: Sequelize) {
@@ -78,6 +82,14 @@ export class SubCategory
         unit:{
           type:DataTypes.STRING,
           allowNull:true
+        },
+        baseUnit: {
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+        secandryUnit: {
+          type: DataTypes.STRING,
+          allowNull: true,
         },
         tallyGuid: {
           type: DataTypes.STRING,

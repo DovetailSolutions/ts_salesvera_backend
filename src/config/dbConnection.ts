@@ -393,6 +393,8 @@ const ensureColumns = async (sequelize: Sequelize) => {
       tableName: "sub_categories",
       columns: [
         { name: "tally_guid", type: "VARCHAR(255)" },
+        { name: "baseUnit", type: "VARCHAR(255)" },
+        { name: "secandryUnit", type: "VARCHAR(255)" },
       ],
     },
     {
