@@ -862,6 +862,7 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
 
 
 
+
 export const getDistance = async (
   lat1: number,
   lng1: number,
@@ -870,6 +871,17 @@ export const getDistance = async (
   meetingId?: number
 ): Promise<{ meters: number; km: number; display: string }> => {
   try {
+    console.log("========== DISTANCE CALCULATION START ==========");
+    console.log("Meeting ID:", meetingId);
+    console.log("Origin:", {
+      latitude: lat1,
+      longitude: lng1,
+    });
+    console.log("Destination:", {
+      latitude: lat2,
+      longitude: lng2,
+    });
+
     const url = "https://maps.googleapis.com/maps/api/distancematrix/json";
 
     const response = await axios.get(url, {
@@ -880,35 +892,117 @@ export const getDistance = async (
       },
     });
 
+    console.log(
+      "Google Distance Matrix Response:",
+      JSON.stringify(response.data, null, 2)
+    );
+
     const data = response.data;
 
     if (
       data.status === "OK" &&
       data.rows?.[0]?.elements?.[0]?.status === "OK"
     ) {
-      const distanceInMeters: number = data.rows[0].elements[0].distance.value;
+      const distanceInMeters = data.rows[0].elements[0].distance.value;
       const distanceInKm = Number((distanceInMeters / 1000).toFixed(3));
 
-      // < 1 km → show in meters, >= 1 km → show in km
       const display =
         distanceInMeters < 1000
           ? `${distanceInMeters} m`
           : `${distanceInKm} km`;
 
-      // Save to meeting if distance >= 1 meter
+      console.log("Distance Found:", {
+        meters: distanceInMeters,
+        km: distanceInKm,
+        display,
+      });
+
       if (distanceInMeters >= 1 && meetingId) {
         await Meeting.update(
           { legDistance: display },
           { where: { id: meetingId } }
         );
+
+        console.log(
+          `Meeting ${meetingId} updated with distance: ${display}`
+        );
       }
 
-      return { meters: distanceInMeters, km: distanceInKm, display };
+      console.log("=========== DISTANCE CALCULATION END ===========");
+
+      return {
+        meters: distanceInMeters,
+        km: distanceInKm,
+        display,
+      };
     }
 
+    console.log("Distance Matrix Status Failed:", {
+      apiStatus: data.status,
+      elementStatus: data.rows?.[0]?.elements?.[0]?.status,
+      fullResponse: data,
+    });
+
     return { meters: 0, km: 0, display: "0 m" };
-  } catch (error) {
-    console.log("Distance API Error:", error);
+  } catch (error: any) {
+    console.error("Distance API Error:");
+    console.error("Message:", error?.message);
+    console.error("Response:", error?.response?.data);
+    console.error("Stack:", error?.stack);
+
     return { meters: 0, km: 0, display: "0 m" };
   }
 };
+
+
+
+// export const getDistance = async (
+//   lat1: number,
+//   lng1: number,
+//   lat2: number,
+//   lng2: number,
+//   meetingId?: number
+// ): Promise<{ meters: number; km: number; display: string }> => {
+//   try {
+//     const url = "https://maps.googleapis.com/maps/api/distancematrix/json";
+
+//     const response = await axios.get(url, {
+//       params: {
+//         origins: `${lat1},${lng1}`,
+//         destinations: `${lat2},${lng2}`,
+//         key: process.env.GOOGLE_MAP_API_KEY,
+//       },
+//     });
+
+//     const data = response.data;
+
+//     if (
+//       data.status === "OK" &&
+//       data.rows?.[0]?.elements?.[0]?.status === "OK"
+//     ) {
+//       const distanceInMeters: number = data.rows[0].elements[0].distance.value;
+//       const distanceInKm = Number((distanceInMeters / 1000).toFixed(3));
+
+//       // < 1 km → show in meters, >= 1 km → show in km
+//       const display =
+//         distanceInMeters < 1000
+//           ? `${distanceInMeters} m`
+//           : `${distanceInKm} km`;
+
+//       // Save to meeting if distance >= 1 meter
+//       if (distanceInMeters >= 1 && meetingId) {
+//         await Meeting.update(
+//           { legDistance: display },
+//           { where: { id: meetingId } }
+//         );
+//       }
+
+//       return { meters: distanceInMeters, km: distanceInKm, display };
+//     }
+
+//     return { meters: 0, km: 0, display: "0 m" };
+//   } catch (error) {
+//     console.log("Distance API Error:", error);
+//     return { meters: 0, km: 0, display: "0 m" };
+//   }
+// };
