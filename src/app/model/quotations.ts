@@ -1,6 +1,6 @@
 import { Model, DataTypes, Sequelize, Optional } from "sequelize";
 
-export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected" |"imported" |"cancelled"|"deleted";
+export type QuotationStatus = "draft" | "sent" | "accepted" | "rejected" | "imported" | "cancelled" | "deleted";
 
 interface QuotationAttributes {
   id: number;
@@ -14,15 +14,15 @@ interface QuotationAttributes {
   isConsumed: boolean;
   guid?: string | null;
   alterid?: string | null;
+  TallyAPISync?: boolean
 }
 
 interface QuotationCreationAttributes
-  extends Optional<QuotationAttributes, "id" | "quotation" | "status"> {}
+  extends Optional<QuotationAttributes, "id" | "quotation" | "status"> { }
 
 export class Quotations
   extends Model<QuotationAttributes, QuotationCreationAttributes>
-  implements QuotationAttributes
-{
+  implements QuotationAttributes {
   public id!: number;
   public userId!: number;
   public companyId!: number;
@@ -34,6 +34,7 @@ export class Quotations
   public isConsumed!: boolean;
   public guid?: string | null;
   public alterid?: string | null;
+  public TallyAPISync!: boolean
 
   static initModel(sequelize: Sequelize) {
     Quotations.init(
@@ -43,23 +44,23 @@ export class Quotations
           autoIncrement: true,
           primaryKey: true,
         },
-        quotationNumber:{
+        quotationNumber: {
           type: DataTypes.STRING,
           allowNull: true,
         },
-        guid:{
-          type:DataTypes.STRING,
-          allowNull: true,
-        },
-        alterid:{
-          type:DataTypes.STRING,
-          allowNull: true,
-        },
-        referenceNumber:{
+        guid: {
           type: DataTypes.STRING,
           allowNull: true,
         },
-        customerName:{
+        alterid: {
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+        referenceNumber: {
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+        customerName: {
           type: DataTypes.STRING,
           allowNull: true,
         },
@@ -73,7 +74,13 @@ export class Quotations
           type: DataTypes.INTEGER,
           allowNull: true,
         },
-        isConsumed:{
+        isConsumed: {
+          type: DataTypes.BOOLEAN,
+          defaultValue: false,
+          allowNull: true,
+        },
+
+        TallyAPISync: {
           type: DataTypes.BOOLEAN,
           defaultValue: false,
           allowNull: true,
@@ -84,7 +91,7 @@ export class Quotations
         },
 
         status: {
-          type: DataTypes.ENUM("draft","imported", "sent", "accepted", "rejected", "cancelled", "deleted"),
+          type: DataTypes.ENUM("draft", "imported", "sent", "accepted", "rejected", "cancelled", "deleted"),
           defaultValue: "draft",
         },
       },
