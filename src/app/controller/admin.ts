@@ -2592,7 +2592,7 @@ export const addSubCategory = async (
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { sub_category_name, amount, tax,status, CategoryId,gst,unit,hsnCode } = req.body;
+    const { sub_category_name, amount, tax,status, CategoryId,gst,unit,hsnCode,baseUnit,secandryUnit } = req.body;
     if (!sub_category_name?.trim()) {
       badRequest(res, "Sub category name is required");
       return;
@@ -2630,6 +2630,8 @@ export const addSubCategory = async (
       gst:gst ?? null,
       unit:unit ?? null,
       hsnCode:hsnCode ?? null,
+      baseUnit:baseUnit ?? null,
+      secandryUnit:secandryUnit ?? null,
     });
     createSuccess(res, "Sub category created successfully", subCategory);
   } catch (error) {
@@ -2655,7 +2657,7 @@ export const updateSubCategory = async (req: Request, res: Response) => {
       return;
     }
 
-    const { sub_category_name, amount, tax, CategoryId,status } = req.body;
+    const { sub_category_name, amount, tax, CategoryId,status,baseUnit,secandryUnit } = req.body;
 
     // Check if subcategory exists
     const existingSubCategory = await SubCategory.findByPk(id);
@@ -2683,6 +2685,14 @@ export const updateSubCategory = async (req: Request, res: Response) => {
     }
     if (status !== undefined) {
       object.status = status;
+    }
+
+    if (baseUnit !== undefined) {
+      object.baseUnit = baseUnit;
+    }
+
+    if (secandryUnit !== undefined) {
+      object.secandryUnit = secandryUnit;
     }
 
     object.managerId = loggedInId;
