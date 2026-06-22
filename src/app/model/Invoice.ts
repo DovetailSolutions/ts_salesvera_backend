@@ -1,5 +1,5 @@
 import { Model, DataTypes, Sequelize, Optional } from "sequelize";
-export type InvoiceStatus = "draft" | "sent" | "accepted" | "rejected" |"imported" | "cancelled" | "deleted";
+export type InvoiceStatus = "draft" | "sent" | "accepted" | "rejected" | "imported" | "cancelled" | "deleted";
 
 interface InvoiceAttributes {
   id: number;
@@ -15,15 +15,15 @@ interface InvoiceAttributes {
   invoiceDate?: Date | null;
   guid?: string | null;
   alterid?: string | null;
+  TallyAPISync?: boolean
 }
 
 interface InvoiceCreationAttributes
-  extends Optional<InvoiceAttributes, "id" | "invoice" | "status" | "quotationId"> {}
+  extends Optional<InvoiceAttributes, "id" | "invoice" | "status" | "quotationId"> { }
 
 export class Invoices
   extends Model<InvoiceAttributes, InvoiceCreationAttributes>
-  implements InvoiceAttributes
-{
+  implements InvoiceAttributes {
   public id!: number;
   public userId!: number;
   public companyId!: number;
@@ -37,7 +37,8 @@ export class Invoices
   public quotationNumber?: string | null;
   public guid?: string | null;
   public alterid?: string | null;
-  
+  public TallyAPISync!: boolean
+
 
   static initModel(sequelize: Sequelize) {
     Invoices.init(
@@ -68,12 +69,12 @@ export class Invoices
           allowNull: false,
         },
 
-        guid:{
-          type:DataTypes.STRING,
+        guid: {
+          type: DataTypes.STRING,
           allowNull: true,
         },
-        alterid:{
-          type:DataTypes.STRING,
+        alterid: {
+          type: DataTypes.STRING,
           allowNull: true,
         },
 
@@ -92,8 +93,14 @@ export class Invoices
           type: DataTypes.STRING,
           allowNull: true,
         },
-        quotationDate:{
+        quotationDate: {
           type: DataTypes.DATE,
+          allowNull: true,
+        },
+
+        TallyAPISync: {
+          type: DataTypes.BOOLEAN,
+          defaultValue: false,
           allowNull: true,
         },
 
@@ -101,8 +108,8 @@ export class Invoices
           type: DataTypes.DATE,
           allowNull: true,
         },
- status: {
-          type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected", "cancelled", "deleted"),
+        status: {
+          type: DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected", "cancelled", "deleted"),
           defaultValue: "draft",
         },
       },
