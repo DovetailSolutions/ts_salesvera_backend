@@ -154,6 +154,88 @@ async function getAllRelatedUserIds(
   return Array.from(result);
 }
 
+// 🟢 sale_person UserList: own admin + own manager + all "cousins"
+// (every other sale_person under the same admin, regardless of which manager created them)
+async function getSalePersonChatUserIds(userId: number): Promise<number[]> {
+  const result = new Set<number>();
+
+  // 1. Walk UP: own manager (direct creator) + own admin (root admin/super_admin)
+  let currentId = userId;
+  let managerId: number | null = null;
+  let adminId: number | null = null;
+  let isFirst = true;
+
+  while (true) {
+    const currentUser = (await User.findByPk(currentId, {
+      include: [
+        {
+          model: User,
+          as: "creators",
+          attributes: ["id", "role"],
+          through: { attributes: [] },
+        },
+      ],
+    })) as UserWithRelations;
+
+    const creator = currentUser?.creators?.[0];
+
+    if (isFirst) {
+      managerId = creator?.id ?? null;
+      isFirst = false;
+    }
+
+    if (!creator) break;
+
+    if (creator.role === "admin" || creator.role === "super_admin") {
+      adminId = creator.id;
+      break;
+    }
+
+    currentId = creator.id;
+  }
+
+  if (managerId) result.add(managerId);
+  if (adminId) result.add(adminId);
+
+  // 2. Cousins: every sale_person whose creator is a manager under the same admin
+  if (adminId) {
+    const admin = (await User.findByPk(adminId, {
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id", "role"],
+          through: { attributes: [] },
+        },
+      ],
+    })) as UserWithRelations;
+
+    const managerIds = (admin?.createdUsers || [])
+      .filter((u: any) => u.role === "manager")
+      .map((u: any) => u.id);
+
+    if (managerIds.length > 0) {
+      const salePersons = await User.findAll({
+        where: { role: "sale_person" },
+        attributes: ["id"],
+        include: [
+          {
+            model: User,
+            as: "creators",
+            attributes: [],
+            through: { attributes: [] },
+            where: { id: { [Op.in]: managerIds } },
+          },
+        ],
+      });
+
+      salePersons.forEach((sp: any) => result.add(sp.id));
+    }
+  }
+
+  return Array.from(result);
+}
+
 export const initChatSocket = (io: Server) => {
   // ---------- 🔐 AUTH + PERMISSION MIDDLEWARE ----------
   // FIX: connection is rejected if the user lacks chat:read permission.
@@ -663,15 +745,14 @@ export const initChatSocket = (io: Server) => {
       try {
         const offset = (page - 1) * limit;
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
-        console.log(">>>>>>userId",userId)
-        const childIds = await getAllRelatedUserIds(userId);
-        // const childIds = await getAllSubordinateIds(userId)
 
+        // 🟢 sale_person gets a dedicated list: own admin + own manager + all cousins (other sale_persons)
+        const childIds =
+          userRole === "sale_person"
+            ? await getSalePersonChatUserIds(userId)
+            : await getAllRelatedUserIds(userId);
 
-        console.log(">>>>>>>>>>>childIds>",childIds)
-        const validUserIds = [ ...childIds];
-
-        console.log(validUserIds,'validUserIds')
+        const validUserIds = [...childIds];
         // 🟢 Get all rooms I am part of to filter unread messages correctly
         const myParticipations = await ChatParticipant.findAll({
           where: { userId },
