@@ -123,11 +123,8 @@ export const initTaskSocket = (io: Server): void => {
 
         const assigneeRole: string = assignee.role;
 
-        if (role === "manager" && assigneeRole !== "sale_person") {
-          return socket.emit("taskError", { message: "Managers can only assign tasks to sale persons" });
-        }
         if (
-          (role === "admin" || role === "super_admin") &&
+          (role === "admin" || role === "super_admin" || role === "manager") &&
           !["manager", "sale_person"].includes(assigneeRole)
         ) {
           return socket.emit("taskError", { message: "Tasks can only be assigned to managers or sale persons" });
@@ -279,11 +276,8 @@ export const initTaskSocket = (io: Server): void => {
               }
             }
             const assigneeRole: string = assignee.role;
-            if (role === "manager" && assigneeRole !== "sale_person") {
-              return socket.emit("taskError", { message: "Managers can only assign tasks to sale persons" });
-            }
             if (
-              (role === "admin" || role === "super_admin") &&
+              (role === "admin" || role === "super_admin" || role === "manager") &&
               !["manager", "sale_person"].includes(assigneeRole)
             ) {
               return socket.emit("taskError", { message: "Tasks can only be assigned to managers or sale persons" });
