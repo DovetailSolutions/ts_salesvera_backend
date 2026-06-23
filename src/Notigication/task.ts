@@ -18,6 +18,7 @@ const loadUserPermissionsFromDB = async (userId: number): Promise<string[]> => {
 const hasPermission = async (userId: number, companyId: number, role: string, action: string): Promise<boolean> => {
   if (role === "super_admin") return true;
   const perms = await getUserPermissionsFromCache(userId, () => loadUserPermissionsFromDB(userId));
+  console.log(">>>>>>>>>>>>>>>>>>>>>hasPermission",hasPermission)
   return perms.has(`task:${action}`);
 };
 
@@ -91,6 +92,8 @@ export const initTaskSocket = (io: Server): void => {
     // ── CREATE TASK ──────────────────────────────────────────────────────────
     // client emits: createTask  { title, assignedTo, description?, priority?, dueDate?, tags? }
     socket.on("createTask", async (data) => {
+
+      console.log(">>>>>>>>>>>>>>>>>>>>>>>createTask",uid, companyId, role, "create")
       if (!await hasPermission(uid, companyId, role, "create")) {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:create permission" });
       }
