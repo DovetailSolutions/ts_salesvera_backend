@@ -282,6 +282,11 @@ export const initChatSocket = (io: Server) => {
     const userId = Number(socket.data.user.userId); // ✅ Cast to number
     const userRole = socket.data.user.role;
 
+
+    console.log(" we are inside socket ")
+    console.log(">>>>>>>>>>>this is user Id",userId)
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>userRole",userRole)
+
     // 📡 Register this user's socket for targeted notifications
     setUserSocket(userId, socket.id);
 
