@@ -101,5 +101,7 @@ router.post("/verify-otp", Controller.verifyOtp);
 router.post("/reset-password", Controller.changePassword);
 router.get("/dashboardmobile",tokenCheck,Controller.getDashboardMobile)
 
+router.get("/getsalesPerformance",tokenCheck,Controller.getSalesPerformance)
+
 
 export default router;
