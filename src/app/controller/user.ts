@@ -3565,3 +3565,130 @@ export const getDashboardMobile = async (
     );
   }
 };
+
+// Sales person's own meeting-completion performance for the mobile app.
+// Lets the logged-in user check their completed-meeting % day-wise (current week),
+// month-wise (current month) or year-wise (current year) — used for the
+// "Sales Performance" chart on the mobile dashboard.
+export const getSalesPerformance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { userId } = req.userData as JwtPayload;
+    const finalUserId = Number(userId);
+
+    const range = String(req.query.range || "week").toLowerCase();
+    if (!["week", "month", "year"].includes(range)) {
+      badRequest(res, "range must be one of: week, month, year");
+      return;
+    }
+
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
+    let buckets: { key: number; label: string }[];
+
+    if (range === "week") {
+      // Monday-start week containing "now"
+      const mondayOffset = (now.getDay() + 6) % 7; // Mon=0 ... Sun=6
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - mondayOffset);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+
+      const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      buckets = labels.map((label, key) => ({ key, label }));
+    } else if (range === "month") {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      const daysInMonth = endDate.getDate();
+      buckets = Array.from({ length: daysInMonth }, (_, i) => ({
+        key: i + 1,
+        label: String(i + 1),
+      }));
+    } else {
+      startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+
+      const labels = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+      ];
+      buckets = labels.map((label, key) => ({ key, label }));
+    }
+
+    const meetings = await Meeting.findAll({
+      where: {
+        userId: finalUserId,
+        status: { [Op.ne]: "cancelled" },
+        createdAt: { [Op.between]: [startDate, endDate] },
+      },
+      attributes: ["id", "status", "createdAt"],
+    });
+
+    const bucketStats = new Map<number, { total: number; completed: number }>();
+    buckets.forEach((b) => bucketStats.set(b.key, { total: 0, completed: 0 }));
+
+    meetings.forEach((m: any) => {
+      const date = new Date(m.createdAt);
+      let key: number;
+
+      if (range === "week") key = (date.getDay() + 6) % 7;
+      else if (range === "month") key = date.getDate();
+      else key = date.getMonth();
+
+      const stat = bucketStats.get(key);
+      if (!stat) return;
+
+      stat.total += 1;
+      if (m.status === "out" || m.status === "completed") stat.completed += 1;
+    });
+
+    let totalMeetings = 0;
+    let completedMeetings = 0;
+
+    const chart = buckets.map((b) => {
+      const stat = bucketStats.get(b.key)!;
+      totalMeetings += stat.total;
+      completedMeetings += stat.completed;
+
+      const percentage =
+        stat.total > 0
+          ? Math.round((stat.completed / stat.total) * 1000) / 10
+          : 0;
+
+      return {
+        label: b.label,
+        totalMeetings: stat.total,
+        completedMeetings: stat.completed,
+        percentage,
+      };
+    });
+
+    const averageKpi =
+      totalMeetings > 0
+        ? Math.round((completedMeetings / totalMeetings) * 1000) / 10
+        : 0;
+
+    createSuccess(res, "Sales performance fetched successfully", {
+      range,
+      startDate,
+      endDate,
+      totalMeetings,
+      completedMeetings,
+      averageKpi,
+      chart,
+    });
+  } catch (error) {
+    console.error(error);
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};
