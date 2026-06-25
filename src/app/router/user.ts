@@ -61,7 +61,7 @@ router.patch("/updatepassword", tokenCheck, Controller.UpdatePassword);
 router.post("/getquotationpdf",          tokenCheck, checkPermission("quotation", "view"),   Controller.getQuotationPdf)
 router.get("/getquotationpdflist",        tokenCheck, checkPermission("quotation", "view"),   Controller.getQuotationPdfList)
 router.get("/downloadquotationpdf/:id",   tokenCheck, checkPermission("quotation", "view"),   Controller.downloadQuotationPdf)
-router.get("/getsubcategory/:id",         tokenCheck, Controller.getSubCategory)
+router.get("/getcsubategory/:id",         tokenCheck, Controller.getSubCategory)
 router.post("/addquotation",              tokenCheck, checkPermission("quotation", "create"), Controller.addQuotation)
 router.post('/updatequotation/:id',       tokenCheck, checkPermission("quotation", "update"), Controller.updateQuotation)
 

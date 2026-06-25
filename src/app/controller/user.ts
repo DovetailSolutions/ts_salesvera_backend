@@ -128,6 +128,13 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     const userId = user.getDataValue("id");
     const role = user.getDataValue("role");
     const createdBy = user.getDataValue("createdBy");
+
+    // ✅ Only sale_person and manager are allowed to log in
+    if (role !== "sale_person" && role !== "manager") {
+      badRequest(res, "Only sale person and manager are allowed to login");
+      return;
+    }
+
     let companyId: number | null = null;
 
     if (role === "admin") {

@@ -269,7 +269,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
 
 export const Login = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, tenantId } = req.body || {};
+    const { email, password, tenantId, deviceType } = req.body || {};
 
     // Validate input
     if (!email || !password) {
@@ -291,6 +291,12 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
 
     if (!allowedRoles.includes(userRole)) {
       badRequest(res, "Access restricted. Only admin, manager & user can login.");
+      return;
+    }
+
+    // ✅ Exe (desktop) login is admin-only; web login is unrestricted (within allowedRoles)
+    if (deviceType === "exe" && userRole !== "admin") {
+      badRequest(res, "Only admin can login from the desktop application");
       return;
     }
 
