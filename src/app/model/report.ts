@@ -12,6 +12,7 @@ interface RepostAttributes {
   overdueDays: number;
   userId: number;
   companyId: number;
+  tallyGuid:string;
 }
 
 interface RepostCreationAttributes
@@ -31,6 +32,7 @@ export class Repost
   public overdueDays!: number;
   public userId!: number;
   public companyId!: number;
+  public tallyGuid!:string
 }
 
 export const RepostModel = (sequelize: Sequelize) => {
@@ -58,6 +60,11 @@ export const RepostModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         allowNull: false,
         field: "customer_name",
+      },
+
+      tallyGuid:{
+        type:DataTypes.STRING,
+        allowNull:true
       },
 
       openingAmount: {
