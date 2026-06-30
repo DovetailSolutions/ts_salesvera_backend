@@ -73,6 +73,8 @@ const sequelize = new Sequelize(
         }
       : {}),
   }
+
+
 );
 
 // ===== INIT MODELS =====
@@ -411,6 +413,12 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "fileName", type: "VARCHAR(255)" },
         { name: "replyTo", type: "INTEGER" },
         { name: "status", type: "VARCHAR(10) DEFAULT 'unseen'" },
+      ],
+    },
+    {
+      tableName: "repost",
+      columns: [
+        { name: "tallyGuid", type: "VARCHAR(255)" },
       ],
     },
   ];
