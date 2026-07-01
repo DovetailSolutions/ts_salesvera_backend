@@ -245,12 +245,23 @@ export const initChatSocket = (io: Server) => {
   io.use(async (socket, next) => {
     const token = (socket.handshake.auth?.token || socket.handshake.headers.token) as string;
 
+    // FIX: log token presence/length on every handshake so a client-side
+    // "connects but never authenticates" report (e.g. sale_person reconnect
+    // sending an empty/stale token) can be diagnosed from server logs alone.
+    console.log(
+      `SOCKET: Handshake from ${socket.id} — tokenLen: ${token ? token.length : 0}`
+    );
+
     if (!token) return next(new Error("Authentication error"));
     try {
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
       socket.data.user = decoded;
 
       const { userId, role, companyId } = decoded;
+
+      console.log(
+        `SOCKET: Authenticated ${socket.id} — userId: ${userId}, role: ${role}`
+      );
 
       // These roles always have chat access — no permission check needed
       const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
@@ -271,7 +282,8 @@ export const initChatSocket = (io: Server) => {
       }
 
       next();
-    } catch (err) {
+    } catch (err: any) {
+      console.log(`SOCKET: Auth failed for ${socket.id} — ${err?.message ?? err}`);
       next(new Error("Authentication failed"));
     }
   });
@@ -283,11 +295,7 @@ export const initChatSocket = (io: Server) => {
     const userRole = socket.data.user.role;
 
 
-    console.log(" we are inside socket ")
-    console.log(">>>>>>>>>>>this is user Id",userId)
-    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>userRole",userRole
-      
-    )
+    console.log(`SOCKET: Connected successfully! socketId: ${socket.id}, userId: ${userId}, role: ${userRole}`);
 
     // 📡 Register this user's socket for targeted notifications
     setUserSocket(userId, socket.id);
@@ -1218,7 +1226,8 @@ export const initChatSocket = (io: Server) => {
     });
 
     // --------------------------------------------------------
-    socket.on("disconnect", async () => {
+    socket.on("disconnect", async (reason) => {
+      console.log(`SOCKET: Disconnected socketId: ${socket.id}, userId: ${userId} — reason: ${reason}`);
       await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
       // 📡 Broadcast this user's offline status to ALL connected clients
       io.emit("userStatusChange", { userId, onlineSatus: "offline" });
