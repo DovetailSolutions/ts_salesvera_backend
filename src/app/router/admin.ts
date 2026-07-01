@@ -46,9 +46,8 @@ router.post("/assign-meeting", tokenCheck, AdminController.assignMeeting);
 router.get("/getown-leave", tokenCheck, checkPermission("leave", "view"), AdminController.ownLeave)
 // FIX: was missing tokenCheck entirely — added both tokenCheck and quotation:create.
 router.post("/add/quotation", tokenCheck, checkPermission("quotation", "create"), AdminController.addQuotation);
-
-
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
 
 router.post(
     "/addSubCategory",
@@ -72,8 +71,9 @@ router.post("/addquotationpdf",         tokenCheck, checkPermission("quotation",
 
 router.get("/fuel-expense", tokenCheck, AdminController.getMeetingDistance);
 router.get("/get-fuel-expense",tokenCheck,AdminController.getFuelExpense)
-
 //>>>>>>>>>>>>>>>>>>>>>>>>add company >>>>>>>>>>>>>>>
+
+
 
 
 router.post("/addcompany",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addCompany);
@@ -180,10 +180,7 @@ router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
 router.post("/forgot-password", AdminController.forgotPassword);
 router.post("/verify-otp", AdminController.verifyOtp);
 router.post("/reset-password", AdminController.changePassword);
-
-
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
  
 
