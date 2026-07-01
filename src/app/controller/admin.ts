@@ -729,6 +729,8 @@ export const GetAllUser = async (
   try {
     const userData = req.userData as JwtPayload;
 
+    console.log("userData in GetAllUser:", userData); // Debugging line
+
     const { page = 1, limit = 10, search = "", role } = req.query;
 
     const pageNum = Number(page);
@@ -801,7 +803,7 @@ export const GetAllUser = async (
         },
         {
           model: Company,
-          as: "managedCompany",
+          as: "managedCompanies",
           attributes: ["id", "companyName"],
           required: false,
         },
