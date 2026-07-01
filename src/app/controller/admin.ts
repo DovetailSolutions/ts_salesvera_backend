@@ -3622,7 +3622,10 @@ export const assignCompanyManager = async (req: Request, res: Response) => {
     }
 
     const company = await Company.findOne({
-      where: { id: req.params.id, adminId: userData.userId },
+      where: {
+        id: req.params.id,
+        [Op.or]: [{ adminId: userData.userId }, { userId: userData.userId }],
+      },
     });
     if (!company) {
       return badRequest(res, "Company not found");
@@ -3667,7 +3670,10 @@ export const removeCompanyManager = async (req: Request, res: Response) => {
     }
 
     const company = await Company.findOne({
-      where: { id: Number(companyId), userId: userData.userId },
+      where: {
+        id: Number(companyId),
+        [Op.or]: [{ adminId: userData.userId }, { userId: userData.userId }],
+      },
     });
     if (!company) {
       return badRequest(res, "Company not found");
@@ -3701,7 +3707,10 @@ export const getCompanyManagers = async (req: Request, res: Response) => {
     }
 
     const company = await Company.findOne({
-      where: { id: req.params.id, userId: userData.userId },
+      where: {
+        id: req.params.id,
+        [Op.or]: [{ adminId: userData.userId }, { userId: userData.userId }],
+      },
     });
     if (!company) {
       return badRequest(res, "Company not found");
