@@ -51,6 +51,7 @@ export const tokenCheck = async (
 
     const rawId = (decoded as any).userId ?? (decoded as any).id;
     const id = Number(rawId);
+    
 
     // Fetch user from DB — must be active and a valid role
     // sale_person is intentionally excluded — admin routes are off-limits to them
