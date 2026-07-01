@@ -1496,6 +1496,9 @@ export const AttendanceList = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+
+
+    console.log("============= USER DATA =============", userData);
     const finalUserId = userData?.userId;
     const data = req.query;
 

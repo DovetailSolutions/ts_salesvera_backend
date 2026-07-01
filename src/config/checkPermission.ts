@@ -83,8 +83,10 @@ export const checkPermission = (module: string, action: string) => {
         return next();
       }
 
-      // ── Admin / Manager / Sale Person / User: check permissions table via cache ────
-      if (!companyId) {
+      // ── Admin / Manager / User: check permissions table via cache ──────
+      // sale_person is exempt from the companyId requirement — its permission
+      // set is still enforced below, just without a company context gate.
+      if (!companyId && role !== "sale_person") {
         return res.status(403).json({
           success: false,
           message: "Forbidden — no company context in token",
