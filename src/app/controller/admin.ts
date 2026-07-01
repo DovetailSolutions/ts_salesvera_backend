@@ -329,9 +329,9 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         attributes: ["companyId"],
       });
       companyId = assignment ? assignment.companyId : null;
-    } else if (userRole === "sale_person") {
+    } else if (userRole === "user") {
       const company = await (Company as any).findOne({
-        where: { managerId: userId },
+        where: { userId: userId },
         attributes: ["id"],
       });
       companyId = company ? company.id : null;
@@ -347,6 +347,38 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       companyId = firstPermission ? firstPermission.companyId : null;
     }
     // super_admin: companyId remains null (global access)
+
+    // ── Restore last active company (from previous logout), if still accessible ──
+    // Overrides the priority-based resolution above so a manager (or admin/sale_person)
+    // assigned to multiple companies lands back where they left off.
+    const lastLoginCompanyId = user.get("lastLoginCompanyId") as number | null;
+    if (lastLoginCompanyId && (userRole === "admin" || userRole === "manager" || userRole === "sale_person")) {
+      let hasAccess = false;
+
+      if (userRole === "admin") {
+        const company = await (Company as any).findOne({
+          where: { id: lastLoginCompanyId, adminId: userId },
+          attributes: ["id"],
+        });
+        hasAccess = !!company;
+      } else if (userRole === "manager") {
+        const assignment = await (CompanyManager as any).findOne({
+          where: { companyId: lastLoginCompanyId, managerId: userId },
+          attributes: ["id"],
+        });
+        hasAccess = !!assignment;
+      } else if (userRole === "sale_person") {
+        const company = await (Company as any).findOne({
+          where: { id: lastLoginCompanyId, managerId: userId },
+          attributes: ["id"],
+        });
+        hasAccess = !!company;
+      }
+
+      if (hasAccess) {
+        companyId = lastLoginCompanyId;
+      }
+    }
 
     // Create tokens (companyId embedded in JWT)
     const { accessToken, refreshToken } = Middleware.CreateToken(
@@ -393,6 +425,32 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       },
       permissions,
     });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const Logout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { lastLoginCompanyId } = req.body || {};
+
+    // Frontend sends {} when the user has no active company context yet — nothing to persist.
+    if (lastLoginCompanyId !== undefined) {
+      await User.update(
+        { lastLoginCompanyId: lastLoginCompanyId === null ? null : Number(lastLoginCompanyId) },
+        { where: { id: userData.userId } }
+      );
+    }
+
+    createSuccess(res, "Logout successful");
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
