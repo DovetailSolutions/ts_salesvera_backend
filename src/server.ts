@@ -15,7 +15,7 @@ import bulkSyncRouter from "./app/router/bulkSync";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
-import { registerIo, setUserSocket, removeUserSocket } from "./config/notificationService";
+import { registerIo } from "./config/notificationService";
 import { startCronJobs } from "./config/cronJobs";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
@@ -70,7 +70,7 @@ const server = http.createServer(app);
 // Initialize socket.io
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: true, // reflect request origin — required when credentials: true (can't combine with "*")
     credentials: true,
   },
 });
@@ -80,20 +80,6 @@ initTaskSocket(io);
 
 // Register io so notificationService can deliver real-time events
 registerIo(io);
-
-// Listen for socket connections
-io.on("connection", (socket) => {
-  // Track userId → socketId for targeted notifications
-  const rawUserId = socket.data?.user?.userId;
-  if (rawUserId) {
-    const userId = Number(rawUserId); // ✅ Ensure it's a number
-    setUserSocket(userId, socket.id);
-    
-    socket.on("disconnect", () => {
-      removeUserSocket(userId, socket.id);
-    });
-  }
-});
 
 // Start server (IMPORTANT)
 server.listen(PORT, () => {
