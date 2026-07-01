@@ -29,6 +29,7 @@ import { Message } from "../app/model/Message";
 import { Quotations } from "../app/model/quotations";
 
 import { CompanyModell } from "../app/model/company";
+import { CompanyManagerModel } from "../app/model/companyManager";
 import { BranchModel } from "../app/model/branch";
 import { ShiftModel } from "../app/model/Shift";
 import { DepartmentModel } from "../app/model/department";
@@ -111,6 +112,7 @@ Quotations.initModel(sequelize);
 
 // Company Structure
 const Company = CompanyModell(sequelize);
+const CompanyManager = CompanyManagerModel(sequelize);
 const Branch = BranchModel(sequelize);
 
 const Department = DepartmentModel(sequelize);
@@ -229,8 +231,11 @@ Quotations.belongsTo(User, { foreignKey: "userId" });
 User.hasOne(Company, { foreignKey: "adminId", as: "company" });
 Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
 
-User.hasOne(Company, { foreignKey: "managerId", as: "managedCompany" });
-Company.belongsTo(User, { foreignKey: "managerId", as: "manager" });
+// Many-to-many: a manager can manage multiple companies, a company can have multiple managers
+Company.belongsToMany(User, { through: CompanyManager, as: "managers", foreignKey: "companyId", otherKey: "managerId" });
+User.belongsToMany(Company, { through: CompanyManager, as: "managedCompanies", foreignKey: "managerId", otherKey: "companyId" });
+CompanyManager.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+CompanyManager.belongsTo(User, { foreignKey: "managerId", as: "manager" });
 
 Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
 Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
@@ -479,6 +484,22 @@ const ensureColumns = async (sequelize: Sequelize) => {
     } catch (err) {
       // Ignore if doesn't exist
     }
+  }
+
+  // ✅ Ensure company_managers junction table exists (many-to-many: company ↔ manager)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "company_managers" (
+        "id" SERIAL PRIMARY KEY,
+        "companyId" INTEGER NOT NULL,
+        "managerId" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "company_managers_unique" UNIQUE ("companyId", "managerId")
+      );
+    `);
+  } catch (err) {
+    console.error(`❌ Error creating table company_managers:`, err);
   }
 
   // ✅ Ensure company_banks table exists (new table added to model)
@@ -934,6 +955,7 @@ export {
   MeetingUser,
   Quotations,
   Company,
+  CompanyManager,
   Branch,
   Shift,
   Department,
