@@ -13,6 +13,7 @@ const csv = getUploadMiddleware("csv")
 
 router.post("/register", AdminController.Register);
 router.post("/login", AdminController.Login);
+router.post("/logout", tokenCheck, AdminController.Logout);
 router.get("/getProfile", tokenCheck, AdminController.GetProfile);
 router.patch("/updateProfile", tokenCheck, profile.single("profile"), AdminController.UpdateProfile);
 router.patch("/updatepassword", tokenCheck, AdminController.UpdatePassword);
@@ -48,34 +49,24 @@ router.get("/getown-leave", tokenCheck, checkPermission("leave", "view"), AdminC
 router.post("/add/quotation", tokenCheck, checkPermission("quotation", "create"), AdminController.addQuotation);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-
 router.post(
     "/addSubCategory",
     tokenCheck,
     AdminController.addSubCategory
 );
-
 router.patch(
     "/updateSubCategory/:id",
     tokenCheck,
     AdminController.updateSubCategory
 );
-
-
 router.get("/getsubcategory/:id",tokenCheck,AdminController.getSubCategory)
 // FIX: quotation PDF routes require quotation permissions.
 router.get("/getquotationpdflist",      tokenCheck, checkPermission("quotation", "view"),   AdminController.getQuotationPdfList)
 router.get("/downloadquotationpdf/:id", tokenCheck, checkPermission("quotation", "view"),   AdminController.downloadQuotationPdf);
 router.post("/addquotationpdf",         tokenCheck, checkPermission("quotation", "create"), AdminController.addQuotationPdf)
-
-
 router.get("/fuel-expense", tokenCheck, AdminController.getMeetingDistance);
 router.get("/get-fuel-expense",tokenCheck,AdminController.getFuelExpense)
 //>>>>>>>>>>>>>>>>>>>>>>>>add company >>>>>>>>>>>>>>>
-
-
-
-
 router.post("/addcompany",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addCompany);
 router.get("/getcompany",     tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompany);
 router.get("/getcompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompanyById);
@@ -86,51 +77,32 @@ router.get("/company-managers/:id",         tokenCheck, authorizeRoles(...ADMIN_
 router.get("/my-companies",    tokenCheck, AdminController.getMyCompanies);
 router.post("/switch-company", tokenCheck, AdminController.switchCompany);
 router.delete("/deletecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.deleteCompany);
-
-
-
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
 router.post("/addbranch",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addBranch);
 router.get("/getbranch",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getBranch);
 router.get("/getbranch/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getBranchById);
 // router.patch("/updatebranch/:id",tokenCheck,AdminController.updateBranch);
 // router.delete("/deletebranch/:id",tokenCheck,AdminController.deleteBranch);
-
-
 router.post("/addshift",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addShift);
 router.get("/getshift",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getShift);
 router.get("/getshift/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getShiftById);
-
-
-
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
 router.post("/adddepartment",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addDepartment);
 router.get("/getdepartment",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDepartment);
 router.get("/getdepartment/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDepartmentById);
 // router.patch("/updatedepartment/:id",tokenCheck,AdminController.updateDepartment);
 // router.delete("/deletedepartment/:id",tokenCheck,AdminController.deleteDepartment);
-
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
 router.post("/addholiday",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addHoliday);
 router.get("/getholiday",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getHoliday);
 router.get("/getholiday/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getHolidayById);
 // router.patch("/updateholiday/:id",tokenCheck,AdminController.updateHoliday);
 // router.delete("/deleteholiday/:id",tokenCheck,AdminController.deleteHoliday);
-
-
-
 // FIX: quotation CRUD routes require quotation permissions.
 router.post("/addquotation",       tokenCheck, checkPermission("quotation", "create"), AdminController.addQuotation2)
 router.get("/getquotationlist",    tokenCheck, checkPermission("quotation", "view"),   AdminController.getQuotationPdfList2)
 router.post('/updatequotation/:id',tokenCheck, checkPermission("quotation", "update"), AdminController.updateQuotation)
-
-
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-
 // FIX: creating/viewing company leave policies (types, rules) requires leave:manage.
 //      Without this a manager/sale_person could read or write company policy config.
 router.post("/add-leave", tokenCheck, checkPermission("leave", "manage"), AdminController.addLeave);
@@ -138,8 +110,6 @@ router.get("/get-leave", tokenCheck, checkPermission("leave", "manage"), AdminCo
 router.get("/get-leave/:id", tokenCheck, checkPermission("leave", "manage"), AdminController.getLeaveById);
 // router.patch("/update-leave/:id", tokenCheck, AdminController.updateLeave);
 // router.delete("/delete-leave/:id", tokenCheck, AdminController.deleteLeave);
-
-
 router.post("/add-bank", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addCompanyBank);
 // router.get("/get-bank",tokenCheck,AdminController.getBank);
 // router.get("/get-bank/:id",tokenCheck,AdminController.getBankById);
@@ -150,7 +120,6 @@ router.post("/add-bank", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminControl
 
 router.get("/get-client",tokenCheck,AdminController.getClient);
 router.post("/update-client/:id",tokenCheck,AdminController.updateClient);
-
 router.post("/category/:id",tokenCheck,AdminController.CategoryStatus);
 router.post("/sub-category/:id",tokenCheck,AdminController.SubCategoryStatus);
 
@@ -159,10 +128,7 @@ router.post("/sub-category/:id",tokenCheck,AdminController.SubCategoryStatus);
 router.post("/addinvoice",         tokenCheck, checkPermission("invoice", "create"), AdminController.addInvoice);
 router.get("/getinvoice",          tokenCheck, checkPermission("invoice", "view"),   AdminController.getInvoice);
 router.post("/updateinvoice/:id",  tokenCheck, checkPermission("invoice", "update"), AdminController.updateInvoice);
-
 router.get("/get-record-sale",tokenCheck,AdminController.getRecordSale);
-
-
 // FIX: report routes now require explicit permissions.
 //      Generating/updating a report requires report:export; reading requires report:view.
 router.post("/add-report",        tokenCheck, checkPermission("report", "export"), AdminController.addReport);
