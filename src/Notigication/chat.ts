@@ -243,7 +243,7 @@ export const initChatSocket = (io: Server) => {
   //      admin without chat:read cannot connect, so their manager/sale_person
   //      hierarchy cannot receive chat access either.
   io.use(async (socket, next) => {
-    const token = socket.handshake.headers.token as string;
+    const token = (socket.handshake.auth?.token || socket.handshake.headers.token) as string;
 
     if (!token) return next(new Error("Authentication error"));
     try {
@@ -285,7 +285,9 @@ export const initChatSocket = (io: Server) => {
 
     console.log(" we are inside socket ")
     console.log(">>>>>>>>>>>this is user Id",userId)
-    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>userRole",userRole)
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>userRole",userRole
+      
+    )
 
     // 📡 Register this user's socket for targeted notifications
     setUserSocket(userId, socket.id);
