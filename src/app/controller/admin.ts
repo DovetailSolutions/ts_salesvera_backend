@@ -31,6 +31,7 @@ import {
   SubCategory,
   Quotations,
   Company,
+  CompanyManager,
   Branch,Shift,
   Department,
   Holiday,
@@ -321,8 +322,14 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         attributes: ["id"],
       });
       companyId = company ? company.id : null;
-    } else if (userRole === "manager" || userRole === "sale_person") {
-      // Priority 1: Primary manager of a company
+    } else if (userRole === "manager") {
+      // Priority 1: first company assigned via junction table
+      const assignment = await (CompanyManager as any).findOne({
+        where: { managerId: userId },
+        attributes: ["companyId"],
+      });
+      companyId = assignment ? assignment.companyId : null;
+    } else if (userRole === "sale_person") {
       const company = await (Company as any).findOne({
         where: { managerId: userId },
         attributes: ["id"],
@@ -400,25 +407,31 @@ export const GetProfile = async (
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-
-    console.log(">>>>>>>getprofile",userData)
     const { userId, role, companyId } = userData as any;
 
+    const companyIncludes = [
+      { model: Branch, as: "branches" },
+      { model: Shift, as: "shifts" },
+      { model: Department, as: "departments" },
+      { model: CompanyLeave, as: "companyLeaves" },
+      { model: CompanyBank, as: "companyBanks" },
+    ];
+
     const user = await User.findByPk(Number(userId), {
-      include: [
-        {
-          model: Company,
-          as: "company",
-          include: [
-            { model: Branch, as: "branches" },
-            { model: Shift, as: "shifts" },
-            { model: Department, as: "departments" },
-            { model: CompanyLeave, as: "companyLeaves" },
-            { model: CompanyBank, as: "companyBanks" },
-          ],
-        },
+      include: role === "manager" ? [] : [
+        { model: Company, as: "company", include: companyIncludes },
       ],
     });
+
+    // For managers: attach active company (from JWT companyId) onto user.company
+    if (role === "manager" && companyId) {
+      const activeCompany = await Company.findByPk(Number(companyId), {
+        include: companyIncludes,
+      });
+      if (user && activeCompany) {
+        (user as any).dataValues.company = activeCompany;
+      }
+    }
 
     const permissions: string[] = [];
     const matrix: Record<string, Record<string, boolean>> = {};
@@ -3579,6 +3592,216 @@ export const updateCompany = async (req: Request, res: Response) => {
     const updatedCompany = await company.update(req.body);
 
     createSuccess(res, "Company updated successfully", updatedCompany);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const assignCompanyManager = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!req.params.id) {
+      return badRequest(res, "Company id is required");
+    }
+    if (isNaN(Number(req.params.id))) {
+      return badRequest(res, "Company id must be a number");
+    }
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const { managerId } = req.body;
+    if (!managerId) {
+      return badRequest(res, "managerId is required");
+    }
+    if (isNaN(Number(managerId))) {
+      return badRequest(res, "managerId must be a number");
+    }
+
+    const company = await Company.findOne({
+      where: { id: req.params.id, adminId: userData.userId },
+    });
+    if (!company) {
+      return badRequest(res, "Company not found");
+    }
+
+    const manager = await User.findOne({
+      where: { id: Number(managerId), role: "manager" },
+    });
+    if (!manager) {
+      return badRequest(res, "Manager not found");
+    }
+
+    const [record, created] = await (CompanyManager as any).findOrCreate({
+      where: { companyId: Number(req.params.id), managerId: Number(managerId) },
+      defaults: { companyId: Number(req.params.id), managerId: Number(managerId) },
+    });
+
+    createSuccess(
+      res,
+      created ? "Manager assigned to company" : "Manager already assigned to this company",
+      record
+    );
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const removeCompanyManager = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const { companyId, managerId } = req.body;
+
+    if (!companyId || !managerId) {
+      return badRequest(res, "companyId and managerId are required");
+    }
+
+    const company = await Company.findOne({
+      where: { id: Number(companyId), userId: userData.userId },
+    });
+    if (!company) {
+      return badRequest(res, "Company not found");
+    }
+
+    const deleted = await (CompanyManager as any).destroy({
+      where: { companyId: Number(companyId), managerId: Number(managerId) },
+    });
+
+    if (!deleted) {
+      return badRequest(res, "Assignment not found");
+    }
+
+    createSuccess(res, "Manager removed from company", null);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const getCompanyManagers = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!req.params.id) {
+      return badRequest(res, "Company id is required");
+    }
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const company = await Company.findOne({
+      where: { id: req.params.id, userId: userData.userId },
+    });
+    if (!company) {
+      return badRequest(res, "Company not found");
+    }
+
+    const assignments = await (CompanyManager as any).findAll({
+      where: { companyId: Number(req.params.id) },
+      include: [
+        {
+          model: User,
+          as: "manager",
+          attributes: ["id", "firstName", "lastName", "email", "phone"],
+        },
+      ],
+    });
+
+    createSuccess(res, "Company managers fetched successfully", assignments);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const getMyCompanies = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const assignments = await (CompanyManager as any).findAll({
+      where: { managerId: Number(userData.userId) },
+      include: [
+        {
+          model: Company,
+          as: "company",
+          attributes: ["id", "companyName", "legalName", "companyEmail", "companyPhone", "city"],
+        },
+      ],
+    });
+
+    const companies = assignments.map((a: any) => a.company);
+
+    createSuccess(res, "Companies fetched successfully", companies);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+export const switchCompany = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+
+    const { companyId } = req.body;
+
+    if (!companyId) {
+      return badRequest(res, "companyId is required");
+    }
+
+    if (isNaN(Number(companyId))) {
+      return badRequest(res, "companyId must be a number");
+    }
+
+    const targetCompanyId = Number(companyId);
+    const managerId = Number(userData.userId);
+
+    // Verify this manager is actually assigned to the target company via junction table
+    const assignment = await (CompanyManager as any).findOne({
+      where: { companyId: targetCompanyId, managerId },
+      include: [{ model: Company, as: "company", attributes: ["id", "companyName"] }],
+    });
+
+    if (!assignment) {
+      return badRequest(res, "You are not assigned to this company");
+    }
+
+    const company = assignment.company;
+
+    // Issue a new token scoped to the target company
+    const { accessToken, refreshToken } = Middleware.CreateToken(
+      String(managerId),
+      userData.role,
+      targetCompanyId
+    );
+
+    await User.update({ refreshToken }, { where: { id: managerId } });
+
+    createSuccess(res, "Company switched successfully", {
+      accessToken,
+      companyId: targetCompanyId,
+      companyName: (company as any).companyName,
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

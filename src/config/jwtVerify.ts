@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import { Op } from "sequelize";
 import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import { User, Company } from "../config/dbConnection";
+import { User, Company, CompanyManager } from "../config/dbConnection";
 dotenv.config();
 
 declare module "express-serve-static-core" {
@@ -88,9 +88,15 @@ export const tokenCheck = async (
           attributes: ["id"],
         });
         companyId = company ? company.id : null;
+      } else if (item.role === "manager") {
+        // Manager: resolve via many-to-many junction table
+        const assignment = await (CompanyManager as any).findOne({
+          where: { managerId: id },
+          attributes: ["companyId"],
+        });
+        companyId = assignment ? assignment.companyId : null;
       } else {
-        // For manager/sale_person: walk up the creator chain to find the root admin,
-        // then resolve their company (mirrors the login companyId resolution)
+        // For sale_person: walk up the creator chain to find the root admin
         const { User: UserModel } = await import("./dbConnection");
         let currentId = id;
         let rootAdminId: number | null = null;

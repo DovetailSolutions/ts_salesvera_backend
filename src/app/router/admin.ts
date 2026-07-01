@@ -80,6 +80,11 @@ router.post("/addcompany",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminCo
 router.get("/getcompany",     tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompany);
 router.get("/getcompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompanyById);
 router.patch("/updatecompany/:id",  tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.updateCompany);
+router.post("/assign-company-manager/:id",  tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.assignCompanyManager);
+router.delete("/remove-company-manager",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.removeCompanyManager);
+router.get("/company-managers/:id",         tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompanyManagers);
+router.get("/my-companies",    tokenCheck, AdminController.getMyCompanies);
+router.post("/switch-company", tokenCheck, AdminController.switchCompany);
 router.delete("/deletecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.deleteCompany);
 
 
