@@ -121,15 +121,15 @@ export const BranchModel = (sequelize: Sequelize) => {
 
       branchEmail: {
         type: DataTypes.STRING,
-        allowNull: false,
-        validate: {
-          isEmail: true,
-        },
+        allowNull: true,
+        // validate: {
+        //   isEmail: true,
+        // },
       },
 
       branchPhone: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
       },
 
       latitude: {

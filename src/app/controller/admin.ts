@@ -4038,13 +4038,13 @@ export const addBranch = async (req: Request, res: Response) => {
       return badRequest(res, "Address Line 1 is required");
     }
 
-    if (!branchEmail || !/^\S+@\S+\.\S+$/.test(branchEmail)) {
-      return badRequest(res, "Valid branch email is required");
-    }
+    // if (!branchEmail || !/^\S+@\S+\.\S+$/.test(branchEmail)) {
+    //   return badRequest(res, "Valid branch email is required");
+    // }
 
-    if (!branchPhone || branchPhone.length < 8) {
-      return badRequest(res, "Valid branch phone is required");
-    }
+    // if (!branchPhone || branchPhone.length < 8) {
+    //   return badRequest(res, "Valid branch phone is required");
+    // }
 
     // Latitude: -90 to 90
     if (
