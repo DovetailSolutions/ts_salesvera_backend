@@ -3565,6 +3565,9 @@ export const addCompany = async (
       city,
       timezone,
       currency,
+      state,
+      country,
+      zipcode,  
 
       // Bank
       bankAccountHolder,
@@ -3690,6 +3693,9 @@ export const addCompany = async (
       bankAccountType,
       bankMicr,
       upiId,
+      state,
+      country,
+      zipcode, 
 
       payrollCycle,
       lateMarkAfter,

@@ -12,6 +12,9 @@ interface CompanyAttributes {
   companyEmail: string;
   companyPhone: string;
   city: string;
+  state: string;
+  country: string;
+  zipcode: string;
   timezone: string;
   currency: string;
 
@@ -64,6 +67,9 @@ export class Company
   public companyEmail!: string;
   public companyPhone!: string;
   public city!: string;
+  public state!: string;
+  public country!: string;
+  public zipcode!: string;
   public timezone!: string;
   public currency!: string;
 
@@ -142,6 +148,9 @@ export const CompanyModell = (sequelize: Sequelize) => {
       userId: { type: DataTypes.INTEGER, allowNull: true },
       adminId: { type: DataTypes.INTEGER, allowNull: true },
       managerId: { type: DataTypes.INTEGER, allowNull: true },
+      state: { type: DataTypes.STRING, allowNull: true },
+      country: { type: DataTypes.STRING, allowNull: true },
+      zipcode: { type: DataTypes.STRING, allowNull: true },
     },
     {
       tableName: "companies",
