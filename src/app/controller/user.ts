@@ -648,7 +648,7 @@ export const CreateMeeting = async (
       mobileNumber,
       meetingPurpose,
       categoryId,
-      subCategoryId,
+      // subCategoryId,
       status,
     };
 
@@ -1217,7 +1217,7 @@ export const GetMeetingList = async (
       order: [["updatedAt", "DESC"]],
       distinct: true,
       subQuery: false,
-      
+
       include: [
         {
           model: MeetingUser, // Meeting.meetingUserId -> MeetingUser.id
