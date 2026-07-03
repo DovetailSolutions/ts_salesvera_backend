@@ -1,6 +1,6 @@
 import { Sequelize, DataTypes, Model } from "sequelize";
 
-export class User extends Model {
+export class MeetingUser extends Model {
   public id!: number;
   public name!: string;
   public email?: string;
@@ -24,7 +24,7 @@ export class User extends Model {
 }
 
 export const UserModel = (sequelize: Sequelize) => {
-  User.init(
+  MeetingUser.init(
     {
       id: {
         type: DataTypes.INTEGER.UNSIGNED,
@@ -85,5 +85,5 @@ export const UserModel = (sequelize: Sequelize) => {
     }
   );
 
-  return User;
+  return MeetingUser;
 };
