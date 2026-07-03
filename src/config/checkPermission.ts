@@ -120,3 +120,77 @@ export const checkPermission = (module: string, action: string) => {
     }
   };
 };
+
+// ============================================================
+// checkInvoiceCreatePermission middleware
+//
+// Add-invoice needs two different permissions depending on the invoice
+// status sent by the client:
+//   status === "draft"  → invoice:proforma  (Proforma Invoice permission)
+//   otherwise            → invoice:create    (existing behaviour, unchanged)
+// ============================================================
+export const checkInvoiceCreatePermission = () => {
+  return async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<any> => {
+    try {
+      const userData = req.userData as JwtPayload;
+
+      if (!userData || !userData.userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized — no user data in token",
+        });
+      }
+
+      const { role, userId } = userData as any;
+      const companyId =
+        (userData as any).companyId ??
+        req.body?.companyId ??
+        req.params?.companyId ??
+        req.query?.companyId;
+
+      // ── Super Admin: bypass all permission checks ──────────────────
+      if (role === "super_admin") {
+        return next();
+      }
+
+      if (!companyId && role !== "sale_person") {
+        return res.status(403).json({
+          success: false,
+          message: "Forbidden — no company context in token",
+        });
+      }
+
+      // No status sent → Invoices.create() defaults it to "draft" too, so treat
+      // a missing status the same as an explicit "draft" here.
+      const module = "invoice";
+      const action = !req.body?.status || req.body.status === "draft" ? "proforma" : "create";
+      const required = `${module}:${action}`;
+
+      const permissionSet = await getUserPermissionsFromCache(
+        userId,
+        () => loadUserPermissionsFromDB(userId)
+      );
+
+      console.log(`checkInvoiceCreatePermission: userId=${userId}, role=${role}, required=${required}`);
+
+      if (!permissionSet.has(required)) {
+        return res.status(403).json({
+          success: false,
+          message: `You don’t have '${module}:${action}' permission`,
+        });
+      }
+
+      return next();
+    } catch (error) {
+      console.error("checkInvoiceCreatePermission error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error during permission check",
+      });
+    }
+  };
+};

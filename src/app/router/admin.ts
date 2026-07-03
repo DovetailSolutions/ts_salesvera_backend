@@ -2,7 +2,7 @@ import { Router } from "express";
 const router = Router();
 import * as AdminController from "../controller/admin";
 import { tokenCheck } from "../../config/jwtVerify";
-import { checkPermission } from "../../config/checkPermission";
+import { checkPermission, checkInvoiceCreatePermission } from "../../config/checkPermission";
 import { authorizeRoles, ADMIN_ONLY, ADMIN_AND_MANAGER } from "../middlewear/rbac";
 import getUploadMiddleware from "../../config/fileUploads";
 const profile = getUploadMiddleware("image");
@@ -129,7 +129,8 @@ router.post("/sub-category/:id",tokenCheck,AdminController.SubCategoryStatus);
 
 
 // FIX: invoice routes now require explicit permissions.
-router.post("/addinvoice",         tokenCheck, checkPermission("invoice", "create"), AdminController.addInvoice);
+// Draft invoices require invoice:proforma; all other statuses require invoice:create (unchanged).
+router.post("/addinvoice",         tokenCheck, checkInvoiceCreatePermission(), AdminController.addInvoice);
 router.get("/getinvoice",          tokenCheck, checkPermission("invoice", "view"),   AdminController.getInvoice);
 router.post("/updateinvoice/:id",  tokenCheck, checkPermission("invoice", "update"), AdminController.updateInvoice);
 router.get("/get-record-sale",tokenCheck,AdminController.getRecordSale);
