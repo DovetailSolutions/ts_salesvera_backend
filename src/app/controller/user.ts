@@ -1217,6 +1217,7 @@ export const GetMeetingList = async (
       order: [["updatedAt", "DESC"]],
       distinct: true,
       subQuery: false,
+      
       include: [
         {
           model: MeetingUser, // Meeting.meetingUserId -> MeetingUser.id
