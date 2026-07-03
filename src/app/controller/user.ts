@@ -615,6 +615,7 @@ export const CreateMeeting = async (
       companyEmail,
       meetingPurpose,
       categoryId,
+      subCategoryId,
       status,
       latitude_in,
       longitude_in,
@@ -647,6 +648,7 @@ export const CreateMeeting = async (
       mobileNumber,
       meetingPurpose,
       categoryId,
+      subCategoryId,
       status,
     };
 
@@ -771,6 +773,7 @@ export const CreateMeeting = async (
         companyId: company.id,
         meetingPurpose,
         categoryId,
+        subCategoryId,
         status,
         meetingTimeIn: validMeetingTimeIn,
         latitude_in,
