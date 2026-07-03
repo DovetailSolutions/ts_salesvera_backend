@@ -42,6 +42,7 @@ router.get("/attendancelist",        tokenCheck, checkPermission("attendance", "
 //      without leave:apply / leave:view the request is rejected with 403.
 router.post("/leave", tokenCheck, checkPermission("leave", "apply"), Controller.requestLeave);
 router.get("/leave-list", tokenCheck, checkPermission("leave", "view"), Controller.LeaveList);
+router.get("/my-leave-balance", tokenCheck, checkPermission("leave", "view"), Controller.myLeaveBalance);
 // Expense
 // FIX: expense routes now require explicit permissions.
 router.post(

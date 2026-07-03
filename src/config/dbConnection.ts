@@ -36,6 +36,7 @@ import { DepartmentModel } from "../app/model/department";
 import { HolidayModel } from "../app/model/holiday";
 
 import { CompanyLeave } from "../app/model/Leave";
+import { EmployeeLeaveBalance } from "../app/model/EmployeeLeaveBalance";
 
 import { CompanyBankModel } from "../app/model/bank";
 
@@ -120,6 +121,7 @@ const Holiday = HolidayModel(sequelize);
 const Shift = ShiftModel(sequelize);
 
 CompanyLeave.initModel(sequelize);
+EmployeeLeaveBalance.initModel(sequelize);
 
 const CompanyBank = CompanyBankModel(sequelize);
 
@@ -161,6 +163,9 @@ Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
 User.hasMany(Leave, { foreignKey: "employee_id" });
 Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
+
+User.hasMany(EmployeeLeaveBalance, { foreignKey: "employeeId", as: "leaveBalances" });
+EmployeeLeaveBalance.belongsTo(User, { foreignKey: "employeeId", as: "employee" });
 
 // Expense
 User.hasMany(Expense, { foreignKey: "userId" });
@@ -422,6 +427,16 @@ const ensureColumns = async (sequelize: Sequelize) => {
       ],
     },
     {
+      // ✅ company_leaves: compOffBalance/casualLeaveBalance/sickLeaveBalance were
+      // added to the CompanyLeave model but never patched into the live DB table.
+      tableName: "company_leaves",
+      columns: [
+        { name: "compOffBalance", type: "INTEGER DEFAULT 0" },
+        { name: "casualLeaveBalance", type: "INTEGER DEFAULT 0" },
+        { name: "sickLeaveBalance", type: "INTEGER DEFAULT 0" },
+      ],
+    },
+    {
       tableName: "repost",
       columns: [
         { name: "tallyGuid", type: "VARCHAR(255)" },
@@ -526,6 +541,32 @@ const ensureColumns = async (sequelize: Sequelize) => {
     
   } catch (err) {
     console.error(`❌ Error creating table company_banks:`, err);
+  }
+
+  // ✅ Ensure employee_leave_balances table exists (per-employee yearly leave balance)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "employee_leave_balances" (
+        "id" SERIAL PRIMARY KEY,
+        "employeeId" INTEGER NOT NULL,
+        "companyId" INTEGER,
+        "branchId" INTEGER,
+        "year" INTEGER NOT NULL,
+        "casualLeaveAllocated" INTEGER DEFAULT 0,
+        "casualLeaveUsed" INTEGER DEFAULT 0,
+        "sickLeaveAllocated" INTEGER DEFAULT 0,
+        "sickLeaveUsed" INTEGER DEFAULT 0,
+        "paidLeaveAllocated" INTEGER DEFAULT 0,
+        "paidLeaveUsed" INTEGER DEFAULT 0,
+        "assignedBy" INTEGER,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "employee_leave_balances_employee_year_unique" UNIQUE ("employeeId", "year")
+      );
+    `);
+
+  } catch (err) {
+    console.error(`❌ Error creating table employee_leave_balances:`, err);
   }
 
   // ✅ Ensure invoices table exists (auto sync sometimes fails)
@@ -747,7 +788,7 @@ const fixConstraints = async (sequelize: Sequelize) => {
  * This prevents Foreign Key constraint violations during sync.
  */
 const ensureDataIntegrity = async (sequelize: Sequelize) => {
-  const tables = ["departments", "branches", "shifts", "holidays", "invoices", "company_leaves", "company_banks"];
+  const tables = ["departments", "branches", "shifts", "holidays", "invoices", "company_leaves", "company_banks", "employee_leave_balances"];
 
   for (const table of tables) {
     try {
@@ -962,6 +1003,7 @@ export {
   Department,
   Holiday,
   CompanyLeave,
+  EmployeeLeaveBalance,
   CompanyBank,
   Invoices,
   RecordSales,
