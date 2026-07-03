@@ -52,9 +52,10 @@ export const PERMISSION_SEEDS = [
   { module: "quotation", action: "delete", description: "Delete quotations" },
 
   // ── Invoice ──────────────────────────────────────────────
-  { module: "invoice", action: "view",   description: "View invoices" },
-  { module: "invoice", action: "create", description: "Create invoices" },
-  { module: "invoice", action: "update", description: "Edit invoices" },
+  { module: "invoice", action: "view",     description: "View invoices" },
+  { module: "invoice", action: "create",   description: "Create invoices" },
+  { module: "invoice", action: "update",   description: "Edit invoices" },
+  { module: "invoice", action: "proforma", description: "Create proforma invoice (status: draft)" },
 
   // ── Task ─────────────────────────────────────────────────
   { module: "task", action: "create", description: "Create tasks" },
