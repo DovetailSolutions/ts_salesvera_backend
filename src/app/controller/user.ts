@@ -1202,9 +1202,9 @@ export const GetMeetingList = async (
     if (search) {
       const searchTerm = `%${search}%`;
       meetingWhere[Op.or] = [
-        { "$MeetingUser.name$": { [Op.iLike]: searchTerm } },
-        { "$MeetingUser.email$": { [Op.iLike]: searchTerm } },
-        { "$MeetingUser.mobile$": { [Op.iLike]: searchTerm } },
+        { "$MeetingCompany.personName$": { [Op.iLike]: searchTerm } },
+        { "$MeetingCompany.companyEmail$": { [Op.iLike]: searchTerm } },
+        { "$MeetingCompany.mobileNumber$": { [Op.iLike]: searchTerm } },
         { "$MeetingCompany.company_name$": { [Op.iLike]: searchTerm } },
       ];
     }
