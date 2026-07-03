@@ -126,8 +126,9 @@ export const checkPermission = (module: string, action: string) => {
 //
 // Add-invoice needs two different permissions depending on the invoice
 // status sent by the client:
-//   status === "draft"  → invoice:proforma  (Proforma Invoice permission)
-//   otherwise            → invoice:create    (existing behaviour, unchanged)
+//   status === "draft" (or missing) → proformainvoice:create  (separate module,
+//                                       managed independently of "invoice")
+//   otherwise                        → invoice:create          (existing behaviour, unchanged)
 // ============================================================
 export const checkInvoiceCreatePermission = () => {
   return async (
@@ -166,8 +167,9 @@ export const checkInvoiceCreatePermission = () => {
 
       // No status sent → Invoices.create() defaults it to "draft" too, so treat
       // a missing status the same as an explicit "draft" here.
-      const module = "invoice";
-      const action = !req.body?.status || req.body.status === "draft" ? "proforma" : "create";
+      const isDraft = !req.body?.status || req.body.status === "draft";
+      const module = isDraft ? "proformainvoice" : "invoice";
+      const action = "create";
       const required = `${module}:${action}`;
 
       const permissionSet = await getUserPermissionsFromCache(

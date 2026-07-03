@@ -52,10 +52,15 @@ export const PERMISSION_SEEDS = [
   { module: "quotation", action: "delete", description: "Delete quotations" },
 
   // ── Invoice ──────────────────────────────────────────────
-  { module: "invoice", action: "view",     description: "View invoices" },
-  { module: "invoice", action: "create",   description: "Create invoices" },
-  { module: "invoice", action: "update",   description: "Edit invoices" },
-  { module: "invoice", action: "proforma", description: "Create proforma invoice (status: draft)" },
+  { module: "invoice", action: "view",   description: "View invoices" },
+  { module: "invoice", action: "create", description: "Create invoices" },
+  { module: "invoice", action: "update", description: "Edit invoices" },
+
+  // ── Proforma Invoice ────────────────────────────────────
+  // Separate module (not nested under "invoice") so it can be managed/assigned
+  // independently in the permission matrix. Used when addinvoice is called
+  // with status "draft" (or no status, which also defaults to draft).
+  { module: "proformainvoice", action: "create", description: "Create proforma invoice (status: draft)" },
 
   // ── Task ─────────────────────────────────────────────────
   { module: "task", action: "create", description: "Create tasks" },
