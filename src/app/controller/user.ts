@@ -1198,8 +1198,16 @@ export const GetMeetingList = async (
       };
     }
 
-    /** ⚠️ NOTE: search not applied (same as your original) */
-    // You created companyWhere but didn't use it in query
+    /** ✅ Search filter (name, email, phone, companyName) */
+    if (search) {
+      const searchTerm = `%${search}%`;
+      meetingWhere[Op.or] = [
+        { "$MeetingUser.name$": { [Op.like]: searchTerm } },
+        { "$MeetingUser.email$": { [Op.like]: searchTerm } },
+        { "$MeetingUser.mobile$": { [Op.like]: searchTerm } },
+        { "$MeetingCompany.companyName$": { [Op.like]: searchTerm } },
+      ];
+    }
 
     /** ✅ Query */
     const { rows, count } = await Meeting.findAndCountAll({
@@ -1208,6 +1216,7 @@ export const GetMeetingList = async (
       offset,
       order: [["updatedAt", "DESC"]],
       distinct: true,
+      subQuery: false,
       include: [
         {
           model: MeetingUser, // Meeting.meetingUserId -> MeetingUser.id
