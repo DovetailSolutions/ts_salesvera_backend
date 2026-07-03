@@ -5099,6 +5099,9 @@ export const addLeave = async (req: Request, res: Response): Promise<void> => {
         companyId: Number(companyId),
         branchId: Number(branchId),
         userId: Number(userData.userId),
+        compOffBalance: Number(leave.compOffBalance || 0),
+        casualLeaveBalance: Number(leave.casualLeaveBalance || 0),
+        sickLeaveBalance: Number(leave.sickLeaveBalance || 0),
       };
     });
 
@@ -5218,6 +5221,67 @@ export const getLeaveById = async (req: Request, res: Response): Promise<void> =
       return;
     }
     createSuccess(res, "Leave fetched successfully", leave);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
+
+export const updateLeave = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params || {};
+
+    if (!id) {
+      badRequest(res, "Leave ID is required");
+      return;
+    }
+
+    const leave = await CompanyLeave.findOne({
+      where: {
+        id: Number(id),
+        userId: Number(userData.userId),
+      },
+    });
+
+    if (!leave) {
+      badRequest(res, "Leave not found");
+      return;
+    }
+
+    const {
+      leaveName,
+      leaveCode,
+      leavesPerYear,
+      carryForward,
+      carryForwardLimit,
+      managerApproval,
+      compOffBalance,
+      casualLeaveBalance,
+      sickLeaveBalance,
+    } = req.body;
+
+    if (leaveName !== undefined) leave.leaveName = String(leaveName);
+    if (leaveCode !== undefined) leave.leaveCode = String(leaveCode);
+    if (leavesPerYear !== undefined) leave.leavesPerYear = Number(leavesPerYear);
+    if (carryForward !== undefined) leave.carryForward = Boolean(carryForward);
+    if (carryForwardLimit !== undefined) leave.carryForwardLimit = Number(carryForwardLimit);
+    if (managerApproval !== undefined) leave.managerApproval = Boolean(managerApproval);
+    if (compOffBalance !== undefined) leave.compOffBalance = Number(compOffBalance);
+    if (casualLeaveBalance !== undefined) leave.casualLeaveBalance = Number(casualLeaveBalance);
+    if (sickLeaveBalance !== undefined) leave.sickLeaveBalance = Number(sickLeaveBalance);
+
+    await leave.save();
+
+    createSuccess(res, "Leave updated successfully", leave);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

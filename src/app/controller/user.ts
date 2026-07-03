@@ -1187,6 +1187,20 @@ export const GetMeetingList = async (
       offset,
       order: [["updatedAt", "DESC"]],
       distinct: true,
+      include: [
+        {
+          model: MeetingUser, // Meeting.meetingUserId -> MeetingUser.id
+          required: false,
+        },
+        {
+          model: MeetingCompany, // Meeting.companyId -> MeetingCompany.id
+          required: false,
+        },
+        {
+          model: MeetingImage, // MeetingImage.meetingId -> Meeting.id
+          required: false,
+        },
+      ],
     });
 
     /** ✅ Flat Pagination Response */

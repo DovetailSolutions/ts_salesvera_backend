@@ -12,6 +12,9 @@ interface CompanyLeaveAttributes {
   branchId: number;
   userId: number;
   status: "pending" | "approved" | "rejected";
+  compOffBalance?: number;
+  casualLeaveBalance?: number;
+  sickLeaveBalance?: number;
 
   created_at?: Date;
   updated_at?: Date;
@@ -38,6 +41,9 @@ export class CompanyLeave
   public branchId!: number;
   public userId!: number;
   public status!: "pending" | "approved" | "rejected";
+  public compOffBalance?: number;
+  public casualLeaveBalance?: number;
+  public sickLeaveBalance?: number;
 
   static initModel(sequelize: Sequelize): typeof CompanyLeave {
     CompanyLeave.init(
@@ -92,6 +98,22 @@ export class CompanyLeave
           allowNull: false,
           defaultValue: "pending",
         },
+        compOffBalance:{
+          type: DataTypes.INTEGER,
+          allowNull: true,
+          defaultValue: 0,
+        },
+        casualLeaveBalance:{
+          type: DataTypes.INTEGER,
+          allowNull: true,
+          defaultValue: 0,
+        },
+        sickLeaveBalance:{
+          type: DataTypes.INTEGER,
+          allowNull: true,
+          defaultValue: 0,
+        },
+
       },
       {
         sequelize,

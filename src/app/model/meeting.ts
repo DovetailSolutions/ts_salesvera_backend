@@ -25,6 +25,7 @@ export class Meeting extends Model {
   public totalDistance!: string;
   public legDistance!: string;
   public pincode!: string;
+  public subCategoryId!: number;
 }
 export const MeetingModel = (sequelize: Sequelize) => {
   Meeting.init(
@@ -57,6 +58,12 @@ export const MeetingModel = (sequelize: Sequelize) => {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
         field: "category_id",
+      },
+
+      subCategoryId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+        field: "subcategory_id",
       },
 
       meetingPurpose: {

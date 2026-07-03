@@ -108,7 +108,7 @@ router.post('/updatequotation/:id',tokenCheck, checkPermission("quotation", "upd
 router.post("/add-leave", tokenCheck, checkPermission("leave", "manage"), AdminController.addLeave);
 router.get("/get-leave", tokenCheck, checkPermission("leave", "manage"), AdminController.getLeave);
 router.get("/get-leave/:id", tokenCheck, checkPermission("leave", "manage"), AdminController.getLeaveById);
-// router.patch("/update-leave/:id", tokenCheck, AdminController.updateLeave);
+router.patch("/update-leave/:id", tokenCheck, checkPermission("leave", "manage"), AdminController.updateLeave);
 // router.delete("/delete-leave/:id", tokenCheck, AdminController.deleteLeave);
 router.post("/add-bank", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addCompanyBank);
 // router.get("/get-bank",tokenCheck,AdminController.getBank);
