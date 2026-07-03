@@ -1157,7 +1157,7 @@ export const GetMeetingList = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { page = "1", limit = "10", search = "", status } = req.query;
+    const { page = "1", limit = "10", search = "", status, startDate, endDate } = req.query;
 
     const pageNum = Math.max(Number(page) || 1, 1);
     const limitNum = Math.min(Number(limit) || 10, 50);
@@ -1178,6 +1178,24 @@ export const GetMeetingList = async (
 
     if (status) {
       meetingWhere.status = status;
+    }
+
+    /** ✅ Date range filter (scheduledTime) */
+    if (startDate && endDate) {
+      meetingWhere.scheduledTime = {
+        [Op.between]: [
+          new Date(startDate + "T00:00:00.000Z"),
+          new Date(endDate + "T23:59:59.999Z"),
+        ],
+      };
+    } else if (startDate) {
+      meetingWhere.scheduledTime = {
+        [Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+      };
+    } else if (endDate) {
+      meetingWhere.scheduledTime = {
+        [Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+      };
     }
 
     /** ⚠️ NOTE: search not applied (same as your original) */
