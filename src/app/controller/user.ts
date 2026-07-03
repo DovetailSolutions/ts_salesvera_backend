@@ -36,6 +36,7 @@ import {
   Department,
   Holiday,
   CompanyLeave,
+  EmployeeLeaveBalance,
   CompanyBank,
   Invoices,
   RecordSales,
@@ -1646,6 +1647,50 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
 
     createSuccess(res, "Leave list", response);
 
+  } catch (error: any) {
+    badRequest(res, error?.message || "Something went wrong");
+  }
+};
+
+
+export const myLeaveBalance = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const finalUserId = userData?.userId;
+    const year = Number(req.query.year) || new Date().getFullYear();
+
+    const balance = await EmployeeLeaveBalance.findOne({
+      where: { employeeId: finalUserId, year },
+    });
+
+    if (!balance) {
+      createSuccess(res, "No leave balance assigned yet", {
+        year,
+        casual: { allocated: 0, used: 0, remaining: 0 },
+        sick: { allocated: 0, used: 0, remaining: 0 },
+        paid: { allocated: 0, used: 0, remaining: 0 },
+      });
+      return;
+    }
+
+    createSuccess(res, "Leave balance fetched successfully", {
+      year: balance.year,
+      casual: {
+        allocated: balance.casualLeaveAllocated,
+        used: balance.casualLeaveUsed,
+        remaining: balance.casualLeaveAllocated - balance.casualLeaveUsed,
+      },
+      sick: {
+        allocated: balance.sickLeaveAllocated,
+        used: balance.sickLeaveUsed,
+        remaining: balance.sickLeaveAllocated - balance.sickLeaveUsed,
+      },
+      paid: {
+        allocated: balance.paidLeaveAllocated,
+        used: balance.paidLeaveUsed,
+        remaining: balance.paidLeaveAllocated - balance.paidLeaveUsed,
+      },
+    });
   } catch (error: any) {
     badRequest(res, error?.message || "Something went wrong");
   }

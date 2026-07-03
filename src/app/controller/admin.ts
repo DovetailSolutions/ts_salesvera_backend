@@ -36,6 +36,7 @@ import {
   Department,
   Holiday,
   CompanyLeave,
+  EmployeeLeaveBalance,
   CompanyBank,
   Invoices,
   RecordSales,
@@ -1568,6 +1569,20 @@ export const BulkUploads = async (
   }
 };
 
+// Maps a leave_type to the EmployeeLeaveBalance columns it draws from.
+// unpaid/short_leave/half_day are not balance-tracked — always approvable.
+const LEAVE_BALANCE_FIELDS: Record<string, { allocated: string; used: string }> = {
+  casual: { allocated: "casualLeaveAllocated", used: "casualLeaveUsed" },
+  sick: { allocated: "sickLeaveAllocated", used: "sickLeaveUsed" },
+  paid: { allocated: "paidLeaveAllocated", used: "paidLeaveUsed" },
+};
+
+const countLeaveDays = (from_date: string | Date, to_date: string | Date): number => {
+  const from = new Date(from_date);
+  const to = new Date(to_date);
+  return Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+};
+
 export const approveLeave = async (
   req: Request,
   res: Response
@@ -1575,43 +1590,229 @@ export const approveLeave = async (
   try {
     const { employee_id, leaveID, status } = req.body;
 
-    if (!employee_id) badRequest(res, "Employee id is missing");
-    if (!leaveID) badRequest(res, "leaveID id is missing");
-
-    const obj: any = {};
-    if (status) {
-      obj.status = status;
+    if (!employee_id) {
+      badRequest(res, "Employee id is missing");
+      return;
+    }
+    if (!leaveID) {
+      badRequest(res, "leaveID id is missing");
+      return;
     }
 
-    // Update Status
-    await Leave.update(obj, {
-      where: { employee_id, id: leaveID },
-    });
+    const leave = await Leave.findOne({ where: { employee_id, id: leaveID } });
+    if (!leave) {
+      badRequest(res, "Leave not found");
+      return;
+    }
+
+    if (status === "approved") {
+      const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
+      if (balanceField) {
+        const days = countLeaveDays(leave.from_date, leave.to_date);
+        const year = new Date(leave.from_date).getFullYear();
+
+        const balance = await EmployeeLeaveBalance.findOne({
+          where: { employeeId: employee_id, year },
+        });
+
+        const allocated = balance ? (balance as any)[balanceField.allocated] || 0 : 0;
+        const used = balance ? (balance as any)[balanceField.used] || 0 : 0;
+
+        if (!balance || allocated - used < days) {
+          badRequest(
+            res,
+            `Insufficient ${leave.leave_type} leave balance for this employee (requested ${days} day(s), remaining ${allocated - used})`
+          );
+          return;
+        }
+
+        (balance as any)[balanceField.used] = used + days;
+        await balance.save();
+      }
+    }
+
+    if (status) {
+      leave.status = status;
+      await leave.save();
+    }
+
     if (status === "rejected") {
       await Attendance.update(
         { status: "leaveReject" },
-        { where: { employee_id, status: "leave" } }
+        { where: { employee_id, date: leave.from_date, status: "leave" } }
       );
     }
     if (status === "approved") {
       await Attendance.update(
         { status: "leaveApproved" },
-        { where: { employee_id, status: "leave" } }
+        { where: { employee_id, date: leave.from_date, status: "leave" } }
       );
     }
 
-    // Fetch updated leave after update
-    const updatedLeave = await Leave.findOne({
-      where: { employee_id, id: leaveID },
-      attributes: ["id", "employee_id", "status"], // choose fields you need
-    });
+    createSuccess(res, "Status updated", leave);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
 
-    if (!updatedLeave) {
-      badRequest(res, "Leave not found");
+export const assignLeaveBalance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+
+    const {
+      employeeId,
+      year,
+      casualLeaveBalance,
+      sickLeaveBalance,
+      paidLeaveBalance,
+      companyId,
+      branchId,
+    } = req.body || {};
+
+    if (!employeeId) {
+      badRequest(res, "employeeId is required");
       return;
     }
 
-    createSuccess(res, "Status updated", updatedLeave);
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
+      badRequest(res, "You can only assign leave balance to your own sale_persons");
+      return;
+    }
+
+    const targetYear = Number(year) || new Date().getFullYear();
+
+    const [balance] = await EmployeeLeaveBalance.findOrCreate({
+      where: { employeeId: Number(employeeId), year: targetYear },
+      defaults: {
+        employeeId: Number(employeeId),
+        year: targetYear,
+        companyId: companyId ? Number(companyId) : null,
+        branchId: branchId ? Number(branchId) : null,
+        assignedBy: loggedInId,
+      },
+    });
+
+    if (casualLeaveBalance !== undefined) balance.casualLeaveAllocated = Number(casualLeaveBalance);
+    if (sickLeaveBalance !== undefined) balance.sickLeaveAllocated = Number(sickLeaveBalance);
+    if (paidLeaveBalance !== undefined) balance.paidLeaveAllocated = Number(paidLeaveBalance);
+    if (companyId !== undefined) balance.companyId = Number(companyId);
+    if (branchId !== undefined) balance.branchId = Number(branchId);
+    balance.assignedBy = loggedInId;
+
+    await balance.save();
+
+    createSuccess(res, "Leave balance assigned successfully", balance);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+const formatLeaveBalance = (balance: any) => ({
+  id: balance.id,
+  employeeId: balance.employeeId,
+  year: balance.year,
+  casual: {
+    allocated: balance.casualLeaveAllocated,
+    used: balance.casualLeaveUsed,
+    remaining: balance.casualLeaveAllocated - balance.casualLeaveUsed,
+  },
+  sick: {
+    allocated: balance.sickLeaveAllocated,
+    used: balance.sickLeaveUsed,
+    remaining: balance.sickLeaveAllocated - balance.sickLeaveUsed,
+  },
+  paid: {
+    allocated: balance.paidLeaveAllocated,
+    used: balance.paidLeaveUsed,
+    remaining: balance.paidLeaveAllocated - balance.paidLeaveUsed,
+  },
+});
+
+export const getEmployeeLeaveBalance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    const { employeeId } = req.params;
+    const year = Number(req.query.year) || new Date().getFullYear();
+
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
+      badRequest(res, "You can only view leave balance of your own sale_persons");
+      return;
+    }
+
+    const balance = await EmployeeLeaveBalance.findOne({
+      where: { employeeId: Number(employeeId), year },
+    });
+
+    if (!balance) {
+      badRequest(res, "No leave balance assigned for this employee/year");
+      return;
+    }
+
+    createSuccess(res, "Leave balance fetched successfully", formatLeaveBalance(balance));
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const getTeamLeaveBalances = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const { page, limit, offset } = getPagination(req);
+
+    const childIds = await getAllChildUserIds(loggedInId);
+
+    const { rows, count } = await User.findAndCountAll({
+      where: { id: { [Op.in]: childIds } },
+      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+      include: [
+        {
+          model: EmployeeLeaveBalance,
+          as: "leaveBalances",
+          required: false,
+          where: { year },
+        },
+      ],
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+    });
+
+    const data = rows.map((user: any) => {
+      const userJson = user.toJSON();
+      const balance = userJson.leaveBalances?.[0];
+      return {
+        ...userJson,
+        leaveBalance: balance ? formatLeaveBalance(balance) : null,
+      };
+    });
+
+    createSuccess(res, "Team leave balances fetched successfully", {
+      totalRecords: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      data,
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
