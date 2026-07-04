@@ -1578,13 +1578,14 @@ export const BulkUploads = async (
 
 // Maps a leave_type to the EmployeeLeaveBalance columns it draws from.
 // unpaid/short_leave/half_day are not balance-tracked — always approvable.
-const LEAVE_BALANCE_FIELDS: Record<string, { allocated: string; used: string }> = {
+// Exported so user.ts can run the same balance check at request time (not just on approval).
+export const LEAVE_BALANCE_FIELDS: Record<string, { allocated: string; used: string }> = {
   casual: { allocated: "casualLeaveAllocated", used: "casualLeaveUsed" },
   sick: { allocated: "sickLeaveAllocated", used: "sickLeaveUsed" },
   paid: { allocated: "paidLeaveAllocated", used: "paidLeaveUsed" },
 };
 
-const countLeaveDays = (from_date: string | Date, to_date: string | Date): number => {
+export const countLeaveDays = (from_date: string | Date, to_date: string | Date): number => {
   const from = new Date(from_date);
   const to = new Date(to_date);
   return Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
