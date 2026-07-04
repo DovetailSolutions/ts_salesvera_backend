@@ -400,6 +400,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "otpExpiry", type: "TIMESTAMP WITH TIME ZONE" },
         { name: "tenantId", type: "INTEGER" },
         { name: "lastLoginCompanyId", type: "INTEGER" },
+        { name: "branchId", type: "INTEGER" },
       ],
     },
     {

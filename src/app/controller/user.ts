@@ -122,6 +122,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
     if (!isPasswordValid) {
       badRequest(res, "Invalid email or password");
+      
       ReadableStreamDefaultController;
     }
 
