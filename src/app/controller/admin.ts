@@ -1613,7 +1613,9 @@ export const approveLeave = async (
       return;
     }
 
-    if (status === "approved") {
+    // Balance is deducted upfront when the employee requests leave (see requestLeave
+    // in user.ts). Approval keeps it as-is; only a rejection restores it below.
+    if (status === "rejected" && leave.status !== "rejected") {
       const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
       if (balanceField) {
         const days = countLeaveDays(leave.from_date, leave.to_date);
@@ -1623,19 +1625,11 @@ export const approveLeave = async (
           where: { employeeId: employee_id, year },
         });
 
-        const allocated = balance ? (balance as any)[balanceField.allocated] || 0 : 0;
-        const used = balance ? (balance as any)[balanceField.used] || 0 : 0;
-
-        if (!balance || allocated - used < days) {
-          badRequest(
-            res,
-            `Insufficient ${leave.leave_type} leave balance for this employee (requested ${days} day(s), remaining ${allocated - used})`
-          );
-          return;
+        if (balance) {
+          const used = (balance as any)[balanceField.used] || 0;
+          (balance as any)[balanceField.used] = Math.max(0, used - days);
+          await balance.save();
         }
-
-        (balance as any)[balanceField.used] = used + days;
-        await balance.save();
       }
     }
 

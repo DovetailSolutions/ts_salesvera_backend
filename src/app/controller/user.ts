@@ -1607,16 +1607,34 @@ export const requestLeave = async (
     }
 
     // --------------------
-    // ✅ Leave Balance Validation
-    // (previously missing — requests were accepted even with 0 balance and only
-    // rejected later at approval time; now checked upfront at apply time)
+    // ✅ Prevent duplicate leave requests overlapping the same day(s)
+    // --------------------
+    const existingLeave = await Leave.findOne({
+      where: {
+        employee_id: finalUserId,
+        status: { [Op.in]: ["pending", "approved"] },
+        from_date: { [Op.lte]: to },
+        to_date: { [Op.gte]: from },
+      },
+    });
+
+    if (existingLeave) {
+      badRequest(res, "You have already applied for leave on this date");
+      return
+    }
+
+    // --------------------
+    // ✅ Leave Balance Validation & Deduction
+    // Balance is consumed as soon as leave is requested (not just on approval),
+    // and restored if the admin later rejects it.
     // --------------------
     const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
-    if (balanceField) {
-      const days = countLeaveDays(from, to);
-      const year = from.getFullYear();
+    const days = countLeaveDays(from, to);
+    const year = from.getFullYear();
+    let balance: any = null;
 
-      const balance = await EmployeeLeaveBalance.findOne({
+    if (balanceField) {
+      balance = await EmployeeLeaveBalance.findOne({
         where: { employeeId: finalUserId, year },
       });
 
@@ -1643,6 +1661,15 @@ export const requestLeave = async (
       status: "pending",
       leave_type
     });
+
+    // --------------------
+    // ✅ Deduct leave balance immediately upon request
+    // --------------------
+    if (balanceField && balance) {
+      const used = (balance as any)[balanceField.used] || 0;
+      (balance as any)[balanceField.used] = used + days;
+      await balance.save();
+    }
 
     // --------------------
     // ✅ Insert Attendance Entry (1 entry per request)
