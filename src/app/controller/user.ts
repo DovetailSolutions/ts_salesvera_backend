@@ -47,6 +47,9 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
+import { LEAVE_BALANCE_FIELDS, countLeaveDays } from "./admin";
+
+const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -1572,8 +1575,13 @@ export const requestLeave = async (
     // --------------------
     // ✅ Basic Validation
     // --------------------
-    if (!from_date || !to_date || !reason) {
-      badRequest(res, "from_date, to_date & reason are required");
+    if (!from_date || !to_date || !reason || !leave_type) {
+      badRequest(res, "from_date, to_date, reason & leave_type are required");
+      return
+    }
+
+    if (!VALID_LEAVE_TYPES.includes(leave_type)) {
+      badRequest(res, `leave_type must be one of: ${VALID_LEAVE_TYPES.join(", ")}`);
       return
     }
 
@@ -1588,6 +1596,40 @@ export const requestLeave = async (
     if (to < from) {
       badRequest(res, "to_date must be after from_date");
       return
+    }
+
+    // --------------------
+    // ✅ Half-day leave: only valid for a single day
+    // --------------------
+    if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
+      badRequest(res, "half_day leave must have from_date equal to to_date");
+      return
+    }
+
+    // --------------------
+    // ✅ Leave Balance Validation
+    // (previously missing — requests were accepted even with 0 balance and only
+    // rejected later at approval time; now checked upfront at apply time)
+    // --------------------
+    const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
+    if (balanceField) {
+      const days = countLeaveDays(from, to);
+      const year = from.getFullYear();
+
+      const balance = await EmployeeLeaveBalance.findOne({
+        where: { employeeId: finalUserId, year },
+      });
+
+      const allocated = balance ? (balance as any)[balanceField.allocated] || 0 : 0;
+      const used = balance ? (balance as any)[balanceField.used] || 0 : 0;
+
+      if (!balance || allocated - used < days) {
+        badRequest(
+          res,
+          `Insufficient ${leave_type} leave balance (requested ${days} day(s), remaining ${allocated - used})`
+        );
+        return
+      }
     }
 
     // --------------------
