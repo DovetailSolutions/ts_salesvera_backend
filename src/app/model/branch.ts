@@ -170,6 +170,7 @@ export const BranchModel = (sequelize: Sequelize) => {
       gstNumber: {
         type: DataTypes.STRING,
         allowNull: true,
+        field: "gstnumber",
       }
     },
     {
