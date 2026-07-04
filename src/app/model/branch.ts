@@ -25,6 +25,7 @@ interface BranchAttributes {
   managerId?: number;
   userId?: number;
   companyId?: number;
+  gstNumber?: string;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -165,6 +166,11 @@ export const BranchModel = (sequelize: Sequelize) => {
         type: DataTypes.INTEGER.UNSIGNED,
         allowNull: true,
       },
+
+      gstNumber: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      }
     },
     {
       tableName: "branches",

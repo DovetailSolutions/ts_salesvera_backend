@@ -82,6 +82,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       role,
       createdBy,
       permissionIds,
+      branchId,
     } = req.body;
     /** ✅ Required field validation */
     const requiredFields: Record<string, any> = {
@@ -150,6 +151,11 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    const resolvedBranchId =
+      branchId !== undefined && branchId !== null && branchId !== "" && !isNaN(Number(branchId))
+        ? Number(branchId)
+        : null;
+
     const obj: any = {
       email,
       password,
@@ -159,6 +165,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
       dob,
       role,
       tenantId: resolvedTenantId,
+      branchId: resolvedBranchId,
       ...(primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}),
     };
     const item = await User.create(obj);
@@ -2872,7 +2879,7 @@ export const addSubCategory = async (
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { sub_category_name, amount, tax,status, CategoryId,gst,unit,hsnCode,baseUnit,secondaryUnit } = req.body;
+    const { sub_category_name, amount, tax,status,gstedit,totaledit, CategoryId,gst,unit,hsnCode,baseUnit,secondaryUnit } = req.body;
     if (!sub_category_name?.trim()) {
       badRequest(res, "Sub category name is required");
       return;
@@ -2912,6 +2919,8 @@ export const addSubCategory = async (
       hsnCode:hsnCode ?? null,
       baseUnit:baseUnit ?? null,
       secondaryUnit:secondaryUnit ?? null,
+      gstedit:gstedit ?? null,
+      totaledit:totaledit ?? null
     });
     createSuccess(res, "Sub category created successfully", subCategory);
   } catch (error) {

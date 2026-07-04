@@ -15,6 +15,9 @@ export interface SubCategoryAttributes {
   baseUnit?: string;
   secondaryUnit?: string;
   tallyGuid?: string;
+  gstedit?: boolean;
+  totaledit?: boolean;
+  discount?: string;
 }
 
 export interface SubCategoryCreationAttributes
@@ -38,7 +41,9 @@ export class SubCategory
   public baseUnit?: string;
   public secondaryUnit?: string;
   public tallyGuid?: string;
-
+  public gstedit?: boolean;
+  public totaledit?: boolean;   
+  public discount?: string; 
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
       {
@@ -97,6 +102,21 @@ export class SubCategory
           allowNull: true,
           field: "tally_guid",
         },
+
+        discount:{
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+
+
+       gstedit: {
+  type: DataTypes.BOOLEAN,
+  defaultValue: false,
+},
+totaledit: {
+  type: DataTypes.BOOLEAN,
+  defaultValue: false,
+},
         status: {
           type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected"),
           defaultValue: "draft",
