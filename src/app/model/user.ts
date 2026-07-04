@@ -34,6 +34,7 @@ interface UserAttributes {
   tallyStartDate?: Date | null;
   tenantId?: number | null; // root "user" id that owns this account's company tree
   lastLoginCompanyId?: number | null; // company the user was active in when they last logged out
+  branchId?: number | null;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -79,6 +80,7 @@ type UserCreationAttributes = Optional<
   | "tallyStartDate"
   | "tenantId"
   | "lastLoginCompanyId"
+  | "branchId"
 >;
 
 // 3. Define the Model Instance
@@ -171,6 +173,11 @@ export const createUserModel = (sequelize: Sequelize) => {
         defaultValue: null,
       },
       lastLoginCompanyId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+      },
+      branchId: {
         type: DataTypes.INTEGER,
         allowNull: true,
         defaultValue: null,
