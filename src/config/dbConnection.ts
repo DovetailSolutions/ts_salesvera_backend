@@ -404,6 +404,12 @@ const ensureColumns = async (sequelize: Sequelize) => {
       ],
     },
     {
+      tableName: "quotations",
+      columns: [
+        { name: "branchId", type: "INTEGER" },
+      ],
+    },
+    {
       tableName: "sub_categories",
       columns: [
         { name: "tally_guid", type: "VARCHAR(255)" },
