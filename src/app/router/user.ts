@@ -69,6 +69,7 @@ router.post('/updatequotation/:id',       tokenCheck, checkPermission("quotation
 router.get("/getcompany",tokenCheck,Controller.getCompany);
 
 router.get("/getcompanydetails/:id",tokenCheck,Controller.getCompanyDetails);
+router.get("/getBranchall", tokenCheck, Controller.getBranchall);
 
 // Invoice
 // FIX: invoice routes now require explicit permissions.
@@ -104,6 +105,7 @@ router.post("/reset-password", Controller.changePassword);
 router.get("/dashboardmobile",tokenCheck,Controller.getDashboardMobile)
 
 router.get("/getsalesPerformance",tokenCheck,Controller.getSalesPerformance)
+router.get("/getbranch",tokenCheck,Controller.getBranchall)
 
 
 export default router;
