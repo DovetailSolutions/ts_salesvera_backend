@@ -15,6 +15,7 @@ interface QuotationAttributes {
   guid?: string | null;
   alterid?: string | null;
   TallyAPISync?: boolean
+  branchId?: number | null;
 }
 
 interface QuotationCreationAttributes
@@ -93,6 +94,10 @@ export class Quotations
         status: {
           type: DataTypes.ENUM("draft", "imported", "sent", "accepted", "rejected", "cancelled", "deleted"),
           defaultValue: "draft",
+        },
+        branchId: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
         },
       },
       {
