@@ -18,6 +18,7 @@ export interface SubCategoryAttributes {
   gstedit?: boolean;
   totaledit?: boolean;
   discount?: string;
+  discountedit?: boolean;
 }
 
 export interface SubCategoryCreationAttributes
@@ -106,6 +107,10 @@ export class SubCategory
         discount:{
           type: DataTypes.STRING,
           allowNull: true,
+        },
+        discountedit:{
+          type: DataTypes.BOOLEAN,
+          defaultValue: false,
         },
 
 
