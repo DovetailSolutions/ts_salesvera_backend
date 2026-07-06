@@ -483,10 +483,24 @@ export const GetProfile = async (
       { model: CompanyBank, as: "companyBanks" },
     ];
 
+       // Always include branch
+    const include: any[] = [
+      {
+        model: Branch,
+        as: "branch",
+      },
+    ];
+
+    if (role !== "manager") {
+      include.push({
+        model: Company,
+        as: "company",
+        include: companyIncludes,
+      });
+    }
+
     const user = await User.findByPk(Number(userId), {
-      include: role === "manager" ? [] : [
-        { model: Company, as: "company", include: companyIncludes },
-      ],
+      include: include,
     });
 
     // For managers: attach active company (from JWT companyId) onto user.company
@@ -532,6 +546,8 @@ export const GetProfile = async (
     return;
   }
 };
+
+
 export const UpdateProfile = async (
   req: Request,
   res: Response
@@ -2988,7 +3004,7 @@ export const updateSubCategory = async (req: Request, res: Response) => {
     if( totaledit !== undefined){
       object.totaledit = totaledit;
     }
-    
+
 
     object.managerId = loggedInId;
 

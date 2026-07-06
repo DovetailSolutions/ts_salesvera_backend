@@ -275,7 +275,14 @@ export const GetProfile = async (
     const loggedInId = Number(userData.userId);
 
     // ✅ Step 1: Fetch the logged-in user's own profile
-    const item = await User.findByPk(loggedInId);
+    const item = await User.findByPk(loggedInId, {
+      include: [
+        {
+          model: Branch,
+          as: "branch",
+        },
+      ],
+    });
     if (!item) {
       badRequest(res, "User not found");
       return;
