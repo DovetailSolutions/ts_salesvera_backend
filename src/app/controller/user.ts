@@ -3869,3 +3869,40 @@ export const getSalesPerformance = async (
     );
   }
 };
+
+export const getBranchall = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { companyId, branchId } = req.query;
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const offset = (page - 1) * limit;
+
+    const whereClause: any = {};
+
+    if (companyId) {
+      whereClause.companyId = Number(companyId);
+    } else if (branchId) {
+      whereClause.id = Number(branchId);
+    }
+
+    const { count, rows } = await Branch.findAndCountAll({
+      where: whereClause,
+      limit,
+      offset,
+      order: [["id", "ASC"]],
+    });
+
+    createSuccess(res, "Branches fetched successfully", {
+      branches: rows,
+      total: count,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit),
+    });
+  } catch (error) {
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong"
+    );
+  }
+};
