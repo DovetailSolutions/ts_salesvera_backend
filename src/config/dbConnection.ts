@@ -245,6 +245,16 @@ CompanyManager.belongsTo(User, { foreignKey: "managerId", as: "manager" });
 Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
 Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
+User.belongsTo(Branch, {
+  foreignKey: "branchId",
+  as: "branch",
+});
+
+Branch.hasMany(User, {
+  foreignKey: "branchId",
+  as: "branch",
+});
+
 Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
 Department.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
