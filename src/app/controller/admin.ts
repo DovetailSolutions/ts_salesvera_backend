@@ -1786,7 +1786,7 @@ export const getTeamLeaveBalances = async (
 
     const { rows, count } = await User.findAndCountAll({
       where: { id: { [Op.in]: childIds } },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+      attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
       include: [
         {
           model: EmployeeLeaveBalance,
