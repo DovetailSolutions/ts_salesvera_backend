@@ -805,7 +805,7 @@ const fixConstraints = async (sequelize: Sequelize) => {
  * This prevents Foreign Key constraint violations during sync.
  */
 const ensureDataIntegrity = async (sequelize: Sequelize) => {
-  const tables = ["departments", "branches", "shifts", "holidays", "invoices", "company_leaves", "company_banks", "employee_leave_balances"];
+  const tables = ["departments", "branches", "shifts", "holidays", "invoices", "company_leaves", "company_banks"];
 
   for (const table of tables) {
     try {
