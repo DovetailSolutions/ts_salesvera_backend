@@ -61,7 +61,31 @@ export const PERMISSION_SEEDS = [
   // independently in the permission matrix. Used when addinvoice is called
   // with status "draft" (or no status, which also defaults to draft).
   { module: "proformainvoice", action: "create", description: "Create proforma invoice (status: draft)" },
-
+  // ── Proforma Invoice ────────────────────────────────────
+{
+  module: "proformainvoice",
+  action: "view",
+  status: "draft",
+  description: "View proforma invoices (status: draft)",
+},
+// {
+//   module: "proformainvoice",
+//   action: "create",
+//   status: "draft",
+//   description: "Create proforma invoices (status: draft)",
+// },
+{
+  module: "proformainvoice",
+  action: "update",
+  status: "draft",
+  description: "Edit proforma invoices (status: draft)",
+},
+{
+  module: "proformainvoice",
+  action: "delete",
+  status: "draft",
+  description: "Delete proforma invoices (status: draft)",
+},
   // ── Task ─────────────────────────────────────────────────
   { module: "task", action: "create", description: "Create tasks" },
   { module: "task", action: "view",   description: "View task list and task details" },
