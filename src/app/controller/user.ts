@@ -421,22 +421,18 @@ export const UpdateProfile = async (
       return;
     }
     // ✅ Run update
-    const [affectedCount] = await Middleware.Update(
+    const updatedUser = await Middleware.Update(
       User,
       Number(userData.userId),
       updates
     );
 
-    if (!affectedCount) {
+    if (!updatedUser) {
       badRequest(res, "User not found");
       return;
     }
 
-    const updatedUser = await User.findByPk(Number(userData.userId), {
-      attributes: { exclude: ["password"] },
-    });
-
-    createSuccess(res, "Profile updated successfully", updatedUser);
+    createSuccess(res, "Profile updated successfully");
   } catch (error: any) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

@@ -7,17 +7,867 @@ Process on port 4800 killed
 > apnaghar@1.0.0 dev
 > ts-node-dev --respawn --transpile-only src/server.ts
 
-[INFO] 01:26:07 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.2)
-[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
-[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[INFO] 12:59:47 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.2)
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
 (sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
 >> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
 [dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from l_SV5B4rE3Je_RwcAAAB — tokenLen: 171
+SOCKET: Authenticated l_SV5B4rE3Je_RwcAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: l_SV5B4rE3Je_RwcAAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+getAllTasks socket error: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at PostgresQueryInterface.rawSelect (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\abstract\query-interface.js:1043:18)
+    at Function.aggregate (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2067:19)
+    at Function.count (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2124:20)
+    at async Promise.all (index 0)
+    at Function.findAndCountAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2183:27) {
+  name: 'SequelizeDatabaseError',
+  parent: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '305',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+    parameters: undefined
+  },
+  original: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '305',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+    parameters: undefined
+  },
+  sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+  parameters: {}
+}
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+[INFO] 13:01:19 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\user.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from CUPIE4ImsY1N4z7mAAAB — tokenLen: 171
+SOCKET: Authenticated CUPIE4ImsY1N4z7mAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: CUPIE4ImsY1N4z7mAAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+getAllTasks socket error: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at PostgresQueryInterface.select (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\abstract\query-interface.js:1001:12)
+    at Function.findAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:1824:21)
+    at async Promise.all (index 1)
+    at Function.findAndCountAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2183:27) {
+  name: 'SequelizeDatabaseError',
+  parent: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  original: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+  parameters: {}
+}
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+[INFO] 13:01:28 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\user.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from -vMNonH1LoiFlE4XAAAB — tokenLen: 171
+SOCKET: Authenticated -vMNonH1LoiFlE4XAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: -vMNonH1LoiFlE4XAAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+getAllTasks socket error: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at PostgresQueryInterface.select (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\abstract\query-interface.js:1001:12)
+    at Function.findAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:1824:21)
+    at async Promise.all (index 1)
+    at Function.findAndCountAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2183:27) {
+  name: 'SequelizeDatabaseError',
+  parent: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  original: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+  parameters: {}
+}
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+[INFO] 13:07:55 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\Notigication\task.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from fVpBoZLcXhmHjfi2AAAB — tokenLen: 171
+SOCKET: Authenticated fVpBoZLcXhmHjfi2AAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: fVpBoZLcXhmHjfi2AAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+getAllTasks socket error: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at PostgresQueryInterface.select (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\abstract\query-interface.js:1001:12)
+    at Function.findAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:1824:21)
+    at async Promise.all (index 1)
+    at Function.findAndCountAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2183:27) {
+  name: 'SequelizeDatabaseError',
+  parent: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  original: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+  parameters: {}
+}
+[INFO] 13:08:04 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\Notigication\task.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from w3kPnHWhFrmZxzpgAAAB — tokenLen: 171
+SOCKET: Authenticated w3kPnHWhFrmZxzpgAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: w3kPnHWhFrmZxzpgAAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+getAllTasks socket error: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at PostgresQueryInterface.select (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\abstract\query-interface.js:1001:12)
+    at Function.findAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:1824:21)
+    at async Promise.all (index 1)
+    at Function.findAndCountAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2183:27) {
+  name: 'SequelizeDatabaseError',
+  parent: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  original: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '898',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+    parameters: undefined
+  },
+  sql: 'SELECT "Task"."id", "Task"."title", "Task"."description", "Task"."status", "Task"."priority", "Task"."dueDate", "Task"."assignedTo", "Task"."assignedBy", "Task"."tags", "Task"."companyId", "Task"."createdAt", "Task"."updatedAt", "assignee"."id" AS "assignee.id", "assignee"."firstName" AS "assignee.firstName", "assignee"."lastName" AS "assignee.lastName", "assignee"."email" AS "assignee.email", "assignee"."role" AS "assignee.role", "creator"."id" AS "creator.id", "creator"."firstName" AS "creator.firstName", "creator"."lastName" AS "creator.lastName", "creator"."email" AS "creator.email", "creator"."role" AS "creator.role" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN ORDER BY "Task"."createdAt" DESC LIMIT 50 OFFSET 0;',
+  parameters: {}
+}
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+[INFO] 13:08:21 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\Notigication\task.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from o0UjGGg2DVZJvryeAAAB — tokenLen: 171
+SOCKET: Authenticated o0UjGGg2DVZJvryeAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: o0UjGGg2DVZJvryeAAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+getAllTasks socket error: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at PostgresQueryInterface.rawSelect (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\abstract\query-interface.js:1043:18)
+    at Function.aggregate (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2067:19)
+    at Function.count (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2124:20)
+    at async Promise.all (index 0)
+    at Function.findAndCountAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2183:27) {
+  name: 'SequelizeDatabaseError',
+  parent: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '305',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+    parameters: undefined
+  },
+  original: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '305',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+    parameters: undefined
+  },
+  sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+  parameters: {}
+}
+[INFO] 13:08:27 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\Notigication\task.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from 4ATwPvzjWzBueY6uAAAB — tokenLen: 171
+SOCKET: Authenticated 4ATwPvzjWzBueY6uAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: 4ATwPvzjWzBueY6uAAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+[INFO] 13:08:35 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\Notigication\task.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
 [dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from L8flhlG616M-vqUOAAAB — tokenLen: 171
+SOCKET: Authenticated L8flhlG616M-vqUOAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: L8flhlG616M-vqUOAAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+[INFO] 13:08:40 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\Notigication\task.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from gS_JxQ9IjRnJ0BA9AAAB — tokenLen: 171
+SOCKET: Authenticated gS_JxQ9IjRnJ0BA9AAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: gS_JxQ9IjRnJ0BA9AAAB, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+SOCKET: Disconnected socketId: gS_JxQ9IjRnJ0BA9AAAB, userId: 255 — reason: transport close
+>>>>>>>>>>>>>>>>>>>>>getMyPermissions>>> {
+  userId: 255,
+  role: 'manager',
+  iat: 1783407498,
+  exp: 1785999498,
+  companyId: 48
+}
+SOCKET: Handshake from Cgw9TAAeZXV8aoNgAAAD — tokenLen: 171
+SOCKET: Authenticated Cgw9TAAeZXV8aoNgAAAD — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: Cgw9TAAeZXV8aoNgAAAD, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+SOCKET: Disconnected socketId: Cgw9TAAeZXV8aoNgAAAD, userId: 255 — reason: transport close
+>>>>>>>>>>>>>>>>>>>>>getMyPermissions>>> {
+  userId: 255,
+  role: 'manager',
+  iat: 1783407498,
+  exp: 1785999498,
+  companyId: 48
+}
+SOCKET: Handshake from mnKKf2P2JOZoC0GMAAAF — tokenLen: 171
+SOCKET: Authenticated mnKKf2P2JOZoC0GMAAAF — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: mnKKf2P2JOZoC0GMAAAF, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+>>>>>>>>>>>>>>>>>>>>>>>createTask 255 undefined manager create
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+[INFO] 13:25:38 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from TEg1UWDHnhcMlRJkAAAB — tokenLen: 171
+SOCKET: Authenticated TEg1UWDHnhcMlRJkAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: TEg1UWDHnhcMlRJkAAAB, userId: 255, role: manager
+[INFO] 13:25:46 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\user.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from rPBP4S6eVm9NTHQJAAAB — tokenLen: 171
+SOCKET: Authenticated rPBP4S6eVm9NTHQJAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: rPBP4S6eVm9NTHQJAAAB, userId: 255, role: manager
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+[INFO] 13:25:58 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\Notigication\task.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from 3CQdjBSEhsszlRN9AAAB — tokenLen: 171
+SOCKET: Authenticated 3CQdjBSEhsszlRN9AAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: 3CQdjBSEhsszlRN9AAAB, userId: 255, role: manager
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+[INFO] 13:27:21 Reinitializing TS compilation
+[INFO] 13:27:21 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\tsconfig.json has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+SOCKET: Handshake from 8zYYDVTBTvOZ2KdHAAAB — tokenLen: 171
+SOCKET: Authenticated 8zYYDVTBTvOZ2KdHAAAB — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: 8zYYDVTBTvOZ2KdHAAAB, userId: 255, role: manager
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+SOCKET: Disconnected socketId: 8zYYDVTBTvOZ2KdHAAAB, userId: 255 — reason: transport close
+SOCKET: Handshake from 33RpQTRl1PcdGzOyAAAD — tokenLen: 171
+SOCKET: Authenticated 33RpQTRl1PcdGzOyAAAD — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: 33RpQTRl1PcdGzOyAAAD, userId: 255, role: manager
+SOCKET: Disconnected socketId: 33RpQTRl1PcdGzOyAAAD, userId: 255 — reason: transport close
+>>>>>>>>>>>>>>>>>>>>>getMyPermissions>>> {
+  userId: 255,
+  role: 'manager',
+  iat: 1783407498,
+  exp: 1785999498,
+  companyId: 48
+}
+SOCKET: Handshake from _t92UpNfCDsz8fdgAAAF — tokenLen: 171
+SOCKET: Authenticated _t92UpNfCDsz8fdgAAAF — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: _t92UpNfCDsz8fdgAAAF, userId: 255, role: manager
+SOCKET: Disconnected socketId: _t92UpNfCDsz8fdgAAAF, userId: 255 — reason: client namespace disconnect
+SOCKET: Handshake from j7qvdspHxvXuaArmAAAH — tokenLen: 171
+SOCKET: Authenticated j7qvdspHxvXuaArmAAAH — userId: 255, role: manager
+SOCKET: Connected successfully! socketId: j7qvdspHxvXuaArmAAAH, userId: 255, role: manager
+>>>>>>>>>>>>>>>>>>>>>hasPermission [Function: hasPermission]
+getAllTasks socket error: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at PostgresQueryInterface.rawSelect (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\abstract\query-interface.js:1043:18)
+    at Function.aggregate (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2067:19)
+    at Function.count (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2124:20)
+    at async Promise.all (index 0)
+    at Function.findAndCountAll (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\model.js:2183:27) {
+  name: 'SequelizeDatabaseError',
+  parent: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '305',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+    parameters: undefined
+  },
+  original: error: column "nan" does not exist
+      at Parser.parseErrorMessage (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:369:69)
+      at Parser.handlePacket (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:187:21)
+      at Parser.parse (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\parser.ts:102:30)
+      at TLSSocket.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\pg-protocol\src\index.ts:7:48)
+      at TLSSocket.emit (node:events:519:28)
+      at addChunk (node:internal/streams/readable:561:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+      at TLSSocket.Readable.push (node:internal/streams/readable:392:5)
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:189:23) {
+    length: 104,
+    severity: 'ERROR',
+    code: '42703',
+    detail: undefined,
+    hint: undefined,
+    position: '305',
+    internalPosition: undefined,
+    internalQuery: undefined,
+    where: undefined,
+    schema: undefined,
+    table: undefined,
+    column: undefined,
+    dataType: undefined,
+    constraint: undefined,
+    file: 'parse_relation.c',
+    line: '3722',
+    routine: 'errorMissingColumn',
+    sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+    parameters: undefined
+  },
+  sql: 'SELECT count("Task"."id") AS "count" FROM "tasks" AS "Task" LEFT OUTER JOIN "users" AS "assignee" ON "Task"."assignedTo" = "assignee"."id" LEFT OUTER JOIN "users" AS "creator" ON "Task"."assignedBy" = "creator"."id" WHERE ("Task"."assignedBy" = 255 OR "Task"."assignedTo" = 255) AND "Task"."companyId" = NaN;',
+  parameters: {}
+}
+SOCKET: Disconnected socketId: j7qvdspHxvXuaArmAAAH, userId: 255 — reason: transport close
+[INFO] 18:05:40 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
 [dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
 ⚠️  Firebase credentials file not found — push notifications disabled.
 Server is running on http://localhost:4800
 ✅ Sanitized mandatory fields in companies table
 ✅ Cleaned up orphaned records from meetings table
 🌱 Seeding permissions table...
-✅ Permissions seeded: 0 new, 39 already existed (total=39)
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+[INFO] 18:14:10 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+⚠️  Firebase credentials file not found — push notifications disabled.
+[INFO] 18:14:14 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+Server is running on http://localhost:4800
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+[INFO] 18:15:11 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 40 already existed (total=40)
+[INFO] 18:16:32 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[INFO] 18:16:34 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Compilation error in C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[ERROR] 18:16:36 ⨯ Unable to compile TypeScript:
+src/app/controller/admin.ts(3010,5): error TS1005: '(' expected.
+src/app/controller/admin.ts(3010,34): error TS1005: ')' expected.
+
+[INFO] 18:16:36 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+Compilation error in C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[ERROR] 18:16:38 ⨯ Unable to compile TypeScript:
+src/app/controller/admin.ts(3008,8): error TS1109: Expression expected.
+
+[INFO] 18:16:40 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Error: listen EADDRINUSE: address already in use :::4800
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at Object.<anonymous> (C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\server.ts:85:8)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1781:14)
+    at Module._compile (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\source-map-support\source-map-support.js:568:25)
+    at Module.m._compile (C:\Users\PC\AppData\Local\Temp\ts-node-dev-hook-4372385702165644.js:69:33)
+    at node:internal/modules/cjs/loader:1913:10
+    at require.extensions..jsx.require.extensions..js (C:\Users\PC\AppData\Local\Temp\ts-node-dev-hook-4372385702165644.js:114:20)
+    at require.extensions.<computed> (C:\Users\PC\AppData\Local\Temp\ts-node-dev-hook-4372385702165644.js:71:20)
+[ERROR] 18:16:43 Error: listen EADDRINUSE: address already in use :::4800
