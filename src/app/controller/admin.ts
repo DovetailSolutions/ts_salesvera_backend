@@ -2657,8 +2657,11 @@ export const AttendanceBook = async (
   try {
     const { userId } = req.userData as JwtPayload;
 
-    const childIds = await getAllChildUserIds(userId); // assuming this returns array
-    if (!childIds.length) badRequest(res, "No child users found");
+    const childIds = await getAllChildUserIds(userId);
+
+    if (!childIds.length) {
+       badRequest(res, "No child users found");
+    }
 
     // Query Params
     const month = Number(req.query.month) || new Date().getMonth() + 1;
@@ -2668,13 +2671,19 @@ export const AttendanceBook = async (
     const limitNum = Number(req.query.limit) || 10;
     const offset = (pageNum - 1) * limitNum;
 
+    // Month Date Range
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0);
     const totalDays = endDate.getDate();
 
-    // Fetch users + Attendance together (Optimized Query)
+    // Get Users with Attendance
     const { rows: users, count: totalCount } = await User.findAndCountAll({
-      where: { id: { [Op.in]: childIds }, ...buildSearchFilter(search) },
+      where: {
+        id: {
+          [Op.in]: childIds,
+        },
+        ...buildSearchFilter(search),
+      },
       attributes: [
         "id",
         "firstName",
@@ -2688,24 +2697,33 @@ export const AttendanceBook = async (
         {
           model: Attendance,
           as: "Attendances",
-          where: { date: { [Op.between]: [startDate, endDate] } },
+          where: {
+            date: {
+              [Op.between]: [startDate, endDate],
+            },
+          },
           required: false,
         },
       ],
       offset,
       limit: limitNum,
       order: [["firstName", "ASC"]],
+      distinct: true, // Prevent duplicate count because of include
     });
 
-    // Format response
+    // Total Pages
+    const totalPages = Math.ceil(totalCount / limitNum);
+
+    // Format Users
     const formatted = users.map((u: any) => {
       const days = generateDayMap(totalDays);
 
-      u.Attendances?.forEach((a: any) => {
-        const start = new Date(a.date).getDate();
-        const end = new Date(a.punch_in).getDate();
-        for (let i = start; i <= end; i++) days[String(i)] = a.status ?? "-";
-      });
+      if (u.Attendances?.length) {
+        u.Attendances.forEach((attendance: any) => {
+          const day = new Date(attendance.date).getDate();
+          days[String(day)] = attendance.status ?? "-";
+        });
+      }
 
       return {
         id: u.id,
@@ -2717,13 +2735,20 @@ export const AttendanceBook = async (
         days,
       };
     });
-    res.status(200).json({
+
+     res.status(200).json({
       success: true,
       message: "Attendance loaded",
-      data: { page: pageNum, limit: limitNum, totalCount, users: formatted },
+      data: {
+        page: pageNum,
+        limit: limitNum,
+        totalCount,
+        totalPages,
+        users: formatted,
+      },
     });
   } catch (error: any) {
-    badRequest(res, error.message);
+     badRequest(res, error.message);
   }
 };
 
