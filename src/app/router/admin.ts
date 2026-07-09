@@ -157,6 +157,7 @@ router.post("/verify-otp", AdminController.verifyOtp);
 router.post("/reset-password", AdminController.changePassword);
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
+router.get("/dashboard-summary", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDashboardSummary);
  
 
 

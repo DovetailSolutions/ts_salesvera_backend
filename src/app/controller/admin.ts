@@ -2450,6 +2450,78 @@ const getDateFilter = (query: any) => {
   return filter;
 };
 
+export const getDashboardSummary = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
+    const childIds = await getAllChildUserIds(loggedInId);
+
+    const todayDateOnly = new Date().toISOString().slice(0, 10);
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    const [
+      presentCount,
+      pendingLeaveApprovalCount,
+      pendingExpenseCount,
+      meetingsThisWeekCount,
+    ] = await Promise.all([
+      Attendance.count({
+        where: {
+          employee_id: { [Op.in]: childIds },
+          status: "present",
+          date: todayDateOnly,
+        },
+      }),
+      Leave.count({
+        where: {
+          employee_id: { [Op.in]: childIds },
+          status: "pending",
+        },
+      }),
+      Expense.count({
+        where: {
+          userId: { [Op.in]: childIds },
+          approvedByAdmin: "pending",
+        },
+      }),
+      Meeting.count({
+        where: {
+          userId: { [Op.in]: childIds },
+          scheduledTime: { [Op.between]: [weekStart, weekEnd] },
+        },
+      }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Dashboard summary fetched successfully",
+      data: {
+        teamMemberCount: childIds.length,
+        presentCount,
+        pendingLeaveApprovalCount,
+        pendingExpenseCount,
+        meetingsThisWeekCount,
+      },
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
 const fetchData = async (
   model: any,
   where: any,
