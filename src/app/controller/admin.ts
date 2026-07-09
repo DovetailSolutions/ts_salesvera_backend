@@ -2958,7 +2958,7 @@ export const updateSubCategory = async (req: Request, res: Response) => {
       return;
     }
 
-    const { sub_category_name, amount, tax, CategoryId,status,baseUnit,secondaryUnit,discountedit,gstedit,totaledit,hsn} = req.body;
+    const { sub_category_name, amount, tax, CategoryId,status,baseUnit,secondaryUnit,discountedit,gstedit,totaledit,hsnCode} = req.body;
 
     // Check if subcategory exists
     const existingSubCategory = await SubCategory.findByPk(id);
@@ -3006,8 +3006,8 @@ export const updateSubCategory = async (req: Request, res: Response) => {
       object.totaledit = totaledit;
     }
      
-    if( hsn !== undefined){
-      object.hsnCode = hsn;
+    if( hsnCode !== undefined){
+      object.hsnCode = hsnCode;
     }
 
     object.managerId = loggedInId;
