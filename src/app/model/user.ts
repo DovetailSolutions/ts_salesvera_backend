@@ -180,7 +180,6 @@ export const createUserModel = (sequelize: Sequelize) => {
       branchId: {
         type: DataTypes.INTEGER,
         allowNull: true,
-        defaultValue: null,
       },
     },
     {

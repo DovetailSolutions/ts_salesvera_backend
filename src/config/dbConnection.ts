@@ -252,7 +252,7 @@ User.belongsTo(Branch, {
 
 Branch.hasMany(User, {
   foreignKey: "branchId",
-  as: "branch",
+  as: "users",
 });
 
 Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
@@ -970,24 +970,50 @@ const ensureDataIntegrity = async (sequelize: Sequelize) => {
 
 export const connectDB = async () => {
   try {
-   
-
-    // 1️⃣ Run manual migration for specific missing columns
-    await ensureColumns(sequelize);
-
-    // 2️⃣ Fix foreign key constraints for meeting tables
-    await fixConstraints(sequelize);
-
-    // 3️⃣ Ensure data integrity (orphaned companyId cleanup)
-    await ensureDataIntegrity(sequelize);
-
-    // 4️⃣ Standard Sequelize sync
     await sequelize.authenticate();
-    // await sequelize.sync({ alter: true });
+    
+    // Check if the database is fresh (no users table)
+    const tableNames = await sequelize.getQueryInterface().showAllTables();
+    const isFreshDB = !tableNames.includes("users");
+
+    if (isFreshDB) {
+      console.log("🌱 Fresh database detected. Running clean sync...");
+      await sequelize.sync();
+    } else {
+      // 1️⃣ Run manual migration for specific missing columns
+      await ensureColumns(sequelize);
+
+      // 2️⃣ Fix foreign key constraints for meeting tables
+      await fixConstraints(sequelize);
+
+      // 3️⃣ Ensure data integrity (orphaned companyId cleanup)
+      await ensureDataIntegrity(sequelize);
+
+      // 4️⃣ Standard Sequelize sync
+      await sequelize.sync({ alter: true });
+    }
 
     // 5️⃣ Seed RBAC permissions table (idempotent — safe every boot)
     const { seedPermissions } = await import("./seedPermissions");
     await seedPermissions();
+
+    // 6️⃣ Seed default Super Admin user (idempotent — safe every boot)
+    const [adminUser, created] = await User.findOrCreate({
+      where: { email: "admin@salesvera.com" },
+      defaults: {
+        password: "password123", // Hashes automatically via User beforeCreate hook
+        firstName: "Super",
+        lastName: "Admin",
+        phone: "1234567890",
+        dob: "1990-01-01",
+        role: "super_admin",
+        onlineSatus: "offline",
+        status: "active",
+      },
+    });
+    if (created) {
+      console.log("🌱 Seeded default Super Admin user: admin@salesvera.com / password123");
+    }
 
   } catch (err) {
     console.error("❌ DB error:", err);
