@@ -29,6 +29,7 @@ router.post("/bulk-upload",tokenCheck,csv.single("csv"),AdminController.BulkUplo
 router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), csv.single("csv"), AdminController.BulkAddSalePerson)
 // FIX: attendance view routes require attendance:view permission.
 router.get("/get-attendance", tokenCheck, checkPermission("attendance", "view"), AdminController.getAttendance);
+router.post("/mark-attendance-present", tokenCheck, checkPermission("attendance", "update"), AdminController.markAttendancePresent);
 // FIX: approve/reject requires leave:approve; listing all leave requests requires leave:view.
 router.patch("/approved-leave", tokenCheck, checkPermission("leave", "approve"), AdminController.approveLeave);
 router.get("/get-leave-list", tokenCheck, checkPermission("leave", "view"), AdminController.leaveList)

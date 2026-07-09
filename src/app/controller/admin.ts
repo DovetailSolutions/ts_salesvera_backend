@@ -2469,6 +2469,58 @@ export const getAttendance = async (
   }
 };
 
+export const markAttendancePresent = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
+    const { employeeId, date, punchIn } = req.body || {};
+
+    if (!employeeId) {
+      badRequest(res, "employeeId is required");
+      return;
+    }
+
+    // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (!childIds.includes(Number(employeeId))) {
+      badRequest(res, "You can only mark attendance for your own team members");
+      return;
+    }
+
+    const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const punchInTime = punchIn ? new Date(punchIn) : new Date();
+
+    const existing = await Attendance.findOne({
+      where: { employee_id: employeeId, date: attendanceDate },
+    });
+
+    let record;
+    if (existing) {
+      existing.status = "present";
+      if (!existing.punch_in) existing.punch_in = punchInTime;
+      await existing.save();
+      record = existing;
+    } else {
+      record = await Attendance.create({
+        employee_id: employeeId,
+        date: attendanceDate,
+        punch_in: punchInTime,
+        status: "present",
+      } as any);
+    }
+
+    createSuccess(res, "Attendance marked as present", record);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
 const getDateFilter = (query: any) => {
   const { startDate, endDate, lastDays, today } = query;
   const filter: any = {};
