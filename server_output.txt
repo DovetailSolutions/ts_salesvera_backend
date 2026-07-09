@@ -871,3 +871,251 @@ Error: listen EADDRINUSE: address already in use :::4800
     at require.extensions..jsx.require.extensions..js (C:\Users\PC\AppData\Local\Temp\ts-node-dev-hook-4372385702165644.js:114:20)
     at require.extensions.<computed> (C:\Users\PC\AppData\Local\Temp\ts-node-dev-hook-4372385702165644.js:71:20)
 [ERROR] 18:16:43 Error: listen EADDRINUSE: address already in use :::4800
+[INFO] 18:43:46 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\permission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)
+[INFO] 18:44:37 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\permission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)
+[INFO] 18:45:09 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\permission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 18:45:12 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\permission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 18:45:14 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\permission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 18:45:17 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\permission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+❌ Error during data integrity check for company_banks: Error: 
+    at Query.run (C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\dialects\postgres\query.js:76:25)
+    at C:\Users\PC\Desktop\sale\ts_salesvera_backend\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:103:5) {
+  name: 'SequelizeDatabaseError',
+  parent: Error: read ECONNRESET
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:216:20) {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read',
+    sql: 'DELETE FROM "company_banks" \n' +
+      '          WHERE "companyId" IS NOT NULL \n' +
+      '          AND "companyId" NOT IN (SELECT "id" FROM "companies");',
+    parameters: undefined
+  },
+  original: Error: read ECONNRESET
+      at TLSWrap.onStreamRead (node:internal/stream_base_commons:216:20) {
+    errno: -4077,
+    code: 'ECONNRESET',
+    syscall: 'read',
+    sql: 'DELETE FROM "company_banks" \n' +
+      '          WHERE "companyId" IS NOT NULL \n' +
+      '          AND "companyId" NOT IN (SELECT "id" FROM "companies");',
+    parameters: undefined
+  },
+  sql: 'DELETE FROM "company_banks" \n' +
+    '          WHERE "companyId" IS NOT NULL \n' +
+    '          AND "companyId" NOT IN (SELECT "id" FROM "companies");',
+  parameters: {}
+}
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)
+[INFO] 09:54:27 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\config\seedPermissions.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)
+[INFO] 10:00:25 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\config\checkPermission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)
+[INFO] 10:01:33 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\config\checkPermission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)
+[INFO] 10:01:51 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\config\checkPermission.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 10:01:56 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 10:02:03 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\router\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)
+[INFO] 10:02:34 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 10:02:40 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+[INFO] 10:02:57 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\admin.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 10:03:05 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\user.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+[INFO] 10:03:17 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\user.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+[INFO] 10:03:24 Restarting: C:\Users\PC\Desktop\sale\ts_salesvera_backend\src\app\controller\user.ts has been modified
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+(sequelize) Warning: PostgresSQL does not support 'INTEGER' with LENGTH, UNSIGNED or ZEROFILL. Plain 'INTEGER' will be used instead. 
+>> Check: http://www.postgresql.org/docs/9.4/static/datatype.html
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+⚠️  Firebase credentials file not found — push notifications disabled.
+Server is running on http://localhost:4800
+✅ Sanitized mandatory fields in companies table
+✅ Cleaned up orphaned records from meetings table
+🌱 Seeding permissions table...
+✅ Permissions seeded: 0 new, 43 already existed (total=43)

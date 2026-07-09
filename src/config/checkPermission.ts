@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { UserPermission } from "../app/model/userPermission";
 import { Permission } from "../app/model/permission";
+import { Invoices } from "../app/model/Invoice";
 import { getUserPermissionsFromCache } from "./permissionCache";
 
 // ============================================================
@@ -46,6 +47,27 @@ const loadUserPermissionsFromDB = async (
   });
 
   return userPerms.map((up: any) => `${up.permission.module}:${up.permission.action}`);
+};
+
+/**
+ * Direct permission check (no middleware) — usable from inside controllers
+ * that need to branch behaviour (e.g. filtering a list) rather than reject
+ * the whole request. super_admin always returns true.
+ */
+export const userHasPermission = async (
+  userId: number,
+  role: string,
+  module: string,
+  action: string
+): Promise<boolean> => {
+  if (role === "super_admin") return true;
+
+  const permissionSet = await getUserPermissionsFromCache(
+    userId,
+    () => loadUserPermissionsFromDB(userId)
+  );
+
+  return permissionSet.has(`${module}:${action}`);
 };
 
 /**
@@ -189,6 +211,90 @@ export const checkInvoiceCreatePermission = () => {
       return next();
     } catch (error) {
       console.error("checkInvoiceCreatePermission error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error during permission check",
+      });
+    }
+  };
+};
+
+// ============================================================
+// checkInvoiceUpdatePermission middleware
+//
+// Updating an invoice needs a different permission depending on the
+// invoice's CURRENT status (not the status being set):
+//   currently "draft" → proformainvoice:update
+//   otherwise         → invoice:update (existing behaviour, unchanged)
+// Route must have an :id param identifying the invoice.
+// ============================================================
+export const checkInvoiceUpdatePermission = () => {
+  return async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<any> => {
+    try {
+      const userData = req.userData as JwtPayload;
+
+      if (!userData || !userData.userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized — no user data in token",
+        });
+      }
+
+      const { role, userId } = userData as any;
+      const companyId =
+        (userData as any).companyId ??
+        req.body?.companyId ??
+        req.params?.companyId ??
+        req.query?.companyId;
+
+      // ── Super Admin: bypass all permission checks ──────────────────
+      if (role === "super_admin") {
+        return next();
+      }
+
+      if (!companyId && role !== "sale_person") {
+        return res.status(403).json({
+          success: false,
+          message: "Forbidden — no company context in token",
+        });
+      }
+
+      const { id } = req.params || {};
+      if (!id) {
+        return res.status(400).json({ success: false, message: "Invoice ID is required" });
+      }
+
+      const invoice = await Invoices.findOne({ where: { id: Number(id) } });
+      if (!invoice) {
+        return res.status(404).json({ success: false, message: "Invoice not found" });
+      }
+
+      const isDraft = (invoice as any).status === "draft";
+      const module = isDraft ? "proformainvoice" : "invoice";
+      const action = "update";
+      const required = `${module}:${action}`;
+
+      const permissionSet = await getUserPermissionsFromCache(
+        userId,
+        () => loadUserPermissionsFromDB(userId)
+      );
+
+      console.log(`checkInvoiceUpdatePermission: userId=${userId}, role=${role}, required=${required}`);
+
+      if (!permissionSet.has(required)) {
+        return res.status(403).json({
+          success: false,
+          message: `You don’t have '${module}:${action}' permission`,
+        });
+      }
+
+      return next();
+    } catch (error) {
+      console.error("checkInvoiceUpdatePermission error:", error);
       return res.status(500).json({
         success: false,
         message: "Internal server error during permission check",

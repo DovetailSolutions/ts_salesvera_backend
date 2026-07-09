@@ -2,7 +2,7 @@ import { Router } from "express";
 const router = Router();
 import * as AdminController from "../controller/admin";
 import { tokenCheck } from "../../config/jwtVerify";
-import { checkPermission, checkInvoiceCreatePermission } from "../../config/checkPermission";
+import { checkPermission, checkInvoiceCreatePermission, checkInvoiceUpdatePermission } from "../../config/checkPermission";
 import { authorizeRoles, ADMIN_ONLY, ADMIN_AND_MANAGER } from "../middlewear/rbac";
 import getUploadMiddleware from "../../config/fileUploads";
 const profile = getUploadMiddleware("image");
@@ -129,10 +129,13 @@ router.post("/sub-category/:id",tokenCheck,AdminController.SubCategoryStatus);
 
 
 // FIX: invoice routes now require explicit permissions.
-// Draft invoices require invoice:proforma; all other statuses require invoice:create (unchanged).
+// Draft invoices require proformainvoice:create; all other statuses require invoice:create (unchanged).
+// getinvoice keeps the base invoice:view gate; draft rows are additionally filtered by
+// proformainvoice:view inside the controller. updateinvoice checks the invoice's CURRENT
+// status — draft rows require proformainvoice:update, others require invoice:update.
 router.post("/addinvoice",         tokenCheck, checkInvoiceCreatePermission(), AdminController.addInvoice);
 router.get("/getinvoice",          tokenCheck, checkPermission("invoice", "view"),   AdminController.getInvoice);
-router.post("/updateinvoice/:id",  tokenCheck, checkPermission("invoice", "update"), AdminController.updateInvoice);
+router.post("/updateinvoice/:id",  tokenCheck, checkInvoiceUpdatePermission(), AdminController.updateInvoice);
 router.get("/get-record-sale",tokenCheck,AdminController.getRecordSale);
 // FIX: report routes now require explicit permissions.
 //      Generating/updating a report requires report:export; reading requires report:view.
