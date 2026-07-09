@@ -68,12 +68,7 @@ export const PERMISSION_SEEDS = [
   status: "draft",
   description: "View proforma invoices (status: draft)",
 },
-// {
-//   module: "proformainvoice",
-//   action: "create",
-//   status: "draft",
-//   description: "Create proforma invoices (status: draft)",
-// },
+
 {
   module: "proformainvoice",
   action: "update",

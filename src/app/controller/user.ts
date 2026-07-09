@@ -16,6 +16,7 @@ import {
   badRequest,
 } from "../middlewear/errorMessage";
 import { sendEmail, forgotpassword } from "../../config/email";
+import { userHasPermission } from "../../config/checkPermission";
 import {
   User,
   Category,
@@ -3084,6 +3085,15 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
 
     console.log(">>>>>>>>>>>>>allUserIds>",allUserIds)
 
+    // Drafts are gated separately via proformainvoice:view — a user with only
+    // invoice:view should not see draft-status invoices in the list.
+    const canViewDraft = await userHasPermission(
+      Number(userData.userId),
+      (userData as any).role,
+      "proformainvoice",
+      "view"
+    );
+
     // ✅ Dynamic where condition
     const whereCondition: any = {
       userId: {
@@ -3104,12 +3114,15 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     }
 
     if (status) {
-      whereCondition.status = status;
+      // Without proformainvoice:view, an explicit ?status=draft should return nothing.
+      whereCondition.status = (!canViewDraft && status === "draft")
+        ? { [Op.in]: [] }
+        : status;
     }
 
     if (!status) {
       whereCondition.status = {
-        [Op.in]: ["draft", "imported"]
+        [Op.in]: canViewDraft ? ["draft", "imported"] : ["imported"]
       }
     }
     // 🎯 Filters

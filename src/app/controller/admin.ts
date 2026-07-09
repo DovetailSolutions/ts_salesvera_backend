@@ -48,6 +48,7 @@ import * as Middleware from "../middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { S3 } from "@aws-sdk/client-s3";
 import { invalidatePermissionCache } from "../../config/permissionCache";
+import { userHasPermission } from "../../config/checkPermission";
 
 const UNIQUE_ROLES = ["super_admin"];
 
@@ -6252,11 +6253,20 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
 
     
 
+    // Drafts are gated separately via proformainvoice:view — a user with only
+    // invoice:view should not see draft-status invoices in the list.
+    const canViewDraft = await userHasPermission(
+      Number(userData.userId),
+      (userData as any).role,
+      "proformainvoice",
+      "view"
+    );
+
     // ✅ FIX: Use ONLY ONE whereCondition
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
       status: {
-        [Op.notIn]: ["cancelled", "deleted"]
+        [Op.notIn]: canViewDraft ? ["cancelled", "deleted"] : ["cancelled", "deleted", "draft"]
       }
     };
 
@@ -6302,6 +6312,11 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     } else {
       // Handle the case where it might be a ParsedQs object or other type
       statusArray = [String(status)];
+    }
+
+    // Without proformainvoice:view, drop "draft" from an explicit status filter too.
+    if (!canViewDraft) {
+      statusArray = statusArray.filter((s) => s !== "draft");
     }
 
     whereCondition.status = {
