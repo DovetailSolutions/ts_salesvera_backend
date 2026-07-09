@@ -222,6 +222,78 @@ export const checkInvoiceCreatePermission = () => {
 };
 
 // ============================================================
+// checkInvoiceViewPermission middleware
+//
+// getinvoice serves both real invoices and draft (proforma) invoices in one
+// list, with the controller filtering draft rows by proformainvoice:view.
+// That controller-level gating is dead code if the route itself requires
+// invoice:view up front — a sale_person who only has proformainvoice:*
+// (no invoice:view) would be blocked before ever reaching the controller,
+// even though they're only asking for their draft invoices.
+// Pass if the caller has EITHER invoice:view OR proformainvoice:view; the
+// controller still scopes which rows (draft vs non-draft) are returned.
+// ============================================================
+export const checkInvoiceViewPermission = () => {
+  return async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<any> => {
+    try {
+      const userData = req.userData as JwtPayload;
+
+      if (!userData || !userData.userId) {
+        return res.status(401).json({
+          success: false,
+          message: "Unauthorized — no user data in token",
+        });
+      }
+
+      const { role, userId } = userData as any;
+      const companyId =
+        (userData as any).companyId ??
+        req.body?.companyId ??
+        req.params?.companyId ??
+        req.query?.companyId;
+
+      // ── Super Admin: bypass all permission checks ──────────────────
+      if (role === "super_admin") {
+        return next();
+      }
+
+      if (!companyId && role !== "sale_person") {
+        return res.status(403).json({
+          success: false,
+          message: "Forbidden — no company context in token",
+        });
+      }
+
+      const permissionSet = await getUserPermissionsFromCache(
+        userId,
+        () => loadUserPermissionsFromDB(userId)
+      );
+
+      console.log(`checkInvoiceViewPermission: userId=${userId}, role=${role}, has invoice:view=${permissionSet.has("invoice:view")}, has proformainvoice:view=${permissionSet.has("proformainvoice:view")}`);
+
+      if (!permissionSet.has("invoice:view") && !permissionSet.has("proformainvoice:view")) {
+        return res.status(403).json({
+          success: false,
+          message: `You don’t have 'invoice:view' or 'proformainvoice:view' permission`,
+        });
+      }
+
+      return next();
+    } catch (error) {
+      console.error("checkInvoiceViewPermission error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Internal server error during permission check",
+      });
+    }
+  };
+};
+
+// ============================================================
 // checkInvoiceUpdatePermission middleware
 //
 // Updating an invoice needs a different permission depending on the
