@@ -32,6 +32,7 @@ router.get("/get-attendance", tokenCheck, checkPermission("attendance", "view"),
 // FIX: approve/reject requires leave:approve; listing all leave requests requires leave:view.
 router.patch("/approved-leave", tokenCheck, checkPermission("leave", "approve"), AdminController.approveLeave);
 router.get("/get-leave-list", tokenCheck, checkPermission("leave", "view"), AdminController.leaveList)
+router.get("/leave-request-today", tokenCheck, checkPermission("leave", "view"), AdminController.getTodayLeaveRequests)
 // Per-employee leave balance: admin/manager assign & view balances for their sale_persons.
 router.post("/assign-leave-balance", tokenCheck, checkPermission("leave", "manage"), AdminController.assignLeaveBalance);
 router.get("/leave-balance-list", tokenCheck, checkPermission("leave", "view"), AdminController.getTeamLeaveBalances);

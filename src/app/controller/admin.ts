@@ -2194,6 +2194,61 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+export const getTodayLeaveRequests = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
+    const childIds = await getAllChildUserIds(loggedInId);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    const todayDateOnly = new Date().toISOString().slice(0, 10);
+
+    const userAttributes = ["id", "firstName", "lastName", "email", "phone", "role"];
+
+    const [appliedToday, onLeaveToday] = await Promise.all([
+      Leave.findAll({
+        where: {
+          employee_id: { [Op.in]: childIds },
+          createdAt: { [Op.between]: [todayStart, todayEnd] },
+        } as any,
+        include: [{ model: User, as: "user", attributes: userAttributes }],
+        order: [["createdAt", "DESC"]],
+      }),
+      Leave.findAll({
+        where: {
+          employee_id: { [Op.in]: childIds },
+          from_date: { [Op.lte]: todayDateOnly },
+          to_date: { [Op.gte]: todayDateOnly },
+        },
+        include: [{ model: User, as: "user", attributes: userAttributes }],
+        order: [["from_date", "ASC"]],
+      }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Today's leave requests fetched successfully",
+      data: {
+        appliedToday,
+        appliedTodayCount: appliedToday.length,
+        onLeaveToday,
+        onLeaveTodayCount: onLeaveToday.length,
+      },
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
 export const  GetExpense = async (
   req: Request,
   res: Response
