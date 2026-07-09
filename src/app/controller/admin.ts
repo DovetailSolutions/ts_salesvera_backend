@@ -4693,7 +4693,11 @@ export const getBranch = async (req: Request, res: Response) => {
     const search = (req.query.search as string) || "";
 
     let whereCondition: any = {
-      userId: userData.userId,
+      [Op.or]: [
+    { userId: userData.userId },
+    { adminId: userData.userId },
+    { managerId: userData.userId },
+  ],
     };
 
     if (search) {
