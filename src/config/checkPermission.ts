@@ -122,6 +122,8 @@ export const checkPermission = (module: string, action: string) => {
 
       const required = `${module}:${action}`;
 
+      console.log(`checkPermission: userId=${userId}, role=${role}, required=${required}`);
+
       console.log(`User permissions: ${Array.from(permissionSet).join(", ")}`);
       console.log(`Required permission: ${required}`);
 
