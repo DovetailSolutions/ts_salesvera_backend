@@ -2476,6 +2476,8 @@ export const getDashboardSummary = async (
       pendingLeaveApprovalCount,
       pendingExpenseCount,
       meetingsThisWeekCount,
+      completedQuotationCount,
+      completedInvoiceCount,
     ] = await Promise.all([
       Attendance.count({
         where: {
@@ -2502,6 +2504,18 @@ export const getDashboardSummary = async (
           scheduledTime: { [Op.between]: [weekStart, weekEnd] },
         },
       }),
+      Quotations.count({
+        where: {
+          userId: { [Op.in]: childIds },
+          status: "accepted",
+        },
+      }),
+      Invoices.count({
+        where: {
+          userId: { [Op.in]: childIds },
+          status: "accepted",
+        },
+      }),
     ]);
 
     res.status(200).json({
@@ -2513,6 +2527,8 @@ export const getDashboardSummary = async (
         pendingLeaveApprovalCount,
         pendingExpenseCount,
         meetingsThisWeekCount,
+        completedQuotationCount,
+        completedInvoiceCount,
       },
     });
   } catch (error) {
