@@ -4,7 +4,7 @@ import * as Controller from "../controller/user";
 import * as NotificationController from "../controller/notification";
 import * as PermissionController from "../controller/permission";
 import { tokenCheck } from "../../config/jwtVerify2";
-import { checkPermission, checkInvoiceCreatePermission } from "../../config/checkPermission";
+import { checkPermission, checkInvoiceCreatePermission, checkInvoiceViewPermission } from "../../config/checkPermission";
 import getUploadMiddleware from "../../config/fileUploads";
 const profile = getUploadMiddleware("image");
 const meeting = getUploadMiddleware("image");
@@ -75,7 +75,7 @@ router.get("/getBranchall", tokenCheck, Controller.getBranchall);
 // FIX: invoice routes now require explicit permissions.
 // Draft invoices require invoice:proforma; all other statuses require invoice:create (unchanged).
 router.post("/addinvoice", tokenCheck, checkInvoiceCreatePermission(), Controller.addInvoice);
-router.get("/getinvoice",  tokenCheck, checkPermission("invoice", "view"),   Controller.getInvoice);
+router.get("/getinvoice",  tokenCheck, checkInvoiceViewPermission(),   Controller.getInvoice);
 
 //  router.post("/quotationToInvoice/:id",tokenCheck,Controller.quotationToInvoice);
 
