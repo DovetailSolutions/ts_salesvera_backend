@@ -159,6 +159,7 @@ router.post("/reset-password", AdminController.changePassword);
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
 router.get("/dashboard-summary", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDashboardSummary);
+router.get("/top-performers", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getTopPerformers);
  
 
 

@@ -42,7 +42,8 @@ import {
   RecordSales,
   Permission,
   UserPermission,
-  Report
+  Report,
+  Task,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
@@ -2585,6 +2586,95 @@ export const getDashboardSummary = async (
         completedQuotationCount,
         completedInvoiceCount,
       },
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const getTopPerformers = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+    const limit = Number(req.query.limit) || 5;
+
+    const childIds = await getAllChildUserIds(loggedInId);
+
+    if (childIds.length === 0) {
+      res.status(200).json({
+        success: true,
+        message: "Top performers fetched successfully",
+        data: [],
+      });
+      return;
+    }
+
+    const [users, taskRows, meetingRows] = await Promise.all([
+      User.findAll({
+        where: { id: { [Op.in]: childIds } },
+        attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+      }),
+      // Tasks completed on/before their dueDate
+      Task.findAll({
+        where: {
+          [Op.and]: [
+            { assignedTo: { [Op.in]: childIds } },
+            { status: { [Op.in]: ["completed", "done"] } },
+            { dueDate: { [Op.ne]: null } },
+            // Compare calendar dates only — dueDate is stored at midnight, so a
+            // same-day completion later in the day must still count as on time.
+            Sequelize.where(fn("DATE", col("updatedAt")), Op.lte, fn("DATE", col("dueDate"))),
+          ],
+        } as any,
+        attributes: ["assignedTo", [fn("COUNT", col("id")), "count"]],
+        group: ["assignedTo"],
+        raw: true,
+      }) as unknown as { assignedTo: number; count: string }[],
+      // Meetings that were completed/closed out
+      Meeting.findAll({
+        where: {
+          userId: { [Op.in]: childIds },
+          status: { [Op.in]: ["completed", "out"] },
+        },
+        attributes: ["userId", [fn("COUNT", col("id")), "count"]],
+        group: ["userId"],
+        raw: true,
+      }) as unknown as { userId: number; count: string }[],
+    ]);
+
+    const taskCountMap = new Map<number, number>();
+    taskRows.forEach((r) => taskCountMap.set(Number(r.assignedTo), Number(r.count)));
+
+    const meetingCountMap = new Map<number, number>();
+    meetingRows.forEach((r) => meetingCountMap.set(Number(r.userId), Number(r.count)));
+
+    const performers = users.map((u: any) => {
+      const tasksCompletedOnTime = taskCountMap.get(u.id) || 0;
+      const meetingsDone = meetingCountMap.get(u.id) || 0;
+      return {
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        phone: u.phone,
+        role: u.role,
+        tasksCompletedOnTime,
+        meetingsDone,
+        score: tasksCompletedOnTime + meetingsDone,
+      };
+    });
+
+    performers.sort((a, b) => b.score - a.score);
+
+    res.status(200).json({
+      success: true,
+      message: "Top performers fetched successfully",
+      data: performers.slice(0, limit),
     });
   } catch (error) {
     const errorMessage =
