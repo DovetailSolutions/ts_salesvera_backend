@@ -459,6 +459,21 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "tallyGuid", type: "VARCHAR(255)" },
       ],
     },
+    {
+      // ✅ shifts: fullDayHours/nightShift/breakMinutes/workingHours/
+      // lateMarkAfter/halfDayAfter were added to the Shift model but never
+      // patched into the live DB table (fullDayHours/nightShift were missing
+      // entirely, which made every addShift insert fail).
+      tableName: "shifts",
+      columns: [
+        { name: "fullDayHours", type: "INTEGER" },
+        { name: "nightShift", type: "BOOLEAN" },
+        { name: "breakMinutes", type: "INTEGER DEFAULT 0" },
+        { name: "workingHours", type: "FLOAT DEFAULT 8" },
+        { name: "lateMarkAfter", type: "INTEGER DEFAULT 0" },
+        { name: "halfDayAfter", type: "INTEGER DEFAULT 0" },
+      ],
+    },
   ];
 
 

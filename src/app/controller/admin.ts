@@ -4916,9 +4916,11 @@ export const addShift = async (req: Request, res: Response) => {
       shiftCode,
       startTime,
       endTime,
+      fullDayHours,
+      nightShift,
       breakMinutes,
       workingHours,
-      lateMarkAfter,
+      lateMarkAfter,  
       halfDayAfter,
       branchId,
       companyId,
@@ -4926,55 +4928,48 @@ export const addShift = async (req: Request, res: Response) => {
 
     // ================= VALIDATION =================
 
-    // if (!shiftName || shiftName.trim().length < 2) {
-    //   return badRequest(res, "Shift name is required");
-    // }
+    if (!shiftName || shiftName.trim().length < 2) {
+      return badRequest(res, "Shift name is required");
+    }
 
-    // if (!shiftCode || shiftCode.trim().length < 2) {
-    //   return badRequest(res, "Shift code is required");
-    // }
+    if (!shiftCode || shiftCode.trim().length < 2) {
+      return badRequest(res, "Shift code is required");
+    }
 
-    // if (!startTime || !endTime) {
-    //   return badRequest(res, "Start time and end time are required");
-    // }
+    if (!startTime || !endTime) {
+      return badRequest(res, "Start time and end time are required");
+    }
 
-    // if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
-    //   return badRequest(res, "Time must be in HH:mm format");
-    // }
+    if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
+      return badRequest(res, "Time must be in HH:mm format");
+    }
 
-    // if (breakMinutes && isNaN(Number(breakMinutes))) {
-    //   return badRequest(res, "Break minutes must be number");
-    // }
+    if (breakMinutes !== undefined && isNaN(Number(breakMinutes))) {
+      return badRequest(res, "Break minutes must be a number");
+    }
 
-    // if (workingHours && isNaN(Number(workingHours))) {
-    //   return badRequest(res, "Working hours must be number");
-    // }
+    if (workingHours !== undefined && isNaN(Number(workingHours))) {
+      return badRequest(res, "Working hours must be a number");
+    }
 
-    // if (lateMarkAfter && isNaN(Number(lateMarkAfter))) {
-    //   return badRequest(res, "lateMarkAfter must be number");
-    // }
+    if (lateMarkAfter !== undefined && isNaN(Number(lateMarkAfter))) {
+      return badRequest(res, "lateMarkAfter must be a number");
+    }
 
-    // if (halfDayAfter && isNaN(Number(halfDayAfter))) {
-    //   return badRequest(res, "halfDayAfter must be number");
-    // }
+    if (halfDayAfter !== undefined && isNaN(Number(halfDayAfter))) {
+      return badRequest(res, "halfDayAfter must be a number");
+    }
 
-    // if (!branchId || isNaN(Number(branchId))) {
-    //   return badRequest(res, "Valid branchId is required");
-    // }
+    if (!branchId || isNaN(Number(branchId))) {
+      return badRequest(res, "Valid branchId is required");
+    }
 
-    // if (!companyId || isNaN(Number(companyId))) {
-    //   return badRequest(res, "Valid companyId is required");
-    // }
+    if (!companyId || isNaN(Number(companyId))) {
+      return badRequest(res, "Valid companyId is required");
+    }
 
-    // ================= DUPLICATE =================
-
-    // const existing = await Shift.findOne({
-    //   where: { shiftCode },
-    // });
-
-    // if (existing) {
-    //   return badRequest(res, "Shift already exists with this code");
-    // }
+    // Duplicate shiftCode is intentionally allowed (see constraintsToDrop
+    // in dbConnection.ts — the DB unique constraint was removed on request).
 
     // ================= CREATE =================
 
@@ -4983,10 +4978,12 @@ export const addShift = async (req: Request, res: Response) => {
       shiftCode,
       startTime,
       endTime,
-      // breakMinutes: breakMinutes || 0,
-      // workingHours: workingHours || 8,
-      // lateMarkAfter: lateMarkAfter || 0,
-      // halfDayAfter: halfDayAfter || 0,
+      fullDayHours,
+      nightShift,
+      breakMinutes: breakMinutes !== undefined ? Number(breakMinutes) : 0,
+      workingHours: workingHours !== undefined ? Number(workingHours) : 8,
+      lateMarkAfter: lateMarkAfter !== undefined ? Number(lateMarkAfter) : 0,
+      halfDayAfter: halfDayAfter !== undefined ? Number(halfDayAfter) : 0,
       branchId,
       companyId,
       userId: userData.userId,
