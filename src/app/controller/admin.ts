@@ -1695,40 +1695,58 @@ export const assignLeaveBalance = async (
       branchId,
     } = req.body || {};
 
-    if (!employeeId) {
+    if (!employeeId || (Array.isArray(employeeId) && employeeId.length === 0)) {
       badRequest(res, "employeeId is required");
       return;
     }
 
+    const employeeIds: number[] = Array.isArray(employeeId)
+      ? employeeId.map((id: any) => Number(id))
+      : [Number(employeeId)];
+
     const childIds = await getAllChildUserIds(loggedInId);
-    if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
-      badRequest(res, "You can only assign leave balance to your own sale_persons");
+    const unauthorizedIds = employeeIds.filter(
+      (id) => id !== loggedInId && !childIds.includes(id)
+    );
+    if (unauthorizedIds.length > 0) {
+      badRequest(
+        res,
+        `You can only assign leave balance to your own sale_persons. Unauthorized employeeId(s): ${unauthorizedIds.join(", ")}`
+      );
       return;
     }
 
     const targetYear = Number(year) || new Date().getFullYear();
 
-    const [balance] = await EmployeeLeaveBalance.findOrCreate({
-      where: { employeeId: Number(employeeId), year: targetYear },
-      defaults: {
-        employeeId: Number(employeeId),
-        year: targetYear,
-        companyId: companyId ? Number(companyId) : null,
-        branchId: branchId ? Number(branchId) : null,
-        assignedBy: loggedInId,
-      },
-    });
+    const balances = [];
+    for (const empId of employeeIds) {
+      const [balance] = await EmployeeLeaveBalance.findOrCreate({
+        where: { employeeId: empId, year: targetYear },
+        defaults: {
+          employeeId: empId,
+          year: targetYear,
+          companyId: companyId ? Number(companyId) : null,
+          branchId: branchId ? Number(branchId) : null,
+          assignedBy: loggedInId,
+        },
+      });
 
-    if (casualLeaveBalance !== undefined) balance.casualLeaveAllocated = Number(casualLeaveBalance);
-    if (sickLeaveBalance !== undefined) balance.sickLeaveAllocated = Number(sickLeaveBalance);
-    if (paidLeaveBalance !== undefined) balance.paidLeaveAllocated = Number(paidLeaveBalance);
-    if (companyId !== undefined) balance.companyId = Number(companyId);
-    if (branchId !== undefined) balance.branchId = Number(branchId);
-    balance.assignedBy = loggedInId;
+      if (casualLeaveBalance !== undefined) balance.casualLeaveAllocated = Number(casualLeaveBalance);
+      if (sickLeaveBalance !== undefined) balance.sickLeaveAllocated = Number(sickLeaveBalance);
+      if (paidLeaveBalance !== undefined) balance.paidLeaveAllocated = Number(paidLeaveBalance);
+      if (companyId !== undefined) balance.companyId = Number(companyId);
+      if (branchId !== undefined) balance.branchId = Number(branchId);
+      balance.assignedBy = loggedInId;
 
-    await balance.save();
+      await balance.save();
+      balances.push(balance);
+    }
 
-    createSuccess(res, "Leave balance assigned successfully", balance);
+    createSuccess(
+      res,
+      "Leave balance assigned successfully",
+      Array.isArray(employeeId) ? balances : balances[0]
+    );
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
