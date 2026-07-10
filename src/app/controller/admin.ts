@@ -2644,11 +2644,14 @@ export const cancelLeaveAndMarkPresent = async (
 // non-numeric value (external-system codes like "EMP001") is skipped.
 // Statuses are stamped directly onto Attendance.status; no Leave record or
 // balance is touched.
+// Keys are space-separated (not snake_case) because normalizeStatusKey folds
+// underscores to spaces too — so "half_day", "Half Day" and "half day" all
+// normalize the same way regardless of which style the caller sends.
 const BULK_ATTENDANCE_STATUS_MAP: Record<string, string> = {
   absent: "absent",
   present: "present",
-  double_present: "present",
-  half_day: "leaveApproved",
+  "double present": "present",
+  "half day": "leaveApproved",
   "week off": "holiday",
   holiday: "holiday",
   "unpaid leave": "leaveApproved",
@@ -2659,7 +2662,7 @@ const BULK_ATTENDANCE_STATUS_MAP: Record<string, string> = {
 };
 
 const normalizeStatusKey = (value: any): string =>
-  String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  String(value ?? "").trim().toLowerCase().replace(/[_\s]+/g, " ");
 
 // Uses local getters (not toISOString) — toISOString converts to UTC first,
 // which shifts non-ISO date strings (e.g. CSV-reformatted "7/6/26") back a
@@ -2760,14 +2763,25 @@ export const bulkMarkAttendance = async (
 
     for (const row of dataRows) {
       const rawEmployeeId = row[1];
-      if (!/^\d+$/.test(String(rawEmployeeId ?? "").trim())) {
-        if (String(rawEmployeeId ?? "").trim()) {
+      const trimmedEmployeeId = String(rawEmployeeId ?? "").trim();
+      // Excel-sourced numeric cells can render as "224.0" depending on cell
+      // format — accept those (Number.isInteger) rather than only bare digit
+      // strings, while still rejecting non-numeric codes like "EMP001".
+      const numericEmployeeId = Number(trimmedEmployeeId);
+      const isNumericEmployeeId =
+        trimmedEmployeeId !== "" &&
+        Number.isFinite(numericEmployeeId) &&
+        Number.isInteger(numericEmployeeId) &&
+        numericEmployeeId >= 0;
+
+      if (!isNumericEmployeeId) {
+        if (trimmedEmployeeId) {
           skippedNonNumericEmployeeId.push(rawEmployeeId);
         }
         continue;
       }
 
-      const employeeId = Number(rawEmployeeId);
+      const employeeId = numericEmployeeId;
       if (!allowedIds.has(employeeId)) {
         skippedNotInTeam.push(employeeId);
         continue;
