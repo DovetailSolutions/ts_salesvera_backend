@@ -1571,8 +1571,17 @@ export const AttendanceList = async (
     const finalUserId = userData?.userId;
     const data = req.query;
 
-    const item = await Middleware.withuserlogin(Attendance, finalUserId, data);
-    createSuccess(res, "bbkbdkfbkd", item);
+    const { data: attendanceRows, pagination } = await Middleware.withuserlogin(
+      Attendance,
+      finalUserId,
+      data
+    );
+    res.status(200).json({
+      success: true,
+      message: "Attendance list fetched successfully",
+      data: attendanceRows,
+      pagination,
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
