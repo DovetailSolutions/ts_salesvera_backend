@@ -7,7 +7,7 @@ interface AttendanceAttributes {
   punch_in?: Date | null;
   punch_out?: Date | null;
   working_hours?: number | null;
-  status: "present" | "absent" | "leave" | "holiday" | "leaveReject" |"leaveApproved" |"out";
+  status: "in" | "present" | "absent" | "leave" | "holiday" | "leaveReject" |"leaveApproved" |"out";
   late?: boolean;
   overtime?: number | null;
 
@@ -44,7 +44,7 @@ export class Attendance
   public punch_in!: Date | null;
   public punch_out!: Date | null;
   public working_hours!: number | null;
-  public status!: "present" | "absent" | "leave" | "holiday" | "leaveReject" | "leaveApproved"|"out";
+  public status!: "in" | "present" | "absent" | "leave" | "holiday" | "leaveReject" | "leaveApproved"|"out";
   public late!: boolean;
   public overtime!: number | null;
 
@@ -82,7 +82,7 @@ export class Attendance
           allowNull: true,
         },
         status: {
-          type: DataTypes.ENUM("present","out","absent", "leave","leaveReject","leaveApproved", "holiday"),
+          type: DataTypes.ENUM("in", "present","out","absent", "leave","leaveReject","leaveApproved", "holiday"),
           allowNull: false,
           defaultValue: "absent",
         },
