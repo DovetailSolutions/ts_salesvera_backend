@@ -17,6 +17,7 @@ import {
   createSuccess,
   getSuccess,
   badRequest,
+  forbidden,
 } from "../middlewear/errorMessage";
 import {
   User,
@@ -2694,7 +2695,7 @@ export const bulkMarkAttendance = async (
     const loggedInId = userData.userId;
 
     if (!req.file) {
-      badRequest(res, "Attendance file (xlsx) is required");
+      badRequest(res, "Attendance file (.csv or .xlsx) is required");
       return;
     }
 
@@ -2723,7 +2724,20 @@ export const bulkMarkAttendance = async (
     }
     const buffer = Buffer.concat(chunks);
 
-    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    // Parse .csv explicitly as text instead of relying on XLSX's binary-format
+    // auto-detection — guards against edge cases (BOM from "CSV UTF-8" saves,
+    // CRLF line endings, commas inside quoted names) silently mis-parsing.
+    const isCsv =
+      (file.originalname || "").toLowerCase().endsWith(".csv") ||
+      file.mimetype === "text/csv";
+    const BOM = String.fromCharCode(0xfeff);
+    const workbook = isCsv
+      ? XLSX.read(buffer.toString("utf8").replace(new RegExp(`^${BOM}`), ""), {
+          type: "string",
+          cellDates: true,
+          raw: false,
+        })
+      : XLSX.read(buffer, { type: "buffer", cellDates: true });
     const sheetName =
       workbook.SheetNames.find(
         (name) => name.trim().toLowerCase() === "employee_details"
@@ -3131,37 +3145,56 @@ const fetchData = async (
   where: any,
   limit: number,
   offset: number,
-  dateFilter?: any
+  dateFilter?: any,
+  dateField: string = "date"
 ) => {
   return await model.findAndCountAll({
-    where,
+    // FIX: dateFilter was accepted as a param but never applied to the query —
+    // startDate/endDate/lastDays/today filters were silently ignored.
+    where: dateFilter && Object.keys(dateFilter).length > 0
+      ? { ...where, [dateField]: dateFilter }
+      : where,
     limit,
     offset,
     order: [["createdAt", "DESC"]],
   });
 };
 
+// Attendance history for one employee, by id — paginated, optionally filtered
+// by startDate/endDate, lastDays, or today (see getDateFilter).
 export const userAttendance = async (req: Request, res: Response) => {
   try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
     const { userId } = req.query;
     if (!userId) return badRequest(res, "UserId is required", 400);
+
+    const employeeId = Number(userId);
+    if (!Number.isInteger(employeeId) || employeeId < 0) {
+      return badRequest(res, "Invalid userId");
+    }
+
+    // FIX: this previously had no ownership check at all — any caller with
+    // attendance:view could pass any userId and read another team's data.
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (employeeId !== loggedInId && !childIds.includes(employeeId)) {
+      return forbidden(res, "You can only view attendance of your own team members");
+    }
 
     const { page, limit, offset } = getPagination(req);
     const dateFilter = getDateFilter(req.query);
 
-    // const user = await findUser(Number(userId));
-    // if (!user) return badRequest(res, "User not found", 404);
-
     const { rows, count } = await fetchData(
       Attendance,
-      { employee_id: Number(userId) },
+      { employee_id: employeeId },
       limit,
       offset,
-      dateFilter
+      dateFilter,
+      "date"
     );
 
     createSuccess(res, "User attendance fetched successfully", {
-      // user,
       attendance: rows,
       pagination: {
         totalRecords: count,
