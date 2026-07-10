@@ -1680,15 +1680,21 @@ export const requestLeave = async (
     }
 
     // --------------------
-    // ✅ Insert Attendance Entry (1 entry per request)
+    // ✅ Insert one Attendance entry per day of the leave range
     // --------------------
     if (leave) {
-      await Attendance.create({
-        employee_id: finalUserId,
-        date: from,
-        punch_in: to,
-        status: "leave",
-      });
+      const leaveDates: Date[] = [];
+      for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+        leaveDates.push(new Date(cursor));
+      }
+
+      await Attendance.bulkCreate(
+        leaveDates.map((date) => ({
+          employee_id: finalUserId,
+          date,
+          status: "leave",
+        })) as any
+      );
     }
     createSuccess(res, "Leave requested successfully", leave);
   } catch (error: any) {

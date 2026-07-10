@@ -1659,13 +1659,25 @@ export const approveLeave = async (
     if (status === "rejected") {
       await Attendance.update(
         { status: "leaveReject" },
-        { where: { employee_id, date: leave.from_date, status: "leave" } }
+        {
+          where: {
+            employee_id,
+            date: { [Op.between]: [leave.from_date, leave.to_date] },
+            status: "leave",
+          },
+        }
       );
     }
     if (status === "approved") {
       await Attendance.update(
         { status: "leaveApproved" },
-        { where: { employee_id, date: leave.from_date, status: "leave" } }
+        {
+          where: {
+            employee_id,
+            date: { [Op.between]: [leave.from_date, leave.to_date] },
+            status: "leave",
+          },
+        }
       );
     }
 
@@ -2192,6 +2204,9 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
       ],
       // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
       order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+      distinct: true,
     });
 
     res.status(200).json({
@@ -2430,11 +2445,7 @@ export const getAttendance = async (
     const childIds = await getAllChildUserIds(loggedInId);
     const allUserIds = [loggedInId, ...childIds];
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const todayDateOnly = new Date().toISOString().slice(0, 10);
 
     const { rows, count } = await User.findAndCountAll({
       where: {
@@ -2457,9 +2468,7 @@ export const getAttendance = async (
           model: Attendance,
           as: "Attendances",
           where: {
-            punch_in: {
-              [Op.between]: [todayStart, todayEnd],
-            },
+            date: todayDateOnly,
           },
           required: false,
         },
