@@ -1609,6 +1609,43 @@ export const countLeaveDays = (from_date: string | Date, to_date: string | Date)
   return Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 };
 
+// Shared by approveLeave (status: "rejected") and cancelLeaveAndMarkPresent —
+// restores the balance consumed at request time and flips every Attendance
+// row in the leave's date range from leave/leaveApproved to leaveReject.
+const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
+  if (leave.status !== "rejected") {
+    const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
+    if (balanceField) {
+      const days = countLeaveDays(leave.from_date, leave.to_date);
+      const year = new Date(leave.from_date).getFullYear();
+
+      const balance = await EmployeeLeaveBalance.findOne({
+        where: { employeeId: leave.employee_id, year },
+      });
+
+      if (balance) {
+        const used = (balance as any)[balanceField.used] || 0;
+        (balance as any)[balanceField.used] = Math.max(0, used - days);
+        await balance.save();
+      }
+    }
+  }
+
+  leave.status = "rejected";
+  await leave.save();
+
+  await Attendance.update(
+    { status: "leaveReject" },
+    {
+      where: {
+        employee_id: leave.employee_id,
+        date: { [Op.between]: [leave.from_date, leave.to_date] },
+        status: { [Op.in]: ["leave", "leaveApproved"] },
+      },
+    }
+  );
+};
+
 export const approveLeave = async (
   req: Request,
   res: Response
@@ -1633,41 +1670,13 @@ export const approveLeave = async (
 
     // Balance is deducted upfront when the employee requests leave (see requestLeave
     // in user.ts). Approval keeps it as-is; only a rejection restores it below.
-    if (status === "rejected" && leave.status !== "rejected") {
-      const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
-      if (balanceField) {
-        const days = countLeaveDays(leave.from_date, leave.to_date);
-        const year = new Date(leave.from_date).getFullYear();
-
-        const balance = await EmployeeLeaveBalance.findOne({
-          where: { employeeId: employee_id, year },
-        });
-
-        if (balance) {
-          const used = (balance as any)[balanceField.used] || 0;
-          (balance as any)[balanceField.used] = Math.max(0, used - days);
-          await balance.save();
-        }
-      }
-    }
-
-    if (status) {
+    if (status === "rejected") {
+      await rejectLeaveAndRestoreBalance(leave);
+    } else if (status) {
       leave.status = status;
       await leave.save();
     }
 
-    if (status === "rejected") {
-      await Attendance.update(
-        { status: "leaveReject" },
-        {
-          where: {
-            employee_id,
-            date: { [Op.between]: [leave.from_date, leave.to_date] },
-            status: "leave",
-          },
-        }
-      );
-    }
     if (status === "approved") {
       await Attendance.update(
         { status: "leaveApproved" },
@@ -2550,6 +2559,77 @@ export const markAttendancePresent = async (
     }
 
     createSuccess(res, "Attendance marked as present", record);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+export const cancelLeaveAndMarkPresent = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
+    const { employeeId, leaveID, date, punchIn } = req.body || {};
+
+    if (!employeeId) {
+      badRequest(res, "employeeId is required");
+      return;
+    }
+    if (!leaveID) {
+      badRequest(res, "leaveID is required");
+      return;
+    }
+
+    // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (!childIds.includes(Number(employeeId))) {
+      badRequest(res, "You can only manage attendance/leave for your own team members");
+      return;
+    }
+
+    const leave = await Leave.findOne({ where: { employee_id: employeeId, id: leaveID } });
+    if (!leave) {
+      badRequest(res, "Leave not found");
+      return;
+    }
+
+    // Cancel the leave: restores the balance consumed at request time and
+    // flips every Attendance row in the leave's range to leaveReject.
+    await rejectLeaveAndRestoreBalance(leave);
+
+    // Then mark the requested day present, overwriting whatever the
+    // leave-cancellation step just set it to.
+    const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const punchInTime = punchIn ? new Date(punchIn) : new Date();
+
+    const existing = await Attendance.findOne({
+      where: { employee_id: employeeId, date: attendanceDate },
+    });
+
+    let record;
+    if (existing) {
+      existing.status = "present";
+      existing.punch_in = punchInTime;
+      await existing.save();
+      record = existing;
+    } else {
+      record = await Attendance.create({
+        employee_id: employeeId,
+        date: attendanceDate,
+        punch_in: punchInTime,
+        status: "present",
+      } as any);
+    }
+
+    createSuccess(res, "Leave cancelled and attendance marked present", {
+      leave,
+      attendance: record,
+    });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

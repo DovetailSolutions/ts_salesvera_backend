@@ -30,6 +30,10 @@ router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANA
 // FIX: attendance view routes require attendance:view permission.
 router.get("/get-attendance", tokenCheck, checkPermission("attendance", "view"), AdminController.getAttendance);
 router.post("/mark-attendance-present", tokenCheck, checkPermission("attendance", "update"), AdminController.markAttendancePresent);
+// Cancels the given leave (restores balance, flips its Attendance rows to leaveReject)
+// then marks the given date present in one call — needed since mark-attendance-present
+// refuses to overwrite a leave/leaveApproved/leaveReject row directly.
+router.post("/cancel-leave-and-mark-present", tokenCheck, checkPermission("leave", "approve"), checkPermission("attendance", "update"), AdminController.cancelLeaveAndMarkPresent);
 // FIX: approve/reject requires leave:approve; listing all leave requests requires leave:view.
 router.patch("/approved-leave", tokenCheck, checkPermission("leave", "approve"), AdminController.approveLeave);
 router.get("/get-leave-list", tokenCheck, checkPermission("leave", "view"), AdminController.leaveList)
