@@ -2525,8 +2525,17 @@ export const markAttendancePresent = async (
       where: { employee_id: employeeId, date: attendanceDate },
     });
 
+    const LEAVE_STATUSES = ["leave", "leaveApproved", "leaveReject"];
+
     let record;
     if (existing) {
+      if (LEAVE_STATUSES.includes(existing.status)) {
+        badRequest(
+          res,
+          `This employee is marked "${existing.status}" on ${attendanceDate}. Reject/cancel the leave first before marking present.`
+        );
+        return;
+      }
       existing.status = "present";
       if (!existing.punch_in) existing.punch_in = punchInTime;
       await existing.save();
