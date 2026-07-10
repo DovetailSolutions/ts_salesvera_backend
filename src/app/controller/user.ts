@@ -1441,6 +1441,16 @@ export const AttendancePunchIn = async (
   }
 };
 
+// Derived from a punch-out session's working_hours: <3h is a short_leave-worthy
+// day, 3-9h counts as a half_day, 9h+ is a full working day.
+export const getDayTypeFromWorkingHours = (
+  workingHours: number
+): "full_day" | "half_day" | "short_leave" => {
+  if (workingHours < 3) return "short_leave";
+  if (workingHours < 9) return "half_day";
+  return "full_day";
+};
+
 export const AttendancePunchOut = async (
   req: Request,
   res: Response
@@ -1504,6 +1514,7 @@ export const AttendancePunchOut = async (
     attendance.latitude_out = latitude_out;
     attendance.longitude_out = longitude_out;
     attendance.status = "out";
+    attendance.dayType = getDayTypeFromWorkingHours(workingHoursRounded);
     await attendance.save();
 
     createSuccess(res, "Punch-out recorded successfully", attendance);

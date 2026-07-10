@@ -8,6 +8,8 @@ interface AttendanceAttributes {
   punch_out?: Date | null;
   working_hours?: number | null;
   status: "in" | "present" | "absent" | "leave" | "holiday" | "leaveReject" |"leaveApproved" |"out";
+  // Derived from working_hours at punch-out: <3h short_leave, 3-4h half_day, >=4h full_day.
+  dayType?: "full_day" | "half_day" | "short_leave" | null;
   late?: boolean;
   overtime?: number | null;
 
@@ -45,6 +47,7 @@ export class Attendance
   public punch_out!: Date | null;
   public working_hours!: number | null;
   public status!: "in" | "present" | "absent" | "leave" | "holiday" | "leaveReject" | "leaveApproved"|"out";
+  public dayType!: "full_day" | "half_day" | "short_leave" | null;
   public late!: boolean;
   public overtime!: number | null;
 
@@ -79,6 +82,10 @@ export class Attendance
         },
         working_hours: {
           type: DataTypes.FLOAT,
+          allowNull: true,
+        },
+        dayType: {
+          type: DataTypes.STRING(20),
           allowNull: true,
         },
         status: {
