@@ -9,6 +9,7 @@ const profile = getUploadMiddleware("image");
 const meeting = getUploadMiddleware("image");
 const expense = getUploadMiddleware("expense");
 const csv = getUploadMiddleware("csv")
+const attendanceBulk = getUploadMiddleware("attendance-bulk")
 
 
 router.post("/register", AdminController.Register);
@@ -30,6 +31,10 @@ router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANA
 // FIX: attendance view routes require attendance:view permission.
 router.get("/get-attendance", tokenCheck, checkPermission("attendance", "view"), AdminController.getAttendance);
 router.post("/mark-attendance-present", tokenCheck, checkPermission("attendance", "update"), AdminController.markAttendancePresent);
+// Bulk attendance upload (xlsx: one row per employee, one column per date).
+// Matches rows by numeric Employee ID against the admin/manager's own team,
+// and stamps Attendance.status directly per the mapping in bulkMarkAttendance.
+router.post("/bulk-mark-attendance", tokenCheck, checkPermission("attendance", "update"), attendanceBulk.single("file"), AdminController.bulkMarkAttendance);
 // Cancels the given leave (restores balance, flips its Attendance rows to leaveReject)
 // then marks the given date present in one call — needed since mark-attendance-present
 // refuses to overwrite a leave/leaveApproved/leaveReject row directly.

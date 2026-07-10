@@ -4,6 +4,7 @@ import {sequelize} from "../../config/dbConnection";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "stream";
 import csv from "csv-parser";
+import * as XLSX from "xlsx";
 import bcrypt from "bcrypt";
 import puppeteer from "puppeteer";
 import ejs from "ejs";
@@ -2629,6 +2630,214 @@ export const cancelLeaveAndMarkPresent = async (
     createSuccess(res, "Leave cancelled and attendance marked present", {
       leave,
       attendance: record,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// Bulk attendance upload (e.g. SalaryBox-style xlsx export): one row per
+// employee, one column per date, cell value = that day's status string.
+// Employee ID column is matched against our numeric employee_id — any
+// non-numeric value (external-system codes like "EMP001") is skipped.
+// Statuses are stamped directly onto Attendance.status; no Leave record or
+// balance is touched.
+const BULK_ATTENDANCE_STATUS_MAP: Record<string, string> = {
+  absent: "absent",
+  present: "present",
+  double_present: "present",
+  half_day: "leaveApproved",
+  "week off": "holiday",
+  holiday: "holiday",
+  "unpaid leave": "leaveApproved",
+  "paid leave": "leaveApproved",
+  "sick leave": "leaveApproved",
+  "casual leave": "leaveApproved",
+  "comp leave": "leaveApproved",
+};
+
+const normalizeStatusKey = (value: any): string =>
+  String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+
+// Uses local getters (not toISOString) — toISOString converts to UTC first,
+// which shifts non-ISO date strings (e.g. CSV-reformatted "7/6/26") back a
+// day in any timezone ahead of UTC.
+const formatLocalDate = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const normalizeHeaderDate = (value: any): string | null => {
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return formatLocalDate(value);
+  }
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value.trim())) {
+    return value.trim().slice(0, 10);
+  }
+  const parsed = new Date(value);
+  return isNaN(parsed.getTime()) ? null : formatLocalDate(parsed);
+};
+
+export const bulkMarkAttendance = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData.userId;
+
+    if (!req.file) {
+      badRequest(res, "Attendance file (xlsx) is required");
+      return;
+    }
+
+    const file = req.file as MulterS3File;
+
+    const s3 = new S3Client({
+      region: process.env.AWS_REGION,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      },
+    });
+
+    const data = await s3.send(
+      new GetObjectCommand({ Bucket: file.bucket, Key: file.key })
+    );
+
+    if (!data.Body) {
+      badRequest(res, "Unable to read file from S3");
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of data.Body as Readable) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const buffer = Buffer.concat(chunks);
+
+    const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+    const sheetName =
+      workbook.SheetNames.find(
+        (name) => name.trim().toLowerCase() === "employee_details"
+      ) || workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      raw: false,
+      defval: "",
+    });
+
+    if (rows.length < 2) {
+      badRequest(res, "No attendance rows found in the uploaded file");
+      return;
+    }
+
+    const [headerRow, ...dataRows] = rows;
+
+    // Column 0: Staff Name, 1: Employee ID, 2: Job Title, 3+: dates
+    const dateColumns: { index: number; date: string }[] = [];
+    for (let i = 3; i < headerRow.length; i++) {
+      const date = normalizeHeaderDate(headerRow[i]);
+      if (date) dateColumns.push({ index: i, date });
+    }
+
+    const childIds = await getAllChildUserIds(loggedInId);
+    const allowedIds = new Set<number>([loggedInId, ...childIds]);
+
+    const skippedNonNumericEmployeeId: any[] = [];
+    const skippedNotInTeam: number[] = [];
+    const skippedUnknownStatus: { employeeId: number; date: string; status: any }[] = [];
+
+    type Assignment = { employee_id: number; date: string; status: string };
+    const assignments: Assignment[] = [];
+    const employeeIds = new Set<number>();
+
+    for (const row of dataRows) {
+      const rawEmployeeId = row[1];
+      if (!/^\d+$/.test(String(rawEmployeeId ?? "").trim())) {
+        if (String(rawEmployeeId ?? "").trim()) {
+          skippedNonNumericEmployeeId.push(rawEmployeeId);
+        }
+        continue;
+      }
+
+      const employeeId = Number(rawEmployeeId);
+      if (!allowedIds.has(employeeId)) {
+        skippedNotInTeam.push(employeeId);
+        continue;
+      }
+
+      for (const { index, date } of dateColumns) {
+        const rawStatus = row[index];
+        if (!String(rawStatus ?? "").trim()) continue;
+
+        const mappedStatus = BULK_ATTENDANCE_STATUS_MAP[normalizeStatusKey(rawStatus)];
+        if (!mappedStatus) {
+          skippedUnknownStatus.push({ employeeId, date, status: rawStatus });
+          continue;
+        }
+
+        employeeIds.add(employeeId);
+        assignments.push({ employee_id: employeeId, date, status: mappedStatus });
+      }
+    }
+
+    if (assignments.length === 0) {
+      createSuccess(res, "No valid attendance rows to apply", {
+        applied: 0,
+        skippedNonNumericEmployeeId,
+        skippedNotInTeam,
+        skippedUnknownStatus,
+      });
+      return;
+    }
+
+    const dates = [...new Set(assignments.map((a) => a.date))];
+
+    const existingRows = await Attendance.findAll({
+      where: {
+        employee_id: { [Op.in]: [...employeeIds] },
+        date: { [Op.in]: dates },
+      },
+    });
+
+    const existingMap = new Map<string, any>();
+    for (const row of existingRows) {
+      existingMap.set(`${row.employee_id}|${row.date}`, row);
+    }
+
+    const toCreate: Assignment[] = [];
+    const toUpdate: any[] = [];
+
+    for (const assignment of assignments) {
+      const key = `${assignment.employee_id}|${assignment.date}`;
+      const existing = existingMap.get(key);
+      if (existing) {
+        existing.status = assignment.status;
+        toUpdate.push(existing);
+      } else {
+        toCreate.push(assignment);
+      }
+    }
+
+    await Promise.all(toUpdate.map((row) => row.save()));
+    if (toCreate.length > 0) {
+      await Attendance.bulkCreate(toCreate as any);
+    }
+
+    createSuccess(res, "Bulk attendance applied successfully", {
+      applied: assignments.length,
+      created: toCreate.length,
+      updated: toUpdate.length,
+      skippedNonNumericEmployeeId,
+      skippedNotInTeam,
+      skippedUnknownStatus,
     });
   } catch (error) {
     const errorMessage =
