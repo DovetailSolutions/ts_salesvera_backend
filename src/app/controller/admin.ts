@@ -48,6 +48,7 @@ import {
   Task,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
+import { getDayTypeFromWorkingHours } from "./user";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { S3 } from "@aws-sdk/client-s3";
 import { invalidatePermissionCache } from "../../config/permissionCache";
@@ -2686,6 +2687,34 @@ const normalizeHeaderDate = (value: any): string | null => {
   return isNaN(parsed.getTime()) ? null : formatLocalDate(parsed);
 };
 
+// A date-column cell may hold a status word (handled above) OR a punch-in
+// clock time (e.g. "09:15", "9:15:00", "9:15 AM") to backfill a real
+// punch_in for a past date. Excel time-formatted cells and plain text both
+// come through sheet_to_json as strings in this format, so a status-word
+// miss is retried against this pattern before falling back to "unknown".
+const TIME_OF_DAY_RE = /^([0-1]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?\s*(am|pm)?$/i;
+
+const parseTimeOfDayOnDate = (dateStr: string, value: any): Date | null => {
+  const raw = String(value ?? "").trim();
+  const match = raw.match(TIME_OF_DAY_RE);
+  if (!match) return null;
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = match[3] ? Number(match[3]) : 0;
+  const meridiem = match[4]?.toLowerCase();
+
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return null;
+    if (meridiem === "am") hours = hours === 12 ? 0 : hours;
+    else hours = hours === 12 ? 12 : hours + 12;
+  }
+
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const result = new Date(y, m - 1, d, hours, minutes, seconds);
+  return isNaN(result.getTime()) ? null : result;
+};
+
 export const bulkMarkAttendance = async (
   req: Request,
   res: Response
@@ -2809,7 +2838,12 @@ export const bulkMarkAttendance = async (
     const skippedNotInTeam: number[] = [];
     const skippedUnknownStatus: { employeeId: number; date: string; status: any }[] = [];
 
-    type Assignment = { employee_id: number; date: string; status: string };
+    type Assignment = {
+      employee_id: number;
+      date: string;
+      status: string;
+      punch_in?: Date;
+    };
     const assignments: Assignment[] = [];
     const employeeIds = new Set<number>();
 
@@ -2852,13 +2886,27 @@ export const bulkMarkAttendance = async (
         }
 
         const mappedStatus = BULK_ATTENDANCE_STATUS_MAP[normalizeStatusKey(rawStatus)];
-        if (!mappedStatus) {
-          skippedUnknownStatus.push({ employeeId, date, status: rawStatus });
+        if (mappedStatus) {
+          employeeIds.add(employeeId);
+          assignments.push({ employee_id: employeeId, date, status: mappedStatus });
           continue;
         }
 
-        employeeIds.add(employeeId);
-        assignments.push({ employee_id: employeeId, date, status: mappedStatus });
+        // Not a recognized status word — try it as a punch-in clock time
+        // (e.g. "09:15") to backfill a real punch_in for that date.
+        const punchInTime = parseTimeOfDayOnDate(date, rawStatus);
+        if (punchInTime) {
+          employeeIds.add(employeeId);
+          assignments.push({
+            employee_id: employeeId,
+            date,
+            status: "present",
+            punch_in: punchInTime,
+          });
+          continue;
+        }
+
+        skippedUnknownStatus.push({ employeeId, date, status: rawStatus });
       }
     }
 
@@ -2893,13 +2941,40 @@ export const bulkMarkAttendance = async (
       const key = `${assignment.employee_id}|${assignment.date}`;
       const existing = existingMap.get(key);
       if (existing) {
-        // Bulk-marking overwrites the day's status directly; punch-derived
-        // working_hours/dayType from any prior real punch no longer apply
-        // and must be cleared, or they end up contradicting the new status
-        // (e.g. status "absent" next to a full punched day's hours).
-        existing.status = assignment.status;
-        existing.working_hours = null;
-        existing.dayType = null;
+        if (assignment.punch_in) {
+          // Backfilling a punch_in for a past date: keep any existing
+          // punch_out and recompute working_hours/dayType/overtime against
+          // the new punch_in, since the old figures were based on the old
+          // (or absent) punch_in and are now stale.
+          existing.punch_in = assignment.punch_in;
+          existing.status = "present";
+          if (existing.punch_out && existing.punch_out > assignment.punch_in) {
+            const workingHours = Number(
+              ((existing.punch_out.getTime() - assignment.punch_in.getTime()) /
+                (1000 * 60 * 60)
+              ).toFixed(2)
+            );
+            existing.working_hours = workingHours;
+            existing.dayType = getDayTypeFromWorkingHours(workingHours);
+            existing.overtime = workingHours > 8 ? Number((workingHours - 8).toFixed(2)) : 0;
+          } else {
+            existing.punch_out = null;
+            existing.working_hours = null;
+            existing.dayType = null;
+            existing.overtime = null;
+          }
+        } else {
+          // Bulk-marking overwrites the day's status directly; punch-derived
+          // fields from any prior real punch no longer apply and must be
+          // cleared, or they end up contradicting the new status (e.g.
+          // status "absent" next to a full punched day's hours).
+          existing.status = assignment.status;
+          existing.punch_in = null;
+          existing.punch_out = null;
+          existing.working_hours = null;
+          existing.dayType = null;
+          existing.overtime = null;
+        }
         toUpdate.push(existing);
       } else {
         toCreate.push(assignment);
