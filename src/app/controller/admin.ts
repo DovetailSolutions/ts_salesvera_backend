@@ -2749,6 +2749,44 @@ export const bulkMarkAttendance = async (
       const date = normalizeHeaderDate(headerRow[i]);
       if (date) dateColumns.push({ index: i, date });
     }
+    const dateColumnIndexByDate = new Map<string, number>(
+      dateColumns.map(({ index, date }) => [date, index])
+    );
+
+    // The frontend also sends fromDate/toDate alongside the file (the range
+    // picked in the UI). When present, that range — not just the columns the
+    // sheet happens to have — decides which dates get processed per
+    // employee; any date in range with no column or a blank cell defaults to
+    // "present" instead of being silently skipped.
+    const { fromDate, toDate } = req.body as { fromDate?: string; toDate?: string };
+    let rangeDates: string[] = dateColumns.map((c) => c.date);
+    if (fromDate && toDate) {
+      const normalizedFrom = normalizeHeaderDate(fromDate);
+      const normalizedTo = normalizeHeaderDate(toDate);
+      if (!normalizedFrom || !normalizedTo) {
+        badRequest(res, "Invalid fromDate/toDate");
+        return;
+      }
+      if (normalizedFrom > normalizedTo) {
+        badRequest(res, "fromDate must be before toDate");
+        return;
+      }
+      const start = new Date(normalizedFrom);
+      const end = new Date(normalizedTo);
+      const MAX_RANGE_DAYS = 366;
+      const spanDays =
+        Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+      if (spanDays > MAX_RANGE_DAYS) {
+        badRequest(res, `Date range too large (max ${MAX_RANGE_DAYS} days)`);
+        return;
+      }
+      rangeDates = [];
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        rangeDates.push(formatLocalDate(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
 
     const childIds = await getAllChildUserIds(loggedInId);
     const allowedIds = new Set<number>([loggedInId, ...childIds]);
@@ -2787,9 +2825,17 @@ export const bulkMarkAttendance = async (
         continue;
       }
 
-      for (const { index, date } of dateColumns) {
-        const rawStatus = row[index];
-        if (!String(rawStatus ?? "").trim()) continue;
+      for (const date of rangeDates) {
+        const colIndex = dateColumnIndexByDate.get(date);
+        const rawStatus = colIndex !== undefined ? row[colIndex] : undefined;
+
+        // No column for this date, or the cell is blank: default to present
+        // rather than silently skipping the day.
+        if (!String(rawStatus ?? "").trim()) {
+          employeeIds.add(employeeId);
+          assignments.push({ employee_id: employeeId, date, status: "present" });
+          continue;
+        }
 
         const mappedStatus = BULK_ATTENDANCE_STATUS_MAP[normalizeStatusKey(rawStatus)];
         if (!mappedStatus) {
@@ -2833,7 +2879,13 @@ export const bulkMarkAttendance = async (
       const key = `${assignment.employee_id}|${assignment.date}`;
       const existing = existingMap.get(key);
       if (existing) {
+        // Bulk-marking overwrites the day's status directly; punch-derived
+        // working_hours/dayType from any prior real punch no longer apply
+        // and must be cleared, or they end up contradicting the new status
+        // (e.g. status "absent" next to a full punched day's hours).
         existing.status = assignment.status;
+        existing.working_hours = null;
+        existing.dayType = null;
         toUpdate.push(existing);
       } else {
         toCreate.push(assignment);
