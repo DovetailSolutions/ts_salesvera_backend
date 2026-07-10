@@ -1681,8 +1681,12 @@ export const requestLeave = async (
 
     // --------------------
     // ✅ Insert one Attendance entry per day of the leave range
+    // half_day/short_leave are partial-day types — the employee still
+    // punches in/out normally, so no placeholder "leave" row is created
+    // for them (it would create a second, conflicting Attendance row for
+    // the same date and break the punch-in/punch-out flow).
     // --------------------
-    if (leave) {
+    if (leave && leave_type !== "half_day" && leave_type !== "short_leave") {
       const leaveDates: Date[] = [];
       for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
         leaveDates.push(new Date(cursor));
