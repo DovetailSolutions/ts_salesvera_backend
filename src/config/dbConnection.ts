@@ -474,6 +474,14 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "halfDayAfter", type: "INTEGER DEFAULT 0" },
       ],
     },
+    {
+      // ✅ attendance: dayType was added to the Attendance model but never
+      // patched into the live DB table. Set at punch-out from working_hours.
+      tableName: "attendance",
+      columns: [
+        { name: "dayType", type: "VARCHAR(20)" },
+      ],
+    },
   ];
 
 
