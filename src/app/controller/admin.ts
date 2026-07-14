@@ -2934,8 +2934,13 @@ export const bulkMarkAttendance = async (
       existingMap.set(`${row.employee_id}|${row.date}`, row);
     }
 
-    const toCreate: Assignment[] = [];
-    const toUpdate: any[] = [];
+    // Keyed by employee_id|date so a duplicate row/date in the sheet
+    // overwrites rather than producing a second create/update for the same
+    // slot — the latter would either double-insert or make bulkCreate's
+    // single ON CONFLICT statement touch the same row twice (Postgres
+    // errors on that).
+    const toCreate = new Map<string, Assignment>();
+    const toUpdate = new Map<number, Record<string, any>>();
 
     for (const assignment of assignments) {
       const key = `${assignment.employee_id}|${assignment.date}`;
@@ -2946,50 +2951,72 @@ export const bulkMarkAttendance = async (
           // punch_out and recompute working_hours/dayType/overtime against
           // the new punch_in, since the old figures were based on the old
           // (or absent) punch_in and are now stale.
-          existing.punch_in = assignment.punch_in;
-          existing.status = "present";
-          if (existing.punch_out && existing.punch_out > assignment.punch_in) {
-            const workingHours = Number(
-              ((existing.punch_out.getTime() - assignment.punch_in.getTime()) /
+          const keepPunchOut =
+            existing.punch_out && existing.punch_out > assignment.punch_in
+              ? existing.punch_out
+              : null;
+          let working_hours: number | null = null;
+          let dayType: string | null = null;
+          let overtime: number | null = null;
+          if (keepPunchOut) {
+            working_hours = Number(
+              ((keepPunchOut.getTime() - assignment.punch_in.getTime()) /
                 (1000 * 60 * 60)
               ).toFixed(2)
             );
-            existing.working_hours = workingHours;
-            existing.dayType = getDayTypeFromWorkingHours(workingHours);
-            existing.overtime = workingHours > 8 ? Number((workingHours - 8).toFixed(2)) : 0;
-          } else {
-            existing.punch_out = null;
-            existing.working_hours = null;
-            existing.dayType = null;
-            existing.overtime = null;
+            dayType = getDayTypeFromWorkingHours(working_hours);
+            overtime = working_hours > 8 ? Number((working_hours - 8).toFixed(2)) : 0;
           }
+          toUpdate.set(existing.id, {
+            id: existing.id,
+            status: "present",
+            punch_in: assignment.punch_in,
+            punch_out: keepPunchOut,
+            working_hours,
+            dayType,
+            overtime,
+          });
         } else {
           // Bulk-marking overwrites the day's status directly; punch-derived
           // fields from any prior real punch no longer apply and must be
           // cleared, or they end up contradicting the new status (e.g.
           // status "absent" next to a full punched day's hours).
-          existing.status = assignment.status;
-          existing.punch_in = null;
-          existing.punch_out = null;
-          existing.working_hours = null;
-          existing.dayType = null;
-          existing.overtime = null;
+          toUpdate.set(existing.id, {
+            id: existing.id,
+            status: assignment.status,
+            punch_in: null,
+            punch_out: null,
+            working_hours: null,
+            dayType: null,
+            overtime: null,
+          });
         }
-        toUpdate.push(existing);
       } else {
-        toCreate.push(assignment);
+        toCreate.set(key, assignment);
       }
     }
 
-    await Promise.all(toUpdate.map((row) => row.save()));
-    if (toCreate.length > 0) {
-      await Attendance.bulkCreate(toCreate as any);
+    // A single bulk upsert (insert for new rows, ON CONFLICT id DO UPDATE
+    // for existing ones) instead of one UPDATE query per changed row keeps
+    // this endpoint from issuing thousands of round trips on a large sheet.
+    const upsertRows = [...toCreate.values(), ...toUpdate.values()];
+    if (upsertRows.length > 0) {
+      await Attendance.bulkCreate(upsertRows as any, {
+        updateOnDuplicate: [
+          "status",
+          "punch_in",
+          "punch_out",
+          "working_hours",
+          "dayType",
+          "overtime",
+        ],
+      });
     }
 
     createSuccess(res, "Bulk attendance applied successfully", {
       applied: assignments.length,
-      created: toCreate.length,
-      updated: toUpdate.length,
+      created: toCreate.size,
+      updated: toUpdate.size,
       skippedNonNumericEmployeeId,
       skippedNotInTeam,
       skippedUnknownStatus,
