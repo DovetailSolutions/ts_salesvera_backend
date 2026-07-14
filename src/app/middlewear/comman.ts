@@ -694,6 +694,8 @@ export const withuserlogin = async (
 
     const offset = (Number(page) - 1) * Number(limit);
 
+    console.log("Where Conditions:", whereConditions);
+
     const rows = await model.findAll({
       where: whereConditions,
       include,
@@ -701,6 +703,8 @@ export const withuserlogin = async (
       offset,
       order: [["createdAt", "DESC"]],
     });
+
+    console.log("Rows fetched:", rows);
 
     const count = rows.length;
 
