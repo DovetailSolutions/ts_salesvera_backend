@@ -48,13 +48,11 @@ import {
   Task,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
-import { getDayTypeFromWorkingHours } from "./user";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { S3 } from "@aws-sdk/client-s3";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
-
-const UNIQUE_ROLES = ["super_admin"];
+import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
 
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
@@ -75,583 +73,9 @@ const findUser = async (userId: number) => {
   });
 };
 
-export const Register = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const {
-      email,
-      password,
-      firstName,
-      lastName,
-      phone,
-      dob,
-      role,
-      createdBy,
-      permissionIds,
-      branchId,
-    } = req.body;
-    /** ✅ Required field validation */
-    const requiredFields: Record<string, any> = {
-      email,
-      password,
-      firstName,
-      lastName,
-      phone,
-      dob,
-      role,
-    };
-
-    for (const key in requiredFields) {
-      if (!requiredFields[key]) {
-        badRequest(res, `${key} is required`);
-        return;
-      }
-    }
-    const primaryCreatorId = Array.isArray(createdBy)
-      ? Number(createdBy[0])
-      : createdBy
-      ? Number(createdBy)
-      : undefined;
-
-    // ── Resolve tenantId for the new user ──────────────────────────────
-    // super_admin / standalone user creation: no tenantId yet (set after create)
-    // All other roles inherit tenantId from their creator's tree
-    let resolvedTenantId: number | null = null;
-
-    if (primaryCreatorId && !isNaN(primaryCreatorId) && role !== "super_admin") {
-      const creator = await User.findByPk(primaryCreatorId, {
-        attributes: ["id", "role", "tenantId"],
-      }) as any;
-
-      if (creator) {
-        if (creator.role === "user") {
-          // creator IS the tenant root
-          resolvedTenantId = creator.id;
-        } else if (creator.tenantId) {
-          // creator already belongs to a tenant tree
-          resolvedTenantId = creator.tenantId;
-        }
-        // creator is super_admin → new user will become a tenant root (set after create)
-      }
-    }
-
-    /** ✅ Check if user with same email exists — scoped to tenant */
-    // super_admin and user (tenant roots) are globally unique
-    // admin/manager/sale_person are unique only within their tenant
-    const emailCheckTenantId = (role === "super_admin" || role === "user") ? null : resolvedTenantId;
-    const isExist = await Middleware.FindByEmailInTenant(User, email, emailCheckTenantId);
-    if (isExist) {
-      badRequest(res, "Email already exists");
-      return;
-    }
-
-    /** ✅ Check role — admin/super_admin only once in DB */
-    if (UNIQUE_ROLES.includes(role)) {
-      const existing = await Middleware.findByRole(User, role);
-      if (existing) {
-        badRequest(
-          res,
-          `${role} already exists. Only one ${role} can be created.`
-        );
-        return;
-      }
-    }
-
-    const resolvedBranchId =
-      branchId !== undefined && branchId !== null && branchId !== "" && !isNaN(Number(branchId))
-        ? Number(branchId)
-        : null;
-
-    const obj: any = {
-      email,
-      password,
-      firstName,
-      lastName,
-      phone,
-      dob,
-      role,
-      tenantId: resolvedTenantId,
-      branchId: resolvedBranchId,
-      ...(primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}),
-    };
-    const item = await User.create(obj);
-
-    // If this is a tenant root (user role created by super_admin), point tenantId at self
-    if (role === "user" && !resolvedTenantId) {
-      await item.update({ tenantId: item.getDataValue("id") });
-    }
-
-    if ((role === "sale_person" || role === "manager" || role === "admin" || role === "user") && createdBy) {
-      const ids = Array.isArray(createdBy)
-        ? createdBy.map((id: any) => Number(id)).filter((id) => !isNaN(id))
-        : [Number(createdBy)].filter((id) => !isNaN(id));
-
-      if (ids.length > 0) {
-        // ✅ Connect relations
-        await (item as any).setCreators(ids);
-      }
-
-      // When a new admin is created by a user, inherit that user's permissions
-      if (role === "admin" && ids.length > 0) {
-        const newAdminId = item.getDataValue("id") as number;
-        for (const creatorId of ids) {
-          const creator = await User.findOne({
-            where: { id: creatorId, role: "user" },
-            attributes: ["id"],
-          });
-          if (!creator) continue;
-
-          const creatorPerms = await UserPermission.findAll({
-            where: { userId: creatorId },
-            attributes: ["permissionId"],
-          });
-
-          if (creatorPerms.length > 0) {
-            await Promise.all(
-              creatorPerms.map((p: any) =>
-                UserPermission.findOrCreate({
-                  where: { userId: newAdminId, permissionId: p.permissionId, companyId: null },
-                  defaults: { userId: newAdminId, permissionId: p.permissionId, companyId: null, grantedBy: creatorId },
-                })
-              )
-            );
-          }
-        }
-      }
-    }
-
-    // When super_admin creates a user (role="user"), assign permissions immediately if provided
-    if (role === "user" && Array.isArray(permissionIds) && permissionIds.length > 0 && createdBy) {
-      const granterId = Number(createdBy);
-      const granterUser = await User.findOne({
-        where: { id: granterId, role: "super_admin" },
-        attributes: ["id"],
-      });
-
-      if (granterUser) {
-        const newUserId = item.getDataValue("id") as number;
-        const validPerms = await Permission.findAll({
-          where: { id: { [Op.in]: permissionIds } },
-          attributes: ["id"],
-        });
-
-        await Promise.all(
-          validPerms.map((p: any) =>
-            UserPermission.findOrCreate({
-              where: { userId: newUserId, permissionId: p.id, companyId: null },
-              defaults: { userId: newUserId, permissionId: p.id, companyId: null, grantedBy: granterId },
-            })
-          )
-        );
-      }
-    }
-
-    /** ✅ JWT Tokens */
-    const { accessToken, refreshToken } = Middleware.CreateToken(
-      String(item.getDataValue("id")),
-      String(item.getDataValue("role"))
-    );
-    await item.update({ refreshToken });
-
-    // Email login credentials in the background (no await — don't block registration)
-    sendEmail(
-      "Welcome to SalesVera - Your Login Credentials",
-      password,
-      email,
-      firstName,
-      lastName
-    ).catch((err) =>
-      console.error(`Failed to send credentials email to ${email}:`, err)
-    );
-
-    createSuccess(res, `${role} registered successfully`, {
-      item,
-      accessToken,
-      // refreshToken,
-    });
-  } catch (error) {
-    badRequest(
-      res,
-      error instanceof Error ? error.message : "Something went wrong",
-      error
-    );
-    return;
-  }
-};
-
-
-
-
-export const Login = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { email, password, tenantId, deviceType } = req.body || {};
-
-    // Validate input
-    if (!email || !password) {
-      badRequest(res, "Email and password are required");
-      return;
-    }
-
-    // Tenant-scoped lookup: if tenantId provided, scope to that tenant; otherwise global
-    const loginTenantId = tenantId ? Number(tenantId) : null;
-    const user = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
-    if (!user) {
-      badRequest(res, "Invalid email or password");
-      return;
-    }
-
-    // Allowed roles
-    const allowedRoles = ["admin", "manager", "super_admin", "user"];
-    const userRole = user.get("role") as string;
-
-    if (!allowedRoles.includes(userRole)) {
-      badRequest(res, "Access restricted. Only admin, manager & user can login.");
-      return;
-    }
-
-    // ✅ Exe (desktop) login is admin-only; web login is unrestricted (within allowedRoles)
-    if (deviceType === "exe" && userRole !== "admin") {
-      badRequest(res, "Only admin can login from the desktop application");
-      return;
-    }
-
-    // Validate password
-    const hashedPassword = user.get("password") as string;
-    const isPasswordValid = await bcrypt.compare(password, hashedPassword);
-
-    if (!isPasswordValid) {
-      badRequest(res, "Invalid email or password");
-      return;
-    }
-
-    const userId = user.get("id") as number;
-
-    // ── Resolve companyId for the JWT ─────────────────────────────────
-    let companyId: number | null = null;
-
-    if (userRole === "admin") {
-      // Priority 1: Primary admin of a company
-      const company = await (Company as any).findOne({
-        where: { adminId: userId },
-        attributes: ["id"],
-      });
-      companyId = company ? company.id : null;
-    } else if (userRole === "manager") {
-      // Priority 1: first company assigned via junction table
-      const assignment = await (CompanyManager as any).findOne({
-        where: { managerId: userId },
-        attributes: ["companyId"],
-      });
-      companyId = assignment ? assignment.companyId : null;
-    } else if (userRole === "user") {
-      const company = await (Company as any).findOne({
-        where: { userId: userId },
-        attributes: ["id"],
-      });
-      companyId = company ? company.id : null;
-    }
-
-    // Priority 2: Fallback — find ANY company where this user has assigned permissions
-    // user role spans multiple companies (like super_admin), no companyId needed
-    if (!companyId && userRole !== "super_admin" && userRole !== "user") {
-      const firstPermission = await UserPermission.findOne({
-        where: { userId },
-        attributes: ["companyId"],
-      });
-      companyId = firstPermission ? firstPermission.companyId : null;
-    }
-    // super_admin: companyId remains null (global access)
-
-    // ── Restore last active company (from previous logout), if still accessible ──
-    // Overrides the priority-based resolution above so a manager (or admin/sale_person)
-    // assigned to multiple companies lands back where they left off.
-    const lastLoginCompanyId = user.get("lastLoginCompanyId") as number | null;
-    if (lastLoginCompanyId && (userRole === "admin" || userRole === "manager" || userRole === "sale_person")) {
-      let hasAccess = false;
-
-      if (userRole === "admin") {
-        const company = await (Company as any).findOne({
-          where: { id: lastLoginCompanyId, adminId: userId },
-          attributes: ["id"],
-        });
-        hasAccess = !!company;
-      } else if (userRole === "manager") {
-        const assignment = await (CompanyManager as any).findOne({
-          where: { companyId: lastLoginCompanyId, managerId: userId },
-          attributes: ["id"],
-        });
-        hasAccess = !!assignment;
-      } else if (userRole === "sale_person") {
-        const company = await (Company as any).findOne({
-          where: { id: lastLoginCompanyId, managerId: userId },
-          attributes: ["id"],
-        });
-        hasAccess = !!company;
-      }
-
-      if (hasAccess) {
-        companyId = lastLoginCompanyId;
-      }
-    }
-
-    // Create tokens (companyId embedded in JWT)
-    const { accessToken, refreshToken } = Middleware.CreateToken(
-      String(userId),
-      userRole,
-      companyId
-    );
-
-    // Save refresh token
-    await user.update({ refreshToken });
-
-    // ── Fetch Permissions for the Login Response ─────────────────────
-    let permissions: string[] = [];
-    if (userRole === "super_admin" || userRole === "user") {
-      // Super Admin & User: get all master permissions
-      const all = await Permission.findAll({ attributes: ["module", "action"] });
-      permissions = all.map((p) => `${p.module}:${p.action}`);
-    } else if (userRole === "admin" && companyId) {
-      // Admin: has all permissions within their company
-      const all = await Permission.findAll({ attributes: ["module", "action"] });
-      permissions = all.map((p) => `${p.module}:${p.action}`);
-    } else if (companyId) {
-      // Manager / Sales: fetch specific assigned permissions
-      const records = await UserPermission.findAll({
-        where: { userId, companyId },
-        include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
-      });
-      permissions = records.map((r: any) => `${r.permission.module}:${r.permission.action}`);
-    }
-
-    createSuccess(res, "Login successful", {
-      accessToken,
-      refreshToken,
-      companyId,
-      user: {
-        id: user.get("id"),
-        firstName: user.get("firstName"),
-        lastName: user.get("lastName"),
-        email: user.get("email"),
-        role: userRole,
-        tallyGuid: user.get("tallyGuid") || null,
-        tallyName: user.get("tallyName") || null,
-        tallyStartDate: user.get("tallyStartDate") || null,
-      },
-      permissions,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const Logout = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    if (!userData || !userData.userId) {
-      badRequest(res, "Unauthorized request");
-      return;
-    }
-
-    const { lastLoginCompanyId } = req.body || {};
-
-    // Frontend sends {} when the user has no active company context yet — nothing to persist.
-    if (lastLoginCompanyId !== undefined) {
-      await User.update(
-        { lastLoginCompanyId: lastLoginCompanyId === null ? null : Number(lastLoginCompanyId) },
-        { where: { id: userData.userId } }
-      );
-    }
-
-    createSuccess(res, "Logout successful");
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-
-export const GetProfile = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const { userId, role, companyId } = userData as any;
-
-    const companyIncludes = [
-      { model: Branch, as: "branches" },
-      { model: Shift, as: "shifts" },
-      { model: Department, as: "departments" },
-      { model: CompanyLeave, as: "companyLeaves" },
-      { model: CompanyBank, as: "companyBanks" },
-    ];
-
-       // Always include branch
-    const include: any[] = [
-      {
-        model: Branch,
-        as: "branch",
-      },
-    ];
-
-    if (role !== "manager") {
-      include.push({
-        model: Company,
-        as: "company",
-        include: companyIncludes,
-      });
-    }
-
-    const user = await User.findByPk(Number(userId), {
-      include: include,
-    });
-
-    // For managers: attach active company (from JWT companyId) onto user.company
-    if (role === "manager" && companyId) {
-      const activeCompany = await Company.findByPk(Number(companyId), {
-        include: companyIncludes,
-      });
-      if (user && activeCompany) {
-        (user as any).dataValues.company = activeCompany;
-      }
-    }
-
-    const permissions: string[] = [];
-    const matrix: Record<string, Record<string, boolean>> = {};
-
-    if (role === "super_admin" || role === "user") {
-      const all = await Permission.findAll({
-        order: [["module", "ASC"], ["action", "ASC"]],
-      });
-      for (const p of all as any[]) {
-        if (!matrix[p.module]) matrix[p.module] = {};
-        matrix[p.module][p.action] = true;
-        permissions.push(`${p.module}:${p.action}`);
-      }
-    } else {
-      const records = await UserPermission.findAll({
-        where: { userId: Number(userId), companyId: Number(companyId) },
-        include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
-      });
-      for (const r of records as any[]) {
-        const { module, action } = r.permission;
-        if (!matrix[module]) matrix[module] = {};
-        matrix[module][action] = true;
-        permissions.push(`${module}:${action}`);
-      }
-    }
-
-    createSuccess(res, "User profile fetched successfully", { user, permissions, matrix });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-    return;
-  }
-};
-
-
-export const UpdateProfile = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const { userId } = userData as any;
-
-    const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob","tallyGuid", "tallyName", "tallyStartDate"] as const;
-    type AllowedField = (typeof ALLOWED_FIELDS)[number];
-
-    const updates: Partial<Record<AllowedField, string>> & { profile?: string } = {};
-
-    for (const field of ALLOWED_FIELDS) {
-      if (req.body[field] !== undefined && req.body[field] !== "") {
-        updates[field] = req.body[field];
-      }
-    }
-
-    if (req.file) {
-      const s3File = req.file as MulterS3File;
-      updates.profile = s3File.location;
-    }
-
-    if (Object.keys(updates).length === 0) {
-      badRequest(res, "No fields provided to update");
-      return;
-    }
-
-    const user = await User.findByPk(Number(userId));
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
-
-    const updatePayload: any = { ...updates };
-    if (updatePayload.tallyStartDate) {
-      updatePayload.tallyStartDate = new Date(updatePayload.tallyStartDate);
-    }
-
-    await user.update(updatePayload);
-
-    const updatedUser = await User.findByPk(Number(userId), {
-      attributes: ["id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid", "tallyName", "tallyStartDate"],
-    });
-
-    createSuccess(res, "Profile updated successfully", { user: updatedUser });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const UpdatePassword = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const { oldPassword, newPassword } = req.body || {};
-    if (!oldPassword || !newPassword) {
-      badRequest(res, "Please provide old password and new password");
-      return;
-    }
-
-    if (oldPassword === newPassword) {
-      badRequest(res, "New password must be different from the old password");
-      return;
-    }
-
-    // ✅ Fetch user
-    const user = await Middleware.getById(User, Number(userData.userId));
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
-
-    // ✅ Now TypeScript knows `user` is not null
-    const isPasswordValid = await bcrypt.compare(
-      oldPassword,
-      user.get("password") as string
-    );
-
-    if (!isPasswordValid) {
-      badRequest(res, "Old password is incorrect");
-      return;
-    }
-
-    user.set("password", newPassword);
-    await user.save();
-
-    createSuccess(res, "Password updated successfully");
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-    return;
-  }
-};
+// Register/Login/Logout/GetProfile/UpdateProfile/UpdatePassword have moved
+// to src/modules/auth/ — see auth.controller.ts/service.ts/repository.ts.
+// Routes are mounted from server.ts, same URL paths as before.
 
 export const MySalePerson = async (
   req: Request,
@@ -685,7 +109,7 @@ export const MySalePerson = async (
         {
           model: User,
           as: "createdUsers",
-          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role"],
           through: { attributes: [] },
           where, // ✅ apply search
           required: false, // ✅ so user must exist even if none found
@@ -760,7 +184,7 @@ export const GetAllUser = async (
 
     console.log("userData in GetAllUser:", userData); // Debugging line
 
-    const { page = 1, limit = 10, search = "", role } = req.query;
+    const { page = 1, limit = 10, search = "", role, shiftId, branchId } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -791,6 +215,8 @@ export const GetAllUser = async (
     const where: any = { id: idFilter };
 
     if (role) where.role = role;
+    if (shiftId) where.shiftId = Number(shiftId);
+    if (branchId) where.branchId = Number(branchId);
 
     if (search) {
       where[Op.or] = [
@@ -804,11 +230,14 @@ export const GetAllUser = async (
     const { rows, count } = await User.findAndCountAll({
       attributes: [
         "id",
+        "employeeCode",
         "firstName",
         "lastName",
         "email",
         "phone",
         "role",
+        "shiftId",
+        "branchId",
         "createdAt",
       ],
       where,
@@ -1171,15 +600,29 @@ export const getMeeting = async (
     const pageNum = Number(page);
     const limitNum = Number(limit);
     const offset = (pageNum - 1) * limitNum;
-    // adminId:ll
+
+    // FIX: previously `where` stayed `{}` (no userId filter at all) unless the
+    // caller explicitly passed `empty=true` or `userId` — a plain GET with no
+    // query params returned every company's meeting records. Always scope to
+    // the caller's own team.
+    const childIds = await getAllChildUserIds(ll);
+    const allowedIds = [ll, ...childIds];
+
     const where: any = {};
 
     if (empty === "true") {
-      where.userId = null;
-      where.userId = ll; // <-- correctly added to where clause
+      where.userId = ll;
+    } else if (userId) {
+      const requestedId = Number(userId);
+      if (!allowedIds.includes(requestedId)) {
+        forbidden(res, "You can only view meetings of your own team members");
+        return;
+      }
+      where.userId = requestedId;
+    } else {
+      where.userId = { [Op.in]: allowedIds };
     }
 
-    if (userId) where.userId = userId;
     if (search) {
       where[Op.or] = [
         { companyName: { [Op.iLike]: `%${search}%` } },
@@ -1267,7 +710,33 @@ export const BulkAddSalePerson = async (
       return;
     }
 
-    const { createdBy } = req.body;
+    const { createdBy, branchId, shiftId } = req.body;
+
+    // Validate branchId/shiftId (optional — applied to every row in the
+    // batch) belong to the caller's own company, same as assignEmployeeShift
+    // — an unvalidated cross-company id here would silently apply another
+    // company's geofence/shift config to every bulk-created sale person.
+    const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+    let resolvedBranchId: number | null = null;
+    let resolvedShiftId: number | null = null;
+
+    if (branchId !== undefined && branchId !== null && branchId !== "") {
+      const branch = await Branch.findByPk(Number(branchId));
+      if (!branch || (callerCompanyId && Number((branch as any).companyId) !== callerCompanyId)) {
+        badRequest(res, "Branch not found");
+        return;
+      }
+      resolvedBranchId = Number(branchId);
+    }
+
+    if (shiftId !== undefined && shiftId !== null && shiftId !== "") {
+      const shift = await Shift.findByPk(Number(shiftId));
+      if (!shift || (callerCompanyId && Number((shift as any).companyId) !== callerCompanyId)) {
+        badRequest(res, "Shift not found");
+        return;
+      }
+      resolvedShiftId = Number(shiftId);
+    }
 
     let creatorId: number;
 
@@ -1284,6 +753,19 @@ export const BulkAddSalePerson = async (
       if (isNaN(creatorId)) {
         badRequest(res, "Invalid createdBy");
         return;
+      }
+
+      // FIX: previously createdBy was trusted straight from the request body
+      // with no check that it's the caller themself or one of the caller's
+      // own subordinates — an admin could attribute the bulk-created
+      // sale-persons to a user in a completely different tenant, linking new
+      // accounts into that other tenant's hierarchy.
+      if (creatorId !== Number(loginUser)) {
+        const callerChildIds = await getAllChildUserIds(Number(loginUser));
+        if (!callerChildIds.includes(creatorId)) {
+          forbidden(res, "createdBy must be yourself or one of your own team members");
+          return;
+        }
       }
     }
 
@@ -1451,7 +933,9 @@ export const BulkAddSalePerson = async (
               role: req.body.role,
               createdBy: creatorId,
               tenantId: resolvedTenantId,
-            });
+              branchId: resolvedBranchId,
+              shiftId: resolvedShiftId,
+            } as any);
 
             await (item as any).setCreators([creatorId]);
 
@@ -1600,287 +1084,12 @@ export const BulkUploads = async (
 // Maps a leave_type to the EmployeeLeaveBalance columns it draws from.
 // unpaid/short_leave/half_day are not balance-tracked — always approvable.
 // Exported so user.ts can run the same balance check at request time (not just on approval).
-export const LEAVE_BALANCE_FIELDS: Record<string, { allocated: string; used: string }> = {
-  casual: { allocated: "casualLeaveAllocated", used: "casualLeaveUsed" },
-  sick: { allocated: "sickLeaveAllocated", used: "sickLeaveUsed" },
-  paid: { allocated: "paidLeaveAllocated", used: "paidLeaveUsed" },
-};
-
-export const countLeaveDays = (from_date: string | Date, to_date: string | Date): number => {
-  const from = new Date(from_date);
-  const to = new Date(to_date);
-  return Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-};
-
-// Shared by approveLeave (status: "rejected") and cancelLeaveAndMarkPresent —
-// restores the balance consumed at request time and flips every Attendance
-// row in the leave's date range from leave/leaveApproved to leaveReject.
-const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
-  if (leave.status !== "rejected") {
-    const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
-    if (balanceField) {
-      const days = countLeaveDays(leave.from_date, leave.to_date);
-      const year = new Date(leave.from_date).getFullYear();
-
-      const balance = await EmployeeLeaveBalance.findOne({
-        where: { employeeId: leave.employee_id, year },
-      });
-
-      if (balance) {
-        const used = (balance as any)[balanceField.used] || 0;
-        (balance as any)[balanceField.used] = Math.max(0, used - days);
-        await balance.save();
-      }
-    }
-  }
-
-  leave.status = "rejected";
-  await leave.save();
-
-  await Attendance.update(
-    { status: "leaveReject" },
-    {
-      where: {
-        employee_id: leave.employee_id,
-        date: { [Op.between]: [leave.from_date, leave.to_date] },
-        status: { [Op.in]: ["leave", "leaveApproved"] },
-      },
-    }
-  );
-};
-
-export const approveLeave = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { employee_id, leaveID, status } = req.body;
-
-    if (!employee_id) {
-      badRequest(res, "Employee id is missing");
-      return;
-    }
-    if (!leaveID) {
-      badRequest(res, "leaveID id is missing");
-      return;
-    }
-
-    const leave = await Leave.findOne({ where: { employee_id, id: leaveID } });
-    if (!leave) {
-      badRequest(res, "Leave not found");
-      return;
-    }
-
-    // Balance is deducted upfront when the employee requests leave (see requestLeave
-    // in user.ts). Approval keeps it as-is; only a rejection restores it below.
-    if (status === "rejected") {
-      await rejectLeaveAndRestoreBalance(leave);
-    } else if (status) {
-      leave.status = status;
-      await leave.save();
-    }
-
-    if (status === "approved") {
-      await Attendance.update(
-        { status: "leaveApproved" },
-        {
-          where: {
-            employee_id,
-            date: { [Op.between]: [leave.from_date, leave.to_date] },
-            status: "leave",
-          },
-        }
-      );
-    }
-
-    createSuccess(res, "Status updated", leave);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const assignLeaveBalance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData?.userId;
-
-    const {
-      employeeId,
-      year,
-      casualLeaveBalance,
-      sickLeaveBalance,
-      paidLeaveBalance,
-      companyId,
-      branchId,
-    } = req.body || {};
-
-    if (!employeeId || (Array.isArray(employeeId) && employeeId.length === 0)) {
-      badRequest(res, "employeeId is required");
-      return;
-    }
-
-    const employeeIds: number[] = Array.isArray(employeeId)
-      ? employeeId.map((id: any) => Number(id))
-      : [Number(employeeId)];
-
-    const childIds = await getAllChildUserIds(loggedInId);
-    const unauthorizedIds = employeeIds.filter(
-      (id) => id !== loggedInId && !childIds.includes(id)
-    );
-    if (unauthorizedIds.length > 0) {
-      badRequest(
-        res,
-        `You can only assign leave balance to your own sale_persons. Unauthorized employeeId(s): ${unauthorizedIds.join(", ")}`
-      );
-      return;
-    }
-
-    const targetYear = Number(year) || new Date().getFullYear();
-
-    const balances = [];
-    for (const empId of employeeIds) {
-      const [balance] = await EmployeeLeaveBalance.findOrCreate({
-        where: { employeeId: empId, year: targetYear },
-        defaults: {
-          employeeId: empId,
-          year: targetYear,
-          companyId: companyId ? Number(companyId) : null,
-          branchId: branchId ? Number(branchId) : null,
-          assignedBy: loggedInId,
-        },
-      });
-
-      if (casualLeaveBalance !== undefined) balance.casualLeaveAllocated = Number(casualLeaveBalance);
-      if (sickLeaveBalance !== undefined) balance.sickLeaveAllocated = Number(sickLeaveBalance);
-      if (paidLeaveBalance !== undefined) balance.paidLeaveAllocated = Number(paidLeaveBalance);
-      if (companyId !== undefined) balance.companyId = Number(companyId);
-      if (branchId !== undefined) balance.branchId = Number(branchId);
-      balance.assignedBy = loggedInId;
-
-      await balance.save();
-      balances.push(balance);
-    }
-
-    createSuccess(
-      res,
-      "Leave balance assigned successfully",
-      Array.isArray(employeeId) ? balances : balances[0]
-    );
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-const formatLeaveBalance = (balance: any) => ({
-  id: balance.id,
-  employeeId: balance.employeeId,
-  year: balance.year,
-  casual: {
-    allocated: balance.casualLeaveAllocated,
-    used: balance.casualLeaveUsed,
-    remaining: balance.casualLeaveAllocated - balance.casualLeaveUsed,
-  },
-  sick: {
-    allocated: balance.sickLeaveAllocated,
-    used: balance.sickLeaveUsed,
-    remaining: balance.sickLeaveAllocated - balance.sickLeaveUsed,
-  },
-  paid: {
-    allocated: balance.paidLeaveAllocated,
-    used: balance.paidLeaveUsed,
-    remaining: balance.paidLeaveAllocated - balance.paidLeaveUsed,
-  },
-});
-
-export const getEmployeeLeaveBalance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData?.userId;
-    const { employeeId } = req.params;
-    const year = Number(req.query.year) || new Date().getFullYear();
-
-    const childIds = await getAllChildUserIds(loggedInId);
-    if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
-      badRequest(res, "You can only view leave balance of your own sale_persons");
-      return;
-    }
-
-    const balance = await EmployeeLeaveBalance.findOne({
-      where: { employeeId: Number(employeeId), year },
-    });
-
-    if (!balance) {
-      badRequest(res, "No leave balance assigned for this employee/year");
-      return;
-    }
-
-    createSuccess(res, "Leave balance fetched successfully", formatLeaveBalance(balance));
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const getTeamLeaveBalances = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData?.userId;
-    const year = Number(req.query.year) || new Date().getFullYear();
-    const { page, limit, offset } = getPagination(req);
-
-    const childIds = await getAllChildUserIds(loggedInId);
-
-    const { rows, count } = await User.findAndCountAll({
-      where: { id: { [Op.in]: childIds } },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
-      include: [
-        {
-          model: EmployeeLeaveBalance,
-          as: "leaveBalances",
-          required: false,
-          where: { year },
-        },
-      ],
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    const data = rows.map((user: any) => {
-      const userJson = user.toJSON();
-      const balance = userJson.leaveBalances?.[0];
-      return {
-        ...userJson,
-        leaveBalance: balance ? formatLeaveBalance(balance) : null,
-      };
-    });
-
-    createSuccess(res, "Team leave balances fetched successfully", {
-      totalRecords: count,
-      totalPages: Math.ceil(count / limit),
-      currentPage: page,
-      data,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+// LEAVE_BALANCE_FIELDS/countLeaveDays/rejectLeaveAndRestoreBalance/
+// approveLeave/assignLeaveBalance/formatLeaveBalance/getEmployeeLeaveBalance/
+// getTeamLeaveBalances have moved to src/modules/leave/ — see
+// leave.controller.ts/service.ts/repository.ts. Routes are mounted from
+// server.ts, same URL paths as before. (user.ts imports
+// LEAVE_BALANCE_FIELDS/countLeaveDays from leave.service now.)
 
 export const test = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -1910,6 +1119,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
     const result = await User.findByPk(loggedInId, {
       attributes: [
         "id",
+        "employeeCode",
         "firstName",
         "lastName",
         "email",
@@ -1923,6 +1133,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
           as: "createdUsers",
           attributes: [
             "id",
+            "employeeCode",
             "firstName",
             "lastName",
             "email",
@@ -1940,6 +1151,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
               as: "createdUsers",
               attributes: [
                 "id",
+                "employeeCode",
                 "firstName",
                 "lastName",
                 "email",
@@ -1991,8 +1203,14 @@ export const UpdateExpense = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { approvedByAdmin, approvedBySuperAdmin, userId, expenseId, role } =
+    const { approvedByAdmin, approvedBySuperAdmin, userId, expenseId } =
       req.body || {};
+    // FIX: `role` previously came from req.body — any caller could claim
+    // role:"admin" to skip the manager-approval-first gate below. It must
+    // come from the server-verified token instead.
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    const role = userData?.role;
 
     // Validate userId
     if (!userId) {
@@ -2001,6 +1219,15 @@ export const UpdateExpense = async (
     }
     if (!expenseId) {
       badRequest(res, "expenseId is missing");
+      return;
+    }
+
+    // FIX: previously trusted userId straight from the request body with no
+    // check that the employee is on the caller's own team, letting any
+    // admin/manager approve another company's expense by ID.
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
+      forbidden(res, "You can only manage expenses of your own team members");
       return;
     }
 
@@ -2021,8 +1248,11 @@ export const UpdateExpense = async (
       return;
     }
 
-    // ---------- Admin Approval ----------
-    if (role === "admin") {
+    // ---------- Admin / Super Admin Approval ----------
+    // FIX: role now comes from the verified token (see above), so super_admin
+    // reaches this branch as itself instead of needing to misreport its role
+    // as "admin" in the request body to pass the old body-trusted check.
+    if (role === "admin" || role === "super_admin") {
       // Check if manager approved first
       if (item.approvedByAdmin !== "accepted") {
         badRequest(res, "Manager must approve first before admin approval.");
@@ -2145,155 +1375,12 @@ export const UpdateExpense = async (
 //     return;
 //   }
 // };
-type UserWithChildren = any & {
-  createdUsers?: UserWithChildren[];
-};
+// getAllChildUserIds has moved to src/modules/shared/userHierarchy.ts
+// (imported below) so the leave/attendance/etc. modules can share it
+// instead of duplicating the recursive team-hierarchy walk.
 
-async function getAllChildUserIds(userId: number): Promise<number[]> {
-  const result = new Set<number>();
-console.log(">>>>>>>>>>>>>>>>>>>>>>>>first")
-  async function fetchLevel(id: number) {
-    const user = (await User.findByPk(id, {
-      include: [
-        {
-          model: User,
-          as: "createdUsers",
-          attributes: ["id"],
-          through: { attributes: [] },
-        },
-      ],
-    })) as UserWithChildren;
-    console.log("second",user)
-    if (!user?.createdUsers) return;
-
-    for (const child of user.createdUsers) {
-      if (!result.has(child.id)) {
-        result.add(child.id);
-        await fetchLevel(child.id); // recursive call
-      }
-    }
-  }
-
-  await fetchLevel(userId);
-
-  return Array.from(result);
-}
-
-export const leaveList = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-    const { status } = req.query;
-    const { page, limit, offset } = getPagination(req);
-    // <- status comes from query
-    const childIds = await getAllChildUserIds(loggedInId);
-
-    const allUserIds = [loggedInId, ...childIds];
-
-    const { rows, count } = await User.findAndCountAll({
-      where: {
-        id: {
-          [Op.in]: allUserIds, // include all child users
-          [Op.ne]: loggedInId, // ❌ exclude logged-in user
-        },
-      },
-      attributes: [
-        "id",
-        "firstName",
-        "lastName",
-        "email",
-        "phone",
-        "role",
-        "createdAt",
-      ],
-      include: [
-        {
-          model: Leave,
-          as: "Leaves",
-          required: false,
-          where: status ? { status } : undefined,
-        },
-      ],
-      // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
-      order: [["createdAt", "DESC"]],
-      limit,
-      offset,
-      distinct: true,
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "Leaves fetched successfully",
-      data: rows,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: page,
-        limit,
-      },
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
-  }
-};
-
-export const getTodayLeaveRequests = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-
-    const childIds = await getAllChildUserIds(loggedInId);
-
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-    const todayDateOnly = new Date().toISOString().slice(0, 10);
-
-    const userAttributes = ["id", "firstName", "lastName", "email", "phone", "role"];
-
-    const [appliedToday, onLeaveToday] = await Promise.all([
-      Leave.findAll({
-        where: {
-          employee_id: { [Op.in]: childIds },
-          createdAt: { [Op.between]: [todayStart, todayEnd] },
-        } as any,
-        include: [{ model: User, as: "user", attributes: userAttributes }],
-        order: [["createdAt", "DESC"]],
-      }),
-      Leave.findAll({
-        where: {
-          employee_id: { [Op.in]: childIds },
-          from_date: { [Op.lte]: todayDateOnly },
-          to_date: { [Op.gte]: todayDateOnly },
-        },
-        include: [{ model: User, as: "user", attributes: userAttributes }],
-        order: [["from_date", "ASC"]],
-      }),
-    ]);
-
-    res.status(200).json({
-      success: true,
-      message: "Today's leave requests fetched successfully",
-      data: {
-        appliedToday,
-        appliedTodayCount: appliedToday.length,
-        onLeaveToday,
-        onLeaveTodayCount: onLeaveToday.length,
-      },
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+// leaveList/getTodayLeaveRequests have moved to src/modules/leave/ — see
+// leave.controller.ts/service.ts/repository.ts.
 
 export const  GetExpense = async (
   req: Request,
@@ -2355,10 +1442,12 @@ export const  GetExpense = async (
       order: [["createdAt", "DESC"]],
     });
 
-    if (rows.length === 0) {
-      badRequest(res, "data not found");
-    }
-
+    // FIX: previously called badRequest() here without returning, then fell
+    // through to the 200 response below anyway — an empty list was never
+    // actually an error case, it just tried to send two responses on the
+    // same request (crashing with "headers already sent" server-side),
+    // which is why this page failed for any company/user with zero expense
+    // records instead of just showing an empty list.
     res.status(200).json({
       success: true,
       message: "Expense fetched successfully",
@@ -2445,561 +1534,14 @@ export const  GetExpense = async (
 // };
 
 
-export const getAttendance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-    const { page, limit, offset } = getPagination(req);
+// getAttendance/markAttendancePresent have moved to src/modules/attendance/
+// — see attendance.controller.ts/service.ts/repository.ts.
 
-    const childIds = await getAllChildUserIds(loggedInId);
-    const allUserIds = [loggedInId, ...childIds];
+// cancelLeaveAndMarkPresent has moved to src/modules/leave/ — see
+// leave.controller.ts/service.ts/repository.ts.
 
-    const todayDateOnly = new Date().toISOString().slice(0, 10);
-
-    const { rows, count } = await User.findAndCountAll({
-      where: {
-        id: {
-          [Op.in]: allUserIds,
-          [Op.ne]: loggedInId, // exclude logged-in user
-        },
-      },
-      attributes: [
-        "id",
-        "firstName",
-        "lastName",
-        "email",
-        "phone",
-        "role",
-        "createdAt",
-      ],
-      include: [
-        {
-          model: Attendance,
-          as: "Attendances",
-          where: {
-            date: todayDateOnly,
-          },
-          required: false,
-        },
-      ],
-      offset,
-      limit,
-      order: [["createdAt", "DESC"]],
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "Attendance fetched successfully",
-      data: rows,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: page,
-        limit,
-      },
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const markAttendancePresent = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-
-    const { employeeId, date, punchIn } = req.body || {};
-
-    if (!employeeId) {
-      badRequest(res, "employeeId is required");
-      return;
-    }
-
-    // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
-    const childIds = await getAllChildUserIds(loggedInId);
-    if (!childIds.includes(Number(employeeId))) {
-      badRequest(res, "You can only mark attendance for your own team members");
-      return;
-    }
-
-    const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
-    const punchInTime = punchIn ? new Date(punchIn) : new Date();
-
-    const existing = await Attendance.findOne({
-      where: { employee_id: employeeId, date: attendanceDate },
-    });
-
-    const LEAVE_STATUSES = ["leave", "leaveApproved", "leaveReject"];
-
-    let record;
-    if (existing) {
-      if (LEAVE_STATUSES.includes(existing.status)) {
-        badRequest(
-          res,
-          `This employee is marked "${existing.status}" on ${attendanceDate}. Reject/cancel the leave first before marking present.`
-        );
-        return;
-      }
-      existing.status = "present";
-      if (!existing.punch_in) existing.punch_in = punchInTime;
-      await existing.save();
-      record = existing;
-    } else {
-      record = await Attendance.create({
-        employee_id: employeeId,
-        date: attendanceDate,
-        punch_in: punchInTime,
-        status: "present",
-      } as any);
-    }
-
-    createSuccess(res, "Attendance marked as present", record);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const cancelLeaveAndMarkPresent = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-
-    const { employeeId, leaveID, date, punchIn } = req.body || {};
-
-    if (!employeeId) {
-      badRequest(res, "employeeId is required");
-      return;
-    }
-    if (!leaveID) {
-      badRequest(res, "leaveID is required");
-      return;
-    }
-
-    // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
-    const childIds = await getAllChildUserIds(loggedInId);
-    if (!childIds.includes(Number(employeeId))) {
-      badRequest(res, "You can only manage attendance/leave for your own team members");
-      return;
-    }
-
-    const leave = await Leave.findOne({ where: { employee_id: employeeId, id: leaveID } });
-    if (!leave) {
-      badRequest(res, "Leave not found");
-      return;
-    }
-
-    // Cancel the leave: restores the balance consumed at request time and
-    // flips every Attendance row in the leave's range to leaveReject.
-    await rejectLeaveAndRestoreBalance(leave);
-
-    // Then mark the requested day present, overwriting whatever the
-    // leave-cancellation step just set it to.
-    const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
-    const punchInTime = punchIn ? new Date(punchIn) : new Date();
-
-    const existing = await Attendance.findOne({
-      where: { employee_id: employeeId, date: attendanceDate },
-    });
-
-    let record;
-    if (existing) {
-      existing.status = "present";
-      existing.punch_in = punchInTime;
-      await existing.save();
-      record = existing;
-    } else {
-      record = await Attendance.create({
-        employee_id: employeeId,
-        date: attendanceDate,
-        punch_in: punchInTime,
-        status: "present",
-      } as any);
-    }
-
-    createSuccess(res, "Leave cancelled and attendance marked present", {
-      leave,
-      attendance: record,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-// Bulk attendance upload (e.g. SalaryBox-style xlsx export): one row per
-// employee, one column per date, cell value = that day's status string.
-// Employee ID column is matched against our numeric employee_id — any
-// non-numeric value (external-system codes like "EMP001") is skipped.
-// Statuses are stamped directly onto Attendance.status; no Leave record or
-// balance is touched.
-// Keys are space-separated (not snake_case) because normalizeStatusKey folds
-// underscores to spaces too — so "half_day", "Half Day" and "half day" all
-// normalize the same way regardless of which style the caller sends.
-const BULK_ATTENDANCE_STATUS_MAP: Record<string, string> = {
-  absent: "absent",
-  present: "present",
-  "double present": "present",
-  "half day": "leaveApproved",
-  "week off": "holiday",
-  holiday: "holiday",
-  "unpaid leave": "leaveApproved",
-  "paid leave": "leaveApproved",
-  "sick leave": "leaveApproved",
-  "casual leave": "leaveApproved",
-  "comp leave": "leaveApproved",
-};
-
-const normalizeStatusKey = (value: any): string =>
-  String(value ?? "").trim().toLowerCase().replace(/[_\s]+/g, " ");
-
-// Uses local getters (not toISOString) — toISOString converts to UTC first,
-// which shifts non-ISO date strings (e.g. CSV-reformatted "7/6/26") back a
-// day in any timezone ahead of UTC.
-const formatLocalDate = (d: Date): string => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
-
-const normalizeHeaderDate = (value: any): string | null => {
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return formatLocalDate(value);
-  }
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value.trim())) {
-    return value.trim().slice(0, 10);
-  }
-  const parsed = new Date(value);
-  return isNaN(parsed.getTime()) ? null : formatLocalDate(parsed);
-};
-
-// A date-column cell may hold a status word (handled above) OR a punch-in
-// clock time (e.g. "09:15", "9:15:00", "9:15 AM") to backfill a real
-// punch_in for a past date. Excel time-formatted cells and plain text both
-// come through sheet_to_json as strings in this format, so a status-word
-// miss is retried against this pattern before falling back to "unknown".
-const TIME_OF_DAY_RE = /^([0-1]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?\s*(am|pm)?$/i;
-
-const parseTimeOfDayOnDate = (dateStr: string, value: any): Date | null => {
-  const raw = String(value ?? "").trim();
-  const match = raw.match(TIME_OF_DAY_RE);
-  if (!match) return null;
-
-  let hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  const seconds = match[3] ? Number(match[3]) : 0;
-  const meridiem = match[4]?.toLowerCase();
-
-  if (meridiem) {
-    if (hours < 1 || hours > 12) return null;
-    if (meridiem === "am") hours = hours === 12 ? 0 : hours;
-    else hours = hours === 12 ? 12 : hours + 12;
-  }
-
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const result = new Date(y, m - 1, d, hours, minutes, seconds);
-  return isNaN(result.getTime()) ? null : result;
-};
-
-export const bulkMarkAttendance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-
-    if (!req.file) {
-      badRequest(res, "Attendance file (.csv or .xlsx) is required");
-      return;
-    }
-
-    const file = req.file as MulterS3File;
-
-    const s3 = new S3Client({
-      region: process.env.AWS_REGION,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
-    });
-
-    const data = await s3.send(
-      new GetObjectCommand({ Bucket: file.bucket, Key: file.key })
-    );
-
-    if (!data.Body) {
-      badRequest(res, "Unable to read file from S3");
-      return;
-    }
-
-    const chunks: Buffer[] = [];
-    for await (const chunk of data.Body as Readable) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const buffer = Buffer.concat(chunks);
-
-    // Parse .csv explicitly as text instead of relying on XLSX's binary-format
-    // auto-detection — guards against edge cases (BOM from "CSV UTF-8" saves,
-    // CRLF line endings, commas inside quoted names) silently mis-parsing.
-    const isCsv =
-      (file.originalname || "").toLowerCase().endsWith(".csv") ||
-      file.mimetype === "text/csv";
-    const BOM = String.fromCharCode(0xfeff);
-    const workbook = isCsv
-      ? XLSX.read(buffer.toString("utf8").replace(new RegExp(`^${BOM}`), ""), {
-          type: "string",
-          cellDates: true,
-          raw: false,
-        })
-      : XLSX.read(buffer, { type: "buffer", cellDates: true });
-    const sheetName =
-      workbook.SheetNames.find(
-        (name) => name.trim().toLowerCase() === "employee_details"
-      ) || workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      raw: false,
-      defval: "",
-    });
-
-    if (rows.length < 2) {
-      badRequest(res, "No attendance rows found in the uploaded file");
-      return;
-    }
-
-    const [headerRow, ...dataRows] = rows;
-
-    // Column 0: Staff Name, 1: Employee ID, 2: Job Title, 3+: dates
-    const dateColumns: { index: number; date: string }[] = [];
-    for (let i = 3; i < headerRow.length; i++) {
-      const date = normalizeHeaderDate(headerRow[i]);
-      if (date) dateColumns.push({ index: i, date });
-    }
-    const dateColumnIndexByDate = new Map<string, number>(
-      dateColumns.map(({ index, date }) => [date, index])
-    );
-
-    // The frontend also sends fromDate/toDate alongside the file (the range
-    // picked in the UI). When present, that range — not just the columns the
-    // sheet happens to have — decides which dates get processed per
-    // employee; any date in range with no column or a blank cell defaults to
-    // "present" instead of being silently skipped.
-    const { fromDate, toDate } = req.body as { fromDate?: string; toDate?: string };
-    let rangeDates: string[] = dateColumns.map((c) => c.date);
-    if (fromDate && toDate) {
-      const normalizedFrom = normalizeHeaderDate(fromDate);
-      const normalizedTo = normalizeHeaderDate(toDate);
-      if (!normalizedFrom || !normalizedTo) {
-        badRequest(res, "Invalid fromDate/toDate");
-        return;
-      }
-      if (normalizedFrom > normalizedTo) {
-        badRequest(res, "fromDate must be before toDate");
-        return;
-      }
-      const start = new Date(normalizedFrom);
-      const end = new Date(normalizedTo);
-      const MAX_RANGE_DAYS = 366;
-      const spanDays =
-        Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-      if (spanDays > MAX_RANGE_DAYS) {
-        badRequest(res, `Date range too large (max ${MAX_RANGE_DAYS} days)`);
-        return;
-      }
-      rangeDates = [];
-      const cursor = new Date(start);
-      while (cursor <= end) {
-        rangeDates.push(formatLocalDate(cursor));
-        cursor.setDate(cursor.getDate() + 1);
-      }
-    }
-
-    const childIds = await getAllChildUserIds(loggedInId);
-    const allowedIds = new Set<number>([loggedInId, ...childIds]);
-
-    const skippedNonNumericEmployeeId: any[] = [];
-    const skippedNotInTeam: number[] = [];
-    const skippedUnknownStatus: { employeeId: number; date: string; status: any }[] = [];
-
-    type Assignment = {
-      employee_id: number;
-      date: string;
-      status: string;
-      punch_in?: Date;
-    };
-    const assignments: Assignment[] = [];
-    const employeeIds = new Set<number>();
-
-    for (const row of dataRows) {
-      const rawEmployeeId = row[1];
-      const trimmedEmployeeId = String(rawEmployeeId ?? "").trim();
-      // Excel-sourced numeric cells can render as "224.0" depending on cell
-      // format — accept those (Number.isInteger) rather than only bare digit
-      // strings, while still rejecting non-numeric codes like "EMP001".
-      const numericEmployeeId = Number(trimmedEmployeeId);
-      const isNumericEmployeeId =
-        trimmedEmployeeId !== "" &&
-        Number.isFinite(numericEmployeeId) &&
-        Number.isInteger(numericEmployeeId) &&
-        numericEmployeeId >= 0;
-
-      if (!isNumericEmployeeId) {
-        if (trimmedEmployeeId) {
-          skippedNonNumericEmployeeId.push(rawEmployeeId);
-        }
-        continue;
-      }
-
-      const employeeId = numericEmployeeId;
-      if (!allowedIds.has(employeeId)) {
-        skippedNotInTeam.push(employeeId);
-        continue;
-      }
-
-      for (const date of rangeDates) {
-        const colIndex = dateColumnIndexByDate.get(date);
-        const rawStatus = colIndex !== undefined ? row[colIndex] : undefined;
-
-        // No column for this date, or the cell is blank: default to present
-        // rather than silently skipping the day.
-        if (!String(rawStatus ?? "").trim()) {
-          employeeIds.add(employeeId);
-          assignments.push({ employee_id: employeeId, date, status: "present" });
-          continue;
-        }
-
-        const mappedStatus = BULK_ATTENDANCE_STATUS_MAP[normalizeStatusKey(rawStatus)];
-        if (mappedStatus) {
-          employeeIds.add(employeeId);
-          assignments.push({ employee_id: employeeId, date, status: mappedStatus });
-          continue;
-        }
-
-        // Not a recognized status word — try it as a punch-in clock time
-        // (e.g. "09:15") to backfill a real punch_in for that date.
-        const punchInTime = parseTimeOfDayOnDate(date, rawStatus);
-        if (punchInTime) {
-          employeeIds.add(employeeId);
-          assignments.push({
-            employee_id: employeeId,
-            date,
-            status: "present",
-            punch_in: punchInTime,
-          });
-          continue;
-        }
-
-        skippedUnknownStatus.push({ employeeId, date, status: rawStatus });
-      }
-    }
-
-    if (assignments.length === 0) {
-      createSuccess(res, "No valid attendance rows to apply", {
-        applied: 0,
-        skippedNonNumericEmployeeId,
-        skippedNotInTeam,
-        skippedUnknownStatus,
-      });
-      return;
-    }
-
-    const dates = [...new Set(assignments.map((a) => a.date))];
-
-    const existingRows = await Attendance.findAll({
-      where: {
-        employee_id: { [Op.in]: [...employeeIds] },
-        date: { [Op.in]: dates },
-      },
-    });
-
-    const existingMap = new Map<string, any>();
-    for (const row of existingRows) {
-      existingMap.set(`${row.employee_id}|${row.date}`, row);
-    }
-
-    const toCreate: Assignment[] = [];
-    const toUpdate: any[] = [];
-
-    for (const assignment of assignments) {
-      const key = `${assignment.employee_id}|${assignment.date}`;
-      const existing = existingMap.get(key);
-      if (existing) {
-        if (assignment.punch_in) {
-          // Backfilling a punch_in for a past date: keep any existing
-          // punch_out and recompute working_hours/dayType/overtime against
-          // the new punch_in, since the old figures were based on the old
-          // (or absent) punch_in and are now stale.
-          existing.punch_in = assignment.punch_in;
-          existing.status = "present";
-          if (existing.punch_out && existing.punch_out > assignment.punch_in) {
-            const workingHours = Number(
-              ((existing.punch_out.getTime() - assignment.punch_in.getTime()) /
-                (1000 * 60 * 60)
-              ).toFixed(2)
-            );
-            existing.working_hours = workingHours;
-            existing.dayType = getDayTypeFromWorkingHours(workingHours);
-            existing.overtime = workingHours > 8 ? Number((workingHours - 8).toFixed(2)) : 0;
-          } else {
-            existing.punch_out = null;
-            existing.working_hours = null;
-            existing.dayType = null;
-            existing.overtime = null;
-          }
-        } else {
-          // Bulk-marking overwrites the day's status directly; punch-derived
-          // fields from any prior real punch no longer apply and must be
-          // cleared, or they end up contradicting the new status (e.g.
-          // status "absent" next to a full punched day's hours).
-          existing.status = assignment.status;
-          existing.punch_in = null;
-          existing.punch_out = null;
-          existing.working_hours = null;
-          existing.dayType = null;
-          existing.overtime = null;
-        }
-        toUpdate.push(existing);
-      } else {
-        toCreate.push(assignment);
-      }
-    }
-
-    await Promise.all(toUpdate.map((row) => row.save()));
-    if (toCreate.length > 0) {
-      await Attendance.bulkCreate(toCreate as any);
-    }
-
-    createSuccess(res, "Bulk attendance applied successfully", {
-      applied: assignments.length,
-      created: toCreate.length,
-      updated: toUpdate.length,
-      skippedNonNumericEmployeeId,
-      skippedNotInTeam,
-      skippedUnknownStatus,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+// bulkMarkAttendance has moved to src/modules/attendance/ — see
+// attendance.controller.ts/service.ts/repository.ts.
 
 const getDateFilter = (query: any) => {
   const { startDate, endDate, lastDays, today } = query;
@@ -3059,6 +1601,21 @@ export const getDashboardSummary = async (
     weekEnd.setDate(weekStart.getDate() + 6);
     weekEnd.setHours(23, 59, 59, 999);
 
+    // ── KPI windows ──────────────────────────────────────────────────────
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(now.getDate() - 6);
+    const sevenDaysAgoDateOnly = sevenDaysAgo.toISOString().slice(0, 10);
+
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(now.getDate() - 29);
+    const thirtyDaysAgoDateOnly = thirtyDaysAgo.toISOString().slice(0, 10);
+
+    const currentYear = now.getFullYear();
+    // Valid Attendance.status enum values that count as "marked" (present in
+    // some form) for rate calculations — "late" is a separate boolean
+    // column, not a status value, and isn't included here.
+    const MARKED_STATUSES = ["in", "present", "out", "leaveApproved"];
+
     const [
       presentCount,
       pendingLeaveApprovalCount,
@@ -3066,6 +1623,14 @@ export const getDashboardSummary = async (
       meetingsThisWeekCount,
       completedQuotationCount,
       completedInvoiceCount,
+      attendanceMarkedLast7DaysCount,
+      attendanceMarkedLast30DaysCount,
+      lateMarkedLast30DaysCount,
+      taskTotalCount,
+      taskCompletedCount,
+      taskOverdueCount,
+      leaveBalances,
+      headcountByBranchRaw,
     ] = await Promise.all([
       Attendance.count({
         where: {
@@ -3104,7 +1669,76 @@ export const getDashboardSummary = async (
           status: "accepted",
         },
       }),
+      // Attendance rate (last 7 days): marked days / (team size * 7) — a
+      // simple proxy, not adjusted for holidays/weekends off, matching the
+      // "cheap to compute from data already modeled" brief.
+      Attendance.count({
+        where: {
+          employee_id: { [Op.in]: childIds },
+          status: { [Op.in]: MARKED_STATUSES },
+          date: { [Op.gte]: sevenDaysAgoDateOnly },
+        },
+      }),
+      // Punctuality rate (last 30 days): marked days vs. how many were late.
+      Attendance.count({
+        where: {
+          employee_id: { [Op.in]: childIds },
+          status: { [Op.in]: MARKED_STATUSES },
+          date: { [Op.gte]: thirtyDaysAgoDateOnly },
+        },
+      }),
+      Attendance.count({
+        where: {
+          employee_id: { [Op.in]: childIds },
+          late: true,
+          date: { [Op.gte]: thirtyDaysAgoDateOnly },
+        },
+      }),
+      // Task velocity
+      Task.count({ where: { assignedTo: { [Op.in]: childIds } } }),
+      Task.count({ where: { assignedTo: { [Op.in]: childIds }, status: { [Op.in]: ["completed", "done"] } } }),
+      Task.count({
+        where: {
+          assignedTo: { [Op.in]: childIds },
+          status: { [Op.notIn]: ["completed", "done", "cancelled"] },
+          dueDate: { [Op.lt]: now },
+        },
+      }),
+      // Leave utilization (current year)
+      EmployeeLeaveBalance.findAll({
+        where: { employeeId: { [Op.in]: childIds }, year: currentYear },
+        raw: true,
+      }),
+      // Headcount by branch
+      User.findAll({
+        where: { id: { [Op.in]: childIds } },
+        attributes: ["branchId", [fn("COUNT", col("id")), "count"]],
+        group: ["branchId"],
+        raw: true,
+      }) as unknown as Promise<{ branchId: number | null; count: string }[]>,
     ]);
+
+    const teamSize = childIds.length || 1;
+    const attendanceRateLast7Days = Math.round((attendanceMarkedLast7DaysCount / (teamSize * 7)) * 1000) / 10;
+    const punctualityRateLast30Days =
+      attendanceMarkedLast30DaysCount > 0
+        ? Math.round(((attendanceMarkedLast30DaysCount - lateMarkedLast30DaysCount) / attendanceMarkedLast30DaysCount) * 1000) / 10
+        : null;
+
+    const leaveAllocated = (leaveBalances as any[]).reduce(
+      (sum, b) => sum + (b.casualLeaveAllocated || 0) + (b.sickLeaveAllocated || 0) + (b.paidLeaveAllocated || 0),
+      0
+    );
+    const leaveUsed = (leaveBalances as any[]).reduce(
+      (sum, b) => sum + (b.casualLeaveUsed || 0) + (b.sickLeaveUsed || 0) + (b.paidLeaveUsed || 0),
+      0
+    );
+    const leaveUtilizationRate = leaveAllocated > 0 ? Math.round((leaveUsed / leaveAllocated) * 1000) / 10 : null;
+
+    const headcountByBranch = (headcountByBranchRaw as any[]).map((r) => ({
+      branchId: r.branchId,
+      count: Number(r.count),
+    }));
 
     res.status(200).json({
       success: true,
@@ -3117,6 +1751,18 @@ export const getDashboardSummary = async (
         meetingsThisWeekCount,
         completedQuotationCount,
         completedInvoiceCount,
+        kpis: {
+          attendanceRateLast7Days,
+          punctualityRateLast30Days,
+          taskStats: {
+            total: taskTotalCount,
+            completed: taskCompletedCount,
+            overdue: taskOverdueCount,
+            completionRate: taskTotalCount > 0 ? Math.round((taskCompletedCount / taskTotalCount) * 1000) / 10 : null,
+          },
+          leaveUtilizationRate,
+          headcountByBranch,
+        },
       },
     });
   } catch (error) {
@@ -3237,59 +1883,24 @@ const fetchData = async (
 
 // Attendance history for one employee, by id — paginated, optionally filtered
 // by startDate/endDate, lastDays, or today (see getDateFilter).
-export const userAttendance = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-
-    const { userId } = req.query;
-    if (!userId) return badRequest(res, "UserId is required", 400);
-
-    const employeeId = Number(userId);
-    if (!Number.isInteger(employeeId) || employeeId < 0) {
-      return badRequest(res, "Invalid userId");
-    }
-
-    // FIX: this previously had no ownership check at all — any caller with
-    // attendance:view could pass any userId and read another team's data.
-    const childIds = await getAllChildUserIds(loggedInId);
-    if (employeeId !== loggedInId && !childIds.includes(employeeId)) {
-      return forbidden(res, "You can only view attendance of your own team members");
-    }
-
-    const { page, limit, offset } = getPagination(req);
-    const dateFilter = getDateFilter(req.query);
-
-    const { rows, count } = await fetchData(
-      Attendance,
-      { employee_id: employeeId },
-      limit,
-      offset,
-      dateFilter,
-      "date"
-    );
-
-    createSuccess(res, "User attendance fetched successfully", {
-      attendance: rows,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: page,
-        limit,
-      },
-    });
-  } catch (error) {
-    badRequest(
-      res,
-      error instanceof Error ? error.message : "Something went wrong"
-    );
-  }
-};
+// userAttendance has moved to src/modules/attendance/ — see
+// attendance.controller.ts/service.ts/repository.ts.
 
 export const userExpense = async (req: Request, res: Response) => {
   try {
     const { userId } = req.query;
     if (!userId) return badRequest(res, "UserId is required", 400);
+
+    // FIX: previously trusted userId straight from the query string with no
+    // ownership check — any caller with expense:view could pass any userId
+    // and read another team's/company's expense history.
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    const childIds = await getAllChildUserIds(loggedInId);
+    const requestedUserId = Number(userId);
+    if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
+      return forbidden(res, "You can only view expenses of your own team members");
+    }
 
     const { page, limit, offset } = getPagination(req);
     const dateFilter = getDateFilter(req.query);
@@ -3298,7 +1909,7 @@ export const userExpense = async (req: Request, res: Response) => {
     // if (!user) return badRequest(res, "User not found", 404);
     const { rows, count } = await fetchData(
       Expense,
-      { userId: Number(userId) },
+      { userId: requestedUserId },
       limit,
       offset,
       dateFilter
@@ -3322,38 +1933,8 @@ export const userExpense = async (req: Request, res: Response) => {
   }
 };
 
-export const userLeave = async (req: Request, res: Response) => {
-  try {
-    const { userId } = req.query;
-    if (!userId) return badRequest(res, "UserId is required", 400);
-    const { page, limit, offset } = getPagination(req);
-    // const dateFilter = getDateFilter(req.query);
-    // const user = await findUser(Number(userId));
-    // if (!user) return badRequest(res, "User not found", 404);
-    const { rows, count } = await fetchData(
-      Leave,
-      { employee_id: Number(userId) },
-      limit,
-      offset
-      // dateFilter
-    );
-    createSuccess(res, "User leave fetched successfully", {
-      // user,
-      leave: rows,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: page,
-        limit,
-      },
-    });
-  } catch (error) {
-    badRequest(
-      res,
-      error instanceof Error ? error.message : "Something went wrong"
-    );
-  }
-};
+// userLeave has moved to src/modules/leave/ — see leave.controller.ts/
+// service.ts/repository.ts.
 
 export const createClient = async (
   req: Request,
@@ -3417,128 +1998,18 @@ export const createClient = async (
   }
 };
 
-const generateDayMap = (totalDays: number) =>
-  Object.fromEntries(
-    Array.from({ length: totalDays }, (_, i) => [String(i + 1), "-"])
-  );
-
-// Build search filter
-const buildSearchFilter = (search: string) =>
-  search
-    ? {
-      [Op.or]: [
-        { firstName: { [Op.iLike]: `%${search}%` } },
-        { lastName: { [Op.iLike]: `%${search}%` } },
-      ],
-    }
-    : {};
-// =========================== MAIN FUNCTION ===============================
-
-export const AttendanceBook = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { userId } = req.userData as JwtPayload;
-
-    const childIds = await getAllChildUserIds(userId);
-
-    if (!childIds.length) {
-       badRequest(res, "No child users found");
-    }
-
-    // Query Params
-    const month = Number(req.query.month) || new Date().getMonth() + 1;
-    const year = Number(req.query.year) || new Date().getFullYear();
-    const search = String(req.query.search || "");
-    const pageNum = Number(req.query.page) || 1;
-    const limitNum = Number(req.query.limit) || 10;
-    const offset = (pageNum - 1) * limitNum;
-
-    // Month Date Range
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
-    const totalDays = endDate.getDate();
-
-    // Get Users with Attendance
-    const { rows: users, count: totalCount } = await User.findAndCountAll({
-      where: {
-        id: {
-          [Op.in]: childIds,
-        },
-        ...buildSearchFilter(search),
-      },
-      attributes: [
-        "id",
-        "firstName",
-        "lastName",
-        "role",
-        "email",
-        "dob",
-        "profile",
-      ],
-      include: [
-        {
-          model: Attendance,
-          as: "Attendances",
-          where: {
-            date: {
-              [Op.between]: [startDate, endDate],
-            },
-          },
-          required: false,
-        },
-      ],
-      offset,
-      limit: limitNum,
-      order: [["firstName", "ASC"]],
-      distinct: true, // Prevent duplicate count because of include
-    });
-
-    // Total Pages
-    const totalPages = Math.ceil(totalCount / limitNum);
-
-    // Format Users
-    const formatted = users.map((u: any) => {
-      const days = generateDayMap(totalDays);
-
-      if (u.Attendances?.length) {
-        u.Attendances.forEach((attendance: any) => {
-          const day = new Date(attendance.date).getDate();
-          days[String(day)] = attendance.status ?? "-";
-        });
-      }
-
-      return {
-        id: u.id,
-        name: `${u.firstName} ${u.lastName}`,
-        email: u.email,
-        dob: u.dob,
-        profile: u.profile,
-        role: u.role,
-        days,
-      };
-    });
-
-     res.status(200).json({
-      success: true,
-      message: "Attendance loaded",
-      data: {
-        page: pageNum,
-        limit: limitNum,
-        totalCount,
-        totalPages,
-        users: formatted,
-      },
-    });
-  } catch (error: any) {
-     badRequest(res, error.message);
-  }
-};
+// AttendanceBook has moved to src/modules/attendance/ — see
+// attendance.controller.ts/service.ts/repository.ts. (Fixed a pre-existing
+// double-response bug while moving: the empty-childIds case called
+// badRequest() and then fell through to the full query/response anyway —
+// same pattern already applied to ownLeave/GetExpense.)
 
 export const assignMeeting = async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId, meetingId, scheduledTime } = req.body || {};
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    const role = userData?.role;
 
     // Validate required fields
     if (!userId || !meetingId || !scheduledTime) {
@@ -3552,6 +2023,20 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
     if (!meeting) {
       badRequest(res, "Meeting not found");
       return
+    }
+
+    // FIX: previously neither the meeting's company nor the assignee's team
+    // membership were checked — a caller could supply a meetingId belonging
+    // to another company and/or an arbitrary userId, cross-linking data
+    // across tenants.
+    if (role !== "super_admin" && meeting.companyId !== userData?.companyId) {
+      forbidden(res, "You can only assign meetings within your own company");
+      return;
+    }
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
+      forbidden(res, "You can only assign meetings to your own team members");
+      return;
     }
 
     // If meeting is already assigned & scheduled time conflicts
@@ -3587,38 +2072,11 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
   }
 };
 
-export const ownLeave = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    const { page, limit, offset } = getPagination(req);
-
-    const { rows, count } = await Leave.findAndCountAll({
-      where: { employee_id: Number(userData?.userId) },
-      limit,
-      offset,
-      order: [["id", "DESC"]],
-    });
-
-    if (rows.length === 0) {
-      badRequest(res, "No leaves found");
-    }
-    createSuccess(res, "Leave fetched successfully", {
-      leave: rows,
-      pagination: {
-        totalRecords: count,
-        totalPages: Math.ceil(count / limit),
-        currentPage: page,
-        limit,
-      },
-    });
-
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+// ownLeave has moved to src/modules/leave/ — see leave.controller.ts/
+// service.ts/repository.ts. (Fixed a pre-existing double-response bug while
+// moving: the empty-list case called badRequest() and then fell through to
+// createSuccess() anyway — now it returns after badRequest, same pattern
+// already applied to GetExpense.)
 
 
 export const addQuotation = async (req: Request, res: Response): Promise<void> => {
@@ -4284,6 +2742,16 @@ export const getMeetingDistance = async (
     const userId = Number(req.query.userId)
     const offset = (page - 1) * limit;
 
+    // FIX: previously trusted userId straight from the query string with no
+    // ownership check — any caller could pass any userId and read another
+    // team's/company's meeting-distance data.
+    const loggedInId = Number(userData.userId);
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (userId !== loggedInId && !childIds.includes(userId)) {
+      forbidden(res, "You can only view meeting distances of your own team members");
+      return;
+    }
+
     // Date filters
     const { startDate, endDate } = req.query;
 
@@ -4332,6 +2800,17 @@ export const getFuelExpense = async (req: Request, res: Response) => {
     }
 
     const userId = Number(req.query.userId);
+
+    // FIX: previously trusted userId straight from the query string with no
+    // ownership check — any caller could pass any userId and read another
+    // team's/company's fuel-expense data.
+    const loggedInId = Number(userData.userId);
+    const childIds = await getAllChildUserIds(loggedInId);
+    if (userId !== loggedInId && !childIds.includes(userId)) {
+      forbidden(res, "You can only view fuel expenses of your own team members");
+      return;
+    }
+
     const { startDate, endDate } = req.query;
 
     const whereCondition: any = {
@@ -4376,1485 +2855,134 @@ export const getFuelExpense = async (req: Request, res: Response) => {
 
 
 
-export const addCompany = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+// addCompany/getCompany/getCompanyById/updateCompany/assignCompanyManager/
+// removeCompanyManager/getCompanyManagers/getMyCompanies/switchCompany/
+// deleteCompany/getOwnCompany have moved to src/modules/company/ — see
+// company.controller.ts/service.ts/repository.ts. Routes are mounted from
+// server.ts, same URL paths as before. (Dropped a leftover debug console.log
+// of the full userData object in addCompany while moving.)
+
+// Branch CRUD (addBranch/updateBranch/getBranch/getBranchById) has moved to
+// src/modules/branch/ — see branch.controller.ts/service.ts/repository.ts.
+// Routes are mounted from server.ts, same URL paths as before.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// validateShiftItem/buildShiftCreateAttrs/addShift have moved to
+// src/modules/shift/ — see shift.controller.ts/service.ts/repository.ts.
+// Routes are mounted from server.ts, same URL paths as before.
+// (assignEmployeeShift below stays here — cross-domain concern, not shift-only.)
+
+// ============================================================
+// PATCH /admin/assign-employee-shift
+// Assign (or clear) an employee's shift/department/branch — there was
+// previously no way to do this at all; the attendance engine needs it to
+// resolve "this employee's assigned shift" instead of a hardcoded default.
+// Body: { employeeId, shiftId?, departmentId?, branchId? } (null clears)
+// ============================================================
+export const assignEmployeeShift = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
 
-    console.log(">>>>>>>>>>>>>>>userData>",userData)
-
-    if (!userData || !userData.userId) {
+    if (!userData || !loggedInId) {
       badRequest(res, "Unauthorized request");
       return;
     }
-    // console.log(userData.role)
-   if (userData.role !== "user") {
-  badRequest(res, "You are not authorized to add a company");
-  return;
-}
 
-    const {
-      companyName,
-      legalName,
-      registrationNo,
-      gst,
-      pan,
-      industry,
-      companySize,
-      website,
-      companyEmail,
-      companyPhone,
-      city,
-      timezone,
-      currency,
-      state,
-      country,
-      zipcode,  
-
-      // Bank
-      bankAccountHolder,
-      bankName,
-      bankAccountNumber,
-      bankIfsc,
-      bankBranchName,
-      bankAccountType,
-      bankMicr,
-      upiId,
-
-      // HR Config
-      payrollCycle,
-      lateMarkAfter,
-      autoHalfDayAfter,
-      casualHolidaysTotal,
-      casualHolidaysPerMonth,
-      casualHolidayNotice,
-      compOffMinHours,
-      compOffExpiryDays,
-      casualCarryForwardLimit,
-      casualCarryForwardExpiry,
-      adminId,
-      managerId,
-      createdBy,
-      userid
-    } = req.body;
-
-    // ================= VALIDATION =================
-
-    if (!companyName || companyName.trim().length < 2) {
-       badRequest(res, "Company name is required (min 2 chars)");
-       return
+    const { employeeId, shiftId, departmentId, branchId } = req.body || {};
+    if (!employeeId || isNaN(Number(employeeId))) {
+      badRequest(res, "Valid employeeId is required");
+      return;
     }
 
-    if (!legalName) {
-       badRequest(res, "Legal name is required");
-       return
+    const childIds = await getAllChildUserIds(Number(loggedInId));
+    if (Number(employeeId) !== Number(loggedInId) && !childIds.includes(Number(employeeId))) {
+      forbidden(res, "You can only assign shifts to your own team members");
+      return;
     }
 
-    if (!registrationNo) {
-       badRequest(res, "Registration number is required");
-       return
+    const employee = await User.findByPk(Number(employeeId));
+    if (!employee) {
+      badRequest(res, "Employee not found");
+      return;
     }
 
-    if (!companyEmail || !/^\S+@\S+\.\S+$/.test(companyEmail)) {
-       badRequest(res, "Valid company email is required");
-       return
+    // FIX: previously only checked that the shift/department *existed*
+    // anywhere in the system, and branchId wasn't validated at all — a
+    // caller could assign an employee a shift/branch/department belonging
+    // to a completely different company, silently applying that other
+    // company's geofence/working-hours config to this employee's attendance.
+    // Every reference must belong to the caller's own resolved company.
+    const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+
+    if (shiftId !== undefined && shiftId !== null) {
+      const shift = await Shift.findByPk(Number(shiftId));
+      if (!shift || (callerCompanyId && Number((shift as any).companyId) !== callerCompanyId)) {
+        badRequest(res, "Shift not found");
+        return;
+      }
     }
-
-    if (!companyPhone || companyPhone.length < 8) {
-       badRequest(res, "Valid company phone is required");
-       return
+    if (departmentId !== undefined && departmentId !== null) {
+      const department = await Department.findByPk(Number(departmentId));
+      if (!department || (callerCompanyId && Number((department as any).companyId) !== callerCompanyId)) {
+        badRequest(res, "Department not found");
+        return;
+      }
     }
-
-    if (gst && gst.length !== 15) {
-       badRequest(res, "GST must be 15 characters");
-       return
-    }
-
-    if (pan && pan.length !== 10) {
-       badRequest(res, "PAN must be 10 characters");
-       return
-    }
-
-    if (website && !/^https?:\/\/.+/.test(website)) {
-         badRequest(res, "Website must be a valid URL");
-         return
-    }
-
-    if (bankIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc)) {
-       badRequest(res, "Invalid IFSC code");
-       return
-    }
-
-    if (upiId && !/^[\w.-]+@[\w.-]+$/.test(upiId)) {
-       badRequest(res, "Invalid UPI ID");
-       return
-    }
-
-    // HR numeric validations
-    const numericFields = [
-      { field: lateMarkAfter, name: "lateMarkAfter" },
-      { field: autoHalfDayAfter, name: "autoHalfDayAfter" },
-      { field: casualHolidaysTotal, name: "casualHolidaysTotal" },
-      { field: casualHolidaysPerMonth, name: "casualHolidaysPerMonth" },
-      { field: casualHolidayNotice, name: "casualHolidayNotice" },
-      { field: compOffMinHours, name: "compOffMinHours" },
-      { field: compOffExpiryDays, name: "compOffExpiryDays" },
-      { field: casualCarryForwardLimit, name: "casualCarryForwardLimit" },
-      { field: casualCarryForwardExpiry, name: "casualCarryForwardExpiry" },
-    ];
-
-    for (const item of numericFields) {
-      if (item.field && isNaN(Number(item.field))) {
-         badRequest(res, `${item.name} must be a number`);
-         return
+    if (branchId !== undefined && branchId !== null) {
+      const branch = await Branch.findByPk(Number(branchId));
+      if (!branch || (callerCompanyId && Number((branch as any).companyId) !== callerCompanyId)) {
+        badRequest(res, "Branch not found");
+        return;
       }
     }
 
-    // ================= CREATE =================
+    const updates: any = {};
+    if (shiftId !== undefined) updates.shiftId = shiftId === null ? null : Number(shiftId);
+    if (departmentId !== undefined) updates.departmentId = departmentId === null ? null : Number(departmentId);
+    if (branchId !== undefined) updates.branchId = branchId === null ? null : Number(branchId);
 
-    const company = await Company.create({
-      companyName,
-      legalName,
-      registrationNo,
-      gst,
-      pan,
-      industry,
-      companySize,
-      website,
-      companyEmail,
-      companyPhone,
-      city,
-      timezone,
-      currency,
+    await employee.update(updates);
 
-      bankAccountHolder,
-      bankName,
-      bankAccountNumber,
-      bankIfsc,
-      bankBranchName,
-      bankAccountType,
-      bankMicr,
-      upiId,
-      state,
-      country,
-      zipcode, 
-
-      payrollCycle,
-      lateMarkAfter,
-      autoHalfDayAfter,
-      casualHolidaysTotal,
-      casualHolidaysPerMonth,
-      casualHolidayNotice,
-      compOffMinHours,
-      compOffExpiryDays,
-      casualCarryForwardLimit,
-      casualCarryForwardExpiry,
-      userId: createdBy || userData.userId,
-      adminId:adminId || null,
-      managerId:managerId || null,
+    createSuccess(res, "Employee shift assignment updated", {
+      id: employee.getDataValue("id"),
+      shiftId: employee.getDataValue("shiftId" as any),
+      departmentId: employee.getDataValue("departmentId" as any),
+      branchId: employee.getDataValue("branchId" as any),
     });
-
-    // When a company is linked to an admin, propagate the creator-user's permissions
-    // to that admin scoped to this company. Company is optional — if no adminId, skip.
-    if (adminId) {
-      const creatorUserId = Number(userData.userId);
-      const newCompanyId = (company as any).id;
-
-      const creatorPerms = await UserPermission.findAll({
-        where: { userId: creatorUserId },
-        attributes: ["permissionId"],
-      });
-
-      if (creatorPerms.length > 0) {
-        await Promise.all(
-          creatorPerms.map((p: any) =>
-            UserPermission.findOrCreate({
-              where: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId },
-              defaults: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId, grantedBy: creatorUserId },
-            })
-          )
-        );
-        invalidatePermissionCache(Number(adminId));
-      }
-    }
-
-    createSuccess(res, "Company added successfully", company);
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
   }
 };
 
+// updateShift/getShift/getShiftById have moved to src/modules/shift/ — see
+// shift.controller.ts/service.ts/repository.ts. Routes are mounted from
+// server.ts, same URL paths as before.
 
-export const getCompany = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
 
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
+// Department CRUD (addDepartment/updateDepartment/getDepartment/
+// getDepartmentById) has moved to src/modules/department/ — see
+// department.controller.ts/service.ts/repository.ts. Routes are mounted
+// from server.ts, same URL paths as before.
 
-    // ✅ Pagination
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
 
-    // ✅ Search
-    const search = (req.query.search as string) || "";
-
-    let whereCondition: any = {
-      userId: userData.userId,
-    };
-
-    if (search) {
-      whereCondition = {
-        ...whereCondition,
-        [Op.or]: [
-          { companyName: { [Op.like]: `%${search}%` } },
-          { legalName: { [Op.like]: `%${search}%` } },
-          { companyEmail: { [Op.like]: `%${search}%` } },
-          { companyPhone: { [Op.like]: `%${search}%` } },
-        ],
-      };
-    }
-
-    // ✅ Query
-    const { count, rows } = await Company.findAndCountAll({
-      where: whereCondition,
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ Response
-    createSuccess(res, "Company fetched successfully", {
-      total: count,
-      page,
-      limit,
-      totalPages: Math.ceil(count / limit),
-      data: rows,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const getCompanyById = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if(!req.params.id){
-      return badRequest(res, "Company id is required");
-    }
-
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Company id must be a number");
-    }
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const company = await Company.findOne({
-      where: { id: req.params.id, userId: userData.userId },
-    });
-
-    if (!company) {
-      return badRequest(res, "Company not found");
-    }
-
-    createSuccess(res, "Company fetched successfully", company);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const updateCompany = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if(!req.params.id){
-      return badRequest(res, "Company id is required");
-    }
-
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Company id must be a number");
-    }
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const company = await Company.findOne({
-      where: { id: req.params.id, userId: userData.userId },
-    });
-
-    if (!company) {
-      return badRequest(res, "Company not found");
-    }
-
-    const updatedCompany = await company.update(req.body);
-
-    createSuccess(res, "Company updated successfully", updatedCompany);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const assignCompanyManager = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!req.params.id) {
-      return badRequest(res, "Company id is required");
-    }
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Company id must be a number");
-    }
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const { managerId } = req.body;
-    if (!managerId) {
-      return badRequest(res, "managerId is required");
-    }
-    if (isNaN(Number(managerId))) {
-      return badRequest(res, "managerId must be a number");
-    }
-
-    const company = await Company.findOne({
-      where: {
-        id: req.params.id,
-        [Op.or]: [{ adminId: userData.userId }, { userId: userData.userId }],
-      },
-    });
-    if (!company) {
-      return badRequest(res, "Company not found");
-    }
-
-    const manager = await User.findOne({
-      where: { id: Number(managerId), role: "manager" },
-    });
-    if (!manager) {
-      return badRequest(res, "Manager not found");
-    }
-
-    const [record, created] = await (CompanyManager as any).findOrCreate({
-      where: { companyId: Number(req.params.id), managerId: Number(managerId) },
-      defaults: { companyId: Number(req.params.id), managerId: Number(managerId) },
-    });
-
-    createSuccess(
-      res,
-      created ? "Manager assigned to company" : "Manager already assigned to this company",
-      record
-    );
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const removeCompanyManager = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const { companyId, managerId } = req.body;
-
-    if (!companyId || !managerId) {
-      return badRequest(res, "companyId and managerId are required");
-    }
-
-    const company = await Company.findOne({
-      where: {
-        id: Number(companyId),
-        [Op.or]: [{ adminId: userData.userId }, { userId: userData.userId }],
-      },
-    });
-    if (!company) {
-      return badRequest(res, "Company not found");
-    }
-
-    const deleted = await (CompanyManager as any).destroy({
-      where: { companyId: Number(companyId), managerId: Number(managerId) },
-    });
-
-    if (!deleted) {
-      return badRequest(res, "Assignment not found");
-    }
-
-    createSuccess(res, "Manager removed from company", null);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const getCompanyManagers = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!req.params.id) {
-      return badRequest(res, "Company id is required");
-    }
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const company = await Company.findOne({
-      where: {
-        id: req.params.id,
-        [Op.or]: [{ adminId: userData.userId }, { userId: userData.userId }],
-      },
-    });
-    if (!company) {
-      return badRequest(res, "Company not found");
-    }
-
-    const assignments = await (CompanyManager as any).findAll({
-      where: { companyId: Number(req.params.id) },
-      include: [
-        {
-          model: User,
-          as: "manager",
-          attributes: ["id", "firstName", "lastName", "email", "phone"],
-        },
-      ],
-    });
-
-    createSuccess(res, "Company managers fetched successfully", assignments);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const getMyCompanies = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const assignments = await (CompanyManager as any).findAll({
-      where: { managerId: Number(userData.userId) },
-      include: [
-        {
-          model: Company,
-          as: "company",
-          attributes: ["id", "companyName", "legalName", "companyEmail", "companyPhone", "city"],
-        },
-      ],
-    });
-
-    const companies = assignments.map((a: any) => a.company);
-
-    createSuccess(res, "Companies fetched successfully", companies);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const switchCompany = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const { companyId } = req.body;
-
-    if (!companyId) {
-      return badRequest(res, "companyId is required");
-    }
-
-    if (isNaN(Number(companyId))) {
-      return badRequest(res, "companyId must be a number");
-    }
-
-    const targetCompanyId = Number(companyId);
-    const managerId = Number(userData.userId);
-
-    // Verify this manager is actually assigned to the target company via junction table
-    const assignment = await (CompanyManager as any).findOne({
-      where: { companyId: targetCompanyId, managerId },
-      include: [{ model: Company, as: "company", attributes: ["id", "companyName"] }],
-    });
-
-    if (!assignment) {
-      return badRequest(res, "You are not assigned to this company");
-    }
-
-    const company = assignment.company;
-
-    // Issue a new token scoped to the target company
-    const { accessToken, refreshToken } = Middleware.CreateToken(
-      String(managerId),
-      userData.role,
-      targetCompanyId
-    );
-
-    await User.update({ refreshToken }, { where: { id: managerId } });
-
-    createSuccess(res, "Company switched successfully", {
-      accessToken,
-      companyId: targetCompanyId,
-      companyName: (company as any).companyName,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const deleteCompany = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if(!req.params.id){
-      return badRequest(res, "Company id is required");
-    }
-
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Company id must be a number");
-    }
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const company = await Company.findOne({
-      where: { id: req.params.id, userId: userData.userId },
-    });
-
-    if (!company) {
-      return badRequest(res, "Company not found");
-    }
-
-    await company.destroy();
-
-    createSuccess(res, "Company deleted successfully");
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getOwnCompany = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
- const companies = await Company.findAll({
-  where: {
-    userId: userData.userId,
-  },
-  include: [
-    { model: Branch, as: "branches" },
-    { model: Shift, as: "shifts" },
-    { model: Department, as: "departments" },
-    { model: CompanyLeave, as: "companyLeaves" },
-    { model: CompanyBank, as: "companyBanks" },
-  ],
-});
-
-    if (!companies || companies.length === 0) {
-      return badRequest(res, "No company found for this user");
-    }
-
-    // const companyIds = companies.map((c: any) => c.id);
-
-    // const [branches, holidays, departments, shifts, banks, leaveTypes] = await Promise.all([
-    //   Branch.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-    //   Holiday.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-    //   Department.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-    //   Shift.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-    //   CompanyBank.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-    //   CompanyLeave.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-    // ]);
-
-    // const result = companies.map((company: any) => {
-    //   const cId = company.id;
-    //   const companyBranches = branches.filter((b: any) => b.companyId === cId);
-
-    //   const enrichedBranches = companyBranches.map((branch: any) => ({
-    //     ...branch.toJSON(),
-    //     holidays: holidays.filter((h: any) => h.branchId === branch.id).map((h: any) => h.toJSON()),
-    //     departments: departments.filter((d: any) => d.branchId === branch.id).map((d: any) => d.toJSON()),
-    //     shifts: shifts.filter((s: any) => s.branchId === branch.id).map((s: any) => s.toJSON()),
-    //     banks: banks.filter((b: any) => b.branchId === branch.id).map((b: any) => b.toJSON()),
-    //     leaveTypes: leaveTypes.filter((l: any) => l.branchId === branch.id).map((l: any) => l.toJSON()),
-    //   }));
-
-    //   return {
-    //     ...company.toJSON(),
-    //     branches: enrichedBranches,
-    //     holidays: holidays.filter((h: any) => h.companyId === cId && !h.branchId).map((h: any) => h.toJSON()),
-    //     departments: departments.filter((d: any) => d.companyId === cId && !d.branchId).map((d: any) => d.toJSON()),
-    //     shifts: shifts.filter((s: any) => s.companyId === cId && !s.branchId).map((s: any) => s.toJSON()),
-    //     banks: banks.filter((b: any) => b.companyId === cId && !b.branchId).map((b: any) => b.toJSON()),
-    //   };
-    // });
-
-    createSuccess(res, "Company fetched successfully", companies);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const addBranch = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const {
-      branchName,
-      branchCode,
-      branchCity,
-      branchState,
-      branchCountry,
-      postalCode,
-      addressLine1,
-      addressLine2,
-      branchEmail,
-      branchPhone,
-      latitude,
-      longitude,
-      geoRadius,
-      adminId,
-      managerId,
-      companyId,
-    } = req.body;
-
-    // ================= VALIDATIONS =================
-
-    if (!branchName || branchName.trim().length < 2) {
-      return badRequest(res, "Branch name is required (min 2 chars)");
-    }
-
-    if (!branchCode || branchCode.trim().length < 2) {
-      return badRequest(res, "Branch code is required");
-    }
-
-    if (!branchCity) {
-      return badRequest(res, "Branch city is required");
-    }
-
-    if (!branchState) {
-      return badRequest(res, "Branch state is required");
-    }
-
-    if (!branchCountry) {
-      return badRequest(res, "Branch country is required");
-    }
-
-    if (!postalCode || postalCode.length < 4) {
-      return badRequest(res, "Valid postal code is required");
-    }
-
-    if (!addressLine1) {
-      return badRequest(res, "Address Line 1 is required");
-    }
-
-    // if (!branchEmail || !/^\S+@\S+\.\S+$/.test(branchEmail)) {
-    //   return badRequest(res, "Valid branch email is required");
-    // }
-
-    // if (!branchPhone || branchPhone.length < 8) {
-    //   return badRequest(res, "Valid branch phone is required");
-    // }
-
-    // Latitude: -90 to 90
-    if (
-      latitude === undefined ||
-      isNaN(Number(latitude)) ||
-      Number(latitude) < -90 ||
-      Number(latitude) > 90
-    ) {
-      return badRequest(res, "Latitude must be between -90 and 90");
-    }
-
-    // Longitude: -180 to 180
-    if (
-      longitude === undefined ||
-      isNaN(Number(longitude)) ||
-      Number(longitude) < -180 ||
-      Number(longitude) > 180
-    ) {
-      return badRequest(res, "Longitude must be between -180 and 180");
-    }
-
-    if (
-      geoRadius === undefined ||
-      isNaN(Number(geoRadius)) ||
-      Number(geoRadius) <= 0
-    ) {
-      return badRequest(res, "Geo radius must be a positive number");
-    }
-
-    if (adminId && isNaN(Number(adminId))) {
-      return badRequest(res, "adminId must be a number");
-    }
-
-    if (managerId && isNaN(Number(managerId))) {
-      return badRequest(res, "managerId must be a number");
-    }
-
-    // ================= DUPLICATE CHECK =================
-
-    // const existingBranch = await Branch.findOne({
-    //   where: { branchCode },
-    // });
-
-    // if (existingBranch) {
-    //   return badRequest(res, "Branch already exists with this code");
-    // }
-
-    // ================= CREATE =================
-
-    const branch = await Branch.create({
-      branchName,
-      branchCode,
-      branchCity,
-      branchState,
-      branchCountry,
-      postalCode,
-      addressLine1,
-      addressLine2: addressLine2 || null,
-      branchEmail,
-      branchPhone,
-      latitude: Number(latitude),
-      longitude: Number(longitude),
-      geoRadius: Number(geoRadius),
-      adminId: adminId || null,
-      managerId: managerId || null,
-      userId: userData.userId,
-      companyId: companyId || null,
-    });
-
-    createSuccess(res, "Branch added successfully", branch);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-
-export const getBranch = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    // ✅ Pagination
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
-    const offset = (page - 1) * limit;
-
-    // ✅ Search
-    const search = (req.query.search as string) || "";
-
-    let whereCondition: any = {
-      [Op.or]: [
-    { userId: userData.userId },
-    { adminId: userData.userId },
-    { managerId: userData.userId },
-  ],
-    };
-
-    if (search) {
-      whereCondition = {
-        ...whereCondition,
-        [Op.or]: [
-          { branchName: { [Op.like]: `%${search}%` } },
-          { branchCode: { [Op.like]: `%${search}%` } },
-          { branchCity: { [Op.like]: `%${search}%` } },
-          { branchState: { [Op.like]: `%${search}%` } },
-          { branchCountry: { [Op.like]: `%${search}%` } },
-          { postalCode: { [Op.like]: `%${search}%` } },
-          { addressLine1: { [Op.like]: `%${search}%` } },
-          { addressLine2: { [Op.like]: `%${search}%` } },
-          { branchEmail: { [Op.like]: `%${search}%` } },
-          { branchPhone: { [Op.like]: `%${search}%` } },
-        ],
-      };
-    }
-
-    // ✅ Query
-    const { count, rows } = await Branch.findAndCountAll({
-      where: whereCondition,
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ Response
-    createSuccess(res, "Branch fetched successfully", {
-      total: count,
-      page,
-      limit,
-      totalPages: Math.ceil(count / limit),
-      data: rows,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getBranchById = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if(!req.params.id){
-      return badRequest(res, "Branch id is required");
-    }
-
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Branch id must be a number");
-    }
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const branch = await Branch.findOne({
-      where: { id: req.params.id, userId: userData.userId },
-    });
-
-    if (!branch) {
-      return badRequest(res, "Branch not found");
-    }
-
-    createSuccess(res, "Branch fetched successfully", branch);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export const addShift = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const {
-      shiftName,
-      shiftCode,
-      startTime,
-      endTime,
-      fullDayHours,
-      nightShift,
-      breakMinutes,
-      workingHours,
-      lateMarkAfter,  
-      halfDayAfter,
-      branchId,
-      companyId,
-    } = req.body;
-
-    // ================= VALIDATION =================
-
-    if (!shiftName || shiftName.trim().length < 2) {
-      return badRequest(res, "Shift name is required");
-    }
-
-    if (!shiftCode || shiftCode.trim().length < 2) {
-      return badRequest(res, "Shift code is required");
-    }
-
-    if (!startTime || !endTime) {
-      return badRequest(res, "Start time and end time are required");
-    }
-
-    if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
-      return badRequest(res, "Time must be in HH:mm format");
-    }
-
-    if (breakMinutes !== undefined && isNaN(Number(breakMinutes))) {
-      return badRequest(res, "Break minutes must be a number");
-    }
-
-    if (workingHours !== undefined && isNaN(Number(workingHours))) {
-      return badRequest(res, "Working hours must be a number");
-    }
-
-    if (lateMarkAfter !== undefined && isNaN(Number(lateMarkAfter))) {
-      return badRequest(res, "lateMarkAfter must be a number");
-    }
-
-    if (halfDayAfter !== undefined && isNaN(Number(halfDayAfter))) {
-      return badRequest(res, "halfDayAfter must be a number");
-    }
-
-    if (!branchId || isNaN(Number(branchId))) {
-      return badRequest(res, "Valid branchId is required");
-    }
-
-    if (!companyId || isNaN(Number(companyId))) {
-      return badRequest(res, "Valid companyId is required");
-    }
-
-    // Duplicate shiftCode is intentionally allowed (see constraintsToDrop
-    // in dbConnection.ts — the DB unique constraint was removed on request).
-
-    // ================= CREATE =================
-
-    const shift = await Shift.create({
-      shiftName,
-      shiftCode,
-      startTime,
-      endTime,
-      fullDayHours,
-      nightShift,
-      breakMinutes: breakMinutes !== undefined ? Number(breakMinutes) : 0,
-      workingHours: workingHours !== undefined ? Number(workingHours) : 8,
-      lateMarkAfter: lateMarkAfter !== undefined ? Number(lateMarkAfter) : 0,
-      halfDayAfter: halfDayAfter !== undefined ? Number(halfDayAfter) : 0,
-      branchId,
-      companyId,
-      userId: userData.userId,
-    });
-
-    createSuccess(res, "Shift added successfully", shift);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getShift = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    // ✅ Pagination
-    const page = Number(req.query.page) || 1;
-    const limit = Math.min(Number(req.query.limit) || 10, 50);
-    const offset = (page - 1) * limit;
-
-    // ✅ Search
-    const search = (req.query.search as string) || "";
-
-    // ✅ Filters (optional but useful)
-    const branchId = req.query.branchId;
-    const companyId = req.query.companyId;
-
-    let whereCondition: any = {
-      userId: userData.userId,
-    };
-
-    // 🔍 Search condition
-    if (search) {
-      whereCondition[Op.or] = [
-        { shiftName: { [Op.like]: `%${search}%` } },
-        { shiftCode: { [Op.like]: `%${search}%` } },
-      ];
-    }
-
-    // 🎯 Optional filters
-    if (branchId) {
-      whereCondition.branchId = branchId;
-    }
-
-    if (companyId) {
-      whereCondition.companyId = companyId;
-    }
-
-    // ✅ Query
-    const { count, rows } = await Shift.findAndCountAll({
-      where: whereCondition,
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ Response
-    createSuccess(res, "Shifts fetched successfully", {
-      total: count,
-      page,
-      limit,
-      totalPages: Math.ceil(count / limit),
-      data: rows,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-export const getShiftById = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    if(!req.params.id){
-      return badRequest(res, "Shift id is required");
-    }
-
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Shift id must be a number");
-    }
-
-    const shift = await Shift.findOne({
-      where: { id: req.params.id, userId: userData.userId },
-    });
-
-    if (!shift) {
-      return badRequest(res, "Shift not found");
-    }
-
-    createSuccess(res, "Shift fetched successfully", shift);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const addDepartment = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const {
-      deptName,
-      deptCode,
-      deptHead,
-      branchId,
-      shiftId,
-      maxHeadcount,
-      halfSaturday,
-      adminId,
-      managerId,
-      companyId,
-    } = req.body;
-
-    // ================= VALIDATION =================
-
-    if (!deptName || deptName.trim().length < 2) {
-      return badRequest(res, "Department name is required");
-    }
-
-    if (!deptCode || deptCode.trim().length < 2) {
-      return badRequest(res, "Department code is required");
-    }
-
-    if (!deptHead || deptHead.trim().length < 2) {
-      return badRequest(res, "Department head is required");
-    }
-
-    if (!branchId || isNaN(Number(branchId))) {
-      return badRequest(res, "Valid branchId is required");
-    }
-
-    if (!shiftId || isNaN(Number(shiftId))) {
-      return badRequest(res, "Valid shiftId is required");
-    }
-
-    if (!maxHeadcount || isNaN(Number(maxHeadcount))) {
-      return badRequest(res, "Valid maxHeadcount is required");
-    }
-
-    // if (!adminId || isNaN(Number(adminId))) {
-    //   return badRequest(res, "Valid adminId is required");
-    // }
-
-    // if (!managerId || isNaN(Number(managerId))) {
-    //   return badRequest(res, "Valid managerId is required");
-    // }
-
-    // ================= DUPLICATE =================
-
-    // const existing = await Department.findOne({
-    //   where: { deptCode },
-    // });
-
-    // if (existing) {
-    //   return badRequest(res, "Department already exists with this code");
-    // }
-
-    // ================= CREATE =================
-
-    const department = await Department.create({
-      deptName,
-      deptCode,
-      deptHead,
-      branchId,
-      shiftId,
-      maxHeadcount,
-      halfSaturday,
-      adminId,
-      managerId,
-      userId: userData.userId,
-      companyId: companyId || null,
-    });
-
-    createSuccess(res, "Department added successfully", department);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getDepartment = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    // ✅ Pagination
-    const page = Number(req.query.page) || 1;
-    const limit = Math.min(Number(req.query.limit) || 10, 50);
-    const offset = (page - 1) * limit;
-
-    // ✅ Search
-    const search = (req.query.search as string) || "";
-
-    // ✅ Filters (optional but useful)
-    const branchId = req.query.branchId;
-    const companyId = req.query.companyId;
-
-    let whereCondition: any = {
-      userId: userData.userId,
-    };
-
-    // 🔍 Search condition
-    if (search) {
-      whereCondition[Op.or] = [
-        { deptName: { [Op.like]: `%${search}%` } },
-        { deptCode: { [Op.like]: `%${search}%` } },
-      ];
-    }
-
-    // 🎯 Optional filters
-    if (branchId) {
-      whereCondition.branchId = branchId;
-    }
-
-    if (companyId) {
-      whereCondition.companyId = companyId;
-    }
-
-    // ✅ Query
-    const { count, rows } = await Department.findAndCountAll({
-      where: whereCondition,
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ Response
-    createSuccess(res, "Departments fetched successfully", {
-      total: count,
-      page,
-      limit,
-      totalPages: Math.ceil(count / limit),
-      data: rows,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getDepartmentById = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    if(!req.params.id){
-      return badRequest(res, "Department id is required");
-    }
-
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Department id must be a number");
-    }
-
-    const department = await Department.findOne({
-      where: { id: req.params.id, userId: userData.userId },
-    });
-
-    if (!department) {
-      return badRequest(res, "Department not found");
-    }
-
-    createSuccess(res, "Department fetched successfully", department);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const addHoliday = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const { holidays, companyId } = req.body;
-
-    // ================= VALIDATION =================
-
-    if (!Array.isArray(holidays) || holidays.length === 0) {
-      return badRequest(res, "holidays array is required");
-    }
-
-    const holidayData: any[] = [];
-
-    for (const item of holidays) {
-      const {
-        holidayName,
-        holidayDate,
-        holidayType,
-        branchId,
-        description,
-        adminId,
-        managerId,
-      } = item;
-
-      // ---------- FIELD VALIDATION ----------
-
-      if (!holidayName || holidayName.trim().length < 2) {
-        return badRequest(res, "Holiday name is required");
-      }
-
-      if (!holidayDate || String(holidayDate).trim().length < 2) {
-        return badRequest(res, "Holiday date is required");
-      }
-
-      if (!holidayType || holidayType.trim().length < 2) {
-        return badRequest(res, "Holiday type is required");
-      }
-
-      if (!Array.isArray(branchId) || branchId.length === 0) {
-        return badRequest(res, "branchId must be a non-empty array");
-      }
-
-      // ---------- PREPARE MULTI-BRANCH DATA ----------
-
-      for (const branch of branchId) {
-        if (isNaN(Number(branch))) {
-          return badRequest(res, "Invalid branchId value");
-        }
-
-        holidayData.push({
-          holidayName: String(holidayName),
-          holidayDate,
-          holidayType: String(holidayType),
-          branchId: Number(branch),
-          description: description || null,
-
-          // ✅ FIX: Avoid NaN
-          adminId: adminId ? Number(adminId) : null,
-          managerId: managerId ? Number(managerId) : null,
-
-          userId: Number(userData.userId),
-          companyId: companyId ? Number(companyId) : null,
-        });
-      }
-    }
-
-    // ================= DEBUG (optional) =================
-
-
-    // ================= BULK CREATE =================
-
-    const holidaysCreated = await Holiday.bulkCreate(holidayData);
-
-    return createSuccess(
-      res,
-      "Holidays added successfully",
-      holidaysCreated
-    );
-
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-
-    return badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getHoliday = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    // ✅ Pagination
-    const page = Number(req.query.page) || 1;
-    const limit = Math.min(Number(req.query.limit) || 10, 50);
-    const offset = (page - 1) * limit;
-
-    // ✅ Search
-    const search = (req.query.search as string) || "";
-
-    // ✅ Filters (optional but useful)
-    const branchId = req.query.branchId;
-    const companyId = req.query.companyId;
-
-    let whereCondition: any = {
-      userId: userData.userId,
-    };
-
-    // 🔍 Search condition
-    if (search) {
-      whereCondition[Op.or] = [
-        { holidayName: { [Op.like]: `%${search}%` } },
-        { holidayType: { [Op.like]: `%${search}%` } },
-      ];
-    }
-
-    // 🎯 Optional filters
-    if (branchId) {
-      whereCondition.branchId = branchId;
-    }
-
-    if (companyId) {
-      whereCondition.companyId = companyId;
-    }
-
-    // ✅ Query
-    const { count, rows } = await Holiday.findAndCountAll({
-      where: whereCondition,
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ Response
-    createSuccess(res, "Holidays fetched successfully", {
-      total: count,
-      page,
-      limit,
-      totalPages: Math.ceil(count / limit),
-      data: rows,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getHolidayById = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    if(!req.params.id){
-      return badRequest(res, "Holiday id is required");
-    }
-
-    if (isNaN(Number(req.params.id))) {
-      return badRequest(res, "Holiday id must be a number");
-    }
-
-    const holiday = await Holiday.findOne({
-      where: { id: req.params.id, userId: userData.userId },
-    });
-
-    if (!holiday) {
-      return badRequest(res, "Holiday not found");
-    }
-
-    createSuccess(res, "Holiday fetched successfully", holiday);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
+// Holiday CRUD (addHoliday/updateHoliday/getHoliday/getHolidayById) has
+// moved to src/modules/holiday/ — see holiday.controller.ts/service.ts/
+// repository.ts. Routes are mounted from server.ts, same URL paths as
+// before, so nothing outside this file changed.
 
 
 
@@ -6106,283 +3234,14 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
 };
 
 
-export const addLeave = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
+// addLeave/getLeave/getLeaveById/updateLeave (CompanyLeave leave-type
+// policy CRUD) have moved to src/modules/leave/ — see leave.controller.ts/
+// service.ts/repository.ts. Routes are mounted from server.ts, same URL
+// paths as before.
 
 
-
-    if (!userData || !userData.userId) {
-      badRequest(res, "Unauthorized request");
-      return;
-    }
-
-    const { leaveTypes, companyId, branchId } = req.body;
-
-    // 🔍 Validation
-    if (!Array.isArray(leaveTypes) || leaveTypes.length === 0) {
-      badRequest(res, "leaveTypes array is required");
-      return;
-    }
-
-    if (!companyId) {
-      badRequest(res, "Company ID is required");
-      return;
-    }
-
-    if (!branchId) {
-      badRequest(res, "Branch ID is required");
-      return;
-    }
-
-    // ✅ Prepare bulk data
-    const leaveData = leaveTypes.map((leave: any) => {
-      if (!leave.leaveName || !leave.leaveCode || !leave.leavesPerYear) {
-        throw new Error("leaveName, leaveCode, leavesPerYear are required in each item");
-      }
-
-      return {
-        leaveName: String(leave.leaveName),
-        leaveCode: String(leave.leaveCode),
-        leavesPerYear: Number(leave.leavesPerYear),
-        carryForward: Boolean(leave.carryForward),
-        carryForwardLimit: Number(leave.carryForwardLimit || 0),
-        managerApproval: Boolean(leave.managerApproval),
-        companyId: Number(companyId),
-        branchId: Number(branchId),
-        userId: Number(userData.userId),
-        compOffBalance: Number(leave.compOffBalance || 0),
-        casualLeaveBalance: Number(leave.casualLeaveBalance || 0),
-        sickLeaveBalance: Number(leave.sickLeaveBalance || 0),
-      };
-    });
-
-    // ✅ Bulk insert
-    const leaves = await CompanyLeave.bulkCreate(leaveData);
-
-    createSuccess(res, "Leaves added successfully", leaves);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getLeave = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      badRequest(res, "Unauthorized request");
-      return;
-    }
-    // ✅ Query params
-    const {
-      page = "1",
-      limit = "10",
-      search = "",
-      leaveCode,
-      companyId,
-      branchId,
-      managerApproval,
-    } = req.query;
-
-    const pageNumber = Number(page);
-    const pageSize = Number(limit);
-    const offset = (pageNumber - 1) * pageSize;
-
-    // ✅ Base filter
-    const whereCondition: any = {
-      userId: Number(userData.userId),
-    };
-
-    // ✅ Search (leaveName / leaveCode)
-    if (search) {
-      whereCondition[Op.or] = [
-        { leaveName: { [Op.like]: `%${search}%` } },
-        { leaveCode: { [Op.like]: `%${search}%` } },
-      ];
-    }
-
-    // ✅ Filters
-    if (leaveCode) {
-      whereCondition.leaveCode = leaveCode;
-    }
-
-    if (companyId) {
-      whereCondition.companyId = Number(companyId);
-    }
-
-    if (branchId) {
-      whereCondition.branchId = Number(branchId);
-    }
-
-    if (managerApproval !== undefined) {
-      whereCondition.managerApproval = managerApproval === "true";
-    }
-
-    // ✅ Query with count
-    const { rows, count } = await CompanyLeave.findAndCountAll({
-      where: whereCondition,
-      limit: pageSize,
-      offset,
-      order: [["createdAt", "DESC"]],
-    });
-
-    // ✅ Response
-    createSuccess(res, "Leaves fetched successfully", {
-      total: count,
-      currentPage: pageNumber,
-      totalPages: Math.ceil(count / pageSize),
-      data: rows,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const getLeaveById = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      badRequest(res, "Unauthorized request");
-      return;
-    }
-
-    const { id } = req.params || {};
-
-    if (!id) {
-      badRequest(res, "Leave ID is required");
-      return;
-    }
-
-    const leave = await CompanyLeave.findOne({
-      where: {
-        id: Number(id),
-        userId: Number(userData.userId),
-      },
-    });
-
-    if (!leave) {
-      badRequest(res, "Leave not found");
-      return;
-    }
-    createSuccess(res, "Leave fetched successfully", leave);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const updateLeave = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      badRequest(res, "Unauthorized request");
-      return;
-    }
-
-    const { id } = req.params || {};
-
-    if (!id) {
-      badRequest(res, "Leave ID is required");
-      return;
-    }
-
-    const leave = await CompanyLeave.findOne({
-      where: {
-        id: Number(id),
-        userId: Number(userData.userId),
-      },
-    });
-
-    if (!leave) {
-      badRequest(res, "Leave not found");
-      return;
-    }
-
-    const {
-      leaveName,
-      leaveCode,
-      leavesPerYear,
-      carryForward,
-      carryForwardLimit,
-      managerApproval,
-      compOffBalance,
-      casualLeaveBalance,
-      sickLeaveBalance,
-    } = req.body;
-
-    if (leaveName !== undefined) leave.leaveName = String(leaveName);
-    if (leaveCode !== undefined) leave.leaveCode = String(leaveCode);
-    if (leavesPerYear !== undefined) leave.leavesPerYear = Number(leavesPerYear);
-    if (carryForward !== undefined) leave.carryForward = Boolean(carryForward);
-    if (carryForwardLimit !== undefined) leave.carryForwardLimit = Number(carryForwardLimit);
-    if (managerApproval !== undefined) leave.managerApproval = Boolean(managerApproval);
-    if (compOffBalance !== undefined) leave.compOffBalance = Number(compOffBalance);
-    if (casualLeaveBalance !== undefined) leave.casualLeaveBalance = Number(casualLeaveBalance);
-    if (sickLeaveBalance !== undefined) leave.sickLeaveBalance = Number(sickLeaveBalance);
-
-    await leave.save();
-
-    createSuccess(res, "Leave updated successfully", leave);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-};
-
-
-export const addCompanyBank = async (req: Request, res: Response) => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-    if (!userData || !userData.userId) {
-      return badRequest(res, "Unauthorized request");
-    }
-
-    const { companyId, banks } = req.body;
-
-    if (!companyId) {
-      return badRequest(res, "companyId is required");
-    }
-
-    if (!Array.isArray(banks) || banks.length === 0) {
-      return badRequest(res, "banks array is required");
-    }
-
-    const bankData = banks.map((b: any) => ({
-      companyId: Number(companyId),
-      branchId: b.branchId ? Number(b.branchId) : null, // ✅ optional
-      userId: Number(userData.userId),
-
-      bankAccountHolder: b.bankAccountHolder,
-      bankName: b.bankName,
-      bankAccountNumber: b.bankAccountNumber,
-      bankIfsc: b.bankIfsc,
-      bankBranchName: b.bankBranchName || null,
-      bankAccountType: b.bankAccountType || null,
-      bankMicr: b.bankMicr || null,
-      upiId: b.upiId || null,
-    }));
-
-    const result = await CompanyBank.bulkCreate(bankData);
-
-    return createSuccess(res, "Bank details added successfully", result);
-  } catch (error) {
-    return badRequest(res, "Error adding bank details", error);
-  }
-};
-
+// addCompanyBank has moved to src/modules/company/ — see
+// company.controller.ts/service.ts/repository.ts.
 
 
 
@@ -8180,99 +5039,5 @@ export const assignAdmin = async(req:Request, res:Response):Promise<void>=>{
   }
 }
 
-export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { email, tenantId } = req.body || {};
-
-    if (!email) {
-      badRequest(res, "Email is missing");
-      return;
-    }
-
-    const loginTenantId = tenantId ? Number(tenantId) : null;
-    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
-
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    user.otp = otp;
-    user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-    await user.save();
-
-    createSuccess(res, "OTP sent to your email");
-
-    forgotpassword("Password Reset OTP", otp, user.email);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const verifyOtp = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { email, otp, tenantId } = req.body || {};
-
-    if (!email || !otp) {
-      badRequest(res, "Email and OTP are required");
-      return;
-    }
-
-    const loginTenantId = tenantId ? Number(tenantId) : null;
-    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
-
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
-
-    if (user.otp !== otp) {
-      badRequest(res, "Invalid OTP");
-      return;
-    }
-
-    if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
-      badRequest(res, "OTP has expired");
-      return;
-    }
-
-    user.otp = null;
-    user.otpExpiry = null;
-    await user.save();
-
-    createSuccess(res, "OTP verified successfully");
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const changePassword = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { email, newPassword, tenantId } = req.body || {};
-
-    if (!email || !newPassword) {
-      badRequest(res, "Email and new password are required");
-      return;
-    }
-
-    const loginTenantId = tenantId ? Number(tenantId) : null;
-    const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
-
-    if (!user) {
-      badRequest(res, "User not found");
-      return;
-    }
-
-    user.set("password", newPassword);
-    await user.save();
-
-    createSuccess(res, "Password changed successfully");
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
+// forgotPassword/verifyOtp/changePassword have moved to src/modules/auth/
+// — see auth.controller.ts/service.ts/repository.ts.

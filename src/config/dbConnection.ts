@@ -1,6 +1,12 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+// Validates required DB_*/JWT_SECRET env vars before this module builds its
+// Sequelize connection — every entry point that imports dbConnection (the
+// server, and the standalone scripts in src/scripts/) gets this check for
+// free, instead of each one needing to remember to run it first.
+import { DB_HOST, DB_PORT, DB_NAME, DB_USER_NAME, DB_PASSWORD } from "./env";
+
 import { Sequelize } from "sequelize";
 const env = process.env;
 
@@ -30,6 +36,7 @@ import { Quotations } from "../app/model/quotations";
 
 import { CompanyModell } from "../app/model/company";
 import { CompanyManagerModel } from "../app/model/companyManager";
+import { CompanyAdminModel } from "../app/model/companyAdmin";
 import { BranchModel } from "../app/model/branch";
 import { ShiftModel } from "../app/model/Shift";
 import { DepartmentModel } from "../app/model/department";
@@ -37,6 +44,7 @@ import { HolidayModel } from "../app/model/holiday";
 
 import { CompanyLeave } from "../app/model/Leave";
 import { EmployeeLeaveBalance } from "../app/model/EmployeeLeaveBalance";
+import { EmployeeLeaveTypeBalance } from "../app/model/EmployeeLeaveTypeBalance";
 
 import { CompanyBankModel } from "../app/model/bank";
 
@@ -55,16 +63,20 @@ import { Task } from "../app/model/task";
 import { TaskHistory } from "../app/model/taskHistory";
 
 // ===== SEQUELIZE INIT =====
+// DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
+// this point — env.ts (imported above) exits the process if any are missing,
+// so there's no silent "default_db"/"default_user" fallback to mask a
+// misconfigured environment.
 const sequelize = new Sequelize(
-  env.DB_NAME || "default_db",
-  env.DB_USER_NAME || "default_user",
-  env.DB_PASSWORD || "default_password",
+  DB_NAME,
+  DB_USER_NAME,
+  DB_PASSWORD,
   {
-    host: env.DB_HOST,
-    port: Number(env.DB_PORT) || 5432,
+    host: DB_HOST,
+    port: Number(DB_PORT),
     dialect: "postgres",
     logging: false,
-    ...(env.DB_HOST !== "127.0.0.1" && env.DB_HOST !== "localhost"
+    ...(DB_HOST !== "127.0.0.1" && DB_HOST !== "localhost"
       ? {
           dialectOptions: {
             ssl: {
@@ -114,6 +126,7 @@ Quotations.initModel(sequelize);
 // Company Structure
 const Company = CompanyModell(sequelize);
 const CompanyManager = CompanyManagerModel(sequelize);
+const CompanyAdmin = CompanyAdminModel(sequelize);
 const Branch = BranchModel(sequelize);
 
 const Department = DepartmentModel(sequelize);
@@ -122,6 +135,7 @@ const Shift = ShiftModel(sequelize);
 
 CompanyLeave.initModel(sequelize);
 EmployeeLeaveBalance.initModel(sequelize);
+EmployeeLeaveTypeBalance.initModel(sequelize);
 
 const CompanyBank = CompanyBankModel(sequelize);
 
@@ -166,6 +180,19 @@ Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
 User.hasMany(EmployeeLeaveBalance, { foreignKey: "employeeId", as: "leaveBalances" });
 EmployeeLeaveBalance.belongsTo(User, { foreignKey: "employeeId", as: "employee" });
+
+// Dynamic per-company-configured-leave-type balances (replaces the fixed
+// casual/sick/paid columns above for anything driven by CompanyLeave).
+User.hasMany(EmployeeLeaveTypeBalance, { foreignKey: "employeeId", as: "leaveTypeBalances" });
+EmployeeLeaveTypeBalance.belongsTo(User, { foreignKey: "employeeId", as: "employee" });
+CompanyLeave.hasMany(EmployeeLeaveTypeBalance, { foreignKey: "companyLeaveId", as: "balances" });
+EmployeeLeaveTypeBalance.belongsTo(CompanyLeave, { foreignKey: "companyLeaveId", as: "leaveType" });
+
+// Which configured leave type an Attendance/Leave-request row was granted under.
+Attendance.belongsTo(CompanyLeave, { foreignKey: "companyLeaveId", as: "leaveType" });
+CompanyLeave.hasMany(Attendance, { foreignKey: "companyLeaveId", as: "attendanceRows" });
+Leave.belongsTo(CompanyLeave, { foreignKey: "companyLeaveId", as: "leaveTypeRef" });
+CompanyLeave.hasMany(Leave, { foreignKey: "companyLeaveId", as: "leaveRequests" });
 
 // Expense
 User.hasMany(Expense, { foreignKey: "userId" });
@@ -242,6 +269,12 @@ User.belongsToMany(Company, { through: CompanyManager, as: "managedCompanies", f
 CompanyManager.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 CompanyManager.belongsTo(User, { foreignKey: "managerId", as: "manager" });
 
+// Many-to-many: an admin can administer multiple companies, a company can have multiple admins
+Company.belongsToMany(User, { through: CompanyAdmin, as: "admins", foreignKey: "companyId", otherKey: "adminId" });
+User.belongsToMany(Company, { through: CompanyAdmin, as: "administeredCompanies", foreignKey: "adminId", otherKey: "companyId" });
+CompanyAdmin.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+CompanyAdmin.belongsTo(User, { foreignKey: "adminId", as: "admin" });
+
 Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
 Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
@@ -263,6 +296,15 @@ Holiday.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
 Company.hasMany(Shift, { foreignKey: "companyId", as: "shifts" });
 Shift.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+
+// Per-employee shift/department assignment — needed so the attendance
+// engine can resolve "this employee's assigned shift" instead of using a
+// hardcoded default for everyone (see AttendancePunchIn/PunchOut).
+User.belongsTo(Shift, { foreignKey: "shiftId", as: "shift" });
+Shift.hasMany(User, { foreignKey: "shiftId", as: "employees" });
+
+User.belongsTo(Department, { foreignKey: "departmentId", as: "department" });
+Department.hasMany(User, { foreignKey: "departmentId", as: "employees" });
 
 Company.hasMany(CompanyLeave, { foreignKey: "companyId", as: "companyLeaves" });
 CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
@@ -1038,12 +1080,14 @@ export {
   Quotations,
   Company,
   CompanyManager,
+  CompanyAdmin,
   Branch,
   Shift,
   Department,
   Holiday,
   CompanyLeave,
   EmployeeLeaveBalance,
+  EmployeeLeaveTypeBalance,
   CompanyBank,
   Invoices,
   RecordSales,

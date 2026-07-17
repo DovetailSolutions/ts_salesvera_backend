@@ -48,7 +48,7 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
-import { LEAVE_BALANCE_FIELDS, countLeaveDays } from "./admin";
+import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance } from "../../modules/leave/leave.service";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -1371,224 +1371,14 @@ export const getCategory = async (
   }
 };
 
-export const AttendancePunchIn = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const finalUserId = userData?.userId;
-
-    const { punch_in, latitude_in, longitude_in } = req.body || {};
-
-    if (!punch_in) {
-      badRequest(res, "Punch-in time is required");
-      return;
-    }
-
-    const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
-
-    // 1) ✅ Check if already have an active session (status: present)
-    const activeSession = await Attendance.findOne({
-      where: {
-        employee_id: finalUserId,
-        status: "present",
-      },
-    });
-
-    if (activeSession) {
-      badRequest(res, "You have already punched-in. Please punch-out first.");
-      return;
-    }
-
-    // 2) ✅ Check if this is the first punch of the day to determine "late" status
-    const existingRecordsForToday = await Attendance.findOne({
-      where: {
-        employee_id: finalUserId,
-        date: today,
-      },
-    });
-
-    let late = false;
-    if (!existingRecordsForToday) {
-      const officeTime = new Date(`${today} 09:30:00`);
-      const punchInTime = new Date(punch_in);
-      if (punchInTime > officeTime) {
-        late = true;
-      }
-    }
-
-    // 3) ✅ Create attendance record
-    const punchInTime = new Date(punch_in);
-    const obj: any = {
-      employee_id: finalUserId,
-      date: today,
-      punch_in: punchInTime,
-      status: "present",
-      late,
-      latitude_in,
-      longitude_in,
-    };
-
-    const item = await Attendance.create(obj);
-
-    createSuccess(res, "Punch-in recorded successfully", item);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
-  }
-};
-
-// Derived from a punch-out session's working_hours: <3h is a short_leave-worthy
-// day, 3-9h counts as a half_day, 9h+ is a full working day.
-export const getDayTypeFromWorkingHours = (
-  workingHours: number
-): "full_day" | "half_day" | "short_leave" => {
-  if (workingHours < 3) return "short_leave";
-  if (workingHours < 9) return "half_day";
-  return "full_day";
-};
-
-export const AttendancePunchOut = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const finalUserId = userData?.userId;
-    const { punch_out, AttendanceId, latitude_out, longitude_out } =
-      req.body || {};
-
-    if (!punch_out) {
-      badRequest(res, "Punch-out time is required");
-      return;
-    }
-
-    // Find the current active session
-    let whereClause: any = {
-      employee_id: finalUserId,
-      status: "present",
-    };
-
-    // Use specific ID if provided, otherwise find latest active
-    if (AttendanceId) {
-      whereClause.id = AttendanceId;
-    }
-
-    const attendance = await Attendance.findOne({
-      where: whereClause,
-      order: [["id", "DESC"]],
-    });
-
-    if (!attendance) {
-      badRequest(res, "No active punch-in record found. Please punch-in first.");
-      return;
-    }
-
-    const punchInTime = new Date(attendance.punch_in as Date);
-    const punchOutTime = new Date(punch_out);
-
-    if (punchOutTime < punchInTime) {
-      badRequest(res, "Punch-out must be after punch-in");
-      return;
-    }
-
-    // ✅ Calculate working hours for this session
-    const diffMs = punchOutTime.getTime() - punchInTime.getTime();
-    const workingHours = diffMs / (1000 * 60 * 60); // ms → hours
-    const workingHoursRounded = Number(workingHours.toFixed(2));
-
-    // ✅ Overtime calculation (Standard 8h)
-    const officeHours = 8;
-    const overtime =
-      workingHoursRounded > officeHours
-        ? Number((workingHoursRounded - officeHours).toFixed(2))
-        : 0;
-
-    // ✅ Update session to closed (status: out)
-    attendance.punch_out = punchOutTime;
-    attendance.working_hours = workingHoursRounded;
-    attendance.overtime = overtime;
-    attendance.latitude_out = latitude_out;
-    attendance.longitude_out = longitude_out;
-    attendance.status = "out";
-    attendance.dayType = getDayTypeFromWorkingHours(workingHoursRounded);
-    await attendance.save();
-
-    createSuccess(res, "Punch-out recorded successfully", attendance);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
-  }
-};
-
-export const getTodayAttendance = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-    const finalUserId = userData?.userId;
-
-    // const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
-
-    const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
-
-    const record = await Attendance.findOne({
-      where: {
-        employee_id: finalUserId,
-        date: today,
-      },
-      order: [["id", "DESC"]], // Get latest entry
-    });
-
-    if (!record) {
-      badRequest(res, "No attendance found for today");
-      return;
-    }
-
-    createSuccess(res, "Today attendance fetched successfully", record);
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
-
-export const AttendanceList = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
-
-
-    console.log("============= USER DATA =============", userData);
-    const finalUserId = userData?.userId;
-    const data = req.query;
-
-    const { data: attendanceRows, pagination } = await Middleware.withuserlogin(
-      Attendance,
-      finalUserId,
-      data
-    );
-    res.status(200).json({
-      success: true,
-      message: "Attendance list fetched successfully",
-      data: attendanceRows,
-      pagination,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-    return;
-  }
-};
+// ── Haversine straight-line distance in meters between two lat/lng points ──
+// (Used for geofencing — a fast, offline check; unlike the Google
+// Distance-Matrix-based getDistance() in middlewear/comman.ts used for
+// meeting travel tracking, this doesn't need road distance or an API call.)
+// AttendancePunchIn/getDayTypeFromWorkingHours/AttendancePunchOut/
+// getTodayAttendance/AttendanceList have moved to src/modules/attendance/ —
+// see attendance.controller.ts/service.ts/repository.ts. (Dropped a leftover
+// debug console.log of the full userData object while moving AttendanceList.)
 
 export const requestLeave = async (
   req: Request,
@@ -1598,7 +1388,7 @@ export const requestLeave = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    const { from_date, to_date, reason, leave_type } = req.body || {};
+    const { from_date, to_date, reason, leave_type, companyLeaveId } = req.body || {};
 
     // --------------------
     // ✅ Basic Validation
@@ -1654,27 +1444,63 @@ export const requestLeave = async (
     // --------------------
     // ✅ Leave Balance Validation & Deduction
     // Balance is consumed as soon as leave is requested (not just on approval),
-    // and restored if the admin later rejects it.
+    // and restored if the admin later rejects it. Prefers the dynamic
+    // per-company-configured-type balance (companyLeaveId) when the caller
+    // supplies one; falls back to the old fixed casual/sick/paid columns for
+    // callers that only ever send the leave_type enum (e.g. older clients).
     // --------------------
-    const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
     const days = countLeaveDays(from, to);
     const year = from.getFullYear();
     let balance: any = null;
+    let typeBalance: any = null;
+    let resolvedCompanyLeaveId: number | null = null;
 
-    if (balanceField) {
-      balance = await EmployeeLeaveBalance.findOne({
-        where: { employeeId: finalUserId, year },
+    if (companyLeaveId) {
+      const leaveTypeRow = await CompanyLeave.findOne({
+        where: { id: Number(companyLeaveId), companyId: userData?.companyId },
       });
+      if (!leaveTypeRow) {
+        badRequest(res, "companyLeaveId is not a leave type configured for your company");
+        return
+      }
+      resolvedCompanyLeaveId = leaveTypeRow.id;
 
-      const allocated = balance ? (balance as any)[balanceField.allocated] || 0 : 0;
-      const used = balance ? (balance as any)[balanceField.used] || 0 : 0;
+      // Same lazy carry-forward resolution used by the admin balance-assign/
+      // view endpoints (leave.service.ts) — the first time this employee's
+      // balance for this type/year is touched, any unused days from last
+      // year roll in (capped at the type's own carryForwardLimit) before the
+      // request is checked against it.
+      typeBalance = await resolveLeaveTypeBalance(finalUserId, leaveTypeRow as any, year, finalUserId);
 
-      if (!balance || allocated - used < days) {
+      const allocated = (typeBalance as any).allocated || 0;
+      const carriedForward = (typeBalance as any).carriedForward || 0;
+      const used = (typeBalance as any).used || 0;
+      const remaining = allocated + carriedForward - used;
+
+      if (remaining < days) {
         badRequest(
           res,
-          `Insufficient ${leave_type} leave balance (requested ${days} day(s), remaining ${allocated - used})`
+          `Insufficient ${(leaveTypeRow as any).leaveName} balance (requested ${days} day(s), remaining ${remaining})`
         );
         return
+      }
+    } else {
+      const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
+      if (balanceField) {
+        balance = await EmployeeLeaveBalance.findOne({
+          where: { employeeId: finalUserId, year },
+        });
+
+        const allocated = balance ? (balance as any)[balanceField.allocated] || 0 : 0;
+        const used = balance ? (balance as any)[balanceField.used] || 0 : 0;
+
+        if (!balance || allocated - used < days) {
+          badRequest(
+            res,
+            `Insufficient ${leave_type} leave balance (requested ${days} day(s), remaining ${allocated - used})`
+          );
+          return
+        }
       }
     }
 
@@ -1687,13 +1513,18 @@ export const requestLeave = async (
       to_date: to,
       reason,
       status: "pending",
-      leave_type
-    });
+      leave_type,
+      companyLeaveId: resolvedCompanyLeaveId,
+    } as any);
 
     // --------------------
     // ✅ Deduct leave balance immediately upon request
     // --------------------
-    if (balanceField && balance) {
+    if (typeBalance) {
+      (typeBalance as any).used = ((typeBalance as any).used || 0) + days;
+      await typeBalance.save();
+    } else if (balance) {
+      const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
       const used = (balance as any)[balanceField.used] || 0;
       (balance as any)[balanceField.used] = used + days;
       await balance.save();
@@ -1717,6 +1548,7 @@ export const requestLeave = async (
           employee_id: finalUserId,
           date,
           status: "leave",
+          companyLeaveId: resolvedCompanyLeaveId,
         })) as any
       );
     }

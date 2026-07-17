@@ -12,6 +12,11 @@ interface AttendanceAttributes {
   dayType?: "full_day" | "half_day" | "short_leave" | null;
   late?: boolean;
   overtime?: number | null;
+  // Which of the company's configured leave types (CompanyLeave) this row's
+  // leave/leaveApproved status was granted under, e.g. so a "Comp Leave" day
+  // can be told apart from a "Sick Leave" day instead of collapsing to the
+  // same generic leaveApproved status. Null for non-leave rows.
+  companyLeaveId?: number | null;
 
   latitude_in?: string | null;
   longitude_in?: string | null;
@@ -50,6 +55,7 @@ export class Attendance
   public dayType!: "full_day" | "half_day" | "short_leave" | null;
   public late!: boolean;
   public overtime!: number | null;
+  public companyLeaveId!: number | null;
 
   public latitude_in!: string | null;
   public longitude_in!: string | null;
@@ -99,6 +105,10 @@ export class Attendance
         },
         overtime: {
           type: DataTypes.FLOAT,
+          allowNull: true,
+        },
+        companyLeaveId: {
+          type: DataTypes.INTEGER,
           allowNull: true,
         },
         latitude_in: {
