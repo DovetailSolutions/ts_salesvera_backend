@@ -1,5 +1,5 @@
-Staff Name,Employee ID,Job Title,2026-07-06,2026-07-07,2026-07-08,2026-07-09,2026-07-10
-Indar Singh,224,Sales Executive,present,present,Sick Leave,Week Off,present
-Anuj Choudhary,263,Sales Executive,present,half_day,absent,Casual Leave,present
-External Staff,EMP001,Content Writer,present,present,present,present,present
-Unknown User,999999,Sales Executive,absent,absent,absent,absent,absent
+Staff Name,Employee ID,Job Title,2026-07-06,2026-07-07,2026-07-08,2026-07-09,2026-07-10,2026-07-11,2026-07-12
+Indar Singh,224,Sales Executive,present,present,Sick Leave,Week Off,present,09:15,09:05 AM
+Anuj Choudhary,263,Sales Executive,present,half_day,absent,Casual Leave,present,9:45,
+External Staff,EMP001,Content Writer,present,present,present,present,present,present,present
+Unknown User,999999,Sales Executive,absent,absent,absent,absent,absent,absent,absent
