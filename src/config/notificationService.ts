@@ -1,7 +1,16 @@
 import { Server } from "socket.io";
 import { Notification, NotificationType } from "../app/model/Notification";
-import { Device } from "../config/dbConnection";
+import { Device, User } from "../config/dbConnection";
 import { sendPushNotification } from "./Notification";
+
+// Only these three types are individually mutable (Settings module's "My
+// Preferences" tab) — system/other notifications (security/account alerts)
+// always go through regardless of preference.
+const MUTABLE_TYPE_COLUMN: Partial<Record<NotificationType | string, "notifyChat" | "notifyTask" | "notifyMeeting">> = {
+  [NotificationType.CHAT]: "notifyChat",
+  [NotificationType.TASK]: "notifyTask",
+  [NotificationType.MEETING]: "notifyMeeting",
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 📡  Socket.io instance registry
@@ -75,6 +84,16 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
   const receiverId = Number(payload.receiverId);
 
   try {
+    // 0️⃣ Respect the receiver's mute preference, if this type is mutable —
+    // skipped entirely (not persisted, not delivered) rather than just
+    // silencing real-time delivery, so a muted type doesn't quietly pile up
+    // unread in their notification bell either.
+    const prefColumn = MUTABLE_TYPE_COLUMN[type];
+    if (prefColumn) {
+      const receiver = await User.findByPk(receiverId, { attributes: [prefColumn] });
+      if (receiver && (receiver as any)[prefColumn] === false) return;
+    }
+
     // 1️⃣ Persist to DB
     const notification = await Notification.create({
       receiverId,

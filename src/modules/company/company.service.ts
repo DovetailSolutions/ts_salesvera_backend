@@ -134,6 +134,24 @@ export const getCompanyById = async (id: string, userId: number, role?: string) 
   return company;
 };
 
+// Read-only attendance/leave policy bundle — the Settings module's Company
+// Policy tab (manager: view the rules that apply to their team; admin/user
+// already get the full editable versions of this same data via the other
+// Settings tabs, so this endpoint exists specifically to give manager a
+// legitimate, non-ADMIN_ONLY way to see it). Resolves companyId from the
+// caller's own JWT context rather than taking one as a param — nobody
+// calling this should ever need to look up a DIFFERENT company's policy.
+export const getCompanyPolicy = async (userId: number, role: string | undefined, callerCompanyId: number | null) => {
+  if (!callerCompanyId) throw new ServiceError("No company context — cannot resolve your company's policy");
+
+  const allowed = await hasCompanyAccess(callerCompanyId, userId, role);
+  if (!allowed) throw new ServiceError("You do not have access to this company", 403);
+
+  const company = await CompanyRepo.findCompanyPolicyFields(callerCompanyId);
+  if (!company) throw new ServiceError("Company not found");
+  return company;
+};
+
 export const updateCompany = async (id: string, userId: number, body: any, role?: string) => {
   if (!id) throw new ServiceError("Company id is required");
   if (isNaN(Number(id))) throw new ServiceError("Company id must be a number");
