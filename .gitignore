@@ -7,4 +7,4 @@ package-lock.json
 src/Notigication/*.json
 dist/Notigication/*.json
 .claude
-dist
+distserver_output.txt
