@@ -15,6 +15,12 @@ import bcrypt from "bcrypt";
 // 1. Define the attributes
 interface UserAttributes {
   id?: number;
+  // Human-facing employee code ("EMP00001") — a Postgres GENERATED ALWAYS
+  // column derived from `id` (see schemaExtensions.ts), never set directly.
+  // Used anywhere a person needs to reference/look up an employee by a
+  // memorable code instead of the raw internal id (bulk attendance CSV,
+  // employee tables, etc.) — internal FKs/joins still use `id`.
+  employeeCode?: string;
   firstName?: string;
   lastName?: string;
   email?: string;
@@ -35,6 +41,8 @@ interface UserAttributes {
   tenantId?: number | null; // root "user" id that owns this account's company tree
   lastLoginCompanyId?: number | null; // company the user was active in when they last logged out
   branchId?: number | null;
+  shiftId?: number | null;
+  departmentId?: number | null;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -64,6 +72,7 @@ export class User extends Model<UserAttributes, UserCreationAttributes> {
 type UserCreationAttributes = Optional<
   UserAttributes,
   | "id"
+  | "employeeCode"
   | "firstName"
   | "lastName"
   | "email"
@@ -81,6 +90,8 @@ type UserCreationAttributes = Optional<
   | "tenantId"
   | "lastLoginCompanyId"
   | "branchId"
+  | "shiftId"
+  | "departmentId"
 >;
 
 // 3. Define the Model Instance
@@ -181,6 +192,23 @@ export const createUserModel = (sequelize: Sequelize) => {
         type: DataTypes.INTEGER,
         allowNull: true,
         defaultValue: null,
+      },
+      shiftId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+      },
+      departmentId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        defaultValue: null,
+      },
+      // Generated column (see schemaExtensions.ts's ensureEmployeeCode) —
+      // Postgres computes/stores this from `id` on every insert, Sequelize
+      // only needs to know it exists to SELECT it back.
+      employeeCode: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
       },
     },
     {

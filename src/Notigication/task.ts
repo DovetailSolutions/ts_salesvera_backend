@@ -1,8 +1,10 @@
 import { Server } from "socket.io";
 import { Op } from "sequelize";
-import { Task, TaskHistory, User, Device, Permission, UserPermission } from "../config/dbConnection";
-import { sendPushNotification } from "../config/Notification";
+import { Task, TaskHistory, User, Permission, UserPermission } from "../config/dbConnection";
 import { getUserPermissionsFromCache } from "../config/permissionCache";
+import { sendNotification } from "../config/notificationService";
+import { NotificationType } from "../app/model/Notification";
+import { getDirectCreator } from "../modules/shared/userHierarchy";
 
 const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
 
@@ -20,24 +22,6 @@ const hasPermission = async (userId: number, companyId: number, role: string, ac
   const perms = await getUserPermissionsFromCache(userId, () => loadUserPermissionsFromDB(userId));
   console.log(">>>>>>>>>>>>>>>>>>>>>hasPermission",hasPermission)
   return perms.has(`task:${action}`);
-};
-
-// ─── Push notification to a user's registered devices ────────────────────────
-const pushToUser = async (
-  userId: number,
-  title: string,
-  body: string,
-  data: Record<string, string> = {}
-) => {
-  try {
-    const devices = await Device.findAll({ where: { userId, isActive: true } });
-    const tokens = devices.map((d: any) => d.deviceToken).filter(Boolean);
-    if (tokens.length > 0) {
-      await sendPushNotification({ token: tokens, title, body, data });
-    }
-  } catch (err) {
-    console.error("task push error:", err);
-  }
 };
 
 // ─── Record a single field change in task_history ────────────────────────────
@@ -147,9 +131,16 @@ export const initTaskSocket = (io: Server): void => {
 
         await logHistory(task.id, uid, "assignedTo", null, assignedTo);
 
-        await pushToUser(Number(assignedTo), "New Task Assigned", `You have a new task: ${title}`, {
-          taskId: String(task.id),
-          type: "task_assigned",
+        // FIX: previously used pushToUser (raw FCM push only) — no DB
+        // Notification row, no bell entry, no real-time "notification"
+        // socket event. sendNotification does all three plus the push.
+        await sendNotification({
+          receiverId: Number(assignedTo),
+          senderId: uid,
+          type: NotificationType.TASK,
+          title: "New Task Assigned",
+          body: `You have a new task: ${title}`,
+          data: { taskId: String(task.id), event: "task_assigned" },
         });
       } catch (err) {
         console.error("createTask socket error:", err);
@@ -158,12 +149,16 @@ export const initTaskSocket = (io: Server): void => {
     });
 
     // ── GET ALL TASKS ────────────────────────────────────────────────────────
-    // client emits: getAllTasks  { status?, priority?, assignedTo?, assignedBy?, page?, limit?, tags? }
+    // client emits: getAllTasks  { status?, priority?, assignedTo?, assignedBy?, page?, limit?, tags?, dateScope? }
+    // dateScope ("today" | "history") only applies when status is exactly
+    // "completed" — lets the board show "done today" vs a separate task
+    // history view without changing default (undated) behavior for every
+    // other query (the main kanban board still fetches all statuses at once).
     socket.on("getAllTasks", async (data = {}) => {
       if (!await hasPermission(uid, companyId, role, "view")) {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
       }
-      const { status, priority, assignedTo, assignedBy, page = 1, limit: limitQ = 20, tags } = data;
+      const { status, priority, assignedTo, assignedBy, page = 1, limit: limitQ = 20, tags, dateScope } = data;
       const pageNum  = Math.max(1, Number(page));
       const limitNum = Math.min(50, Number(limitQ));
       const offset   = (pageNum - 1) * limitNum;
@@ -180,6 +175,14 @@ export const initTaskSocket = (io: Server): void => {
         if (assignedTo && role !== "sale_person") where.assignedTo = Number(assignedTo);
         // admin/super_admin can filter by who created/assigned the task
         if (assignedBy && (role === "admin" || role === "super_admin")) where.assignedBy = Number(assignedBy);
+
+        if (status === "completed" && (dateScope === "today" || dateScope === "history")) {
+          const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+          const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
+          where.completedAt = dateScope === "today"
+            ? { [Op.between]: [startOfToday, endOfToday] }
+            : { [Op.lt]: startOfToday };
+        }
 
         const { count, rows } = await Task.findAndCountAll({
           where,
@@ -212,8 +215,11 @@ export const initTaskSocket = (io: Server): void => {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
       }
       try {
-        //  companyId: Number(companyId)
+        // FIX: previously admin/super_admin had no companyId filter at all
+        // here (only manager/sale_person were scoped) — any admin could
+        // fetch a task belonging to another company by ID.
         const where: any = { id };
+        if (role !== "super_admin") where.companyId = Number(companyId);
         if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
         if (role === "sale_person") where.assignedTo = uid;
 
@@ -244,7 +250,11 @@ export const initTaskSocket = (io: Server): void => {
       const { id, title, description, status, priority, dueDate, assignedTo } = data;
 
       try {
+        // FIX: previously admin/super_admin had no companyId filter here
+        // either — any admin could update a task belonging to another
+        // company by ID.
         const where: any = { id };
+        if (role !== "super_admin") where.companyId = Number(companyId);
         if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
         if (role === "sale_person") where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
 
@@ -292,6 +302,14 @@ export const initTaskSocket = (io: Server): void => {
           if (dueDate !== undefined)     task.dueDate     = dueDate;
         }
 
+        // Track when a task actually became "completed" — distinguishes
+        // "done today" from older completed tasks (task history), which
+        // previously had no way to be told apart at all.
+        if (status !== undefined && status !== prevStatus) {
+          if (status === "completed") task.completedAt = new Date();
+          else if (prevStatus === "completed") task.completedAt = null;
+        }
+
         await task.save();
 
         // Log each changed field
@@ -322,10 +340,40 @@ export const initTaskSocket = (io: Server): void => {
         ) {
           io.to(`task:user:${prevAssignee}`).emit("taskUpdated", payload);
 
-          await pushToUser(Number(assignedTo), "Task Reassigned", `Task updated: ${task.title}`, {
-            taskId: String(task.id),
-            type: "task_updated",
+          await sendNotification({
+            receiverId: Number(assignedTo),
+            senderId: uid,
+            type: NotificationType.TASK,
+            title: "Task Reassigned",
+            body: `Task updated: ${task.title}`,
+            data: { taskId: String(task.id), event: "task_updated" },
           });
+        }
+
+        // Task completed → escalate up the chain: notify whoever assigned
+        // it (if not the completer) and the completer's own direct
+        // manager/admin (sale_person → their manager; manager → their
+        // admin), deduped so the same person never gets notified twice.
+        // Previously no completion notification existed at all.
+        if (status !== undefined && status === "completed" && prevStatus !== "completed") {
+          const recipients = new Set<number>();
+          if (task.assignedBy && Number(task.assignedBy) !== uid) recipients.add(Number(task.assignedBy));
+
+          const directCreator = await getDirectCreator(uid);
+          if (directCreator && directCreator.id !== uid) recipients.add(directCreator.id);
+
+          await Promise.all(
+            Array.from(recipients).map((receiverId) =>
+              sendNotification({
+                receiverId,
+                senderId: uid,
+                type: NotificationType.TASK,
+                title: "Task Completed",
+                body: `"${task.title}" was marked completed.`,
+                data: { taskId: String(task.id), event: "task_completed" },
+              })
+            )
+          );
         }
       } catch (err) {
         console.error("updateTask socket error:", err);

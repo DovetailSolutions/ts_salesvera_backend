@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { Op } from "sequelize";
-import { Attendance } from "./dbConnection";
+import { Attendance, User, Shift, Company } from "./dbConnection";
+import { getDayTypeFromWorkingHours } from "../modules/attendance/attendance.service";
 
 /**
  * ─────────────────────────────────────────────
@@ -42,6 +43,28 @@ export const startCronJobs = () => {
           return;
         }
 
+        // ── Step 1b: Batch-resolve each employee's shift + company, same
+        // "Shift > Company > hardcoded" precedence used by every interactive
+        // attendance endpoint (mark-present, punch-out, bulk upload) — this
+        // job previously always applied overtime with a hardcoded 8h
+        // baseline regardless of whether the company had even enabled
+        // overtime tracking at registration (Company.overtimeAllowed), and
+        // never set dayType at all. Batched (not per-record) to keep this a
+        // fixed number of queries regardless of how many records are missed.
+        const employeeIds = [...new Set(missed.map((r) => r.employee_id))];
+        const employees = await User.findAll({
+          where: { id: { [Op.in]: employeeIds } },
+          attributes: ["id", "shiftId"],
+        });
+        const shiftIdByEmployee = new Map(employees.map((e: any) => [e.id, e.shiftId ?? null]));
+
+        const shiftIds = [...new Set(employees.map((e: any) => e.shiftId).filter((id: any): id is number => !!id))];
+        const shifts = shiftIds.length ? await Shift.findAll({ where: { id: { [Op.in]: shiftIds } } }) : [];
+        const shiftById = new Map(shifts.map((s: any) => [s.id, s]));
+
+        const companyIds = [...new Set(shifts.map((s: any) => s.companyId).filter((id: any): id is number => !!id))];
+        const companies = companyIds.length ? await Company.findAll({ where: { id: { [Op.in]: companyIds } } }) : [];
+        const companyById = new Map(companies.map((c: any) => [c.id, c]));
 
         // ── Step 2: Auto punch-out each record ──
         let successCount = 0;
@@ -75,22 +98,31 @@ export const startCronJobs = () => {
               (diffMs / (1000 * 60 * 60)).toFixed(2)
             );
 
-            // ── Overtime (standard 8h working day) ──
-            const officeHours = 8;
+            const shiftId = shiftIdByEmployee.get(record.employee_id);
+            const shift: any = shiftId ? shiftById.get(shiftId) : null;
+            const company: any = shift?.companyId ? companyById.get(shift.companyId) : null;
+
+            // ── Overtime — only counted if this employee's company actually
+            // opted into overtime tracking at registration; baseline from
+            // their shift's own working hours, falling back to 8h.
+            const officeHours = shift?.workingHours && shift.workingHours > 0 ? shift.workingHours : 8;
+            const overtimeAllowed = company?.overtimeAllowed ?? false;
             const overtime =
-              workingHours > officeHours
+              overtimeAllowed && workingHours > officeHours
                 ? Number((workingHours - officeHours).toFixed(2))
                 : 0;
+            const dayType = getDayTypeFromWorkingHours(workingHours, shift, company);
 
             // ── Update the record ──
             await record.update({
               punch_out: autoPunchOut,
               working_hours: workingHours,
               overtime,
+              dayType,
               status: "out",
             });
 
-         
+
             successCount++;
 
           } catch (recordError) {

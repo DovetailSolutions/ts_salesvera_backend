@@ -9,6 +9,8 @@
     "start": "node dist/server.js",
     "swagger": "ts-node src/config/swagger.ts",
     "migrate:tenantId": "ts-node src/scripts/migrateTenantId.ts",
+    "db:bootstrap:local": "ts-node src/scripts/localDbBootstrap.ts",
+    "db:migrate": "ts-node src/scripts/migrate.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

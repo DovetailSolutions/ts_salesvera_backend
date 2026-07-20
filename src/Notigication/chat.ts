@@ -313,6 +313,7 @@ export const initChatSocket = (io: Server) => {
       async ({ roomId, type = "private", members = [] }) => {
         try {
           let room = await ChatRoom.findOne({ where: { roomId } });
+          const isNewRoom = !room;
 
           // 🔥 Create room if not exists
           if (!room) {
@@ -334,6 +335,24 @@ export const initChatSocket = (io: Server) => {
             where: { chatRoomId: dbRoomId, userId },
           });
 
+          // FIX: previously any caller could join ANY pre-existing room just
+          // by knowing/guessing its roomId — silently becoming a participant
+          // with zero authorization check, then reading its history via
+          // mychats/receiveMessage indefinitely. Only auto-join a brand-new
+          // room (created above), a room the caller is already a member of,
+          // or — for private chats — a room whose id is the deterministic
+          // `${min(a,b)}-${max(a,b)}` pair for the caller's own userId (see
+          // buildRoomId in UserChat.jsx): that's the normal "other party
+          // opens the chat first" case, not an authorization gap.
+          if (!participant && !isNewRoom) {
+            const pairIds = type === "private" ? String(roomId).split("-").map(Number) : [];
+            const isOwnPrivatePair =
+              type === "private" && pairIds.length === 2 && pairIds.every((n) => Number.isInteger(n)) && pairIds.includes(Number(userId));
+            if (!isOwnPrivatePair) {
+              return socket.emit("errorMessage", { error: "You are not a member of this room." });
+            }
+          }
+
           if (!participant) {
             await ChatParticipant.create({
               chatRoomId: dbRoomId,
@@ -341,8 +360,8 @@ export const initChatSocket = (io: Server) => {
             });
           }
 
-          // Group chat → add members
-          if (type === "group" && members.length > 0) {
+          // Group chat → add members (only meaningful when the room was just created)
+          if (isNewRoom && type === "group" && members.length > 0) {
             const bulk = members.map((m: any) => ({
               chatRoomId: dbRoomId,
               userId: m,
@@ -594,6 +613,17 @@ export const initChatSocket = (io: Server) => {
           return socket.emit("errorMessage", { error: "Original message not found" });
         }
 
+        // FIX: previously only the target room's membership was checked —
+        // the caller could forward any message by id (sequential integers,
+        // easily enumerated) regardless of whether they belonged to the
+        // room it originally came from, exfiltrating cross-tenant content.
+        const isSourceParticipant = await ChatParticipant.findOne({
+          where: { chatRoomId: (originalMsg as any).chatRoomId, userId },
+        });
+        if (!isSourceParticipant) {
+          return socket.emit("errorMessage", { error: "You are not a member of the source room" });
+        }
+
         const targetRoom = await ChatRoom.findOne({ where: { roomId: toRoomId } });
         if (!targetRoom) {
           return socket.emit("errorMessage", { error: "Target room not found" });
@@ -672,8 +702,11 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     socket.on("messageToDelete", async (data) => {
       try {
+        // FIX: senderId previously came from the client payload — any caller
+        // could delete another user's message by supplying that user's id.
+        // It must be the authenticated socket's own userId.
         const msg = await Message.findOne({
-          where: { id: data.id, senderId: data.senderId },
+          where: { id: data.id, senderId: userId },
         });
 
         if (!msg) return;
@@ -717,6 +750,21 @@ export const initChatSocket = (io: Server) => {
           where: { roomId: msg.roomId },
           attributes: ["id"],
         });
+
+        // FIX: previously any authenticated socket could read any room's
+        // full message history just by knowing its roomId — no check that
+        // the caller is actually a participant of that room.
+        if (chatRoom) {
+          const isParticipant = await ChatParticipant.findOne({
+            where: { chatRoomId: chatRoom.id, userId },
+            attributes: ["id"],
+          });
+          if (!isParticipant) {
+            io.to(socket.id).emit("mychats", { success: false, error: "You are not a member of this room." });
+            return;
+          }
+        }
+
         const result = await Message.findAndCountAll({
           where: {
             chatRoomId: chatRoom?.id,
@@ -852,9 +900,24 @@ export const initChatSocket = (io: Server) => {
     socket.on("createGroup", async ({ members = [], name = "New Group" }) => {
       try {
 
-
         if (!members || members.length === 0) {
           return socket.emit("createGroup", { error: "Group members are required" });
+        }
+
+        // Tenant isolation: only allow creating a group with users from the
+        // same tenant (mirrors the same check already present in
+        // addGroupMembers — createGroup previously had none at all, so a
+        // crafted socket payload could add users from a different tenant
+        // straight into a brand-new group).
+        const requester = await User.findByPk(userId, { attributes: ["tenantId"] }) as any;
+        if (requester?.tenantId) {
+          const validMembers = await User.findAll({
+            where: { id: { [Op.in]: members }, tenantId: requester.tenantId },
+            attributes: ["id"],
+          }) as any[];
+          if (validMembers.length !== members.length) {
+            return socket.emit("createGroup", { error: "Cannot add users from a different tenant." });
+          }
         }
 
         const newRoomId = uuid();

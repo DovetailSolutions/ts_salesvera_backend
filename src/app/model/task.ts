@@ -14,6 +14,7 @@ interface TaskAttributes {
   assignedBy: number;
   companyId: number;
   tags?: string[]; // Optional field for tags
+  completedAt?: Date | null;
 }
 
 interface TaskCreationAttributes
@@ -33,6 +34,7 @@ export class Task
   public assignedBy!: number;
   public companyId!: number;
   public tags?: string[]; // Optional field for tags
+  public completedAt?: Date | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -81,6 +83,10 @@ export class Task
         companyId: {
           type: DataTypes.INTEGER,
           allowNull: false,
+        },
+        completedAt: {
+          type: DataTypes.DATE,
+          allowNull: true,
         },
       },
       {

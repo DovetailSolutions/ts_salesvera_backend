@@ -1,6 +1,7 @@
 import { Model,FindOptions,Op,WhereOptions  ,Sequelize ,CreationAttributes,Includeable } from "sequelize";
 import jwt from "jsonwebtoken";
 import { User, Category, SubCategory, Meeting } from "../../config/dbConnection";
+import { JWT_SECRET } from "../../config/env";
 import { promises } from "dns";
 import { Mode } from "fs";
 import axios from "axios";
@@ -126,16 +127,16 @@ export const FindByPhone2 = async(model:any,data:any)=>{
 export const CreateToken = (userId: string, role: string, companyId?: string | number | null) => {
   const payload: any = { userId, role };
   if (companyId) payload.companyId = Number(companyId);
-console.log("Creating token with payload:", payload);
+
   const accessToken = jwt.sign(
     payload,
-    process.env.JWT_SECRET || "dovetailPharma",
+    JWT_SECRET,
     { expiresIn: "30d" } // short-lived
   );
 
   const refreshToken = jwt.sign(
     payload,
-    process.env.JWT_SECRET || "dovetailPharma",
+    JWT_SECRET,
     { expiresIn: "60d" } // long-lived
   );
 
@@ -694,8 +695,6 @@ export const withuserlogin = async (
 
     const offset = (Number(page) - 1) * Number(limit);
 
-    console.log("Where Conditions:", whereConditions);
-
     const rows = await model.findAll({
       where: whereConditions,
       include,
@@ -703,8 +702,6 @@ export const withuserlogin = async (
       offset,
       order: [["createdAt", "DESC"]],
     });
-
-    console.log("Rows fetched:", rows);
 
     const count = rows.length;
 
