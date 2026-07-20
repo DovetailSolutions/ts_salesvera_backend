@@ -243,11 +243,9 @@ const getDateFilter = (query: any) => {
 
   if (startDate && endDate) {
     filter[Op.between] = [new Date(startDate), new Date(endDate)];
-  }
-  if (startDate) {
+  } else if (startDate) {
     filter[Op.gte] = new Date(startDate);
-  }
-  if (endDate) {
+  } else if (endDate) {
     filter[Op.lte] = new Date(endDate);
   }
   if (lastDays) {

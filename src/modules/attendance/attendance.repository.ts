@@ -48,8 +48,13 @@ export const findEmployeeAttendancePaginated = (
   dateFilter?: any
 ) =>
   Attendance.findAndCountAll({
+    // FIX: dateFilter's meaningful keys are the Sequelize Op.* Symbols
+    // (Op.between/Op.gte/Op.lte) — Object.keys() only sees string keys, so
+    // this always read as "empty" even when a real date range was built,
+    // silently ignoring startDate/endDate on every call and returning the
+    // employee's entire history instead of just the requested range.
     where:
-      dateFilter && Object.keys(dateFilter).length > 0
+      dateFilter && Reflect.ownKeys(dateFilter).length > 0
         ? { employee_id: employeeId, date: dateFilter }
         : { employee_id: employeeId },
     include: [{ model: CompanyLeave, as: "leaveType", attributes: ["id", "leaveName", "leaveCode"] }],
