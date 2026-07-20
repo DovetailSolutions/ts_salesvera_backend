@@ -73,6 +73,25 @@ export const findCompanyOwnedBy = (id: number | string, userId: number) =>
 export const findCompanyByIdOnly = (id: number | string) =>
   Company.findByPk(id);
 
+// Read-only attendance/leave policy fields only — deliberately excludes
+// legal/financial columns (GST, PAN, registration no, bank details) that a
+// manager reading "the rules that apply to my team" (Settings module's
+// Company Policy tab) shouldn't need or see; that full record stays behind
+// the ADMIN_ONLY getcompany/:id endpoint.
+export const findCompanyPolicyFields = (id: number | string) =>
+  Company.findByPk(id, {
+    attributes: [
+      "id", "companyName",
+      "lateMarkAfter", "autoHalfDayAfter",
+      "geoFencingRequired", "officeLocationRequired", "overtimeAllowed",
+      "companyWorkingDays", "halfSaturday", "altSaturday",
+      "casualHolidaysTotal", "casualHolidaysPerMonth", "casualHolidayNotice",
+      "casualHolidayApprovalRequired", "casualHolidayCarryForward",
+      "casualCarryForwardLimit", "casualCarryForwardExpiry",
+      "compOffMinHours", "compOffExpiryDays", "compOffApprovalRequired",
+    ],
+  });
+
 export const findCompanyOwnedOrAdminBy = (id: number | string, userId: number) =>
   Company.findOne({ where: { id, [Op.or]: [{ adminId: userId }, { userId }] } });
 

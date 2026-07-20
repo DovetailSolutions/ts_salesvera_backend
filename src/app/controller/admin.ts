@@ -53,6 +53,7 @@ import { S3 } from "@aws-sdk/client-s3";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
 import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
+import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
 
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
@@ -736,6 +737,15 @@ export const BulkAddSalePerson = async (
         return;
       }
       resolvedShiftId = Number(shiftId);
+    }
+
+    // Neither given for this batch — default to the company's main branch
+    // (its first-ever registered branch) and its first-ever registered
+    // shift instead of leaving every bulk-created sale person unassigned.
+    if ((resolvedBranchId === null || resolvedShiftId === null) && callerCompanyId) {
+      const defaults = await resolveDefaultBranchAndShift(callerCompanyId);
+      if (resolvedBranchId === null) resolvedBranchId = defaults.branchId;
+      if (resolvedShiftId === null) resolvedShiftId = defaults.shiftId;
     }
 
     let creatorId: number;

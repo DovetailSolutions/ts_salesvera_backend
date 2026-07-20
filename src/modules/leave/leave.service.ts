@@ -74,7 +74,7 @@ const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
 // half_day) — that column is a real Postgres enum and can't grow a value per
 // company, so it's kept only for record-keeping/half-day-detection while the
 // actual balance math always runs off companyLeaveId instead (see below).
-const inferLegacyLeaveTypeEnum = (leaveName: string): string => {
+export const inferLegacyLeaveTypeEnum = (leaveName: string): string => {
   const n = (leaveName || "").toLowerCase();
   if (n.includes("half")) return "half_day";
   if (n.includes("short")) return "short_leave";

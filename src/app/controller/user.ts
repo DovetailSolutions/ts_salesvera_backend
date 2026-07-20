@@ -48,7 +48,7 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
-import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance } from "../../modules/leave/leave.service";
+import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -1388,17 +1388,26 @@ export const requestLeave = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    const { from_date, to_date, reason, leave_type, companyLeaveId } = req.body || {};
+    const { from_date, to_date, reason, companyLeaveId } = req.body || {};
+    let { leave_type } = req.body || {};
 
     // --------------------
     // ✅ Basic Validation
+    // leave_type is only required when companyLeaveId isn't supplied — when
+    // it is, the same best-effort name inference the web admin's on-behalf-of
+    // request endpoint uses (createLeaveRequest in leave.service.ts) derives
+    // it below instead, so mobile clients no longer have to send both.
     // --------------------
-    if (!from_date || !to_date || !reason || !leave_type) {
-      badRequest(res, "from_date, to_date, reason & leave_type are required");
+    if (!from_date || !to_date || !reason) {
+      badRequest(res, "from_date, to_date & reason are required");
+      return
+    }
+    if (!leave_type && !companyLeaveId) {
+      badRequest(res, "leave_type or companyLeaveId is required");
       return
     }
 
-    if (!VALID_LEAVE_TYPES.includes(leave_type)) {
+    if (leave_type && !VALID_LEAVE_TYPES.includes(leave_type)) {
       badRequest(res, `leave_type must be one of: ${VALID_LEAVE_TYPES.join(", ")}`);
       return
     }
@@ -1413,14 +1422,6 @@ export const requestLeave = async (
 
     if (to < from) {
       badRequest(res, "to_date must be after from_date");
-      return
-    }
-
-    // --------------------
-    // ✅ Half-day leave: only valid for a single day
-    // --------------------
-    if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
-      badRequest(res, "half_day leave must have from_date equal to to_date");
       return
     }
 
@@ -1464,6 +1465,7 @@ export const requestLeave = async (
         return
       }
       resolvedCompanyLeaveId = leaveTypeRow.id;
+      if (!leave_type) leave_type = inferLegacyLeaveTypeEnum((leaveTypeRow as any).leaveName);
 
       // Same lazy carry-forward resolution used by the admin balance-assign/
       // view endpoints (leave.service.ts) — the first time this employee's
@@ -1502,6 +1504,16 @@ export const requestLeave = async (
           return
         }
       }
+    }
+
+    // --------------------
+    // ✅ Half-day leave: only valid for a single day
+    // (leave_type is fully resolved by this point — explicit, or derived
+    // from companyLeaveId above)
+    // --------------------
+    if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
+      badRequest(res, "half_day leave must have from_date equal to to_date");
+      return
     }
 
     // --------------------
@@ -1573,6 +1585,13 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
       where: {
         employee_id: finalUserId,
       },
+      // Additive — each row also carries its resolved leave type name/code
+      // (when the request was made against a company-configured type),
+      // same as the web admin's leave list, instead of just the bare
+      // companyLeaveId a mobile client would otherwise have to look up
+      // itself. Alias is "leaveTypeRef" — the Leave model's association
+      // (see dbConnection.ts), distinct from Attendance's "leaveType".
+      include: [{ model: CompanyLeave, as: "leaveTypeRef", attributes: ["id", "leaveName", "leaveCode"] }],
       limit,
       offset,
       order: [["createdAt", "DESC"]],
@@ -1598,38 +1617,97 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
     const year = Number(req.query.year) || new Date().getFullYear();
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
 
-    const balance = await EmployeeLeaveBalance.findOne({
-      where: { employeeId: finalUserId, year },
-    });
+    // Dynamic per-company-configured leave types (Sick Leave, Casual Leave,
+    // Comp Off, or any custom type) — same source the web admin's Leave
+    // Balances tab and Mark Attendance's leave-type picker already read
+    // from. Balance is assigned against THIS system now (assignLeaveBalance
+    // in modules/leave), not the old fixed EmployeeLeaveBalance table below
+    // — that table hasn't been written to by anything all session, so the
+    // legacy casual/sick/paid fields below are now derived from here too
+    // instead of always coming back 0.
+    const leaveTypes = callerCompanyId
+      ? await CompanyLeave.findAll({ where: { companyId: callerCompanyId }, order: [["leaveName", "ASC"]] })
+      : [];
 
-    if (!balance) {
-      createSuccess(res, "No leave balance assigned yet", {
-        year,
-        casual: { allocated: 0, used: 0, remaining: 0 },
-        sick: { allocated: 0, used: 0, remaining: 0 },
-        paid: { allocated: 0, used: 0, remaining: 0 },
+    let leaveTypeBalances: {
+      companyLeaveId: number; leaveName: string; leaveCode: string; leavesPerYear: number;
+      carryForwardAllowed: boolean; carryForwardLimit: number;
+      allocated: number; carriedForward: number; used: number; remaining: number;
+    }[] = [];
+
+    if (leaveTypes.length > 0) {
+      const balanceRows = await Promise.all(
+        leaveTypes.map((lt: any) => resolveLeaveTypeBalance(finalUserId, lt, year, finalUserId))
+      );
+      leaveTypeBalances = leaveTypes.map((lt: any, idx: number) => {
+        const b = balanceRows[idx] as any;
+        const allocated = b?.allocated || 0;
+        const carriedForward = b?.carriedForward || 0;
+        const used = b?.used || 0;
+        return {
+          companyLeaveId: lt.id,
+          leaveName: lt.leaveName,
+          leaveCode: lt.leaveCode,
+          leavesPerYear: lt.leavesPerYear,
+          carryForwardAllowed: !!lt.carryForward,
+          carryForwardLimit: lt.carryForwardLimit || 0,
+          allocated,
+          carriedForward,
+          used,
+          remaining: allocated + carriedForward - used,
+        };
       });
-      return;
+    }
+
+    // Legacy casual/sick/paid fields — kept as-is for older mobile clients
+    // that only ever read these three top-level keys. Best-effort matched
+    // by name against the company's own configured types so they show real
+    // numbers instead of always 0; only falls back to the old fixed table
+    // when this company has no dynamic leave types configured at all (an
+    // account that predates this feature).
+    const matchLegacy = (keyword: string) => leaveTypeBalances.find((b) => b.leaveName.toLowerCase().includes(keyword));
+    const legacyBucket = (keyword: string) => {
+      const match = matchLegacy(keyword);
+      return match
+        ? { allocated: match.allocated + match.carriedForward, used: match.used, remaining: match.remaining }
+        : { allocated: 0, used: 0, remaining: 0 };
+    };
+
+    let legacy = {
+      casual: legacyBucket("casual"),
+      sick: legacyBucket("sick"),
+      paid: legacyBucket("paid"),
+    };
+
+    if (leaveTypes.length === 0) {
+      const balance = await EmployeeLeaveBalance.findOne({ where: { employeeId: finalUserId, year } });
+      legacy = {
+        casual: {
+          allocated: balance?.casualLeaveAllocated || 0,
+          used: balance?.casualLeaveUsed || 0,
+          remaining: (balance?.casualLeaveAllocated || 0) - (balance?.casualLeaveUsed || 0),
+        },
+        sick: {
+          allocated: balance?.sickLeaveAllocated || 0,
+          used: balance?.sickLeaveUsed || 0,
+          remaining: (balance?.sickLeaveAllocated || 0) - (balance?.sickLeaveUsed || 0),
+        },
+        paid: {
+          allocated: balance?.paidLeaveAllocated || 0,
+          used: balance?.paidLeaveUsed || 0,
+          remaining: (balance?.paidLeaveAllocated || 0) - (balance?.paidLeaveUsed || 0),
+        },
+      };
     }
 
     createSuccess(res, "Leave balance fetched successfully", {
-      year: balance.year,
-      casual: {
-        allocated: balance.casualLeaveAllocated,
-        used: balance.casualLeaveUsed,
-        remaining: balance.casualLeaveAllocated - balance.casualLeaveUsed,
-      },
-      sick: {
-        allocated: balance.sickLeaveAllocated,
-        used: balance.sickLeaveUsed,
-        remaining: balance.sickLeaveAllocated - balance.sickLeaveUsed,
-      },
-      paid: {
-        allocated: balance.paidLeaveAllocated,
-        used: balance.paidLeaveUsed,
-        remaining: balance.paidLeaveAllocated - balance.paidLeaveUsed,
-      },
+      year,
+      ...legacy,
+      // NEW — the full per-type breakdown, additive alongside the legacy
+      // fields above so existing clients keep working unchanged.
+      leaveTypes: leaveTypeBalances,
     });
   } catch (error: any) {
     badRequest(res, error?.message || "Something went wrong");

@@ -75,3 +75,20 @@ export const ensureEmployeeCode = async (sequelize: Sequelize): Promise<void> =>
 
   console.log("Employee code ensured (users.employeeCode, generated from id)");
 };
+
+// ============================================================
+// Per-user notification mute preferences — the Settings module's "My
+// Preferences" tab. Only chat/task/meeting are individually mutable;
+// "system"/"other" notifications (e.g. security/account alerts) always go
+// through, so there's no notifySystem/notifyOther column.
+// ============================================================
+export const ensureNotificationPreferences = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    ALTER TABLE "users"
+      ADD COLUMN IF NOT EXISTS "notifyChat" BOOLEAN NOT NULL DEFAULT true,
+      ADD COLUMN IF NOT EXISTS "notifyTask" BOOLEAN NOT NULL DEFAULT true,
+      ADD COLUMN IF NOT EXISTS "notifyMeeting" BOOLEAN NOT NULL DEFAULT true;
+  `);
+
+  console.log("Notification preferences ensured (users.notifyChat/notifyTask/notifyMeeting)");
+};
