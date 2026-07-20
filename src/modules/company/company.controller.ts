@@ -59,6 +59,21 @@ export const getCompanyById = async (req: Request, res: Response): Promise<void>
   }
 };
 
+export const getCompanyPolicy = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const policy = await CompanyService.getCompanyPolicy(Number(userData.userId), userData.role as string | undefined, callerCompanyId);
+    createSuccess(res, "Company policy fetched successfully", policy);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 export const updateCompany = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;

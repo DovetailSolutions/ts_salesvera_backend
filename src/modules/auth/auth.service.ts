@@ -4,6 +4,8 @@ import * as Middleware from "../../app/middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { User } from "../../config/dbConnection";
 import { getAllChildUserIds } from "../shared/userHierarchy";
+import { resolveDefaultBranchAndShift } from "../shared/companyAccess";
+import { resolveCompanyId } from "../../config/tokenCheck";
 import * as AuthRepo from "./auth.repository";
 
 // ============================================================
@@ -88,9 +90,10 @@ export const register = async (body: any, callerData?: { userId?: number | strin
   // super_admin / standalone user creation: no tenantId yet (set after create)
   // All other roles inherit tenantId from their creator's tree
   let resolvedTenantId: number | null = null;
+  let creator: any = null;
 
   if (primaryCreatorId && !isNaN(primaryCreatorId) && role !== "super_admin") {
-    const creator = (await AuthRepo.findUserById(primaryCreatorId, ["id", "role", "tenantId"])) as any;
+    creator = await AuthRepo.findUserById(primaryCreatorId, ["id", "role", "tenantId"]);
 
     if (creator) {
       if (creator.role === "user") {
@@ -114,15 +117,30 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     if (existing) throw new ServiceError(`${role} already exists. Only one ${role} can be created.`);
   }
 
-  const resolvedBranchId =
+  let resolvedBranchId =
     branchId !== undefined && branchId !== null && branchId !== "" && !isNaN(Number(branchId))
       ? Number(branchId)
       : null;
 
-  const resolvedShiftId =
+  let resolvedShiftId =
     shiftId !== undefined && shiftId !== null && shiftId !== "" && !isNaN(Number(shiftId))
       ? Number(shiftId)
       : null;
+
+  // No branch/shift explicitly given — default to the company's main branch
+  // (its first-ever registered branch) and its first-ever registered shift,
+  // resolved via the creator's own company, instead of leaving this employee
+  // unassigned. Silently no-ops (stays null) if the company has neither yet
+  // (e.g. this is the very first user created, before Step 1/3 have run) or
+  // no company context is resolvable at all.
+  if ((resolvedBranchId === null || resolvedShiftId === null) && creator) {
+    const creatorCompanyId = await resolveCompanyId(creator.id, creator.role, null);
+    if (creatorCompanyId) {
+      const defaults = await resolveDefaultBranchAndShift(creatorCompanyId);
+      if (resolvedBranchId === null) resolvedBranchId = defaults.branchId;
+      if (resolvedShiftId === null) resolvedShiftId = defaults.shiftId;
+    }
+  }
 
   const obj: any = {
     email,

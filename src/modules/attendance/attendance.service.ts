@@ -1055,7 +1055,7 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
       Number(branch.latitude),
       Number(branch.longitude)
     );
-    if (distance > Number(branch.geoRadius)) {
+    if (distance > Number(branch.git)) {
       throw new ServiceError(
         `You are ${Math.round(distance)}m away from ${branch.branchName || "your branch"} — must be within ${branch.geoRadius}m to punch in`
       );

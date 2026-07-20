@@ -41,9 +41,14 @@ export const PERMISSION_SEEDS = [
   { module: "chat", action: "read", description: "Read chat messages" },
   { module: "chat", action: "send", description: "Send chat messages" },
 
-  // ── Reports ──────────────────────────────────────────────
+  // ── Reports (Tally proforma/sales — frozen feature) ──────
   { module: "report", action: "view",     description: "View reports" },
   { module: "report", action: "export",   description: "Export reports" },
+
+  // ── Insights (attendance/leave/meeting/KPI download reports —
+  // deliberately a separate module from "report" above, which is fully
+  // owned by the Tally proforma/sales-report feature) ─────
+  { module: "insights", action: "view", description: "View and download attendance/leave/meeting/KPI reports" },
 
   // ── Quotation ────────────────────────────────────────────
   { module: "quotation", action: "view",   description: "View quotations" },

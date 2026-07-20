@@ -11,7 +11,7 @@ import path from "path";
 import http from "http";
 
 import { connectDB, sequelize } from "./config/dbConnection";
-import { ensureLeaveTypeSchema, ensureEmployeeCode } from "./config/schemaExtensions";
+import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences } from "./config/schemaExtensions";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
@@ -26,6 +26,8 @@ import attendanceRoutes from "./modules/attendance/attendance.routes";
 import attendanceSelfRoutes from "./modules/attendance/attendanceSelf.routes";
 import companyRoutes from "./modules/company/company.routes";
 import authRoutes from "./modules/auth/auth.routes";
+import preferencesRoutes from "./modules/preferences/preferences.routes";
+import reportsRoutes from "./modules/reports/reports.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -73,6 +75,8 @@ app.use("/admin", attendanceRoutes);
 app.use("/api", attendanceSelfRoutes);
 app.use("/admin", companyRoutes);
 app.use("/admin", authRoutes);
+app.use("/admin", preferencesRoutes);
+app.use("/admin", reportsRoutes);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
   swaggerOptions: {
@@ -111,6 +115,7 @@ server.listen(PORT, async () => {
   await connectDB();
   await ensureLeaveTypeSchema(sequelize);
   await ensureEmployeeCode(sequelize);
+  await ensureNotificationPreferences(sequelize);
   startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   console.log(`Server is running on http://localhost:${PORT}`);
 });

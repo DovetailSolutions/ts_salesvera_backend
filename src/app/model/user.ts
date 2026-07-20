@@ -43,6 +43,12 @@ interface UserAttributes {
   branchId?: number | null;
   shiftId?: number | null;
   departmentId?: number | null;
+  // Notification mute preferences (Settings module's "My Preferences" tab) —
+  // system/other notifications are never individually mutable, so there's
+  // no notifySystem/notifyOther.
+  notifyChat?: boolean;
+  notifyTask?: boolean;
+  notifyMeeting?: boolean;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -92,6 +98,9 @@ type UserCreationAttributes = Optional<
   | "branchId"
   | "shiftId"
   | "departmentId"
+  | "notifyChat"
+  | "notifyTask"
+  | "notifyMeeting"
 >;
 
 // 3. Define the Model Instance
@@ -209,6 +218,22 @@ export const createUserModel = (sequelize: Sequelize) => {
       employeeCode: {
         type: DataTypes.STRING(20),
         allowNull: true,
+      },
+      // See schemaExtensions.ts's ensureNotificationPreferences.
+      notifyChat: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
+      notifyTask: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
+      notifyMeeting: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
       },
     },
     {
