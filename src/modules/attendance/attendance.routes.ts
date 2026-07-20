@@ -27,5 +27,14 @@ router.post(
 );
 router.get("/user-attendance", tokenCheck, checkPermission("attendance", "view"), AttendanceController.userAttendance);
 router.get("/attendance-book", tokenCheck, checkPermission("attendance", "view"), AttendanceController.AttendanceBook);
+// Excel export of the admin/manager's own team's attendance (childIds only).
+// Query: startDate/endDate (default: current month), userId (optional — one
+// team member instead of the whole team).
+router.get(
+  "/attendance-report/export",
+  tokenCheck,
+  checkPermission("attendance", "view"),
+  AttendanceController.exportAttendanceReport
+);
 
 export default router;

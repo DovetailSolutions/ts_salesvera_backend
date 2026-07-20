@@ -79,6 +79,23 @@ export const AttendanceBook = async (req: Request, res: Response): Promise<void>
   }
 };
 
+export const exportAttendanceReport = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const { buffer, filename } = await AttendanceService.exportAttendanceReportExcel(
+      Number(userData.userId),
+      req.query
+    );
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename=${filename}`,
+    });
+    res.send(buffer);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 export const bulkMarkAttendance = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
