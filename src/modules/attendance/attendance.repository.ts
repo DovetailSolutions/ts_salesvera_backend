@@ -63,6 +63,30 @@ export const findEmployeeAttendancePaginated = (
     order: [["createdAt", "DESC"]],
   });
 
+// Flat attendance rows (one row per day, not the per-employee day-matrix
+// attendanceBook uses) for the team attendance Excel export — joined with
+// the owning employee so the sheet doesn't need a second round-trip per row.
+export const findTeamAttendanceForReport = (params: {
+  employeeIds: number[];
+  dateFilter?: any;
+}) =>
+  Attendance.findAll({
+    where: {
+      employee_id: { [Op.in]: params.employeeIds },
+      ...(params.dateFilter && Reflect.ownKeys(params.dateFilter).length > 0
+        ? { date: params.dateFilter }
+        : {}),
+    },
+    include: [
+      { model: User, as: "user", attributes: ["id", "employeeCode", "firstName", "lastName", "email", "role"] },
+      { model: CompanyLeave, as: "leaveType", attributes: ["id", "leaveName", "leaveCode"] },
+    ],
+    order: [
+      ["employee_id", "ASC"],
+      ["date", "ASC"],
+    ],
+  });
+
 export const findCompanyById = (companyId: number) => Company.findByPk(companyId);
 
 // This company's configured leave types — drives the bulk-upload status

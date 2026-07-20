@@ -352,6 +352,77 @@ export const attendanceBook = async (userId: number, query: any) => {
   };
 };
 
+// Flat, per-day Excel export of an admin/manager's own team's attendance —
+// distinct from attendanceBook's per-employee day-matrix view, this is one
+// row per attendance record so it can be opened directly as a payroll-style
+// register. Scoped to childIds only (never includes the caller's own
+// attendance), same ownership rule as attendanceBook/markAttendancePresent.
+export const exportAttendanceReportExcel = async (loggedInId: number, query: any) => {
+  const childIds = await getAllChildUserIds(loggedInId);
+  if (!childIds.length) {
+    throw new ServiceError("No child users found");
+  }
+
+  let employeeIds = childIds;
+  if (query.userId) {
+    const requestedId = Number(query.userId);
+    if (!childIds.includes(requestedId)) {
+      throw new ServiceError("You can only export attendance of your own team members", 403);
+    }
+    employeeIds = [requestedId];
+  }
+
+  const dateFilter = getDateFilter(query);
+  if (Reflect.ownKeys(dateFilter).length === 0) {
+    // No range given — default to the current calendar month (same default
+    // attendanceBook uses) instead of dumping an employee's entire history.
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    dateFilter[Op.between] = [start, end];
+  }
+
+  const rows = await AttendanceRepo.findTeamAttendanceForReport({ employeeIds, dateFilter });
+
+  const formatClockTime = (value: any): string => {
+    if (!value) return "";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return "";
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
+  const sheetRows = rows.map((row: any) => {
+    const plain = row.get ? row.get({ plain: true }) : row;
+    return {
+      "Employee Code": plain.user?.employeeCode ?? "",
+      "Employee Name": `${plain.user?.firstName ?? ""} ${plain.user?.lastName ?? ""}`.trim(),
+      "Email": plain.user?.email ?? "",
+      "Role": plain.user?.role ?? "",
+      "Date": String(plain.date ?? "").slice(0, 10),
+      "Status": plain.status ?? "",
+      "Leave Type": plain.leaveType?.leaveName ?? "",
+      "Punch In": formatClockTime(plain.punch_in),
+      "Punch Out": formatClockTime(plain.punch_out),
+      "Working Hours": plain.working_hours ?? "",
+      "Day Type": plain.dayType ?? "",
+      "Overtime": plain.overtime ?? "",
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(
+    sheetRows.length ? sheetRows : [{ "No records found for the selected range": "" }]
+  );
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance Report");
+
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+  return {
+    buffer,
+    filename: `attendance-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+  };
+};
+
 // ---- Bulk attendance upload ----
 
 // Keys are space-separated (not snake_case) because normalizeStatusKey folds
