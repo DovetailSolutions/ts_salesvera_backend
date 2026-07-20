@@ -8,6 +8,11 @@ interface LeaveAttributes {
   reason?: string | null;
   status: "pending" | "approved" | "rejected";
   leave_type: "sick" | "casual" | "paid" | "unpaid" |"short_leave" |"half_day";
+  // Which company-configured leave type (CompanyLeave) this request maps to
+  // — lets a request be tied to a specific, possibly custom, configured type
+  // instead of only the fixed leave_type enum above. Null for legacy/mobile
+  // requests that only ever sent the enum value.
+  companyLeaveId?: number | null;
 }
 
 type LeaveCreationAttributes = Optional<
@@ -26,6 +31,7 @@ export class Leave
   public reason!: string | null;
   public status!: "pending" | "approved" | "rejected";
   public leave_type!: "sick" | "casual" | "paid" | "unpaid" |"short_leave" |"half_day";
+  public companyLeaveId!: number | null;
 
   static initModel(sequelize: Sequelize): typeof Leave {
     Leave.init(
@@ -59,6 +65,10 @@ export class Leave
           type: DataTypes.ENUM("pending", "approved", "rejected"),
           allowNull: false,
           defaultValue: "pending",
+        },
+        companyLeaveId: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
         },
       },
       {

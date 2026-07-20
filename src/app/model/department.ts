@@ -9,6 +9,8 @@ interface DepartmentAttributes {
   shiftId?: number;       // FK instead of "Morning shift"
   maxHeadcount: number;
   halfSaturday: boolean;
+  workingDays?: string[] | null;
+  customWorkingDays?: boolean;
   adminId?: number;
   managerId?: number;
   userId?: number;
@@ -30,6 +32,8 @@ export class Department
   public shiftId?: number;
   public maxHeadcount!: number;
   public halfSaturday!: boolean;
+  public workingDays?: string[] | null;
+  public customWorkingDays?: boolean;
   public adminId?: number;
   public managerId?: number;
   public userId?: number;
@@ -75,6 +79,14 @@ export const DepartmentModel = (sequelize: Sequelize) => {
         allowNull: false,
       },
       halfSaturday: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+      },
+      workingDays: {
+        type: DataTypes.JSONB,
+        allowNull: true,
+      },
+      customWorkingDays: {
         type: DataTypes.BOOLEAN,
         defaultValue: false,
       },

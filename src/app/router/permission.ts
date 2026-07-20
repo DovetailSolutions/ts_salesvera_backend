@@ -12,6 +12,11 @@ import * as PermissionController from "../controller/permission";
 const router = Router();
 // ── View all available permissions (permission matrix reference) ──────────
 router.get("/all",tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.getAllPermissions);
+
+// ── Default permission template for a role (registration wizard pre-fill) ──
+// Open to any authenticated role — result is intersected with the caller's
+// own permissions, so it never leaks more than they could already grant.
+router.get("/template/:role", tokenCheck, PermissionController.getPermissionTemplate);
 // ── Fetch users in this company filtered by role (preview before bulk assign) ─
 router.get("/users-by-role", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.getUsersByRole);
 

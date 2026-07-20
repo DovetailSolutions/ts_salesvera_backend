@@ -5,19 +5,13 @@ import { tokenCheck } from "../../config/jwtVerify";
 import { checkPermission, checkInvoiceCreatePermission, checkInvoiceUpdatePermission, checkInvoiceViewPermission } from "../../config/checkPermission";
 import { authorizeRoles, ADMIN_ONLY, ADMIN_AND_MANAGER } from "../middlewear/rbac";
 import getUploadMiddleware from "../../config/fileUploads";
-const profile = getUploadMiddleware("image");
 const meeting = getUploadMiddleware("image");
 const expense = getUploadMiddleware("expense");
 const csv = getUploadMiddleware("csv")
-const attendanceBulk = getUploadMiddleware("attendance-bulk")
 
-
-router.post("/register", AdminController.Register);
-router.post("/login", AdminController.Login);
-router.post("/logout", tokenCheck, AdminController.Logout);
-router.get("/getProfile", tokenCheck, AdminController.GetProfile);
-router.patch("/updateProfile", tokenCheck, profile.single("profile"), AdminController.UpdateProfile);
-router.patch("/updatepassword", tokenCheck, AdminController.UpdatePassword);
+// Auth routes (register/login/logout/getProfile/updateProfile/
+// updatepassword/forgot-password/verify-otp/reset-password) now live in
+// src/modules/auth/, mounted in server.ts — same URL paths as before.
 router.get("/mysaleperson", tokenCheck, AdminController.MySalePerson);
 router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
@@ -28,38 +22,21 @@ router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
 router.post("/bulk-upload",tokenCheck,csv.single("csv"),AdminController.BulkUploads)
 router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), csv.single("csv"), AdminController.BulkAddSalePerson)
-// FIX: attendance view routes require attendance:view permission.
-router.get("/get-attendance", tokenCheck, checkPermission("attendance", "view"), AdminController.getAttendance);
-router.post("/mark-attendance-present", tokenCheck, checkPermission("attendance", "update"), AdminController.markAttendancePresent);
-// Bulk attendance upload (xlsx: one row per employee, one column per date).
-// Matches rows by numeric Employee ID against the admin/manager's own team,
-// and stamps Attendance.status directly per the mapping in bulkMarkAttendance.
-router.post("/bulk-mark-attendance", tokenCheck, checkPermission("attendance", "update"), attendanceBulk.single("file"), AdminController.bulkMarkAttendance);
-// Cancels the given leave (restores balance, flips its Attendance rows to leaveReject)
-// then marks the given date present in one call — needed since mark-attendance-present
-// refuses to overwrite a leave/leaveApproved/leaveReject row directly.
-router.post("/cancel-leave-and-mark-present", tokenCheck, checkPermission("leave", "approve"), checkPermission("attendance", "update"), AdminController.cancelLeaveAndMarkPresent);
-// FIX: approve/reject requires leave:approve; listing all leave requests requires leave:view.
-router.patch("/approved-leave", tokenCheck, checkPermission("leave", "approve"), AdminController.approveLeave);
-router.get("/get-leave-list", tokenCheck, checkPermission("leave", "view"), AdminController.leaveList)
-router.get("/leave-request-today", tokenCheck, checkPermission("leave", "view"), AdminController.getTodayLeaveRequests)
-// Per-employee leave balance: admin/manager assign & view balances for their sale_persons.
-router.post("/assign-leave-balance", tokenCheck, checkPermission("leave", "manage"), AdminController.assignLeaveBalance);
-router.get("/leave-balance-list", tokenCheck, checkPermission("leave", "view"), AdminController.getTeamLeaveBalances);
-router.get("/leave-balance/:employeeId", tokenCheck, checkPermission("leave", "view"), AdminController.getEmployeeLeaveBalance);
+// Attendance routes (get-attendance/mark-attendance-present/
+// bulk-mark-attendance/user-attendance/attendance-book) now live in
+// src/modules/attendance/, mounted in server.ts — same URL paths as before.
+// Leave routes (cancel-leave-and-mark-present/approved-leave/get-leave-list/
+// leave-request-today/assign-leave-balance/leave-balance-list/
+// leave-balance/:employeeId/user-leave/getown-leave/add-leave/get-leave/
+// get-leave/:id/update-leave/:id) now live in src/modules/leave/, mounted
+// in server.ts — same URL paths as before.
 // FIX: expense routes now require explicit permissions.
 router.get("/get-expense",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
 router.get("/admin-manager",tokenCheck,AdminController.test);
 router.patch('/approved-expense', tokenCheck, checkPermission("expense", "approve"), AdminController.UpdateExpense)
-router.get("/user-attendance", tokenCheck, checkPermission("attendance", "view"), AdminController.userAttendance)
-// FIX: viewing a specific user's leave history requires leave:view.
-router.get('/user-leave', tokenCheck, checkPermission("leave", "view"), AdminController.userLeave)
 router.get('/user-expense', tokenCheck, checkPermission("expense", "view"), AdminController.userExpense)
-router.get("/attendance-book", tokenCheck, checkPermission("attendance", "view"), AdminController.AttendanceBook);
 router.post("/create-client", tokenCheck, AdminController.createClient);
 router.post("/assign-meeting", tokenCheck, AdminController.assignMeeting);
-// FIX: admin viewing their own leave requests also requires leave:view.
-router.get("/getown-leave", tokenCheck, checkPermission("leave", "view"), AdminController.ownLeave)
 // FIX: was missing tokenCheck entirely — added both tokenCheck and quotation:create.
 router.post("/add/quotation", tokenCheck, checkPermission("quotation", "create"), AdminController.addQuotation);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -81,51 +58,27 @@ router.get("/downloadquotationpdf/:id", tokenCheck, checkPermission("quotation",
 router.post("/addquotationpdf",         tokenCheck, checkPermission("quotation", "create"), AdminController.addQuotationPdf)
 router.get("/fuel-expense", tokenCheck, AdminController.getMeetingDistance);
 router.get("/get-fuel-expense",tokenCheck,AdminController.getFuelExpense)
-//>>>>>>>>>>>>>>>>>>>>>>>>add company >>>>>>>>>>>>>>>
-router.post("/addcompany",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addCompany);
-router.get("/getcompany",     tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompany);
-router.get("/getcompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompanyById);
-router.patch("/updatecompany/:id",  tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.updateCompany);
-router.post("/assign-company-manager/:id",  tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.assignCompanyManager);
-router.delete("/remove-company-manager",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.removeCompanyManager);
-router.get("/company-managers/:id",         tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.getCompanyManagers);
-router.get("/my-companies",    tokenCheck, AdminController.getMyCompanies);
-router.post("/switch-company", tokenCheck, AdminController.switchCompany);
-router.delete("/deletecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.deleteCompany);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-router.post("/addbranch",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addBranch);
-router.get("/getbranch",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getBranch);
-router.get("/getbranch/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getBranchById);
-// router.patch("/updatebranch/:id",tokenCheck,AdminController.updateBranch);
-// router.delete("/deletebranch/:id",tokenCheck,AdminController.deleteBranch);
-router.post("/addshift",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addShift);
-router.get("/getshift",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getShift);
-router.get("/getshift/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getShiftById);
+// Company routes (addcompany/getcompany/getcompany/:id/updatecompany/:id/
+// assign-company-manager/:id/remove-company-manager/company-managers/:id/
+// my-companies/switch-company/deletecompany/:id/add-bank/getowncompany) now
+// live in src/modules/company/, mounted in server.ts — same URL paths.
+//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Branch/Shift/Department CRUD now live in src/modules/{branch,shift,
+// department}/ — see each module's *.routes.ts, mounted in server.ts.
+// Same URL paths as before. "assign-employee-shift" stays here — it's a
+// cross-domain employee-assignment concern, not pure Shift/Department CRUD.
+router.patch("/assign-employee-shift", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.assignEmployeeShift);
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-router.post("/adddepartment",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addDepartment);
-router.get("/getdepartment",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDepartment);
-router.get("/getdepartment/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDepartmentById);
-// router.patch("/updatedepartment/:id",tokenCheck,AdminController.updateDepartment);
-// router.delete("/deletedepartment/:id",tokenCheck,AdminController.deleteDepartment);
-//>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-router.post("/addholiday",    tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addHoliday);
-router.get("/getholiday",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getHoliday);
-router.get("/getholiday/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getHolidayById);
-// router.patch("/updateholiday/:id",tokenCheck,AdminController.updateHoliday);
-// router.delete("/deleteholiday/:id",tokenCheck,AdminController.deleteHoliday);
+// Holiday routes (add/get/get-by-id/update) now live in
+// src/modules/holiday/holiday.routes.ts, mounted in server.ts — same URL
+// paths, extracted out of this file as the first slice of the modular
+// backend architecture (see src/modules/README or the architecture plan).
 // FIX: quotation CRUD routes require quotation permissions.
 router.post("/addquotation",       tokenCheck, checkPermission("quotation", "create"), AdminController.addQuotation2)
 router.get("/getquotationlist",    tokenCheck, checkPermission("quotation", "view"),   AdminController.getQuotationPdfList2)
 router.post('/updatequotation/:id',tokenCheck, checkPermission("quotation", "update"), AdminController.updateQuotation)
 //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-// FIX: creating/viewing company leave policies (types, rules) requires leave:manage.
-//      Without this a manager/sale_person could read or write company policy config.
-router.post("/add-leave", tokenCheck, checkPermission("leave", "manage"), AdminController.addLeave);
-router.get("/get-leave", tokenCheck, checkPermission("leave", "manage"), AdminController.getLeave);
-router.get("/get-leave/:id", tokenCheck, checkPermission("leave", "manage"), AdminController.getLeaveById);
-router.patch("/update-leave/:id", tokenCheck, checkPermission("leave", "manage"), AdminController.updateLeave);
-// router.delete("/delete-leave/:id", tokenCheck, AdminController.deleteLeave);
-router.post("/add-bank", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.addCompanyBank);
 // router.get("/get-bank",tokenCheck,AdminController.getBank);
 // router.get("/get-bank/:id",tokenCheck,AdminController.getBankById);
 // router.patch("/update-bank/:id",tokenCheck,AdminController.updateBank);
@@ -159,13 +112,9 @@ router.post("/update-report",     tokenCheck, checkPermission("report", "export"
 
 
 router.patch("/assign-admin/:id", tokenCheck, AdminController.assignAdmin);
-router.get("/getowncompany",  tokenCheck, AdminController.getOwnCompany);
 
 router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
 
-router.post("/forgot-password", AdminController.forgotPassword);
-router.post("/verify-otp", AdminController.verifyOtp);
-router.post("/reset-password", AdminController.changePassword);
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
 router.get("/dashboard-summary", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDashboardSummary);

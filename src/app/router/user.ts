@@ -32,12 +32,8 @@ router.post("/scheduledupdate", tokenCheck, Controller.scheduled);
 router.post("/logout", tokenCheck, Controller.Logout);
 router.get("/getcategory", tokenCheck, Controller.getCategory);
 
-// Attendance Summary
-// FIX: attendance routes now require explicit permissions.
-router.post("/attendance/punch-in",  tokenCheck, checkPermission("attendance", "create"), Controller.AttendancePunchIn);
-router.post("/attendance/punch-out", tokenCheck, checkPermission("attendance", "update"), Controller.AttendancePunchOut);
-router.get("/attendance/today",      tokenCheck, checkPermission("attendance", "view"),   Controller.getTodayAttendance);
-router.get("/attendancelist",        tokenCheck, checkPermission("attendance", "view"),   Controller.AttendanceList);
+// Attendance routes (punch-in/punch-out/today/attendancelist) now live in
+// src/modules/attendance/, mounted in server.ts — same URL paths as before.
 // FIX: leave routes now require explicit leave permissions —
 //      without leave:apply / leave:view the request is rejected with 403.
 router.post("/leave", tokenCheck, checkPermission("leave", "apply"), Controller.requestLeave);

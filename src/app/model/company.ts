@@ -33,11 +33,20 @@ interface CompanyAttributes {
   payrollCycle: string;
   lateMarkAfter: number;
   autoHalfDayAfter: number;
+  geoFencingRequired?: boolean;
+  officeLocationRequired?: boolean;
+  overtimeAllowed?: boolean;
+  companyWorkingDays?: string[] | null;
+  altSaturday?: boolean;
+  halfSaturday?: boolean;
   casualHolidaysTotal: number;
   casualHolidaysPerMonth: number;
   casualHolidayNotice: number;
+  casualHolidayApprovalRequired?: boolean;
+  casualHolidayCarryForward?: boolean;
   compOffMinHours: number;
   compOffExpiryDays: number;
+  compOffApprovalRequired?: boolean;
   casualCarryForwardLimit: number;
   casualCarryForwardExpiry: number;
   adminId: number;
@@ -85,11 +94,20 @@ export class Company
   public payrollCycle!: string;
   public lateMarkAfter!: number;
   public autoHalfDayAfter!: number;
+  public geoFencingRequired!: boolean;
+  public officeLocationRequired!: boolean;
+  public overtimeAllowed!: boolean;
+  public companyWorkingDays!: string[] | null;
+  public altSaturday!: boolean;
+  public halfSaturday!: boolean;
   public casualHolidaysTotal!: number;
   public casualHolidaysPerMonth!: number;
   public casualHolidayNotice!: number;
+  public casualHolidayApprovalRequired!: boolean;
+  public casualHolidayCarryForward!: boolean;
   public compOffMinHours!: number;
   public compOffExpiryDays!: number;
+  public compOffApprovalRequired!: boolean;
   public casualCarryForwardLimit!: number;
   public casualCarryForwardExpiry!: number;
   public userId!: number;
@@ -138,11 +156,20 @@ export const CompanyModell = (sequelize: Sequelize) => {
       payrollCycle: { type: DataTypes.STRING, allowNull: true },
       lateMarkAfter: { type: DataTypes.INTEGER, allowNull: true },
       autoHalfDayAfter: { type: DataTypes.INTEGER, allowNull: true },
+      geoFencingRequired: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: true },
+      officeLocationRequired: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: true },
+      overtimeAllowed: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: false },
+      companyWorkingDays: { type: DataTypes.JSONB, allowNull: true },
+      altSaturday: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: false },
+      halfSaturday: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: false },
       casualHolidaysTotal: { type: DataTypes.INTEGER, allowNull: true },
       casualHolidaysPerMonth: { type: DataTypes.INTEGER, allowNull: true },
       casualHolidayNotice: { type: DataTypes.INTEGER, allowNull: true },
+      casualHolidayApprovalRequired: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: true },
+      casualHolidayCarryForward: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: false },
       compOffMinHours: { type: DataTypes.INTEGER, allowNull: true },
       compOffExpiryDays: { type: DataTypes.INTEGER, allowNull: true },
+      compOffApprovalRequired: { type: DataTypes.BOOLEAN, allowNull: true, defaultValue: true },
       casualCarryForwardLimit: { type: DataTypes.INTEGER, allowNull: true },
       casualCarryForwardExpiry: { type: DataTypes.INTEGER, allowNull: true },
       userId: { type: DataTypes.INTEGER, allowNull: true },

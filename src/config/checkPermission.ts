@@ -89,16 +89,12 @@ export const checkPermission = (module: string, action: string) => {
         });
       }
 
-      console.log("checkPermission: userData from token:", userData);
-
       const { role, userId } = userData as any;
-      const companyId =
-        (userData as any).companyId ??
-        req.body?.companyId ??
-        req.params?.companyId ??
-        req.query?.companyId;
-
-      console.log(`checkPermission: userId=${userId}, role=${role}, companyId=${companyId}, required=${module}:${action}`);
+      // companyId comes exclusively from req.userData, which tokenCheck
+      // already resolved server-side (JWT payload → DB lookup) — never from
+      // client-supplied body/params/query, which would let a caller satisfy
+      // this gate with an arbitrary companyId.
+      const companyId = (userData as any).companyId;
 
       // ── Super Admin: bypass all permission checks ──────────────────
       if (role === "super_admin") {
@@ -121,11 +117,6 @@ export const checkPermission = (module: string, action: string) => {
       );
 
       const required = `${module}:${action}`;
-
-      console.log(`checkPermission: userId=${userId}, role=${role}, required=${required}`);
-
-      console.log(`User permissions: ${Array.from(permissionSet).join(", ")}`);
-      console.log(`Required permission: ${required}`);
 
       if (!permissionSet.has(required)) {
         return res.status(403).json({
