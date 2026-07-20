@@ -38,7 +38,7 @@ import { CompanyModell } from "../app/model/company";
 import { CompanyManagerModel } from "../app/model/companyManager";
 import { CompanyAdminModel } from "../app/model/companyAdmin";
 import { BranchModel } from "../app/model/branch";
-import { ShiftModel } from "../app/model/Shift";
+import { ShiftModel } from "../app/model/shift";
 import { DepartmentModel } from "../app/model/department";
 import { HolidayModel } from "../app/model/holiday";
 
@@ -453,6 +453,8 @@ const ensureColumns = async (sequelize: Sequelize) => {
         { name: "tenantId", type: "INTEGER" },
         { name: "lastLoginCompanyId", type: "INTEGER" },
         { name: "branchId", type: "INTEGER" },
+        { name: "shiftId", type: "INTEGER" },
+        { name: "departmentId", type: "INTEGER" },
       ],
     },
     {

@@ -8,4 +8,3 @@ src/Notigication/*.json
 dist/Notigication/*.json
 .claude
 distserver_output.txt
-dist

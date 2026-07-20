@@ -1,0 +1,61 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.UserModel = exports.User = void 0;
+const sequelize_1 = require("sequelize");
+class User extends sequelize_1.Model {
+}
+exports.User = User;
+const UserModel = (sequelize) => {
+    User.init({
+        id: {
+            type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+            autoIncrement: true,
+            primaryKey: true,
+        },
+        name: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: false,
+        },
+        email: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+        },
+        mobile: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+        },
+        userId: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            field: "user_id",
+        },
+        customerType: {
+            type: sequelize_1.DataTypes.STRING,
+            defaultValue: "new",
+            field: "customer_type",
+        },
+        state: sequelize_1.DataTypes.STRING,
+        city: sequelize_1.DataTypes.STRING,
+        pincode: sequelize_1.DataTypes.STRING,
+        country: sequelize_1.DataTypes.STRING,
+        address: sequelize_1.DataTypes.TEXT,
+        gstNumber: sequelize_1.DataTypes.STRING,
+        companyName: sequelize_1.DataTypes.STRING,
+        panNumber: sequelize_1.DataTypes.STRING,
+        tallyGuid: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+            field: "tally_guid",
+        },
+        status: {
+            type: sequelize_1.DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),
+            defaultValue: "draft",
+        },
+    }, {
+        sequelize,
+        tableName: "meeting_users",
+        timestamps: true,
+    });
+    return User;
+};
+exports.UserModel = UserModel;
