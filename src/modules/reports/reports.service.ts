@@ -28,6 +28,12 @@ export const generateReport = async (
   if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) throw new ServiceError("Invalid date format");
   if (toDate < fromDate) throw new ServiceError("toDate must be after fromDate");
 
+  // toDate as parsed above lands on midnight — anything scheduled/created
+  // later that same calendar day would otherwise fall outside the
+  // Op.between range and silently disappear from the report.
+  const toDateEnd = new Date(toDate);
+  toDateEnd.setHours(23, 59, 59, 999);
+
   const spanDays = Math.round((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   if (spanDays > MAX_RANGE_DAYS) throw new ServiceError(`Date range too large (max ${MAX_RANGE_DAYS} days)`);
 
@@ -51,6 +57,12 @@ export const generateReport = async (
     employeeIds = companyRoster.allIds;
   }
 
+  // Quotations/Invoices are company-level Tally-linked records, not
+  // per-employee ones — admin/user/super_admin see the whole company's
+  // sales activity (they're entitled to the company itself), a manager
+  // only sees the slice their own team actually created.
+  const quotationInvoiceUserFilter = role === "manager" ? employeeIds : null;
+
   if (employeeIds.length === 0) {
     return {
       companyId,
@@ -59,15 +71,32 @@ export const generateReport = async (
       attendance: [],
       leaves: [],
       meetings: [],
+      tasks: [],
+      expenses: [],
+      quotations: [],
+      invoices: [],
     };
   }
 
-  const [employees, attendance, leaves, meetings] = await Promise.all([
+  const [employees, attendance, leaves, meetings, tasks, expensesRaw, quotations, invoices] = await Promise.all([
     ReportsRepo.findScopedEmployees(employeeIds),
     ReportsRepo.findScopedAttendance(employeeIds, fromDateStr, toDateStr),
     ReportsRepo.findScopedLeaves(employeeIds, fromDateStr, toDateStr),
-    ReportsRepo.findScopedMeetings(employeeIds, fromDate, toDate),
+    ReportsRepo.findScopedMeetings(employeeIds, fromDate, toDateEnd),
+    ReportsRepo.findScopedTasks(employeeIds, fromDate, toDateEnd),
+    ReportsRepo.findScopedExpenses(employeeIds),
+    ReportsRepo.findScopedQuotations(companyId, quotationInvoiceUserFilter, fromDate, toDateEnd),
+    ReportsRepo.findScopedInvoices(companyId, quotationInvoiceUserFilter, fromDate, toDateEnd),
   ]);
+
+  // Expense.date has no enforced format (free-text from the mobile client),
+  // so it can't be filtered in SQL — parse it the same way the
+  // ExpenseManagement.jsx UI already does ("date field, fall back to
+  // createdAt") and filter to the requested range here instead.
+  const expenses = (expensesRaw as any[]).filter((e) => {
+    const parsed = new Date(e.date || e.createdAt);
+    return !isNaN(parsed.getTime()) && parsed >= fromDate && parsed <= toDateEnd;
+  });
 
   return {
     companyId,
@@ -76,5 +105,9 @@ export const generateReport = async (
     attendance,
     leaves,
     meetings,
+    tasks,
+    expenses,
+    quotations,
+    invoices,
   };
 };
