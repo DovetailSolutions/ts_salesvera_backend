@@ -28,6 +28,7 @@ import companyRoutes from "./modules/company/company.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import preferencesRoutes from "./modules/preferences/preferences.routes";
 import reportsRoutes from "./modules/reports/reports.routes";
+import meetingRoutes from "./modules/meeting/meeting.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -77,6 +78,7 @@ app.use("/admin", companyRoutes);
 app.use("/admin", authRoutes);
 app.use("/admin", preferencesRoutes);
 app.use("/admin", reportsRoutes);
+app.use("/admin", meetingRoutes);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
   swaggerOptions: {
