@@ -61,6 +61,7 @@ import { UserPermissionModel } from "../app/model/userPermission";
 
 import { Task } from "../app/model/task";
 import { TaskHistory } from "../app/model/taskHistory";
+import { TaskComment } from "../app/model/taskComment";
 
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
@@ -153,6 +154,7 @@ const Report = RepostModel(sequelize);
 // Task Management
 Task.initModel(sequelize);
 TaskHistory.initModel(sequelize);
+TaskComment.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -350,10 +352,17 @@ Task.belongsTo(Company, { foreignKey: "companyId", as: "company", constraints: f
 
 // TaskHistory associations
 Task.hasMany(TaskHistory, { foreignKey: "taskId", as: "history", constraints: false });
-TaskHistory.belongsTo(Task, { foreignKey: "taskId", constraints: false });
+TaskHistory.belongsTo(Task, { foreignKey: "taskId", as: "task", constraints: false });
 
 User.hasMany(TaskHistory, { foreignKey: "changedBy", as: "taskChanges", constraints: false });
 TaskHistory.belongsTo(User, { foreignKey: "changedBy", as: "changedByUser", constraints: false });
+
+// TaskComment associations
+Task.hasMany(TaskComment, { foreignKey: "taskId", as: "comments", constraints: false });
+TaskComment.belongsTo(Task, { foreignKey: "taskId", constraints: false });
+
+User.hasMany(TaskComment, { foreignKey: "userId", as: "taskComments", constraints: false });
+TaskComment.belongsTo(User, { foreignKey: "userId", as: "author", constraints: false });
 
 
 
@@ -1100,4 +1109,5 @@ export {
   Report,
   Task,
   TaskHistory,
+  TaskComment,
 };

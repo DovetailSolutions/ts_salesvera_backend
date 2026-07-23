@@ -1,6 +1,6 @@
 import { Server } from "socket.io";
 import { Op } from "sequelize";
-import { Task, TaskHistory, User, Permission, UserPermission } from "../config/dbConnection";
+import { Task, TaskHistory, TaskComment, User, Permission, UserPermission } from "../config/dbConnection";
 import { getUserPermissionsFromCache } from "../config/permissionCache";
 import { sendNotification } from "../config/notificationService";
 import { NotificationType } from "../app/model/Notification";
@@ -20,8 +20,21 @@ const loadUserPermissionsFromDB = async (userId: number): Promise<string[]> => {
 const hasPermission = async (userId: number, companyId: number, role: string, action: string): Promise<boolean> => {
   if (role === "super_admin") return true;
   const perms = await getUserPermissionsFromCache(userId, () => loadUserPermissionsFromDB(userId));
-  console.log(">>>>>>>>>>>>>>>>>>>>>hasPermission",hasPermission)
   return perms.has(`task:${action}`);
+};
+
+// ─── Shared "which tasks can this caller see" where-clause ───────────────────
+// admin/super_admin/manager/user all see the whole company; sale_person only
+// ever sees tasks assigned to them. Centralized so the visibility rule is
+// defined once instead of drifting across getTaskById/updateTask/comments/
+// history like it previously did (manager used to be wrongly restricted to
+// only their own created/assigned tasks here).
+const buildTaskVisibilityWhere = (companyId: number, role: string, uid: number, taskId?: number) => {
+  const where: any = {};
+  if (taskId !== undefined) where.id = taskId;
+  if (role !== "super_admin") where.companyId = Number(companyId);
+  if (role === "sale_person") where.assignedTo = uid;
+  return where;
 };
 
 // ─── Record a single field change in task_history ────────────────────────────
@@ -76,8 +89,6 @@ export const initTaskSocket = (io: Server): void => {
     // ── CREATE TASK ──────────────────────────────────────────────────────────
     // client emits: createTask  { title, assignedTo, description?, priority?, dueDate?, tags? }
     socket.on("createTask", async (data) => {
-
-      console.log(">>>>>>>>>>>>>>>>>>>>>>>createTask",uid, companyId, role, "create")
       if (!await hasPermission(uid, companyId, role, "create")) {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:create permission" });
       }
@@ -166,15 +177,17 @@ export const initTaskSocket = (io: Server): void => {
       try {
         const where: any = { companyId: Number(companyId) };
 
-        if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
+        // Manager sees the whole company's tasks now, same as admin/user —
+        // previously restricted to only tasks they personally created or
+        // were assigned, which hid the rest of the team's work from them.
         if (role === "sale_person") where.assignedTo = uid;
 
         if (status)   where.status   = status;
         if (priority) where.priority = priority;
         if (tags)     where.tags     = tags;
         if (assignedTo && role !== "sale_person") where.assignedTo = Number(assignedTo);
-        // admin/super_admin can filter by who created/assigned the task
-        if (assignedBy && (role === "admin" || role === "super_admin")) where.assignedBy = Number(assignedBy);
+        // admin/super_admin/manager can filter by who created/assigned the task
+        if (assignedBy && role !== "sale_person") where.assignedBy = Number(assignedBy);
 
         if (status === "completed" && (dateScope === "today" || dateScope === "history")) {
           const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
@@ -215,13 +228,7 @@ export const initTaskSocket = (io: Server): void => {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
       }
       try {
-        // FIX: previously admin/super_admin had no companyId filter at all
-        // here (only manager/sale_person were scoped) — any admin could
-        // fetch a task belonging to another company by ID.
-        const where: any = { id };
-        if (role !== "super_admin") where.companyId = Number(companyId);
-        if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
-        if (role === "sale_person") where.assignedTo = uid;
+        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(id));
 
         const task = await Task.findOne({
           where,
@@ -241,22 +248,20 @@ export const initTaskSocket = (io: Server): void => {
     });
 
     // ── UPDATE TASK ──────────────────────────────────────────────────────────
-    // client emits: updateTask  { id, title?, description?, status?, priority?, dueDate?, assignedTo? }
+    // client emits: updateTask  { id, title?, description?, status?, priority?, dueDate?, assignedTo?, tags? }
     // sale_person can only update status of tasks assigned to them
     socket.on("updateTask", async (data) => {
       if (!await hasPermission(uid, companyId, role, "update")) {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:update permission" });
       }
-      const { id, title, description, status, priority, dueDate, assignedTo } = data;
+      const { id, title, description, status, priority, dueDate, assignedTo, tags } = data;
 
       try {
-        // FIX: previously admin/super_admin had no companyId filter here
-        // either — any admin could update a task belonging to another
-        // company by ID.
-        const where: any = { id };
-        if (role !== "super_admin") where.companyId = Number(companyId);
-        if (role === "manager")     where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
-        if (role === "sale_person") where[Op.or] = [{ assignedBy: uid }, { assignedTo: uid }];
+        // Manager now gets the same company-wide visibility as admin/user —
+        // previously restricted to only tasks they personally created or
+        // were assigned, which meant they couldn't manage the rest of the
+        // team's tasks despite having task:update.
+        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(id));
 
         const task = await Task.findOne({ where });
         if (!task) return socket.emit("taskError", { message: "Task not found" });
@@ -267,6 +272,7 @@ export const initTaskSocket = (io: Server): void => {
         const prevTitle      = task.title;
         const prevDesc       = task.description;
         const prevDueDate    = task.dueDate;
+        const prevTags       = task.tags;
 
         if (role === "sale_person") {
           if (status !== undefined) task.status = status;
@@ -300,6 +306,7 @@ export const initTaskSocket = (io: Server): void => {
           if (status !== undefined)      task.status      = status;
           if (priority !== undefined)    task.priority    = priority;
           if (dueDate !== undefined)     task.dueDate     = dueDate;
+          if (tags !== undefined)        task.tags        = tags;
         }
 
         // Track when a task actually became "completed" — distinguishes
@@ -326,6 +333,8 @@ export const initTaskSocket = (io: Server): void => {
           historyLogs.push(logHistory(task.id, uid, "description", prevDesc, description));
         if (dueDate !== undefined && String(prevDueDate) !== String(dueDate))
           historyLogs.push(logHistory(task.id, uid, "dueDate", prevDueDate, dueDate));
+        if (tags !== undefined && JSON.stringify(prevTags ?? []) !== JSON.stringify(tags ?? []))
+          historyLogs.push(logHistory(task.id, uid, "tags", (prevTags ?? []).join(", "), (tags ?? []).join(", ")));
         await Promise.all(historyLogs);
 
         const payload = task.toJSON();
@@ -382,33 +391,59 @@ export const initTaskSocket = (io: Server): void => {
     });
 
     // ── GET TASK HISTORY ─────────────────────────────────────────────────────
-    // client emits: getTaskHistory  { id }
-    // Returns the full audit trail for a task (Jira-like activity log)
-    socket.on("getTaskHistory", async ({ id }) => {
+    // client emits: getTaskHistory  { id }              → one task's audit trail (unchanged behavior)
+    // client emits: getTaskHistory  { page?, limit? }    → company-wide activity feed, paginated
+    // (no id) — previously this second mode didn't actually exist: the
+    // frontend's "Global Activity Feed" called getTaskHistory({}), which
+    // silently resolved to `taskId: NaN` and always returned an empty list.
+    socket.on("getTaskHistory", async (data = {}) => {
       if (!await hasPermission(uid, companyId, role, "view")) {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
       }
+      const { id } = data;
       try {
-        const where: any = { id, companyId: Number(companyId) };
-        if (role === "manager")     where.assignedBy = uid;
-        if (role === "sale_person") where.assignedTo = uid;
+        if (id !== undefined) {
+          const where = buildTaskVisibilityWhere(companyId, role, uid, Number(id));
+          const task = await Task.findOne({ where, attributes: ["id"] });
+          if (!task) return socket.emit("taskError", { message: "Task not found" });
 
-        const task = await Task.findOne({ where, attributes: ["id"] });
-        if (!task) return socket.emit("taskError", { message: "Task not found" });
+          const history = await TaskHistory.findAll({
+            where: { taskId: Number(id) },
+            include: [
+              { model: User, as: "changedByUser", attributes: ["id", "firstName", "lastName", "email", "role"] },
+            ],
+            order: [["createdAt", "ASC"]],
+          });
 
-        const history = await TaskHistory.findAll({
-          where: { taskId: Number(id) },
+          return socket.emit("taskHistory", { success: true, taskId: Number(id), data: history });
+        }
+
+        // Global mode — company-wide (or own-tasks-only for sale_person),
+        // paginated, newest first.
+        const { page = 1, limit: limitQ = 20 } = data;
+        const pageNum  = Math.max(1, Number(page));
+        const limitNum = Math.min(50, Number(limitQ));
+        const offset   = (pageNum - 1) * limitNum;
+
+        const taskWhere = buildTaskVisibilityWhere(companyId, role, uid);
+
+        const { count, rows } = await TaskHistory.findAndCountAll({
           include: [
-            {
-              model: User,
-              as: "changedByUser",
-              attributes: ["id", "firstName", "lastName", "email", "role"],
-            },
+            { model: Task, as: "task", where: taskWhere, attributes: ["id", "title"], required: true },
+            { model: User, as: "changedByUser", attributes: ["id", "firstName", "lastName", "email", "role"] },
           ],
-          order: [["createdAt", "ASC"]],
+          order: [["createdAt", "DESC"]],
+          limit: limitNum,
+          offset,
         });
 
-        socket.emit("taskHistory", { success: true, taskId: Number(id), data: history });
+        socket.emit("taskHistory", {
+          success: true,
+          total: count,
+          totalPages: Math.ceil(count / limitNum),
+          currentPage: pageNum,
+          data: rows,
+        });
       } catch (err) {
         console.error("getTaskHistory socket error:", err);
         socket.emit("taskError", { message: "Internal server error" });
@@ -435,6 +470,77 @@ export const initTaskSocket = (io: Server): void => {
         broadcast("taskDeleted", { id: Number(id) }, assignedToId ? Number(assignedToId) : undefined);
       } catch (err) {
         console.error("deleteTask socket error:", err);
+        socket.emit("taskError", { message: "Internal server error" });
+      }
+    });
+
+    // ── GET TASK COMMENTS ────────────────────────────────────────────────────
+    // client emits: getTaskComments  { taskId }
+    socket.on("getTaskComments", async ({ taskId }) => {
+      if (!await hasPermission(uid, companyId, role, "view")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
+      }
+      try {
+        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(taskId));
+        const task = await Task.findOne({ where, attributes: ["id"] });
+        if (!task) return socket.emit("taskError", { message: "Task not found" });
+
+        const comments = await TaskComment.findAll({
+          where: { taskId: Number(taskId) },
+          include: [{ model: User, as: "author", attributes: ["id", "firstName", "lastName", "email", "role"] }],
+          order: [["createdAt", "ASC"]],
+        });
+
+        socket.emit("taskComments", { success: true, taskId: Number(taskId), data: comments });
+      } catch (err) {
+        console.error("getTaskComments socket error:", err);
+        socket.emit("taskError", { message: "Internal server error" });
+      }
+    });
+
+    // ── ADD TASK COMMENT ─────────────────────────────────────────────────────
+    // client emits: addTaskComment  { taskId, body }
+    // Commenting only requires being able to see the task (same bar Jira
+    // uses — anyone who can view a ticket can comment on it), not
+    // task:update, which stays reserved for actually changing fields.
+    socket.on("addTaskComment", async ({ taskId, body }) => {
+      if (!await hasPermission(uid, companyId, role, "view")) {
+        return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
+      }
+      const trimmedBody = typeof body === "string" ? body.trim() : "";
+      if (!taskId || !trimmedBody) {
+        return socket.emit("taskError", { message: "taskId and a non-empty body are required" });
+      }
+      try {
+        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(taskId));
+        const task = await Task.findOne({ where });
+        if (!task) return socket.emit("taskError", { message: "Task not found" });
+
+        const comment = await TaskComment.create({ taskId: Number(taskId), userId: uid, body: trimmedBody });
+        const author = await (User as any).findByPk(uid, { attributes: ["id", "firstName", "lastName", "email", "role"] });
+        const payload = { ...comment.toJSON(), author };
+
+        io.to(`task:company:${companyId}`).emit("taskCommentAdded", payload);
+        if (task.assignedTo) io.to(`task:user:${task.assignedTo}`).emit("taskCommentAdded", payload);
+
+        const recipients = new Set<number>();
+        if (task.assignedTo && Number(task.assignedTo) !== uid) recipients.add(Number(task.assignedTo));
+        if (task.assignedBy && Number(task.assignedBy) !== uid) recipients.add(Number(task.assignedBy));
+
+        await Promise.all(
+          Array.from(recipients).map((receiverId) =>
+            sendNotification({
+              receiverId,
+              senderId: uid,
+              type: NotificationType.TASK,
+              title: "New Comment",
+              body: `${author?.firstName || "Someone"} commented on "${task.title}"`,
+              data: { taskId: String(task.id), event: "task_comment_added" },
+            })
+          )
+        );
+      } catch (err) {
+        console.error("addTaskComment socket error:", err);
         socket.emit("taskError", { message: "Internal server error" });
       }
     });
