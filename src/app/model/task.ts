@@ -1,6 +1,6 @@
 import { Model, DataTypes, Sequelize, Optional } from "sequelize";
 
-export type TaskStatus   = "todo" | "in_progress" | "completed" | "cancelled";
+export type TaskStatus   = "todo" | "in_progress" | "in_review" | "completed" | "cancelled";
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
 
 interface TaskAttributes {
@@ -55,7 +55,7 @@ export class Task
           allowNull: true,
         },
         status: {
-          type: DataTypes.ENUM("todo", "in_progress", "completed", "cancelled"),
+          type: DataTypes.ENUM("todo", "in_progress", "in_review", "completed", "cancelled"),
           allowNull: false,
           defaultValue: "todo",
         },

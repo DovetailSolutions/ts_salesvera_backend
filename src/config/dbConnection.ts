@@ -63,6 +63,8 @@ import { Task } from "../app/model/task";
 import { TaskHistory } from "../app/model/taskHistory";
 import { TaskComment } from "../app/model/taskComment";
 
+import { ContactQuery } from "../app/model/contactQuery";
+
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
 // this point — env.ts (imported above) exits the process if any are missing,
@@ -155,6 +157,8 @@ const Report = RepostModel(sequelize);
 Task.initModel(sequelize);
 TaskHistory.initModel(sequelize);
 TaskComment.initModel(sequelize);
+
+ContactQuery.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -728,6 +732,26 @@ const ensureColumns = async (sequelize: Sequelize) => {
     console.error(`❌ Error creating table record_sales:`, err);
   }
 
+  // ✅ Ensure contact_queries table exists (public "Contact Us" landing form)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "contact_queries" (
+        "id" SERIAL PRIMARY KEY,
+        "name" VARCHAR(255) NOT NULL,
+        "email" VARCHAR(255) NOT NULL,
+        "companyName" VARCHAR(255),
+        "subject" VARCHAR(255) NOT NULL,
+        "message" TEXT NOT NULL,
+        "status" VARCHAR(50) NOT NULL DEFAULT 'new',
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+  } catch (err) {
+    console.error(`❌ Error creating table contact_queries:`, err);
+  }
+
   // ✅ Ensure repost table exists
   try {
     await sequelize.query(`
@@ -1110,4 +1134,5 @@ export {
   Task,
   TaskHistory,
   TaskComment,
+  ContactQuery,
 };
