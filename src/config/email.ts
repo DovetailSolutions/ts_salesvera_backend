@@ -144,6 +144,50 @@ export const sendMultipleMail = async (companies: any[]) => {
 
 
 
+// ✅ Public "Contact Us" landing-page form — notifies a super_admin by email
+export const sendContactQueryEmail = async (
+  toEmail: string,
+  query: { name: string; email: string; companyName?: string | null; subject: string; message: string }
+) => {
+  try {
+    const response = await transporter.sendMail({
+      from: `"Salesvera Website 🌐" <${process.env.EMAIL_FROM || "salesvera@dovetailsolutions.in"}>`,
+      to: toEmail,
+      replyTo: query.email,
+      subject: `New Contact Query: ${query.subject}`,
+      text: `New query submitted on the Salesvera website.
+
+Name: ${query.name}
+Email: ${query.email}
+Company: ${query.companyName || "N/A"}
+Subject: ${query.subject}
+
+Message:
+${query.message}
+`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <h2 style="color: #0073EB;">New Contact Query</h2>
+          <p>A new query was submitted on the Salesvera website.</p>
+          <div style="background:#f9f9f9; padding:12px; border-radius:8px; margin:15px 0; border:1px solid #ddd;">
+            <p><b>Name:</b> ${query.name}</p>
+            <p><b>Email:</b> ${query.email}</p>
+            <p><b>Company:</b> ${query.companyName || "N/A"}</p>
+            <p><b>Subject:</b> ${query.subject}</p>
+          </div>
+          <p><b>Message:</b></p>
+          <p style="white-space: pre-wrap;">${query.message}</p>
+        </div>
+      `,
+    });
+
+    return response;
+  } catch (error) {
+    console.error("❌ Contact query email error:", error);
+    throw error;
+  }
+};
+
 // utils/generatePassword.ts
 export const generatePassword = (): string => {
   const chars =
