@@ -1,9 +1,12 @@
 import { Request, Response } from "express";
+import { Op } from "sequelize";
 import { createSuccess, badRequest } from "../../app/middlewear/errorMessage";
 import { ContactQuery, User } from "../../config/dbConnection";
 import { sendNotification } from "../../config/notificationService";
 import { NotificationType } from "../../app/model/Notification";
 import { sendContactQueryEmail } from "../../config/email";
+
+const VALID_STATUSES = ["new", "read", "resolved"];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -62,6 +65,83 @@ export const submitQuery = async (req: Request, res: Response): Promise<void> =>
     }
 
     createSuccess(res, "Your query has been submitted successfully", { id: query.id });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// ============================================================
+// GET /admin/contact-queries — super_admin's enquiry inbox.
+// Query: page, limit, status (optional: new|read|resolved), search (name/email/subject).
+// ============================================================
+export const listQueries = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Number(req.query.limit) || 20);
+    const offset = (page - 1) * limit;
+    const { status, search } = req.query;
+
+    const where: any = {};
+    if (status && VALID_STATUSES.includes(String(status))) {
+      where.status = status;
+    }
+    if (search) {
+      where[Op.or] = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { subject: { [Op.iLike]: `%${search}%` } },
+        { companyName: { [Op.iLike]: `%${search}%` } },
+      ];
+    }
+
+    const { count, rows } = await ContactQuery.findAndCountAll({
+      where,
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+    });
+
+    const unreadCount = await ContactQuery.count({ where: { status: "new" } });
+
+    createSuccess(res, "Enquiries fetched successfully", {
+      total: count,
+      page,
+      limit,
+      totalPages: Math.ceil(count / limit),
+      unreadCount,
+      rows,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// ============================================================
+// PATCH /admin/contact-queries/:id — mark an enquiry read/resolved.
+// Body: { status: "read" | "resolved" }
+// ============================================================
+export const updateQueryStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body || {};
+
+    if (!VALID_STATUSES.includes(status)) {
+      badRequest(res, `status must be one of: ${VALID_STATUSES.join(", ")}`);
+      return;
+    }
+
+    const query = await ContactQuery.findByPk(id);
+    if (!query) {
+      badRequest(res, "Enquiry not found");
+      return;
+    }
+
+    query.status = status;
+    await query.save();
+
+    createSuccess(res, "Enquiry updated successfully", query);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
