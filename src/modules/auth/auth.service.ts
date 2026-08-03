@@ -6,6 +6,7 @@ import { User } from "../../config/dbConnection";
 import { getAllChildUserIds } from "../shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../shared/companyAccess";
 import { resolveCompanyId } from "../../config/tokenCheck";
+import { SpacesFile } from "../../config/spaces";
 import * as AuthRepo from "./auth.repository";
 
 // ============================================================
@@ -25,13 +26,6 @@ const REGISTER_ALLOWED_ROLES: Record<string, string[]> = {
   admin: ["manager", "sale_person"],
   manager: ["sale_person"],
 };
-
-interface MulterS3File extends Express.Multer.File {
-  bucket: string;
-  key: string;
-  location?: string;
-  etag?: string;
-}
 
 export const register = async (body: any, callerData?: { userId?: number | string; role?: string }) => {
   const { email, password, firstName, lastName, phone, dob, role, createdBy, permissionIds, branchId, shiftId } = body;
@@ -395,7 +389,7 @@ export const getProfile = async (userId: number, role: string, companyId: number
   return { user, permissions, matrix };
 };
 
-export const updateProfile = async (userId: number, body: any, file: MulterS3File | undefined) => {
+export const updateProfile = async (userId: number, body: any, file: SpacesFile | undefined) => {
   const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob", "tallyGuid", "tallyName", "tallyStartDate"] as const;
   type AllowedField = (typeof ALLOWED_FIELDS)[number];
 

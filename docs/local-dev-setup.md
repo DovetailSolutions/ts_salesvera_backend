@@ -30,18 +30,18 @@ A `.env` was created with `DB_HOST=127.0.0.1`, `DB_PORT=5433`,
 `DB_NAME=salesvera_dev`, `DB_USER_NAME=salesvera_app`, `DB_PASSWORD=...`,
 `PORT=4800`, and a freshly generated `JWT_SECRET`.
 
-**AWS_S3_BUCKET note**: `src/config/fileUploads.ts` builds a `multer-s3`
+**DO_SPACES_BUCKET note**: `src/config/fileUploads.ts` builds a `multer-s3`
 upload middleware at *module load time* (imported at the top of
 `router/admin.ts`), and `multer-s3` throws synchronously if
-`AWS_S3_BUCKET`/AWS credentials aren't set — this happens before the server
-can even start listening, unlike the other optional integrations (email,
-Firebase) which fail gracefully at call-time instead. `.env` sets
-placeholder AWS values purely to satisfy this boot-time check. **File
-upload/download features (avatars, chat attachments, bulk CSV/XLSX
+`DO_SPACES_BUCKET`/DigitalOcean Spaces credentials aren't set — this happens
+before the server can even start listening, unlike the other optional
+integrations (email, Firebase) which fail gracefully at call-time instead.
+`.env` sets placeholder Spaces values purely to satisfy this boot-time check.
+**File upload/download features (avatars, chat attachments, bulk CSV/XLSX
 uploads for attendance and salesperson import) will not actually work
-locally** unless you swap in real AWS credentials — everything else
-(auth, HRMS, task, chat, dashboard, permissions) works fully against the
-local Postgres instance.
+locally** unless you swap in real DigitalOcean Spaces credentials —
+everything else (auth, HRMS, task, chat, dashboard, permissions) works fully
+against the local Postgres instance.
 
 ## 3. Creating the schema on a fresh database
 

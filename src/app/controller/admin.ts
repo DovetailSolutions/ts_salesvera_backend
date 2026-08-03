@@ -1,7 +1,7 @@
 
 import { Op, fn, col, cast,literal, Sequelize } from "sequelize";
 import {sequelize} from "../../config/dbConnection";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getObjectFromSpaces, SpacesFile } from "../../config/spaces";
 import { Readable } from "stream";
 import csv from "csv-parser";
 import * as XLSX from "xlsx";
@@ -49,7 +49,6 @@ import {
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
-import { S3 } from "@aws-sdk/client-s3";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
 import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
@@ -689,13 +688,6 @@ export const getMeeting = async (
   }
 };
 
-interface MulterS3File extends Express.Multer.File {
-  bucket: string;
-  key: string;
-  location?: string;
-  etag?: string;
-}
-
 export const BulkAddSalePerson = async (
   req: Request,
   res: Response
@@ -798,25 +790,12 @@ export const BulkAddSalePerson = async (
       return;
     }
 
-    const csvFile = req.file as MulterS3File;
+    const csvFile = req.file as SpacesFile;
 
-    const s3 = new S3Client({
-      region: process.env.AWS_REGION,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
-    });
-
-    const data = await s3.send(
-      new GetObjectCommand({
-        Bucket: csvFile.bucket,
-        Key: csvFile.key,
-      })
-    );
+    const data = await getObjectFromSpaces(csvFile.key, csvFile.bucket);
 
     if (!data.Body) {
-      badRequest(res, "Unable to read CSV from S3");
+      badRequest(res, "Unable to read CSV from Spaces");
       return;
     }
 
@@ -1012,24 +991,11 @@ export const BulkUploads = async (
       badRequest(res, "CSV file is required");
       return;
     }
-    const csvFile = req.file as MulterS3File;
+    const csvFile = req.file as SpacesFile;
 
-    const s3 = new S3Client({
-      region: process.env.AWS_REGION,
-      credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-      },
-    });
-
-    const params = {
-      Bucket: csvFile.bucket,
-      Key: csvFile.key,
-    };
-
-    const data = await s3.send(new GetObjectCommand(params));
+    const data = await getObjectFromSpaces(csvFile.key, csvFile.bucket);
     if (!data.Body) {
-      badRequest(res, "Unable to read CSV from S3");
+      badRequest(res, "Unable to read CSV from Spaces");
       return;
     }
     const stream = data.Body as Readable;

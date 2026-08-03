@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getObjectFromSpaces, SpacesFile } from "../../config/spaces";
 import { Readable } from "stream";
 import * as XLSX from "xlsx";
 import { ServiceError } from "../shared/serviceError";
@@ -13,13 +13,6 @@ import * as AttendanceRepo from "./attendance.repository";
 // AttendancePunchOut/getDayTypeFromWorkingHours/getTodayAttendance/
 // AttendanceList (user.ts) controller bodies.
 // ============================================================
-
-interface MulterS3File extends Express.Multer.File {
-  bucket: string;
-  key: string;
-  location?: string;
-  etag?: string;
-}
 
 const getPagination = (query: any) => {
   const page = Number(query.page || 1);
@@ -527,7 +520,7 @@ const parseTimeOfDayOnDate = (dateStr: string, value: any): Date | null => {
 export const bulkMarkAttendance = async (
   loggedInId: number,
   companyId: number | undefined,
-  file: MulterS3File | undefined,
+  file: SpacesFile | undefined,
   body: { fromDate?: string; toDate?: string; shiftId?: string }
 ) => {
   // Resolved once (not per-row) — bulk uploads don't carry per-employee
@@ -541,17 +534,9 @@ export const bulkMarkAttendance = async (
 
   if (!file) throw new ServiceError("Attendance file (.csv or .xlsx) is required");
 
-  const s3 = new S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-    },
-  });
+  const data = await getObjectFromSpaces(file.key, file.bucket);
 
-  const data = await s3.send(new GetObjectCommand({ Bucket: file.bucket, Key: file.key }));
-
-  if (!data.Body) throw new ServiceError("Unable to read file from S3");
+  if (!data.Body) throw new ServiceError("Unable to read file from Spaces");
 
   const chunks: Buffer[] = [];
   for await (const chunk of data.Body as Readable) {
