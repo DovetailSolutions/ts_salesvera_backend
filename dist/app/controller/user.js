@@ -56,7 +56,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDashboardMobile = exports.changePassword = exports.verifyOtp = exports.forgotPassword = exports.createClient = exports.getTallyReport = exports.deleteRecordSale = exports.updateRecordSale = exports.getRecordSaleById = exports.getRecordSale = exports.recordSale = exports.getInvoice = exports.addInvoice = exports.getCompanyDetails = exports.getCompany = exports.updateQuotation = exports.getSubCategory = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.addQuotation = exports.getQuotationPdf = exports.UpdatePassword = exports.ReFressToken = exports.GetExpense = exports.CreateExpense = exports.LeaveList = exports.requestLeave = exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.getLastMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
+exports.getBranchall = exports.getSalesPerformance = exports.getDashboardMobile = exports.changePassword = exports.verifyOtp = exports.forgotPassword = exports.createClient = exports.getTallyReport = exports.deleteRecordSale = exports.updateRecordSale = exports.getRecordSaleById = exports.getRecordSale = exports.recordSale = exports.getInvoice = exports.addInvoice = exports.getCompanyDetails = exports.getCompany = exports.updateQuotation = exports.getSubCategory = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.addQuotation = exports.getQuotationPdf = exports.UpdatePassword = exports.ReFressToken = exports.GetExpense = exports.CreateExpense = exports.myLeaveBalance = exports.LeaveList = exports.requestLeave = exports.getCategory = exports.Logout = exports.scheduled = exports.GetMeetingList = exports.EndMeeting = exports.CreateMeeting = exports.getLastMeeting = exports.MySalePerson = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const puppeteer_1 = __importDefault(require("puppeteer"));
@@ -67,10 +67,13 @@ const fs_1 = __importDefault(require("fs"));
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const errorMessage_1 = require("../middlewear/errorMessage");
 const email_1 = require("../../config/email");
+const checkPermission_1 = require("../../config/checkPermission");
 const dbConnection_2 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
 const web_1 = require("stream/web");
 const comman_1 = require("../middlewear/comman");
+const leave_service_1 = require("../../modules/leave/leave.service");
+const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 function getDistance(lat1, lon1, lat2, lon2) {
     const toRad = (value) => (value * Math.PI) / 180;
     const R = 6371; // Earth radius in KM
@@ -133,6 +136,11 @@ const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const userId = user.getDataValue("id");
         const role = user.getDataValue("role");
         const createdBy = user.getDataValue("createdBy");
+        // ✅ Only sale_person and manager are allowed to log in
+        if (role !== "sale_person" && role !== "manager") {
+            (0, errorMessage_1.badRequest)(res, "Only sale person and manager are allowed to login");
+            return;
+        }
         let companyId = null;
         if (role === "admin") {
             const company = yield dbConnection_2.Company.findOne({
@@ -246,7 +254,14 @@ const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const userData = req.userData;
         const loggedInId = Number(userData.userId);
         // ✅ Step 1: Fetch the logged-in user's own profile
-        const item = yield dbConnection_2.User.findByPk(loggedInId);
+        const item = yield dbConnection_2.User.findByPk(loggedInId, {
+            include: [
+                {
+                    model: dbConnection_2.Branch,
+                    as: "branch",
+                },
+            ],
+        });
         if (!item) {
             (0, errorMessage_1.badRequest)(res, "User not found");
             return;
@@ -518,7 +533,7 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         //   badRequest(res, "You already punched out");
         //   return;
         // }
-        let { userName, userMobile, userEmail, companyName, personName, mobileNumber, customerType, companyEmail, meetingPurpose, categoryId, status, latitude_in, longitude_in, meetingTimeIn, scheduledTime, state, city, country, address, gstNumber, remarks, pincode, } = req.body || {};
+        let { userName, userMobile, userEmail, companyName, personName, mobileNumber, customerType, companyEmail, meetingPurpose, categoryId, subCategoryId, status, latitude_in, longitude_in, meetingTimeIn, scheduledTime, state, city, country, address, gstNumber, remarks, pincode, } = req.body || {};
         // Trim all string inputs to avoid trailing space errors in enums
         if (typeof customerType === "string")
             customerType = customerType.trim();
@@ -546,6 +561,7 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             mobileNumber,
             meetingPurpose,
             categoryId,
+            // subCategoryId,
             status,
         };
         for (const key in requiredFields) {
@@ -642,6 +658,7 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             companyId: company.id,
             meetingPurpose,
             categoryId,
+            subCategoryId,
             status,
             meetingTimeIn: validMeetingTimeIn,
             latitude_in,
@@ -946,7 +963,7 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
 exports.EndMeeting = EndMeeting;
 const GetMeetingList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = "1", limit = "10", search = "", status } = req.query;
+        const { page = "1", limit = "10", search = "", status, startDate, endDate } = req.query;
         const pageNum = Math.max(Number(page) || 1, 1);
         const limitNum = Math.min(Number(limit) || 10, 50);
         const offset = (pageNum - 1) * limitNum;
@@ -963,8 +980,35 @@ const GetMeetingList = (req, res) => __awaiter(void 0, void 0, void 0, function*
         if (status) {
             meetingWhere.status = status;
         }
-        /** ⚠️ NOTE: search not applied (same as your original) */
-        // You created companyWhere but didn't use it in query
+        /** ✅ Date range filter (scheduledTime) */
+        if (startDate && endDate) {
+            meetingWhere.scheduledTime = {
+                [sequelize_1.Op.between]: [
+                    new Date(startDate + "T00:00:00.000Z"),
+                    new Date(endDate + "T23:59:59.999Z"),
+                ],
+            };
+        }
+        else if (startDate) {
+            meetingWhere.scheduledTime = {
+                [sequelize_1.Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+            };
+        }
+        else if (endDate) {
+            meetingWhere.scheduledTime = {
+                [sequelize_1.Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+            };
+        }
+        /** ✅ Search filter (name, email, phone, companyName) */
+        if (search) {
+            const searchTerm = `%${search}%`;
+            meetingWhere[sequelize_1.Op.or] = [
+                { "$MeetingCompany.person_name$": { [sequelize_1.Op.iLike]: searchTerm } },
+                { "$MeetingCompany.company_email$": { [sequelize_1.Op.iLike]: searchTerm } },
+                { "$MeetingCompany.mobile_number$": { [sequelize_1.Op.iLike]: searchTerm } },
+                { "$MeetingCompany.company_name$": { [sequelize_1.Op.iLike]: searchTerm } },
+            ];
+        }
         /** ✅ Query */
         const { rows, count } = yield dbConnection_2.Meeting.findAndCountAll({
             where: meetingWhere,
@@ -972,6 +1016,21 @@ const GetMeetingList = (req, res) => __awaiter(void 0, void 0, void 0, function*
             offset,
             order: [["updatedAt", "DESC"]],
             distinct: true,
+            subQuery: false,
+            include: [
+                {
+                    model: dbConnection_2.MeetingUser, // Meeting.meetingUserId -> MeetingUser.id
+                    required: false,
+                },
+                {
+                    model: dbConnection_2.MeetingCompany, // Meeting.companyId -> MeetingCompany.id
+                    required: false,
+                },
+                {
+                    model: dbConnection_2.MeetingImage, // MeetingImage.meetingId -> Meeting.id
+                    required: false,
+                },
+            ],
         });
         /** ✅ Flat Pagination Response */
         (0, errorMessage_1.createSuccess)(res, "Meeting list fetched", {
@@ -1089,171 +1148,37 @@ const getCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.getCategory = getCategory;
-const AttendancePunchIn = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const { punch_in, latitude_in, longitude_in } = req.body || {};
-        if (!punch_in) {
-            (0, errorMessage_1.badRequest)(res, "Punch-in time is required");
-            return;
-        }
-        const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
-        // 1) ✅ Check if already have an active session (status: present)
-        const activeSession = yield dbConnection_2.Attendance.findOne({
-            where: {
-                employee_id: finalUserId,
-                status: "present",
-            },
-        });
-        if (activeSession) {
-            (0, errorMessage_1.badRequest)(res, "You have already punched-in. Please punch-out first.");
-            return;
-        }
-        // 2) ✅ Check if this is the first punch of the day to determine "late" status
-        const existingRecordsForToday = yield dbConnection_2.Attendance.findOne({
-            where: {
-                employee_id: finalUserId,
-                date: today,
-            },
-        });
-        let late = false;
-        if (!existingRecordsForToday) {
-            const officeTime = new Date(`${today} 09:30:00`);
-            const punchInTime = new Date(punch_in);
-            if (punchInTime > officeTime) {
-                late = true;
-            }
-        }
-        // 3) ✅ Create attendance record
-        const punchInTime = new Date(punch_in);
-        const obj = {
-            employee_id: finalUserId,
-            date: today,
-            punch_in: punchInTime,
-            status: "present",
-            late,
-            latitude_in,
-            longitude_in,
-        };
-        const item = yield dbConnection_2.Attendance.create(obj);
-        (0, errorMessage_1.createSuccess)(res, "Punch-in recorded successfully", item);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
-    }
-});
-exports.AttendancePunchIn = AttendancePunchIn;
-const AttendancePunchOut = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const { punch_out, AttendanceId, latitude_out, longitude_out } = req.body || {};
-        if (!punch_out) {
-            (0, errorMessage_1.badRequest)(res, "Punch-out time is required");
-            return;
-        }
-        // Find the current active session
-        let whereClause = {
-            employee_id: finalUserId,
-            status: "present",
-        };
-        // Use specific ID if provided, otherwise find latest active
-        if (AttendanceId) {
-            whereClause.id = AttendanceId;
-        }
-        const attendance = yield dbConnection_2.Attendance.findOne({
-            where: whereClause,
-            order: [["id", "DESC"]],
-        });
-        if (!attendance) {
-            (0, errorMessage_1.badRequest)(res, "No active punch-in record found. Please punch-in first.");
-            return;
-        }
-        const punchInTime = new Date(attendance.punch_in);
-        const punchOutTime = new Date(punch_out);
-        if (punchOutTime < punchInTime) {
-            (0, errorMessage_1.badRequest)(res, "Punch-out must be after punch-in");
-            return;
-        }
-        // ✅ Calculate working hours for this session
-        const diffMs = punchOutTime.getTime() - punchInTime.getTime();
-        const workingHours = diffMs / (1000 * 60 * 60); // ms → hours
-        const workingHoursRounded = Number(workingHours.toFixed(2));
-        // ✅ Overtime calculation (Standard 8h)
-        const officeHours = 8;
-        const overtime = workingHoursRounded > officeHours
-            ? Number((workingHoursRounded - officeHours).toFixed(2))
-            : 0;
-        // ✅ Update session to closed (status: out)
-        attendance.punch_out = punchOutTime;
-        attendance.working_hours = workingHoursRounded;
-        attendance.overtime = overtime;
-        attendance.latitude_out = latitude_out;
-        attendance.longitude_out = longitude_out;
-        attendance.status = "out";
-        yield attendance.save();
-        (0, errorMessage_1.createSuccess)(res, "Punch-out recorded successfully", attendance);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
-    }
-});
-exports.AttendancePunchOut = AttendancePunchOut;
-const getTodayAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        // const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
-        const today = new Date().toISOString().slice(0, 10); // yyyy-mm-dd
-        const record = yield dbConnection_2.Attendance.findOne({
-            where: {
-                employee_id: finalUserId,
-                date: today,
-            },
-            order: [["id", "DESC"]], // Get latest entry
-        });
-        if (!record) {
-            (0, errorMessage_1.badRequest)(res, "No attendance found for today");
-            return;
-        }
-        (0, errorMessage_1.createSuccess)(res, "Today attendance fetched successfully", record);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.getTodayAttendance = getTodayAttendance;
-const AttendanceList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const data = req.query;
-        const item = yield Middleware.withuserlogin(dbConnection_2.Attendance, finalUserId, data);
-        (0, errorMessage_1.createSuccess)(res, "bbkbdkfbkd", item);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
-    }
-});
-exports.AttendanceList = AttendanceList;
+// ── Haversine straight-line distance in meters between two lat/lng points ──
+// (Used for geofencing — a fast, offline check; unlike the Google
+// Distance-Matrix-based getDistance() in middlewear/comman.ts used for
+// meeting travel tracking, this doesn't need road distance or an API call.)
+// AttendancePunchIn/getDayTypeFromWorkingHours/AttendancePunchOut/
+// getTodayAttendance/AttendanceList have moved to src/modules/attendance/ —
+// see attendance.controller.ts/service.ts/repository.ts. (Dropped a leftover
+// debug console.log of the full userData object while moving AttendanceList.)
 const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const { from_date, to_date, reason, leave_type } = req.body || {};
+        const { from_date, to_date, reason, companyLeaveId } = req.body || {};
+        let { leave_type } = req.body || {};
         // --------------------
         // ✅ Basic Validation
+        // leave_type is only required when companyLeaveId isn't supplied — when
+        // it is, the same best-effort name inference the web admin's on-behalf-of
+        // request endpoint uses (createLeaveRequest in leave.service.ts) derives
+        // it below instead, so mobile clients no longer have to send both.
         // --------------------
         if (!from_date || !to_date || !reason) {
             (0, errorMessage_1.badRequest)(res, "from_date, to_date & reason are required");
+            return;
+        }
+        if (!leave_type && !companyLeaveId) {
+            (0, errorMessage_1.badRequest)(res, "leave_type or companyLeaveId is required");
+            return;
+        }
+        if (leave_type && !VALID_LEAVE_TYPES.includes(leave_type)) {
+            (0, errorMessage_1.badRequest)(res, `leave_type must be one of: ${VALID_LEAVE_TYPES.join(", ")}`);
             return;
         }
         const from = new Date(from_date);
@@ -1267,6 +1192,83 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             return;
         }
         // --------------------
+        // ✅ Prevent duplicate leave requests overlapping the same day(s)
+        // --------------------
+        const existingLeave = yield dbConnection_2.Leave.findOne({
+            where: {
+                employee_id: finalUserId,
+                status: { [sequelize_1.Op.in]: ["pending", "approved"] },
+                from_date: { [sequelize_1.Op.lte]: to },
+                to_date: { [sequelize_1.Op.gte]: from },
+            },
+        });
+        if (existingLeave) {
+            (0, errorMessage_1.badRequest)(res, "You have already applied for leave on this date");
+            return;
+        }
+        // --------------------
+        // ✅ Leave Balance Validation & Deduction
+        // Balance is consumed as soon as leave is requested (not just on approval),
+        // and restored if the admin later rejects it. Prefers the dynamic
+        // per-company-configured-type balance (companyLeaveId) when the caller
+        // supplies one; falls back to the old fixed casual/sick/paid columns for
+        // callers that only ever send the leave_type enum (e.g. older clients).
+        // --------------------
+        const days = (0, leave_service_1.countLeaveDays)(from, to);
+        const year = from.getFullYear();
+        let balance = null;
+        let typeBalance = null;
+        let resolvedCompanyLeaveId = null;
+        if (companyLeaveId) {
+            const leaveTypeRow = yield dbConnection_2.CompanyLeave.findOne({
+                where: { id: Number(companyLeaveId), companyId: userData === null || userData === void 0 ? void 0 : userData.companyId },
+            });
+            if (!leaveTypeRow) {
+                (0, errorMessage_1.badRequest)(res, "companyLeaveId is not a leave type configured for your company");
+                return;
+            }
+            resolvedCompanyLeaveId = leaveTypeRow.id;
+            if (!leave_type)
+                leave_type = (0, leave_service_1.inferLegacyLeaveTypeEnum)(leaveTypeRow.leaveName);
+            // Same lazy carry-forward resolution used by the admin balance-assign/
+            // view endpoints (leave.service.ts) — the first time this employee's
+            // balance for this type/year is touched, any unused days from last
+            // year roll in (capped at the type's own carryForwardLimit) before the
+            // request is checked against it.
+            typeBalance = yield (0, leave_service_1.resolveLeaveTypeBalance)(finalUserId, leaveTypeRow, year, finalUserId);
+            const allocated = typeBalance.allocated || 0;
+            const carriedForward = typeBalance.carriedForward || 0;
+            const used = typeBalance.used || 0;
+            const remaining = allocated + carriedForward - used;
+            if (remaining < days) {
+                (0, errorMessage_1.badRequest)(res, `Insufficient ${leaveTypeRow.leaveName} balance (requested ${days} day(s), remaining ${remaining})`);
+                return;
+            }
+        }
+        else {
+            const balanceField = leave_service_1.LEAVE_BALANCE_FIELDS[leave_type];
+            if (balanceField) {
+                balance = yield dbConnection_2.EmployeeLeaveBalance.findOne({
+                    where: { employeeId: finalUserId, year },
+                });
+                const allocated = balance ? balance[balanceField.allocated] || 0 : 0;
+                const used = balance ? balance[balanceField.used] || 0 : 0;
+                if (!balance || allocated - used < days) {
+                    (0, errorMessage_1.badRequest)(res, `Insufficient ${leave_type} leave balance (requested ${days} day(s), remaining ${allocated - used})`);
+                    return;
+                }
+            }
+        }
+        // --------------------
+        // ✅ Half-day leave: only valid for a single day
+        // (leave_type is fully resolved by this point — explicit, or derived
+        // from companyLeaveId above)
+        // --------------------
+        if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
+            (0, errorMessage_1.badRequest)(res, "half_day leave must have from_date equal to to_date");
+            return;
+        }
+        // --------------------
         // ✅ Create Leave Request
         // --------------------
         const leave = yield dbConnection_2.Leave.create({
@@ -1275,18 +1277,40 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             to_date: to,
             reason,
             status: "pending",
-            leave_type
+            leave_type,
+            companyLeaveId: resolvedCompanyLeaveId,
         });
         // --------------------
-        // ✅ Insert Attendance Entry (1 entry per request)
+        // ✅ Deduct leave balance immediately upon request
         // --------------------
-        if (leave) {
-            yield dbConnection_2.Attendance.create({
+        if (typeBalance) {
+            typeBalance.used = (typeBalance.used || 0) + days;
+            yield typeBalance.save();
+        }
+        else if (balance) {
+            const balanceField = leave_service_1.LEAVE_BALANCE_FIELDS[leave_type];
+            const used = balance[balanceField.used] || 0;
+            balance[balanceField.used] = used + days;
+            yield balance.save();
+        }
+        // --------------------
+        // ✅ Insert one Attendance entry per day of the leave range
+        // half_day/short_leave are partial-day types — the employee still
+        // punches in/out normally, so no placeholder "leave" row is created
+        // for them (it would create a second, conflicting Attendance row for
+        // the same date and break the punch-in/punch-out flow).
+        // --------------------
+        if (leave && leave_type !== "half_day" && leave_type !== "short_leave") {
+            const leaveDates = [];
+            for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+                leaveDates.push(new Date(cursor));
+            }
+            yield dbConnection_2.Attendance.bulkCreate(leaveDates.map((date) => ({
                 employee_id: finalUserId,
-                date: from,
-                punch_in: to,
+                date,
                 status: "leave",
-            });
+                companyLeaveId: resolvedCompanyLeaveId,
+            })));
         }
         (0, errorMessage_1.createSuccess)(res, "Leave requested successfully", leave);
     }
@@ -1306,6 +1330,13 @@ const LeaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             where: {
                 employee_id: finalUserId,
             },
+            // Additive — each row also carries its resolved leave type name/code
+            // (when the request was made against a company-configured type),
+            // same as the web admin's leave list, instead of just the bare
+            // companyLeaveId a mobile client would otherwise have to look up
+            // itself. Alias is "leaveTypeRef" — the Leave model's association
+            // (see dbConnection.ts), distinct from Attendance's "leaveType".
+            include: [{ model: dbConnection_2.CompanyLeave, as: "leaveTypeRef", attributes: ["id", "leaveName", "leaveCode"] }],
             limit,
             offset,
             order: [["createdAt", "DESC"]],
@@ -1323,6 +1354,93 @@ const LeaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.LeaveList = LeaveList;
+const myLeaveBalance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const year = Number(req.query.year) || new Date().getFullYear();
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        // Dynamic per-company-configured leave types (Sick Leave, Casual Leave,
+        // Comp Off, or any custom type) — same source the web admin's Leave
+        // Balances tab and Mark Attendance's leave-type picker already read
+        // from. Balance is assigned against THIS system now (assignLeaveBalance
+        // in modules/leave), not the old fixed EmployeeLeaveBalance table below
+        // — that table hasn't been written to by anything all session, so the
+        // legacy casual/sick/paid fields below are now derived from here too
+        // instead of always coming back 0.
+        const leaveTypes = callerCompanyId
+            ? yield dbConnection_2.CompanyLeave.findAll({ where: { companyId: callerCompanyId }, order: [["leaveName", "ASC"]] })
+            : [];
+        let leaveTypeBalances = [];
+        if (leaveTypes.length > 0) {
+            const balanceRows = yield Promise.all(leaveTypes.map((lt) => (0, leave_service_1.resolveLeaveTypeBalance)(finalUserId, lt, year, finalUserId)));
+            leaveTypeBalances = leaveTypes.map((lt, idx) => {
+                const b = balanceRows[idx];
+                const allocated = (b === null || b === void 0 ? void 0 : b.allocated) || 0;
+                const carriedForward = (b === null || b === void 0 ? void 0 : b.carriedForward) || 0;
+                const used = (b === null || b === void 0 ? void 0 : b.used) || 0;
+                return {
+                    companyLeaveId: lt.id,
+                    leaveName: lt.leaveName,
+                    leaveCode: lt.leaveCode,
+                    leavesPerYear: lt.leavesPerYear,
+                    carryForwardAllowed: !!lt.carryForward,
+                    carryForwardLimit: lt.carryForwardLimit || 0,
+                    allocated,
+                    carriedForward,
+                    used,
+                    remaining: allocated + carriedForward - used,
+                };
+            });
+        }
+        // Legacy casual/sick/paid fields — kept as-is for older mobile clients
+        // that only ever read these three top-level keys. Best-effort matched
+        // by name against the company's own configured types so they show real
+        // numbers instead of always 0; only falls back to the old fixed table
+        // when this company has no dynamic leave types configured at all (an
+        // account that predates this feature).
+        const matchLegacy = (keyword) => leaveTypeBalances.find((b) => b.leaveName.toLowerCase().includes(keyword));
+        const legacyBucket = (keyword) => {
+            const match = matchLegacy(keyword);
+            return match
+                ? { allocated: match.allocated + match.carriedForward, used: match.used, remaining: match.remaining }
+                : { allocated: 0, used: 0, remaining: 0 };
+        };
+        let legacy = {
+            casual: legacyBucket("casual"),
+            sick: legacyBucket("sick"),
+            paid: legacyBucket("paid"),
+        };
+        if (leaveTypes.length === 0) {
+            const balance = yield dbConnection_2.EmployeeLeaveBalance.findOne({ where: { employeeId: finalUserId, year } });
+            legacy = {
+                casual: {
+                    allocated: (balance === null || balance === void 0 ? void 0 : balance.casualLeaveAllocated) || 0,
+                    used: (balance === null || balance === void 0 ? void 0 : balance.casualLeaveUsed) || 0,
+                    remaining: ((balance === null || balance === void 0 ? void 0 : balance.casualLeaveAllocated) || 0) - ((balance === null || balance === void 0 ? void 0 : balance.casualLeaveUsed) || 0),
+                },
+                sick: {
+                    allocated: (balance === null || balance === void 0 ? void 0 : balance.sickLeaveAllocated) || 0,
+                    used: (balance === null || balance === void 0 ? void 0 : balance.sickLeaveUsed) || 0,
+                    remaining: ((balance === null || balance === void 0 ? void 0 : balance.sickLeaveAllocated) || 0) - ((balance === null || balance === void 0 ? void 0 : balance.sickLeaveUsed) || 0),
+                },
+                paid: {
+                    allocated: (balance === null || balance === void 0 ? void 0 : balance.paidLeaveAllocated) || 0,
+                    used: (balance === null || balance === void 0 ? void 0 : balance.paidLeaveUsed) || 0,
+                    remaining: ((balance === null || balance === void 0 ? void 0 : balance.paidLeaveAllocated) || 0) - ((balance === null || balance === void 0 ? void 0 : balance.paidLeaveUsed) || 0),
+                },
+            };
+        }
+        (0, errorMessage_1.createSuccess)(res, "Leave balance fetched successfully", Object.assign(Object.assign({ year }, legacy), { 
+            // NEW — the full per-type breakdown, additive alongside the legacy
+            // fields above so existing clients keep working unchanged.
+            leaveTypes: leaveTypeBalances }));
+    }
+    catch (error) {
+        (0, errorMessage_1.badRequest)(res, (error === null || error === void 0 ? void 0 : error.message) || "Something went wrong");
+    }
+});
+exports.myLeaveBalance = myLeaveBalance;
 const CreateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const transaction = yield dbConnection_1.sequelize.transaction();
@@ -2322,6 +2440,9 @@ const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         }
         const allUserIds = yield Middleware.getAllSubordinateIds(hierarchyRootId);
         console.log(">>>>>>>>>>>>>allUserIds>", allUserIds);
+        // Drafts are gated separately via proformainvoice:view — a user with only
+        // invoice:view should not see draft-status invoices in the list.
+        const canViewDraft = yield (0, checkPermission_1.userHasPermission)(Number(userData.userId), userData.role, "proformainvoice", "view");
         // ✅ Dynamic where condition
         const whereCondition = {
             userId: {
@@ -2340,11 +2461,14 @@ const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             ];
         }
         if (status) {
-            whereCondition.status = status;
+            // Without proformainvoice:view, an explicit ?status=draft should return nothing.
+            whereCondition.status = (!canViewDraft && status === "draft")
+                ? { [sequelize_1.Op.in]: [] }
+                : status;
         }
         if (!status) {
             whereCondition.status = {
-                [sequelize_1.Op.in]: ["draft", "imported"]
+                [sequelize_1.Op.in]: canViewDraft ? ["draft", "imported"] : ["imported"]
             };
         }
         // 🎯 Filters
@@ -2893,3 +3017,143 @@ const getDashboardMobile = (req, res) => __awaiter(void 0, void 0, void 0, funct
     }
 });
 exports.getDashboardMobile = getDashboardMobile;
+// Sales person's own meeting-completion performance for the mobile app.
+// Lets the logged-in user check their completed-meeting % day-wise (current week),
+// month-wise (current month) or year-wise (current year) — used for the
+// "Sales Performance" chart on the mobile dashboard.
+const getSalesPerformance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { userId } = req.userData;
+        const finalUserId = Number(userId);
+        const range = String(req.query.range || "week").toLowerCase();
+        if (!["week", "month", "year"].includes(range)) {
+            (0, errorMessage_1.badRequest)(res, "range must be one of: week, month, year");
+            return;
+        }
+        const now = new Date();
+        let startDate;
+        let endDate;
+        let buckets;
+        if (range === "week") {
+            // Monday-start week containing "now"
+            const mondayOffset = (now.getDay() + 6) % 7; // Mon=0 ... Sun=6
+            startDate = new Date(now);
+            startDate.setDate(now.getDate() - mondayOffset);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = new Date(startDate);
+            endDate.setDate(startDate.getDate() + 6);
+            endDate.setHours(23, 59, 59, 999);
+            const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+            buckets = labels.map((label, key) => ({ key, label }));
+        }
+        else if (range === "month") {
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+            const daysInMonth = endDate.getDate();
+            buckets = Array.from({ length: daysInMonth }, (_, i) => ({
+                key: i + 1,
+                label: String(i + 1),
+            }));
+        }
+        else {
+            startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+            endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+            const labels = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
+            buckets = labels.map((label, key) => ({ key, label }));
+        }
+        const meetings = yield dbConnection_2.Meeting.findAll({
+            where: {
+                userId: finalUserId,
+                status: { [sequelize_1.Op.ne]: "cancelled" },
+                createdAt: { [sequelize_1.Op.between]: [startDate, endDate] },
+            },
+            attributes: ["id", "status", "createdAt"],
+        });
+        const bucketStats = new Map();
+        buckets.forEach((b) => bucketStats.set(b.key, { total: 0, completed: 0 }));
+        meetings.forEach((m) => {
+            const date = new Date(m.createdAt);
+            let key;
+            if (range === "week")
+                key = (date.getDay() + 6) % 7;
+            else if (range === "month")
+                key = date.getDate();
+            else
+                key = date.getMonth();
+            const stat = bucketStats.get(key);
+            if (!stat)
+                return;
+            stat.total += 1;
+            if (m.status === "out" || m.status === "completed")
+                stat.completed += 1;
+        });
+        let totalMeetings = 0;
+        let completedMeetings = 0;
+        const chart = buckets.map((b) => {
+            const stat = bucketStats.get(b.key);
+            totalMeetings += stat.total;
+            completedMeetings += stat.completed;
+            const percentage = stat.total > 0
+                ? Math.round((stat.completed / stat.total) * 1000) / 10
+                : 0;
+            return {
+                label: b.label,
+                totalMeetings: stat.total,
+                completedMeetings: stat.completed,
+                percentage,
+            };
+        });
+        const averageKpi = totalMeetings > 0
+            ? Math.round((completedMeetings / totalMeetings) * 1000) / 10
+            : 0;
+        (0, errorMessage_1.createSuccess)(res, "Sales performance fetched successfully", {
+            range,
+            startDate,
+            endDate,
+            totalMeetings,
+            completedMeetings,
+            averageKpi,
+            chart,
+        });
+    }
+    catch (error) {
+        console.error(error);
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
+    }
+});
+exports.getSalesPerformance = getSalesPerformance;
+const getBranchall = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { companyId, branchId } = req.query;
+        const page = Number(req.query.page || 1);
+        const limit = Number(req.query.limit || 10);
+        const offset = (page - 1) * limit;
+        const whereClause = {};
+        if (companyId) {
+            whereClause.companyId = Number(companyId);
+        }
+        else if (branchId) {
+            whereClause.id = Number(branchId);
+        }
+        const { count, rows } = yield dbConnection_2.Branch.findAndCountAll({
+            where: whereClause,
+            limit,
+            offset,
+            order: [["id", "ASC"]],
+        });
+        (0, errorMessage_1.createSuccess)(res, "Branches fetched successfully", {
+            branches: rows,
+            total: count,
+            page,
+            limit,
+            totalPages: Math.ceil(count / limit),
+        });
+    }
+    catch (error) {
+        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
+    }
+});
+exports.getBranchall = getBranchall;

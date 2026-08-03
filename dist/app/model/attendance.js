@@ -30,8 +30,12 @@ class Attendance extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.FLOAT,
                 allowNull: true,
             },
+            dayType: {
+                type: sequelize_1.DataTypes.STRING(20),
+                allowNull: true,
+            },
             status: {
-                type: sequelize_1.DataTypes.ENUM("present", "out", "absent", "leave", "leaveReject", "leaveApproved", "holiday"),
+                type: sequelize_1.DataTypes.ENUM("in", "present", "out", "absent", "leave", "leaveReject", "leaveApproved", "holiday"),
                 allowNull: false,
                 defaultValue: "absent",
             },
@@ -41,6 +45,10 @@ class Attendance extends sequelize_1.Model {
             },
             overtime: {
                 type: sequelize_1.DataTypes.FLOAT,
+                allowNull: true,
+            },
+            companyLeaveId: {
+                type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,
             },
             latitude_in: {

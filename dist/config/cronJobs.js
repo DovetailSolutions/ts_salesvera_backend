@@ -16,6 +16,7 @@ exports.startCronJobs = void 0;
 const node_cron_1 = __importDefault(require("node-cron"));
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("./dbConnection");
+const attendance_service_1 = require("../modules/attendance/attendance.service");
 /**
  * ─────────────────────────────────────────────
  *  AUTO PUNCH-OUT CRON JOB
@@ -34,6 +35,7 @@ const startCronJobs = () => {
     // 11:59 PM IST regardless of server timezone
     // ──────────────────────────────────────────────
     node_cron_1.default.schedule("59 23 * * *", () => __awaiter(void 0, void 0, void 0, function* () {
+        var _a;
         try {
             // Today's date string (yyyy-mm-dd)
             const todayStr = new Date().toISOString().slice(0, 10);
@@ -50,6 +52,26 @@ const startCronJobs = () => {
             if (missed.length === 0) {
                 return;
             }
+            // ── Step 1b: Batch-resolve each employee's shift + company, same
+            // "Shift > Company > hardcoded" precedence used by every interactive
+            // attendance endpoint (mark-present, punch-out, bulk upload) — this
+            // job previously always applied overtime with a hardcoded 8h
+            // baseline regardless of whether the company had even enabled
+            // overtime tracking at registration (Company.overtimeAllowed), and
+            // never set dayType at all. Batched (not per-record) to keep this a
+            // fixed number of queries regardless of how many records are missed.
+            const employeeIds = [...new Set(missed.map((r) => r.employee_id))];
+            const employees = yield dbConnection_1.User.findAll({
+                where: { id: { [sequelize_1.Op.in]: employeeIds } },
+                attributes: ["id", "shiftId"],
+            });
+            const shiftIdByEmployee = new Map(employees.map((e) => { var _a; return [e.id, (_a = e.shiftId) !== null && _a !== void 0 ? _a : null]; }));
+            const shiftIds = [...new Set(employees.map((e) => e.shiftId).filter((id) => !!id))];
+            const shifts = shiftIds.length ? yield dbConnection_1.Shift.findAll({ where: { id: { [sequelize_1.Op.in]: shiftIds } } }) : [];
+            const shiftById = new Map(shifts.map((s) => [s.id, s]));
+            const companyIds = [...new Set(shifts.map((s) => s.companyId).filter((id) => !!id))];
+            const companies = companyIds.length ? yield dbConnection_1.Company.findAll({ where: { id: { [sequelize_1.Op.in]: companyIds } } }) : [];
+            const companyById = new Map(companies.map((c) => [c.id, c]));
             // ── Step 2: Auto punch-out each record ──
             let successCount = 0;
             let skipCount = 0;
@@ -72,16 +94,24 @@ const startCronJobs = () => {
                     // ── Calculate working hours ──
                     const diffMs = autoPunchOut.getTime() - punchIn.getTime();
                     const workingHours = Number((diffMs / (1000 * 60 * 60)).toFixed(2));
-                    // ── Overtime (standard 8h working day) ──
-                    const officeHours = 8;
-                    const overtime = workingHours > officeHours
+                    const shiftId = shiftIdByEmployee.get(record.employee_id);
+                    const shift = shiftId ? shiftById.get(shiftId) : null;
+                    const company = (shift === null || shift === void 0 ? void 0 : shift.companyId) ? companyById.get(shift.companyId) : null;
+                    // ── Overtime — only counted if this employee's company actually
+                    // opted into overtime tracking at registration; baseline from
+                    // their shift's own working hours, falling back to 8h.
+                    const officeHours = (shift === null || shift === void 0 ? void 0 : shift.workingHours) && shift.workingHours > 0 ? shift.workingHours : 8;
+                    const overtimeAllowed = (_a = company === null || company === void 0 ? void 0 : company.overtimeAllowed) !== null && _a !== void 0 ? _a : false;
+                    const overtime = overtimeAllowed && workingHours > officeHours
                         ? Number((workingHours - officeHours).toFixed(2))
                         : 0;
+                    const dayType = (0, attendance_service_1.getDayTypeFromWorkingHours)(workingHours, shift, company);
                     // ── Update the record ──
                     yield record.update({
                         punch_out: autoPunchOut,
                         working_hours: workingHours,
                         overtime,
+                        dayType,
                         status: "out",
                     });
                     successCount++;

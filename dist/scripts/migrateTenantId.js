@@ -1,4 +1,4 @@
- "use strict";
+"use strict";
 /**
  * One-time migration: populate tenantId for all existing users.
  *

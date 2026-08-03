@@ -30,27 +30,14 @@ const dbConnection_1 = require("../config/dbConnection");
 const permissionCache_1 = require("../config/permissionCache");
 const uuid_1 = require("uuid");
 const notificationService_1 = require("../config/notificationService");
-const client_s3_1 = require("@aws-sdk/client-s3");
-const s3 = new client_s3_1.S3Client({
-    region: process.env.AWS_REGION,
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-    },
-});
+const spaces_1 = require("../config/spaces");
 const uploadToS3 = (base64Data, fileName, mimeType) => __awaiter(void 0, void 0, void 0, function* () {
     // Strip data URL prefix if Flutter sends "data:image/jpeg;base64,..."
     const raw = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
     const buffer = Buffer.from(raw, "base64");
     const ext = fileName.split(".").pop() || "bin";
     const key = `salesvera/chat/${(0, uuid_1.v4)()}.${ext}`;
-    yield s3.send(new client_s3_1.PutObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET,
-        Key: key,
-        Body: buffer,
-        ContentType: mimeType,
-    }));
-    return `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    return (0, spaces_1.uploadBufferToSpaces)(key, buffer, mimeType);
 });
 // FIX: loads a user's "module:action" permission strings from the DB.
 //      Used by the socket permission check below (reuses the same cache as HTTP routes).
@@ -134,8 +121,82 @@ function getAllRelatedUserIds(userId_1) {
         yield Promise.all([
             fetchRelations(userId, "children"),
             fetchRelations(userId, "parents"),
-            fetchPeers(userId),
+            // fetchPeers(userId),
         ]);
+        return Array.from(result);
+    });
+}
+// 🟢 sale_person UserList: own admin + own manager + all "cousins"
+// (every other sale_person under the same admin, regardless of which manager created them)
+function getSalePersonChatUserIds(userId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a, _b;
+        const result = new Set();
+        // 1. Walk UP: own manager (direct creator) + own admin (root admin/super_admin)
+        let currentId = userId;
+        let managerId = null;
+        let adminId = null;
+        let isFirst = true;
+        while (true) {
+            const currentUser = (yield dbConnection_1.User.findByPk(currentId, {
+                include: [
+                    {
+                        model: dbConnection_1.User,
+                        as: "creators",
+                        attributes: ["id", "role"],
+                        through: { attributes: [] },
+                    },
+                ],
+            }));
+            const creator = (_a = currentUser === null || currentUser === void 0 ? void 0 : currentUser.creators) === null || _a === void 0 ? void 0 : _a[0];
+            if (isFirst) {
+                managerId = (_b = creator === null || creator === void 0 ? void 0 : creator.id) !== null && _b !== void 0 ? _b : null;
+                isFirst = false;
+            }
+            if (!creator)
+                break;
+            if (creator.role === "admin" || creator.role === "super_admin") {
+                adminId = creator.id;
+                break;
+            }
+            currentId = creator.id;
+        }
+        if (managerId)
+            result.add(managerId);
+        if (adminId)
+            result.add(adminId);
+        // 2. Cousins: every sale_person whose creator is a manager under the same admin
+        if (adminId) {
+            const admin = (yield dbConnection_1.User.findByPk(adminId, {
+                include: [
+                    {
+                        model: dbConnection_1.User,
+                        as: "createdUsers",
+                        attributes: ["id", "role"],
+                        through: { attributes: [] },
+                    },
+                ],
+            }));
+            const managerIds = ((admin === null || admin === void 0 ? void 0 : admin.createdUsers) || [])
+                .filter((u) => u.role === "manager")
+                .map((u) => u.id);
+            if (managerIds.length > 0) {
+                const salePersons = yield dbConnection_1.User.findAll({
+                    where: { role: "sale_person" },
+                    attributes: ["id"],
+                    include: [
+                        {
+                            model: dbConnection_1.User,
+                            as: "creators",
+                            attributes: [],
+                            through: { attributes: [] },
+                            where: { id: { [sequelize_1.Op.in]: managerIds } },
+                        },
+                    ],
+                });
+                salePersons.forEach((sp) => result.add(sp.id));
+            }
+        }
         return Array.from(result);
     });
 }
@@ -146,13 +207,19 @@ const initChatSocket = (io) => {
     //      admin without chat:read cannot connect, so their manager/sale_person
     //      hierarchy cannot receive chat access either.
     io.use((socket, next) => __awaiter(void 0, void 0, void 0, function* () {
-        const token = socket.handshake.headers.token;
+        var _a, _b;
+        const token = (((_a = socket.handshake.auth) === null || _a === void 0 ? void 0 : _a.token) || socket.handshake.headers.token);
+        // FIX: log token presence/length on every handshake so a client-side
+        // "connects but never authenticates" report (e.g. sale_person reconnect
+        // sending an empty/stale token) can be diagnosed from server logs alone.
+        console.log(`SOCKET: Handshake from ${socket.id} — tokenLen: ${token ? token.length : 0}`);
         if (!token)
             return next(new Error("Authentication error"));
         try {
             const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
             socket.data.user = decoded;
             const { userId, role, companyId } = decoded;
+            console.log(`SOCKET: Authenticated ${socket.id} — userId: ${userId}, role: ${role}`);
             // These roles always have chat access — no permission check needed
             const rolesWithChatAccess = ["super_admin", "admin", "manager", "user"];
             if (rolesWithChatAccess.includes(role))
@@ -168,12 +235,14 @@ const initChatSocket = (io) => {
             next();
         }
         catch (err) {
+            console.log(`SOCKET: Auth failed for ${socket.id} — ${(_b = err === null || err === void 0 ? void 0 : err.message) !== null && _b !== void 0 ? _b : err}`);
             next(new Error("Authentication failed"));
         }
     }));
     io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
         const userId = Number(socket.data.user.userId); // ✅ Cast to number
         const userRole = socket.data.user.role;
+        console.log(`SOCKET: Connected successfully! socketId: ${socket.id}, userId: ${userId}, role: ${userRole}`);
         // 📡 Register this user's socket for targeted notifications
         (0, notificationService_1.setUserSocket)(userId, socket.id);
         yield dbConnection_1.User.update({ onlineSatus: "online" }, { where: { id: userId } });
@@ -185,6 +254,7 @@ const initChatSocket = (io) => {
         socket.on("joinRoom", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, type = "private", members = [] }) {
             try {
                 let room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId } });
+                const isNewRoom = !room;
                 // 🔥 Create room if not exists
                 if (!room) {
                     const newRoomId = roomId || (0, uuid_1.v4)();
@@ -199,14 +269,30 @@ const initChatSocket = (io) => {
                 const participant = yield dbConnection_1.ChatParticipant.findOne({
                     where: { chatRoomId: dbRoomId, userId },
                 });
+                // FIX: previously any caller could join ANY pre-existing room just
+                // by knowing/guessing its roomId — silently becoming a participant
+                // with zero authorization check, then reading its history via
+                // mychats/receiveMessage indefinitely. Only auto-join a brand-new
+                // room (created above), a room the caller is already a member of,
+                // or — for private chats — a room whose id is the deterministic
+                // `${min(a,b)}-${max(a,b)}` pair for the caller's own userId (see
+                // buildRoomId in UserChat.jsx): that's the normal "other party
+                // opens the chat first" case, not an authorization gap.
+                if (!participant && !isNewRoom) {
+                    const pairIds = type === "private" ? String(roomId).split("-").map(Number) : [];
+                    const isOwnPrivatePair = type === "private" && pairIds.length === 2 && pairIds.every((n) => Number.isInteger(n)) && pairIds.includes(Number(userId));
+                    if (!isOwnPrivatePair) {
+                        return socket.emit("errorMessage", { error: "You are not a member of this room." });
+                    }
+                }
                 if (!participant) {
                     yield dbConnection_1.ChatParticipant.create({
                         chatRoomId: dbRoomId,
                         userId,
                     });
                 }
-                // Group chat → add members
-                if (type === "group" && members.length > 0) {
+                // Group chat → add members (only meaningful when the room was just created)
+                if (isNewRoom && type === "group" && members.length > 0) {
                     const bulk = members.map((m) => ({
                         chatRoomId: dbRoomId,
                         userId: m,
@@ -421,6 +507,16 @@ const initChatSocket = (io) => {
                 if (!originalMsg) {
                     return socket.emit("errorMessage", { error: "Original message not found" });
                 }
+                // FIX: previously only the target room's membership was checked —
+                // the caller could forward any message by id (sequential integers,
+                // easily enumerated) regardless of whether they belonged to the
+                // room it originally came from, exfiltrating cross-tenant content.
+                const isSourceParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                    where: { chatRoomId: originalMsg.chatRoomId, userId },
+                });
+                if (!isSourceParticipant) {
+                    return socket.emit("errorMessage", { error: "You are not a member of the source room" });
+                }
                 const targetRoom = yield dbConnection_1.ChatRoom.findOne({ where: { roomId: toRoomId } });
                 if (!targetRoom) {
                     return socket.emit("errorMessage", { error: "Target room not found" });
@@ -492,8 +588,11 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         socket.on("messageToDelete", (data) => __awaiter(void 0, void 0, void 0, function* () {
             try {
+                // FIX: senderId previously came from the client payload — any caller
+                // could delete another user's message by supplying that user's id.
+                // It must be the authenticated socket's own userId.
                 const msg = yield dbConnection_1.Message.findOne({
-                    where: { id: data.id, senderId: data.senderId },
+                    where: { id: data.id, senderId: userId },
                 });
                 if (!msg)
                     return;
@@ -533,6 +632,19 @@ const initChatSocket = (io) => {
                     where: { roomId: msg.roomId },
                     attributes: ["id"],
                 });
+                // FIX: previously any authenticated socket could read any room's
+                // full message history just by knowing its roomId — no check that
+                // the caller is actually a participant of that room.
+                if (chatRoom) {
+                    const isParticipant = yield dbConnection_1.ChatParticipant.findOne({
+                        where: { chatRoomId: chatRoom.id, userId },
+                        attributes: ["id"],
+                    });
+                    if (!isParticipant) {
+                        io.to(socket.id).emit("mychats", { success: false, error: "You are not a member of this room." });
+                        return;
+                    }
+                }
                 const result = yield dbConnection_1.Message.findAndCountAll({
                     where: Object.assign({ chatRoomId: chatRoom === null || chatRoom === void 0 ? void 0 : chatRoom.id }, searchCondition),
                     offset,
@@ -568,9 +680,11 @@ const initChatSocket = (io) => {
             try {
                 const offset = (page - 1) * limit;
                 const cleanedSearch = typeof search === "string" ? search.trim() : "";
-                const childIds = yield getAllRelatedUserIds(userId);
-                const validUserIds = [userId, ...childIds];
-                console.log(validUserIds, 'validUserIds');
+                // 🟢 sale_person gets a dedicated list: own admin + own manager + all cousins (other sale_persons)
+                const childIds = userRole === "sale_person"
+                    ? yield getSalePersonChatUserIds(userId)
+                    : yield getAllRelatedUserIds(userId);
+                const validUserIds = [...childIds];
                 // 🟢 Get all rooms I am part of to filter unread messages correctly
                 const myParticipations = yield dbConnection_1.ChatParticipant.findAll({
                     where: { userId },
@@ -646,6 +760,21 @@ const initChatSocket = (io) => {
             try {
                 if (!members || members.length === 0) {
                     return socket.emit("createGroup", { error: "Group members are required" });
+                }
+                // Tenant isolation: only allow creating a group with users from the
+                // same tenant (mirrors the same check already present in
+                // addGroupMembers — createGroup previously had none at all, so a
+                // crafted socket payload could add users from a different tenant
+                // straight into a brand-new group).
+                const requester = yield dbConnection_1.User.findByPk(userId, { attributes: ["tenantId"] });
+                if (requester === null || requester === void 0 ? void 0 : requester.tenantId) {
+                    const validMembers = yield dbConnection_1.User.findAll({
+                        where: { id: { [sequelize_1.Op.in]: members }, tenantId: requester.tenantId },
+                        attributes: ["id"],
+                    });
+                    if (validMembers.length !== members.length) {
+                        return socket.emit("createGroup", { error: "Cannot add users from a different tenant." });
+                    }
                 }
                 const newRoomId = (0, uuid_1.v4)();
                 // Create the group room
@@ -959,7 +1088,8 @@ const initChatSocket = (io) => {
             }
         }));
         // --------------------------------------------------------
-        socket.on("disconnect", () => __awaiter(void 0, void 0, void 0, function* () {
+        socket.on("disconnect", (reason) => __awaiter(void 0, void 0, void 0, function* () {
+            console.log(`SOCKET: Disconnected socketId: ${socket.id}, userId: ${userId} — reason: ${reason}`);
             yield dbConnection_1.User.update({ onlineSatus: "offline" }, { where: { id: userId } });
             // 📡 Broadcast this user's offline status to ALL connected clients
             io.emit("userStatusChange", { userId, onlineSatus: "offline" });

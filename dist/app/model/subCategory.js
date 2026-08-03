@@ -46,10 +46,35 @@ class SubCategory extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true
             },
+            baseUnit: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
+            secondaryUnit: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+                field: "secandryUnit",
+            },
             tallyGuid: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
                 field: "tally_guid",
+            },
+            discount: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
+            discountedit: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false,
+            },
+            gstedit: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false,
+            },
+            totaledit: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false,
             },
             status: {
                 type: sequelize_1.DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),

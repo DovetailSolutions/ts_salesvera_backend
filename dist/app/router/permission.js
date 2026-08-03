@@ -47,6 +47,10 @@ const PermissionController = __importStar(require("../controller/permission"));
 const router = (0, express_1.Router)();
 // ── View all available permissions (permission matrix reference) ──────────
 router.get("/all", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), PermissionController.getAllPermissions);
+// ── Default permission template for a role (registration wizard pre-fill) ──
+// Open to any authenticated role — result is intersected with the caller's
+// own permissions, so it never leaks more than they could already grant.
+router.get("/template/:role", jwtVerify_1.tokenCheck, PermissionController.getPermissionTemplate);
 // ── Fetch users in this company filtered by role (preview before bulk assign) ─
 router.get("/users-by-role", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), PermissionController.getUsersByRole);
 // ── View calling user's own permissions ──────────────────────────────────

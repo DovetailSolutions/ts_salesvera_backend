@@ -42,6 +42,14 @@ const DepartmentModel = (sequelize) => {
             type: sequelize_1.DataTypes.BOOLEAN,
             defaultValue: false,
         },
+        workingDays: {
+            type: sequelize_1.DataTypes.JSONB,
+            allowNull: true,
+        },
+        customWorkingDays: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            defaultValue: false,
+        },
         adminId: {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             allowNull: true,

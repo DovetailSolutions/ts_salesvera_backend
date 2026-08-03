@@ -48,6 +48,10 @@ class Task extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: false,
             },
+            completedAt: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
         }, {
             sequelize,
             tableName: "tasks",

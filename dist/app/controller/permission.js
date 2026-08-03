@@ -9,12 +9,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.revokePermissionsFromRole = exports.getMyPermissions = exports.getUsersByRole = exports.assignPermissionsToRole = exports.revokePermissions = exports.assignPermissions = exports.getUserPermissions = exports.getAllPermissions = void 0;
+exports.revokePermissionsFromRole = exports.getMyPermissions = exports.getUsersByRole = exports.assignPermissionsToRole = exports.revokePermissions = exports.assignPermissions = exports.getUserPermissions = exports.getPermissionTemplate = exports.getAllPermissions = void 0;
 const sequelize_1 = require("sequelize");
 const permission_1 = require("../model/permission");
 const userPermission_1 = require("../model/userPermission");
 const dbConnection_1 = require("../../config/dbConnection");
 const permissionCache_1 = require("../../config/permissionCache");
+const permissionTemplates_1 = require("../../config/permissionTemplates");
 // BFS traversal of the creator hierarchy below rootUserId (does NOT include root itself).
 const getAllChildIds = (rootUserId) => __awaiter(void 0, void 0, void 0, function* () {
     const result = [];
@@ -61,9 +62,14 @@ const getSubordinateIdsDown = (userId) => __awaiter(void 0, void 0, void 0, func
     return result;
 });
 // Roles a caller can assign to individual users
+// FIX: "user" was missing "manager" here — inconsistent with
+// ROLE_ASSIGNABLE_ROLES below (used for bulk-by-role), and with
+// UserManagement.jsx's UI, which already lets a "user" caller open the
+// permissions editor on a manager row. Saving there hit a 403 because this
+// map never allowed it.
 const ASSIGNABLE_ROLES = {
     super_admin: ["user", "admin", "manager", "sale_person"],
-    user: ["admin"],
+    user: ["admin", "manager"],
     admin: ["manager", "sale_person"],
     manager: ["sale_person"],
 };
@@ -102,6 +108,64 @@ const findTargetUser = (targetUserId) => __awaiter(void 0, void 0, void 0, funct
     });
     return user ? { id: user.id, role: user.role } : null;
 });
+// ─── Helper: resolve target userIds for a bulk-by-role operation ────────────
+// "user" is the tenant ROOT — it doesn't belong to any company, so it can't
+// be resolved via the company->adminId tree walk every other role uses.
+// Only super_admin can ever target it (enforced by ROLE_ASSIGNABLE_ROLES),
+// and super_admin sees the whole platform, so the query is a flat,
+// company-less lookup instead of the tree walk below.
+//
+// Returns { userIds, error } — error is set (and userIds empty) when the
+// company-scoped path is required but no companyId/company was resolvable.
+const resolveRoleTargetUserIds = (targetRole, effectiveCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
+    if (targetRole === "user") {
+        const users = yield dbConnection_1.User.findAll({
+            where: { role: "user", status: "active" },
+            attributes: ["id"],
+        });
+        return { userIds: users.map((u) => u.id) };
+    }
+    if (!effectiveCompanyId) {
+        return { userIds: [], error: "companyId is required" };
+    }
+    const company = yield dbConnection_1.Company.findByPk(effectiveCompanyId, { attributes: ["id", "adminId"] });
+    if (!company) {
+        return { userIds: [], error: "Company not found" };
+    }
+    if (targetRole === "admin") {
+        // FIX: walking down from company.adminId via getAllChildIds never
+        // matched "admin" at all — that helper returns descendants only, and
+        // the admin IS the root, not a descendant of themselves. Resolve the
+        // company's admin(s) directly instead: the legacy single Company.adminId
+        // plus any additional admins from the CompanyAdmin junction table
+        // (multi-company-admin support).
+        const adminIds = new Set();
+        if (company.adminId)
+            adminIds.add(company.adminId);
+        const junctionAdmins = yield dbConnection_1.CompanyAdmin.findAll({
+            where: { companyId: effectiveCompanyId },
+            attributes: ["adminId"],
+        });
+        junctionAdmins.forEach((a) => adminIds.add(a.adminId));
+        if (adminIds.size === 0)
+            return { userIds: [] };
+        const activeAdmins = yield dbConnection_1.User.findAll({
+            where: { id: { [sequelize_1.Op.in]: Array.from(adminIds) }, role: "admin", status: "active" },
+            attributes: ["id"],
+        });
+        return { userIds: activeAdmins.map((u) => u.id) };
+    }
+    // manager / sale_person — walk down from this company's admin, correctly
+    // scoped to only the managers/sale_persons created under that admin.
+    if (!company.adminId)
+        return { userIds: [] };
+    const allChildIds = yield getAllChildIds(company.adminId);
+    const roleUsers = yield dbConnection_1.User.findAll({
+        where: { id: { [sequelize_1.Op.in]: allChildIds }, role: targetRole, status: "active" },
+        attributes: ["id"],
+    });
+    return { userIds: roleUsers.map((u) => u.id) };
+});
 // ============================================================
 // GET /permissions/all
 // Returns every permission in the master table.
@@ -127,6 +191,52 @@ const getAllPermissions = (req, res) => __awaiter(void 0, void 0, void 0, functi
     }
 });
 exports.getAllPermissions = getAllPermissions;
+// ============================================================
+// GET /permissions/template/:role
+// Returns a sensible DEFAULT set of permission IDs for onboarding a new
+// user of the given role — used to pre-populate the registration wizard's
+// permission step instead of starting from a blank matrix every time.
+//
+// The result is intersected with the caller's own current permission set
+// (assignPermissions enforces "you can only grant what you yourself have"),
+// so every id returned here is guaranteed assignable without a 403 —
+// super_admin gets the full, unfiltered template since they hold everything.
+// ============================================================
+const getPermissionTemplate = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const { role: callerRole, userId: callerId } = userData;
+        const targetRole = req.params.role;
+        const template = permissionTemplates_1.PERMISSION_TEMPLATES[targetRole];
+        if (!template) {
+            return res.status(400).json({
+                success: false,
+                message: `No default permission template for role '${targetRole}'`,
+            });
+        }
+        const templateKeys = new Set(template.map(([m, a]) => `${m}:${a}`));
+        const allPermissions = yield permission_1.Permission.findAll({ attributes: ["id", "module", "action"] });
+        let matching = allPermissions.filter((p) => templateKeys.has(`${p.module}:${p.action}`));
+        if (callerRole !== "super_admin") {
+            const ownPerms = yield getOwnPermissions(callerId, callerRole);
+            if (ownPerms) {
+                matching = matching.filter((p) => ownPerms.has(`${p.module}:${p.action}`));
+            }
+        }
+        return res.status(200).json({
+            success: true,
+            data: {
+                role: targetRole,
+                permissionIds: matching.map((p) => p.id),
+            },
+        });
+    }
+    catch (err) {
+        console.error("getPermissionTemplate error:", err);
+        return res.status(500).json({ success: false, message: "Server error" });
+    }
+});
+exports.getPermissionTemplate = getPermissionTemplate;
 // ============================================================
 // GET /permissions/user/:userId
 // Returns the effective permission list for a specific user.
@@ -478,21 +588,13 @@ const assignPermissionsToRole = (req, res) => __awaiter(void 0, void 0, void 0, 
                 }
             }
         }
-        // Find the company's root admin to scope the search to this company's hierarchy
-        const company = yield dbConnection_1.Company.findByPk(effectiveCompanyId, { attributes: ["id", "adminId"] });
-        if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found" });
+        // Resolve target users — "user" is a platform-wide lookup (tenant roots
+        // aren't scoped to a company); every other role walks the target
+        // company's admin-rooted hierarchy tree.
+        const { userIds, error: resolveError } = yield resolveRoleTargetUserIds(targetRole, effectiveCompanyId);
+        if (resolveError) {
+            return res.status(400).json({ success: false, message: resolveError });
         }
-        const allChildIds = yield getAllChildIds(company.adminId);
-        const roleUsers = yield dbConnection_1.User.findAll({
-            where: {
-                id: { [sequelize_1.Op.in]: allChildIds },
-                role: targetRole,
-                status: "active",
-            },
-            attributes: ["id"],
-        });
-        const userIds = roleUsers.map((u) => u.id);
         if (userIds.length === 0) {
             return res.status(200).json({
                 success: true,
@@ -511,7 +613,6 @@ const assignPermissionsToRole = (req, res) => __awaiter(void 0, void 0, void 0, 
                 if (wasCreated)
                     totalAssigned++;
             }
-            // effectiveCompanyId
             (0, permissionCache_1.invalidatePermissionCache)(uid);
         }
         return res.status(200).json({
@@ -552,34 +653,58 @@ const getUsersByRole = (req, res) => __awaiter(void 0, void 0, void 0, function*
                 message: `${callerRole} cannot fetch users with role '${targetRole}'`,
             });
         }
-        // companyId is optional in query — falls back to JWT-resolved companyId
+        // companyId is optional in query — falls back to JWT-resolved companyId.
+        // Not required at all when targeting "user" (platform-wide, see below —
+        // a "user" account is the tenant root and doesn't belong to any company).
         const effectiveCompanyId = queryCompanyId
             ? Number(queryCompanyId)
             : callerCompanyId ? Number(callerCompanyId) : null;
-        if (!effectiveCompanyId) {
+        if (!effectiveCompanyId && targetRole !== "user") {
             return res.status(400).json({ success: false, message: "companyId is required" });
         }
-        const company = yield dbConnection_1.Company.findByPk(effectiveCompanyId, { attributes: ["id", "adminId"] });
-        if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found" });
+        // Delegates to the same resolver assignPermissionsToRole/
+        // revokePermissionsFromRole use, so all three stay in lockstep.
+        const { userIds, error: resolveError } = yield resolveRoleTargetUserIds(targetRole, effectiveCompanyId);
+        if (resolveError) {
+            return res.status(400).json({ success: false, message: resolveError });
         }
-        const allChildIds = yield getAllChildIds(company.adminId);
+        const attrs = ["id", "firstName", "lastName", "email", "phone", "role", "profile", "createdAt"];
         const users = yield dbConnection_1.User.findAll({
-            where: {
-                id: { [sequelize_1.Op.in]: allChildIds },
-                role: targetRole,
-                status: "active",
-            },
-            attributes: ["id", "firstName", "lastName", "email", "phone", "role", "profile", "createdAt"],
+            where: { id: { [sequelize_1.Op.in]: userIds } },
+            attributes: attrs,
             order: [["firstName", "ASC"]],
         });
+        // Per-user permission breakdown — lets the caller see who already has
+        // more/fewer permissions than their peers in the same role before
+        // bulk-granting/revoking everyone identically, instead of applying the
+        // action blind with no visibility into the current state.
+        const userPerms = userIds.length
+            ? yield userPermission_1.UserPermission.findAll({
+                where: { userId: { [sequelize_1.Op.in]: userIds } },
+                include: [{ model: permission_1.Permission, as: "permission", attributes: ["id", "module", "action"] }],
+            })
+            : [];
+        const permsByUser = {};
+        for (const up of userPerms) {
+            if (!up.permission)
+                continue;
+            if (!permsByUser[up.userId])
+                permsByUser[up.userId] = [];
+            permsByUser[up.userId].push({ id: up.permission.id, module: up.permission.module, action: up.permission.action });
+        }
+        const usersWithPermissions = users.map((u) => {
+            const perms = permsByUser[u.id] || [];
+            return Object.assign(Object.assign({}, u.toJSON()), { permissionCount: perms.length, permissions: perms });
+        });
+        const maxPermissionCount = usersWithPermissions.reduce((max, u) => Math.max(max, u.permissionCount), 0);
         return res.status(200).json({
             success: true,
             data: {
                 role: targetRole,
                 companyId: effectiveCompanyId,
-                count: users.length,
-                users,
+                count: usersWithPermissions.length,
+                maxPermissionCount,
+                users: usersWithPermissions,
             },
         });
     }
@@ -660,11 +785,12 @@ const revokePermissionsFromRole = (req, res) => __awaiter(void 0, void 0, void 0
                 message: "targetRole and permissionIds[] are required",
             });
         }
-        // companyId is optional in body — falls back to JWT-resolved companyId
+        // companyId is optional in body — falls back to JWT-resolved companyId.
+        // Not required at all when targeting "user" (platform-wide, see below).
         const effectiveCompanyId = bodyCompanyId
             ? Number(bodyCompanyId)
             : callerCompanyId ? Number(callerCompanyId) : null;
-        if (!effectiveCompanyId) {
+        if (!effectiveCompanyId && targetRole !== "user") {
             return res.status(400).json({ success: false, message: "companyId is required" });
         }
         // Hierarchy check
@@ -682,17 +808,12 @@ const revokePermissionsFromRole = (req, res) => __awaiter(void 0, void 0, void 0
         if (permsToRevoke.length !== permissionIds.length) {
             return res.status(400).json({ success: false, message: "One or more invalid permissionIds" });
         }
-        // Resolve company → get all users of targetRole in this company
-        const company = yield dbConnection_1.Company.findByPk(effectiveCompanyId, { attributes: ["id", "adminId"] });
-        if (!company) {
-            return res.status(404).json({ success: false, message: "Company not found" });
+        // Resolve target users — "user" is a platform-wide lookup; every other
+        // role walks the target company's admin-rooted hierarchy tree.
+        const { userIds, error: resolveError } = yield resolveRoleTargetUserIds(targetRole, effectiveCompanyId);
+        if (resolveError) {
+            return res.status(400).json({ success: false, message: resolveError });
         }
-        const allChildIds = yield getAllChildIds(company.adminId);
-        const roleUsers = yield dbConnection_1.User.findAll({
-            where: { id: { [sequelize_1.Op.in]: allChildIds }, role: targetRole, status: "active" },
-            attributes: ["id"],
-        });
-        const userIds = roleUsers.map((u) => u.id);
         if (userIds.length === 0) {
             return res.status(200).json({
                 success: true,

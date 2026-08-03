@@ -1,12 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UserModel = exports.User = void 0;
+exports.UserModel = exports.MeetingUser = void 0;
 const sequelize_1 = require("sequelize");
-class User extends sequelize_1.Model {
+class MeetingUser extends sequelize_1.Model {
 }
-exports.User = User;
+exports.MeetingUser = MeetingUser;
 const UserModel = (sequelize) => {
-    User.init({
+    MeetingUser.init({
         id: {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             autoIncrement: true,
@@ -56,6 +56,6 @@ const UserModel = (sequelize) => {
         tableName: "meeting_users",
         timestamps: true,
     });
-    return User;
+    return MeetingUser;
 };
 exports.UserModel = UserModel;

@@ -45,9 +45,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TaskHistory = exports.Task = exports.Report = exports.Notification = exports.UserPermission = exports.Permission = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.TaskComment = exports.TaskHistory = exports.Task = exports.Report = exports.Notification = exports.UserPermission = exports.Permission = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.EmployeeLeaveTypeBalance = exports.EmployeeLeaveBalance = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.CompanyAdmin = exports.CompanyManager = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
+// Validates required DB_*/JWT_SECRET env vars before this module builds its
+// Sequelize connection — every entry point that imports dbConnection (the
+// server, and the standalone scripts in src/scripts/) gets this check for
+// free, instead of each one needing to remember to run it first.
+const env_1 = require("./env");
 const sequelize_1 = require("sequelize");
 const env = process.env;
 // ===== MODELS =====
@@ -76,12 +81,18 @@ Object.defineProperty(exports, "Message", { enumerable: true, get: function () {
 const quotations_1 = require("../app/model/quotations");
 Object.defineProperty(exports, "Quotations", { enumerable: true, get: function () { return quotations_1.Quotations; } });
 const company_1 = require("../app/model/company");
+const companyManager_1 = require("../app/model/companyManager");
+const companyAdmin_1 = require("../app/model/companyAdmin");
 const branch_1 = require("../app/model/branch");
-const Shift_1 = require("../app/model/Shift");
+const shift_1 = require("../app/model/shift");
 const department_1 = require("../app/model/department");
 const holiday_1 = require("../app/model/holiday");
 const Leave_1 = require("../app/model/Leave");
 Object.defineProperty(exports, "CompanyLeave", { enumerable: true, get: function () { return Leave_1.CompanyLeave; } });
+const EmployeeLeaveBalance_1 = require("../app/model/EmployeeLeaveBalance");
+Object.defineProperty(exports, "EmployeeLeaveBalance", { enumerable: true, get: function () { return EmployeeLeaveBalance_1.EmployeeLeaveBalance; } });
+const EmployeeLeaveTypeBalance_1 = require("../app/model/EmployeeLeaveTypeBalance");
+Object.defineProperty(exports, "EmployeeLeaveTypeBalance", { enumerable: true, get: function () { return EmployeeLeaveTypeBalance_1.EmployeeLeaveTypeBalance; } });
 const bank_1 = require("../app/model/bank");
 const Invoice_1 = require("../app/model/Invoice");
 Object.defineProperty(exports, "Invoices", { enumerable: true, get: function () { return Invoice_1.Invoices; } });
@@ -97,8 +108,14 @@ const task_1 = require("../app/model/task");
 Object.defineProperty(exports, "Task", { enumerable: true, get: function () { return task_1.Task; } });
 const taskHistory_1 = require("../app/model/taskHistory");
 Object.defineProperty(exports, "TaskHistory", { enumerable: true, get: function () { return taskHistory_1.TaskHistory; } });
+const taskComment_1 = require("../app/model/taskComment");
+Object.defineProperty(exports, "TaskComment", { enumerable: true, get: function () { return taskComment_1.TaskComment; } });
 // ===== SEQUELIZE INIT =====
-const sequelize = new sequelize_1.Sequelize(env.DB_NAME || "default_db", env.DB_USER_NAME || "default_user", env.DB_PASSWORD || "default_password", Object.assign({ host: env.DB_HOST, port: Number(env.DB_PORT) || 5432, dialect: "postgres", logging: false }, (env.DB_HOST !== "127.0.0.1" && env.DB_HOST !== "localhost"
+// DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
+// this point — env.ts (imported above) exits the process if any are missing,
+// so there's no silent "default_db"/"default_user" fallback to mask a
+// misconfigured environment.
+const sequelize = new sequelize_1.Sequelize(env_1.DB_NAME, env_1.DB_USER_NAME, env_1.DB_PASSWORD, Object.assign({ host: env_1.DB_HOST, port: Number(env_1.DB_PORT), dialect: "postgres", logging: false }, (env_1.DB_HOST !== "127.0.0.1" && env_1.DB_HOST !== "localhost"
     ? {
         dialectOptions: {
             ssl: {
@@ -144,15 +161,21 @@ quotations_1.Quotations.initModel(sequelize);
 // Company Structure
 const Company = (0, company_1.CompanyModell)(sequelize);
 exports.Company = Company;
+const CompanyManager = (0, companyManager_1.CompanyManagerModel)(sequelize);
+exports.CompanyManager = CompanyManager;
+const CompanyAdmin = (0, companyAdmin_1.CompanyAdminModel)(sequelize);
+exports.CompanyAdmin = CompanyAdmin;
 const Branch = (0, branch_1.BranchModel)(sequelize);
 exports.Branch = Branch;
 const Department = (0, department_1.DepartmentModel)(sequelize);
 exports.Department = Department;
 const Holiday = (0, holiday_1.HolidayModel)(sequelize);
 exports.Holiday = Holiday;
-const Shift = (0, Shift_1.ShiftModel)(sequelize);
+const Shift = (0, shift_1.ShiftModel)(sequelize);
 exports.Shift = Shift;
 Leave_1.CompanyLeave.initModel(sequelize);
+EmployeeLeaveBalance_1.EmployeeLeaveBalance.initModel(sequelize);
+EmployeeLeaveTypeBalance_1.EmployeeLeaveTypeBalance.initModel(sequelize);
 const CompanyBank = (0, bank_1.CompanyBankModel)(sequelize);
 exports.CompanyBank = CompanyBank;
 Invoice_1.Invoices.initModel(sequelize);
@@ -168,6 +191,7 @@ exports.Report = Report;
 // Task Management
 task_1.Task.initModel(sequelize);
 taskHistory_1.TaskHistory.initModel(sequelize);
+taskComment_1.TaskComment.initModel(sequelize);
 // ===== ASSOCIATIONS =====
 // User self relation
 User.belongsToMany(User, {
@@ -187,6 +211,19 @@ User.hasMany(attendance_1.Attendance, { foreignKey: "employee_id" });
 attendance_1.Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 User.hasMany(leaverequests_1.Leave, { foreignKey: "employee_id" });
 leaverequests_1.Leave.belongsTo(User, { foreignKey: "employee_id", as: "user" });
+User.hasMany(EmployeeLeaveBalance_1.EmployeeLeaveBalance, { foreignKey: "employeeId", as: "leaveBalances" });
+EmployeeLeaveBalance_1.EmployeeLeaveBalance.belongsTo(User, { foreignKey: "employeeId", as: "employee" });
+// Dynamic per-company-configured-leave-type balances (replaces the fixed
+// casual/sick/paid columns above for anything driven by CompanyLeave).
+User.hasMany(EmployeeLeaveTypeBalance_1.EmployeeLeaveTypeBalance, { foreignKey: "employeeId", as: "leaveTypeBalances" });
+EmployeeLeaveTypeBalance_1.EmployeeLeaveTypeBalance.belongsTo(User, { foreignKey: "employeeId", as: "employee" });
+Leave_1.CompanyLeave.hasMany(EmployeeLeaveTypeBalance_1.EmployeeLeaveTypeBalance, { foreignKey: "companyLeaveId", as: "balances" });
+EmployeeLeaveTypeBalance_1.EmployeeLeaveTypeBalance.belongsTo(Leave_1.CompanyLeave, { foreignKey: "companyLeaveId", as: "leaveType" });
+// Which configured leave type an Attendance/Leave-request row was granted under.
+attendance_1.Attendance.belongsTo(Leave_1.CompanyLeave, { foreignKey: "companyLeaveId", as: "leaveType" });
+Leave_1.CompanyLeave.hasMany(attendance_1.Attendance, { foreignKey: "companyLeaveId", as: "attendanceRows" });
+leaverequests_1.Leave.belongsTo(Leave_1.CompanyLeave, { foreignKey: "companyLeaveId", as: "leaveTypeRef" });
+Leave_1.CompanyLeave.hasMany(leaverequests_1.Leave, { foreignKey: "companyLeaveId", as: "leaveRequests" });
 // Expense
 User.hasMany(expense_1.Expense, { foreignKey: "userId" });
 expense_1.Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
@@ -240,16 +277,39 @@ quotations_1.Quotations.belongsTo(User, { foreignKey: "userId" });
 // User / Company
 User.hasOne(Company, { foreignKey: "adminId", as: "company" });
 Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
-User.hasOne(Company, { foreignKey: "managerId", as: "managedCompany" });
-Company.belongsTo(User, { foreignKey: "managerId", as: "manager" });
+// Many-to-many: a manager can manage multiple companies, a company can have multiple managers
+Company.belongsToMany(User, { through: CompanyManager, as: "managers", foreignKey: "companyId", otherKey: "managerId" });
+User.belongsToMany(Company, { through: CompanyManager, as: "managedCompanies", foreignKey: "managerId", otherKey: "companyId" });
+CompanyManager.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+CompanyManager.belongsTo(User, { foreignKey: "managerId", as: "manager" });
+// Many-to-many: an admin can administer multiple companies, a company can have multiple admins
+Company.belongsToMany(User, { through: CompanyAdmin, as: "admins", foreignKey: "companyId", otherKey: "adminId" });
+User.belongsToMany(Company, { through: CompanyAdmin, as: "administeredCompanies", foreignKey: "adminId", otherKey: "companyId" });
+CompanyAdmin.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+CompanyAdmin.belongsTo(User, { foreignKey: "adminId", as: "admin" });
 Company.hasMany(Branch, { foreignKey: "companyId", as: "branches" });
 Branch.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+User.belongsTo(Branch, {
+    foreignKey: "branchId",
+    as: "branch",
+});
+Branch.hasMany(User, {
+    foreignKey: "branchId",
+    as: "branch",
+});
 Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
 Department.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(Holiday, { foreignKey: "companyId", as: "holidays" });
 Holiday.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(Shift, { foreignKey: "companyId", as: "shifts" });
 Shift.belongsTo(Company, { foreignKey: "companyId", as: "company" });
+// Per-employee shift/department assignment — needed so the attendance
+// engine can resolve "this employee's assigned shift" instead of using a
+// hardcoded default for everyone (see AttendancePunchIn/PunchOut).
+User.belongsTo(Shift, { foreignKey: "shiftId", as: "shift" });
+Shift.hasMany(User, { foreignKey: "shiftId", as: "employees" });
+User.belongsTo(Department, { foreignKey: "departmentId", as: "department" });
+Department.hasMany(User, { foreignKey: "departmentId", as: "employees" });
 Company.hasMany(Leave_1.CompanyLeave, { foreignKey: "companyId", as: "companyLeaves" });
 Leave_1.CompanyLeave.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 Company.hasMany(CompanyBank, { foreignKey: "companyId", as: "companyBanks" });
@@ -284,9 +344,14 @@ Company.hasMany(task_1.Task, { foreignKey: "companyId", as: "tasks", constraints
 task_1.Task.belongsTo(Company, { foreignKey: "companyId", as: "company", constraints: false });
 // TaskHistory associations
 task_1.Task.hasMany(taskHistory_1.TaskHistory, { foreignKey: "taskId", as: "history", constraints: false });
-taskHistory_1.TaskHistory.belongsTo(task_1.Task, { foreignKey: "taskId", constraints: false });
+taskHistory_1.TaskHistory.belongsTo(task_1.Task, { foreignKey: "taskId", as: "task", constraints: false });
 User.hasMany(taskHistory_1.TaskHistory, { foreignKey: "changedBy", as: "taskChanges", constraints: false });
 taskHistory_1.TaskHistory.belongsTo(User, { foreignKey: "changedBy", as: "changedByUser", constraints: false });
+// TaskComment associations
+task_1.Task.hasMany(taskComment_1.TaskComment, { foreignKey: "taskId", as: "comments", constraints: false });
+taskComment_1.TaskComment.belongsTo(task_1.Task, { foreignKey: "taskId", constraints: false });
+User.hasMany(taskComment_1.TaskComment, { foreignKey: "userId", as: "taskComments", constraints: false });
+taskComment_1.TaskComment.belongsTo(User, { foreignKey: "userId", as: "author", constraints: false });
 /**
  * 🛠️ MANUAL MIGRATION HELPER
  * This ensures the 'meeting_user_id' column exists in essential tables.
@@ -379,12 +444,24 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
                 { name: "otp", type: "VARCHAR(255)" },
                 { name: "otpExpiry", type: "TIMESTAMP WITH TIME ZONE" },
                 { name: "tenantId", type: "INTEGER" },
+                { name: "lastLoginCompanyId", type: "INTEGER" },
+                { name: "branchId", type: "INTEGER" },
+                { name: "shiftId", type: "INTEGER" },
+                { name: "departmentId", type: "INTEGER" },
+            ],
+        },
+        {
+            tableName: "quotations",
+            columns: [
+                { name: "branchId", type: "INTEGER" },
             ],
         },
         {
             tableName: "sub_categories",
             columns: [
                 { name: "tally_guid", type: "VARCHAR(255)" },
+                { name: "baseUnit", type: "VARCHAR(255)" },
+                { name: "secandryUnit", type: "VARCHAR(255)" },
             ],
         },
         {
@@ -401,6 +478,45 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
                 { name: "fileName", type: "VARCHAR(255)" },
                 { name: "replyTo", type: "INTEGER" },
                 { name: "status", type: "VARCHAR(10) DEFAULT 'unseen'" },
+            ],
+        },
+        {
+            // ✅ company_leaves: compOffBalance/casualLeaveBalance/sickLeaveBalance were
+            // added to the CompanyLeave model but never patched into the live DB table.
+            tableName: "company_leaves",
+            columns: [
+                { name: "compOffBalance", type: "INTEGER DEFAULT 0" },
+                { name: "casualLeaveBalance", type: "INTEGER DEFAULT 0" },
+                { name: "sickLeaveBalance", type: "INTEGER DEFAULT 0" },
+            ],
+        },
+        {
+            tableName: "repost",
+            columns: [
+                { name: "tallyGuid", type: "VARCHAR(255)" },
+            ],
+        },
+        {
+            // ✅ shifts: fullDayHours/nightShift/breakMinutes/workingHours/
+            // lateMarkAfter/halfDayAfter were added to the Shift model but never
+            // patched into the live DB table (fullDayHours/nightShift were missing
+            // entirely, which made every addShift insert fail).
+            tableName: "shifts",
+            columns: [
+                { name: "fullDayHours", type: "INTEGER" },
+                { name: "nightShift", type: "BOOLEAN" },
+                { name: "breakMinutes", type: "INTEGER DEFAULT 0" },
+                { name: "workingHours", type: "FLOAT DEFAULT 8" },
+                { name: "lateMarkAfter", type: "INTEGER DEFAULT 0" },
+                { name: "halfDayAfter", type: "INTEGER DEFAULT 0" },
+            ],
+        },
+        {
+            // ✅ attendance: dayType was added to the Attendance model but never
+            // patched into the live DB table. Set at punch-out from working_hours.
+            tableName: "attendance",
+            columns: [
+                { name: "dayType", type: "VARCHAR(20)" },
             ],
         },
     ];
@@ -457,6 +573,22 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
             // Ignore if doesn't exist
         }
     }
+    // ✅ Ensure company_managers junction table exists (many-to-many: company ↔ manager)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "company_managers" (
+        "id" SERIAL PRIMARY KEY,
+        "companyId" INTEGER NOT NULL,
+        "managerId" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "company_managers_unique" UNIQUE ("companyId", "managerId")
+      );
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table company_managers:`, err);
+    }
     // ✅ Ensure company_banks table exists (new table added to model)
     try {
         yield sequelize.query(`
@@ -480,6 +612,31 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
     }
     catch (err) {
         console.error(`❌ Error creating table company_banks:`, err);
+    }
+    // ✅ Ensure employee_leave_balances table exists (per-employee yearly leave balance)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "employee_leave_balances" (
+        "id" SERIAL PRIMARY KEY,
+        "employeeId" INTEGER NOT NULL,
+        "companyId" INTEGER,
+        "branchId" INTEGER,
+        "year" INTEGER NOT NULL,
+        "casualLeaveAllocated" INTEGER DEFAULT 0,
+        "casualLeaveUsed" INTEGER DEFAULT 0,
+        "sickLeaveAllocated" INTEGER DEFAULT 0,
+        "sickLeaveUsed" INTEGER DEFAULT 0,
+        "paidLeaveAllocated" INTEGER DEFAULT 0,
+        "paidLeaveUsed" INTEGER DEFAULT 0,
+        "assignedBy" INTEGER,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "employee_leave_balances_employee_year_unique" UNIQUE ("employeeId", "year")
+      );
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table employee_leave_balances:`, err);
     }
     // ✅ Ensure invoices table exists (auto sync sometimes fails)
     try {
