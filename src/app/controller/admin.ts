@@ -1562,6 +1562,7 @@ export const getDashboardSummary = async (
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = userData.userId;
+    const callerRole = userData?.role;
 
     const childIds = await getAllChildUserIds(loggedInId);
 
@@ -1590,6 +1591,16 @@ export const getDashboardSummary = async (
     // some form) for rate calculations — "late" is a separate boolean
     // column, not a status value, and isn't included here.
     const MARKED_STATUSES = ["in", "present", "out", "leaveApproved"];
+    // Two-stage expense approval: approvedByAdmin is actually the MANAGER's
+    // sign-off, approvedBySuperAdmin is the admin/super_admin's final
+    // sign-off (see UpdateExpense's own enforcement). "Pending" therefore
+    // means a different where-clause depending on which stage the caller
+    // sits at — a manager still waits on approvedByAdmin, but an admin only
+    // has something to do once the manager has already accepted it.
+    const pendingExpenseWhere =
+      callerRole === "admin" || callerRole === "super_admin"
+        ? { userId: { [Op.in]: childIds }, approvedByAdmin: "accepted", approvedBySuperAdmin: "pending" }
+        : { userId: { [Op.in]: childIds }, approvedByAdmin: "pending" };
 
     const [
       presentCount,
@@ -1610,7 +1621,11 @@ export const getDashboardSummary = async (
       Attendance.count({
         where: {
           employee_id: { [Op.in]: childIds },
-          status: "present",
+          // "out" = already punched out (self-service or the nightly
+          // auto-punch-out cron) — still counts as present today, just no
+          // longer mid-shift. Only literal "present" undercounts as the day
+          // progresses.
+          status: { [Op.in]: ["present", "out"] },
           date: todayDateOnly,
         },
       }),
@@ -1620,12 +1635,7 @@ export const getDashboardSummary = async (
           status: "pending",
         },
       }),
-      Expense.count({
-        where: {
-          userId: { [Op.in]: childIds },
-          approvedByAdmin: "pending",
-        },
-      }),
+      Expense.count({ where: pendingExpenseWhere }),
       Meeting.count({
         where: {
           userId: { [Op.in]: childIds },
@@ -4762,9 +4772,15 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
     const pageSize = Math.min(Number(limit) || 10, 50);
     const offset = (pageNumber - 1) * pageSize;
 
+    // Team-scoped, not just the caller's own rows — a manager/admin needs to
+    // see their whole team's outstanding balances, not only reports created
+    // under their own userId (matches the scoping used for quotations/invoices).
+    const childIds = await getAllChildUserIds(Number(userData.userId));
+    const teamUserIds = [Number(userData.userId), ...childIds];
+
     // ✅ Use AND conditions (important)
     const andConditions: any[] = [
-      { userId: userData.userId },
+      { userId: { [Op.in]: teamUserIds } },
     ];
 
     // 🔍 Global search

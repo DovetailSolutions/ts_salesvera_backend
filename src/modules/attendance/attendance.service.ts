@@ -28,6 +28,7 @@ export const getAttendance = async (loggedInId: number, query: any) => {
   const childIds = await getAllChildUserIds(loggedInId);
   const allUserIds = [loggedInId, ...childIds];
   const todayDateOnly = new Date().toISOString().slice(0, 10);
+  const search = String(query?.search || "").trim();
 
   const { rows, count } = await AttendanceRepo.findTeamAttendanceToday({
     allUserIds,
@@ -35,6 +36,7 @@ export const getAttendance = async (loggedInId: number, query: any) => {
     todayDateOnly,
     limit,
     offset,
+    search: buildSearchFilter(search),
   });
 
   return {
@@ -266,6 +268,8 @@ const buildSearchFilter = (search: string) =>
         [Op.or]: [
           { firstName: { [Op.iLike]: `%${search}%` } },
           { lastName: { [Op.iLike]: `%${search}%` } },
+          { email: { [Op.iLike]: `%${search}%` } },
+          { phone: { [Op.iLike]: `%${search}%` } },
         ],
       }
     : {};

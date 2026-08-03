@@ -16,10 +16,12 @@ export const findTeamAttendanceToday = (params: {
   todayDateOnly: string;
   limit: number;
   offset: number;
+  search?: any;
 }) =>
   User.findAndCountAll({
     where: {
       id: { [Op.in]: params.allUserIds, [Op.ne]: params.excludeUserId },
+      ...params.search,
     },
     attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "shiftId", "createdAt"],
     include: [
@@ -34,6 +36,7 @@ export const findTeamAttendanceToday = (params: {
     offset: params.offset,
     limit: params.limit,
     order: [["createdAt", "DESC"]],
+    distinct: true,
   });
 
 export const findAttendanceForDate = (employeeId: number | string, date: string) =>
