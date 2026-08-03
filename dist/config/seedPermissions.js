@@ -46,9 +46,13 @@ exports.PERMISSION_SEEDS = [
     // ── Chat ─────────────────────────────────────────────────
     { module: "chat", action: "read", description: "Read chat messages" },
     { module: "chat", action: "send", description: "Send chat messages" },
-    // ── Reports ──────────────────────────────────────────────
+    // ── Reports (Tally proforma/sales — frozen feature) ──────
     { module: "report", action: "view", description: "View reports" },
     { module: "report", action: "export", description: "Export reports" },
+    // ── Insights (attendance/leave/meeting/KPI download reports —
+    // deliberately a separate module from "report" above, which is fully
+    // owned by the Tally proforma/sales-report feature) ─────
+    { module: "insights", action: "view", description: "View and download attendance/leave/meeting/KPI reports" },
     // ── Quotation ────────────────────────────────────────────
     { module: "quotation", action: "view", description: "View quotations" },
     { module: "quotation", action: "create", description: "Create quotations" },
@@ -58,6 +62,30 @@ exports.PERMISSION_SEEDS = [
     { module: "invoice", action: "view", description: "View invoices" },
     { module: "invoice", action: "create", description: "Create invoices" },
     { module: "invoice", action: "update", description: "Edit invoices" },
+    // ── Proforma Invoice ────────────────────────────────────
+    // Separate module (not nested under "invoice") so it can be managed/assigned
+    // independently in the permission matrix. Used when addinvoice is called
+    // with status "draft" (or no status, which also defaults to draft).
+    { module: "proformainvoice", action: "create", description: "Create proforma invoice (status: draft)" },
+    // ── Proforma Invoice ────────────────────────────────────
+    {
+        module: "proformainvoice",
+        action: "view",
+        status: "draft",
+        description: "View proforma invoices (status: draft)",
+    },
+    {
+        module: "proformainvoice",
+        action: "update",
+        status: "draft",
+        description: "Edit proforma invoices (status: draft)",
+    },
+    {
+        module: "proformainvoice",
+        action: "delete",
+        status: "draft",
+        description: "Delete proforma invoices (status: draft)",
+    },
     // ── Task ─────────────────────────────────────────────────
     { module: "task", action: "create", description: "Create tasks" },
     { module: "task", action: "view", description: "View task list and task details" },

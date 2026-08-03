@@ -47,14 +47,14 @@ const BranchModel = (sequelize) => {
         },
         branchEmail: {
             type: sequelize_1.DataTypes.STRING,
-            allowNull: false,
-            validate: {
-                isEmail: true,
-            },
+            allowNull: true,
+            // validate: {
+            //   isEmail: true,
+            // },
         },
         branchPhone: {
             type: sequelize_1.DataTypes.STRING,
-            allowNull: false,
+            allowNull: true,
         },
         latitude: {
             type: sequelize_1.DataTypes.FLOAT,
@@ -84,6 +84,11 @@ const BranchModel = (sequelize) => {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             allowNull: true,
         },
+        gstNumber: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true,
+            field: "gstnumber",
+        }
     }, {
         tableName: "branches",
         timestamps: true,

@@ -13,6 +13,14 @@ exports.sendNotification = exports.isUserOnline = exports.removeUserSocket = exp
 const Notification_1 = require("../app/model/Notification");
 const dbConnection_1 = require("../config/dbConnection");
 const Notification_2 = require("./Notification");
+// Only these three types are individually mutable (Settings module's "My
+// Preferences" tab) — system/other notifications (security/account alerts)
+// always go through regardless of preference.
+const MUTABLE_TYPE_COLUMN = {
+    [Notification_1.NotificationType.CHAT]: "notifyChat",
+    [Notification_1.NotificationType.TASK]: "notifyTask",
+    [Notification_1.NotificationType.MEETING]: "notifyMeeting",
+};
 // ─────────────────────────────────────────────────────────────────────────────
 // 📡  Socket.io instance registry
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,6 +72,16 @@ const sendNotification = (payload) => __awaiter(void 0, void 0, void 0, function
     const { senderId = null, type = Notification_1.NotificationType.SYSTEM, title, body, data = {}, } = payload;
     const receiverId = Number(payload.receiverId);
     try {
+        // 0️⃣ Respect the receiver's mute preference, if this type is mutable —
+        // skipped entirely (not persisted, not delivered) rather than just
+        // silencing real-time delivery, so a muted type doesn't quietly pile up
+        // unread in their notification bell either.
+        const prefColumn = MUTABLE_TYPE_COLUMN[type];
+        if (prefColumn) {
+            const receiver = yield dbConnection_1.User.findByPk(receiverId, { attributes: [prefColumn] });
+            if (receiver && receiver[prefColumn] === false)
+                return;
+        }
         // 1️⃣ Persist to DB
         const notification = yield Notification_1.Notification.create({
             receiverId,

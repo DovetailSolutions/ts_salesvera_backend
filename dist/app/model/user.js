@@ -93,6 +93,49 @@ const createUserModel = (sequelize) => {
             allowNull: true,
             defaultValue: null,
         },
+        lastLoginCompanyId: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: null,
+        },
+        branchId: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: null,
+        },
+        shiftId: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: null,
+        },
+        departmentId: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: null,
+        },
+        // Generated column (see schemaExtensions.ts's ensureEmployeeCode) —
+        // Postgres computes/stores this from `id` on every insert, Sequelize
+        // only needs to know it exists to SELECT it back.
+        employeeCode: {
+            type: sequelize_1.DataTypes.STRING(20),
+            allowNull: true,
+        },
+        // See schemaExtensions.ts's ensureNotificationPreferences.
+        notifyChat: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: true,
+        },
+        notifyTask: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: true,
+        },
+        notifyMeeting: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: true,
+        },
     }, {
         tableName: "users",
         timestamps: true,

@@ -27,6 +27,7 @@ exports.getDistance = exports.getAllSubordinateIds = exports.getAllListCategory 
 const sequelize_1 = require("sequelize");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dbConnection_1 = require("../../config/dbConnection");
+const env_1 = require("../../config/env");
 const axios_1 = __importDefault(require("axios"));
 // Find by email (Sequelize version)
 const FindByEmail = (model, email) => __awaiter(void 0, void 0, void 0, function* () {
@@ -119,10 +120,9 @@ const CreateToken = (userId, role, companyId) => {
     const payload = { userId, role };
     if (companyId)
         payload.companyId = Number(companyId);
-    console.log("Creating token with payload:", payload);
-    const accessToken = jsonwebtoken_1.default.sign(payload, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "30d" } // short-lived
+    const accessToken = jsonwebtoken_1.default.sign(payload, env_1.JWT_SECRET, { expiresIn: "30d" } // short-lived
     );
-    const refreshToken = jsonwebtoken_1.default.sign(payload, process.env.JWT_SECRET || "dovetailPharma", { expiresIn: "60d" } // long-lived
+    const refreshToken = jsonwebtoken_1.default.sign(payload, env_1.JWT_SECRET, { expiresIn: "60d" } // long-lived
     );
     return { accessToken, refreshToken };
 };
@@ -703,8 +703,18 @@ const getAllSubordinateIds = (userId) => __awaiter(void 0, void 0, void 0, funct
 });
 exports.getAllSubordinateIds = getAllSubordinateIds;
 const getDistance = (lat1, lng1, lat2, lng2, meetingId) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     try {
+        console.log("========== DISTANCE CALCULATION START ==========");
+        console.log("Meeting ID:", meetingId);
+        console.log("Origin:", {
+            latitude: lat1,
+            longitude: lng1,
+        });
+        console.log("Destination:", {
+            latitude: lat2,
+            longitude: lng2,
+        });
         const url = "https://maps.googleapis.com/maps/api/distancematrix/json";
         const response = yield axios_1.default.get(url, {
             params: {
@@ -713,26 +723,87 @@ const getDistance = (lat1, lng1, lat2, lng2, meetingId) => __awaiter(void 0, voi
                 key: process.env.GOOGLE_MAP_API_KEY,
             },
         });
+        console.log("Google Distance Matrix Response:", JSON.stringify(response.data, null, 2));
         const data = response.data;
         if (data.status === "OK" &&
             ((_d = (_c = (_b = (_a = data.rows) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.elements) === null || _c === void 0 ? void 0 : _c[0]) === null || _d === void 0 ? void 0 : _d.status) === "OK") {
             const distanceInMeters = data.rows[0].elements[0].distance.value;
             const distanceInKm = Number((distanceInMeters / 1000).toFixed(3));
-            // < 1 km → show in meters, >= 1 km → show in km
             const display = distanceInMeters < 1000
                 ? `${distanceInMeters} m`
                 : `${distanceInKm} km`;
-            // Save to meeting if distance >= 1 meter
+            console.log("Distance Found:", {
+                meters: distanceInMeters,
+                km: distanceInKm,
+                display,
+            });
             if (distanceInMeters >= 1 && meetingId) {
                 yield dbConnection_1.Meeting.update({ legDistance: display }, { where: { id: meetingId } });
+                console.log(`Meeting ${meetingId} updated with distance: ${display}`);
             }
-            return { meters: distanceInMeters, km: distanceInKm, display };
+            console.log("=========== DISTANCE CALCULATION END ===========");
+            return {
+                meters: distanceInMeters,
+                km: distanceInKm,
+                display,
+            };
         }
+        console.log("Distance Matrix Status Failed:", {
+            apiStatus: data.status,
+            elementStatus: (_h = (_g = (_f = (_e = data.rows) === null || _e === void 0 ? void 0 : _e[0]) === null || _f === void 0 ? void 0 : _f.elements) === null || _g === void 0 ? void 0 : _g[0]) === null || _h === void 0 ? void 0 : _h.status,
+            fullResponse: data,
+        });
         return { meters: 0, km: 0, display: "0 m" };
     }
     catch (error) {
-        console.log("Distance API Error:", error);
+        console.error("Distance API Error:");
+        console.error("Message:", error === null || error === void 0 ? void 0 : error.message);
+        console.error("Response:", (_j = error === null || error === void 0 ? void 0 : error.response) === null || _j === void 0 ? void 0 : _j.data);
+        console.error("Stack:", error === null || error === void 0 ? void 0 : error.stack);
         return { meters: 0, km: 0, display: "0 m" };
     }
 });
 exports.getDistance = getDistance;
+// export const getDistance = async (
+//   lat1: number,
+//   lng1: number,
+//   lat2: number,
+//   lng2: number,
+//   meetingId?: number
+// ): Promise<{ meters: number; km: number; display: string }> => {
+//   try {
+//     const url = "https://maps.googleapis.com/maps/api/distancematrix/json";
+//     const response = await axios.get(url, {
+//       params: {
+//         origins: `${lat1},${lng1}`,
+//         destinations: `${lat2},${lng2}`,
+//         key: process.env.GOOGLE_MAP_API_KEY,
+//       },
+//     });
+//     const data = response.data;
+//     if (
+//       data.status === "OK" &&
+//       data.rows?.[0]?.elements?.[0]?.status === "OK"
+//     ) {
+//       const distanceInMeters: number = data.rows[0].elements[0].distance.value;
+//       const distanceInKm = Number((distanceInMeters / 1000).toFixed(3));
+//       // < 1 km → show in meters, >= 1 km → show in km
+//       const display =
+//         distanceInMeters < 1000
+//           ? `${distanceInMeters} m`
+//           : `${distanceInKm} km`;
+//       // Save to meeting if distance >= 1 meter
+//       if (distanceInMeters >= 1 && meetingId) {
+//         await Meeting.update(
+//           { legDistance: display },
+//           { where: { id: meetingId } }
+//         );
+//       }
+//       return { meters: distanceInMeters, km: distanceInKm, display };
+//     }
+//     return { meters: 0, km: 0, display: "0 m" };
+//   } catch (error) {
+//     console.log("Distance API Error:", error);
+//     return { meters: 0, km: 0, display: "0 m" };
+//   }
+// };

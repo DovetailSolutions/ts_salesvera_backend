@@ -1,20 +1,45 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
+// Validate required env vars before anything else loads (fails fast instead
+// of silently falling back to insecure defaults).
+require("./config/env");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const path_1 = __importDefault(require("path"));
 const http_1 = __importDefault(require("http"));
 const dbConnection_1 = require("./config/dbConnection");
+const schemaExtensions_1 = require("./config/schemaExtensions");
 const admin_1 = __importDefault(require("./app/router/admin"));
 const user_1 = __importDefault(require("./app/router/user"));
 const permission_1 = __importDefault(require("./app/router/permission"));
 const task_1 = __importDefault(require("./app/router/task"));
 const bulkSync_1 = __importDefault(require("./app/router/bulkSync"));
+const holiday_routes_1 = __importDefault(require("./modules/holiday/holiday.routes"));
+const branch_routes_1 = __importDefault(require("./modules/branch/branch.routes"));
+const shift_routes_1 = __importDefault(require("./modules/shift/shift.routes"));
+const department_routes_1 = __importDefault(require("./modules/department/department.routes"));
+const leave_routes_1 = __importDefault(require("./modules/leave/leave.routes"));
+const attendance_routes_1 = __importDefault(require("./modules/attendance/attendance.routes"));
+const attendanceSelf_routes_1 = __importDefault(require("./modules/attendance/attendanceSelf.routes"));
+const company_routes_1 = __importDefault(require("./modules/company/company.routes"));
+const auth_routes_1 = __importDefault(require("./modules/auth/auth.routes"));
+const preferences_routes_1 = __importDefault(require("./modules/preferences/preferences.routes"));
+const reports_routes_1 = __importDefault(require("./modules/reports/reports.routes"));
+const meeting_routes_1 = __importDefault(require("./modules/meeting/meeting.routes"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const chat_1 = require("./Notigication/chat");
 const task_2 = require("./Notigication/task");
@@ -45,6 +70,20 @@ app.use("/api", user_1.default);
 app.use("/admin/permissions", permission_1.default);
 app.use("/admin/task", task_1.default);
 app.use("/admin/bulk", bulkSync_1.default);
+// Modular backend architecture — extracted domains mount here, same URL
+// paths as their old admin.ts equivalents. See src/modules/.
+app.use("/admin", holiday_routes_1.default);
+app.use("/admin", branch_routes_1.default);
+app.use("/admin", shift_routes_1.default);
+app.use("/admin", department_routes_1.default);
+app.use("/admin", leave_routes_1.default);
+app.use("/admin", attendance_routes_1.default);
+app.use("/api", attendanceSelf_routes_1.default);
+app.use("/admin", company_routes_1.default);
+app.use("/admin", auth_routes_1.default);
+app.use("/admin", preferences_routes_1.default);
+app.use("/admin", reports_routes_1.default);
+app.use("/admin", meeting_routes_1.default);
 app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile, {
     swaggerOptions: {
         requestInterceptor: (req) => {
@@ -62,7 +101,7 @@ const server = http_1.default.createServer(app);
 // Initialize socket.io
 const io = new socket_io_1.Server(server, {
     cors: {
-        origin: "*",
+        origin: true, // reflect request origin — required when credentials: true (can't combine with "*")
         credentials: true,
     },
 });
@@ -70,22 +109,12 @@ const io = new socket_io_1.Server(server, {
 (0, task_2.initTaskSocket)(io);
 // Register io so notificationService can deliver real-time events
 (0, notificationService_1.registerIo)(io);
-// Listen for socket connections
-io.on("connection", (socket) => {
-    var _a, _b;
-    // Track userId → socketId for targeted notifications
-    const rawUserId = (_b = (_a = socket.data) === null || _a === void 0 ? void 0 : _a.user) === null || _b === void 0 ? void 0 : _b.userId;
-    if (rawUserId) {
-        const userId = Number(rawUserId); // ✅ Ensure it's a number
-        (0, notificationService_1.setUserSocket)(userId, socket.id);
-        socket.on("disconnect", () => {
-            (0, notificationService_1.removeUserSocket)(userId, socket.id);
-        });
-    }
-});
 // Start server (IMPORTANT)
-server.listen(PORT, () => {
-    (0, dbConnection_1.connectDB)();
+server.listen(PORT, () => __awaiter(void 0, void 0, void 0, function* () {
+    yield (0, dbConnection_1.connectDB)();
+    yield (0, schemaExtensions_1.ensureLeaveTypeSchema)(dbConnection_1.sequelize);
+    yield (0, schemaExtensions_1.ensureEmployeeCode)(dbConnection_1.sequelize);
+    yield (0, schemaExtensions_1.ensureNotificationPreferences)(dbConnection_1.sequelize);
     (0, cronJobs_1.startCronJobs)(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
     console.log(`Server is running on http://localhost:${PORT}`);
-});
+}));

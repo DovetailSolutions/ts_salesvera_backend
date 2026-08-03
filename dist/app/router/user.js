@@ -59,16 +59,13 @@ router.get("/getmeetinglist", jwtVerify2_1.tokenCheck, Controller.GetMeetingList
 router.post("/scheduledupdate", jwtVerify2_1.tokenCheck, Controller.scheduled);
 router.post("/logout", jwtVerify2_1.tokenCheck, Controller.Logout);
 router.get("/getcategory", jwtVerify2_1.tokenCheck, Controller.getCategory);
-// Attendance Summary
-// FIX: attendance routes now require explicit permissions.
-router.post("/attendance/punch-in", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "create"), Controller.AttendancePunchIn);
-router.post("/attendance/punch-out", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "update"), Controller.AttendancePunchOut);
-router.get("/attendance/today", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), Controller.getTodayAttendance);
-router.get("/attendancelist", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), Controller.AttendanceList);
+// Attendance routes (punch-in/punch-out/today/attendancelist) now live in
+// src/modules/attendance/, mounted in server.ts — same URL paths as before.
 // FIX: leave routes now require explicit leave permissions —
 //      without leave:apply / leave:view the request is rejected with 403.
 router.post("/leave", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("leave", "apply"), Controller.requestLeave);
 router.get("/leave-list", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("leave", "view"), Controller.LeaveList);
+router.get("/my-leave-balance", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("leave", "view"), Controller.myLeaveBalance);
 // Expense
 // FIX: expense routes now require explicit permissions.
 router.post("/expense", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("expense", "create"), expense.any(), Controller.CreateExpense);
@@ -87,10 +84,12 @@ router.post("/addquotation", jwtVerify2_1.tokenCheck, (0, checkPermission_1.chec
 router.post('/updatequotation/:id', jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("quotation", "update"), Controller.updateQuotation);
 router.get("/getcompany", jwtVerify2_1.tokenCheck, Controller.getCompany);
 router.get("/getcompanydetails/:id", jwtVerify2_1.tokenCheck, Controller.getCompanyDetails);
+router.get("/getBranchall", jwtVerify2_1.tokenCheck, Controller.getBranchall);
 // Invoice
 // FIX: invoice routes now require explicit permissions.
-router.post("/addinvoice", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("invoice", "create"), Controller.addInvoice);
-router.get("/getinvoice", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkPermission)("invoice", "view"), Controller.getInvoice);
+// Draft invoices require invoice:proforma; all other statuses require invoice:create (unchanged).
+router.post("/addinvoice", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkInvoiceCreatePermission)(), Controller.addInvoice);
+router.get("/getinvoice", jwtVerify2_1.tokenCheck, (0, checkPermission_1.checkInvoiceViewPermission)(), Controller.getInvoice);
 //  router.post("/quotationToInvoice/:id",tokenCheck,Controller.quotationToInvoice);
 // record  sale
 router.post("/recordsale", jwtVerify2_1.tokenCheck, Controller.recordSale);
@@ -113,4 +112,6 @@ router.post("/forgot-password", Controller.forgotPassword);
 router.post("/verify-otp", Controller.verifyOtp);
 router.post("/reset-password", Controller.changePassword);
 router.get("/dashboardmobile", jwtVerify2_1.tokenCheck, Controller.getDashboardMobile);
+router.get("/getsalesPerformance", jwtVerify2_1.tokenCheck, Controller.getSalesPerformance);
+router.get("/getbranch", jwtVerify2_1.tokenCheck, Controller.getBranchall);
 exports.default = router;

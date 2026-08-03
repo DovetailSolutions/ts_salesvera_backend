@@ -35,6 +35,10 @@ class Leave extends sequelize_1.Model {
                 allowNull: false,
                 defaultValue: "pending",
             },
+            companyLeaveId: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+            },
         }, {
             sequelize,
             tableName: "leave_requests",

@@ -44,9 +44,37 @@ const ShiftModel = (sequelize) => {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             allowNull: true,
         },
+        fullDayHours: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+        },
+        nightShift: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            allowNull: true,
+        },
         branchId: {
             type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
             allowNull: true,
+        },
+        breakMinutes: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: 0,
+        },
+        workingHours: {
+            type: sequelize_1.DataTypes.FLOAT,
+            allowNull: true,
+            defaultValue: 8,
+        },
+        lateMarkAfter: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: 0,
+        },
+        halfDayAfter: {
+            type: sequelize_1.DataTypes.INTEGER,
+            allowNull: true,
+            defaultValue: 0,
         },
     }, {
         tableName: "shifts",

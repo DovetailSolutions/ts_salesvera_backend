@@ -43,6 +43,11 @@ class Quotations extends sequelize_1.Model {
                 defaultValue: false,
                 allowNull: true,
             },
+            TallyAPISync: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false,
+                allowNull: true,
+            },
             quotation: {
                 type: sequelize_1.DataTypes.JSON, // 🔥 best for storing object
                 allowNull: true,
@@ -50,6 +55,10 @@ class Quotations extends sequelize_1.Model {
             status: {
                 type: sequelize_1.DataTypes.ENUM("draft", "imported", "sent", "accepted", "rejected", "cancelled", "deleted"),
                 defaultValue: "draft",
+            },
+            branchId: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
             },
         }, {
             sequelize,

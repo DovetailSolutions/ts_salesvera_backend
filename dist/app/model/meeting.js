@@ -32,6 +32,11 @@ const MeetingModel = (sequelize) => {
             allowNull: true,
             field: "category_id",
         },
+        subCategoryId: {
+            type: sequelize_1.DataTypes.INTEGER.UNSIGNED,
+            allowNull: true,
+            field: "subcategory_id",
+        },
         meetingPurpose: {
             type: sequelize_1.DataTypes.ENUM("demo", "support", "collection", "general", "newlead", "other", "feedback"),
             field: "meeting_purpose",

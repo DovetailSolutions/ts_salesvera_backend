@@ -26,6 +26,10 @@ const RepostModel = (sequelize) => {
             allowNull: false,
             field: "customer_name",
         },
+        tallyGuid: {
+            type: sequelize_1.DataTypes.STRING,
+            allowNull: true
+        },
         openingAmount: {
             type: sequelize_1.DataTypes.DECIMAL(10, 2), // ✅ fixed
             allowNull: false,

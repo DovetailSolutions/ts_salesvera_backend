@@ -56,13 +56,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getShift = exports.addShift = exports.getBranchById = exports.getBranch = exports.addBranch = exports.getOwnCompany = exports.deleteCompany = exports.updateCompany = exports.getCompanyById = exports.getCompany = exports.addCompany = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.ownLeave = exports.assignMeeting = exports.AttendanceBook = exports.createClient = exports.userLeave = exports.userExpense = exports.userAttendance = exports.getAttendance = exports.GetExpense = exports.leaveList = exports.UpdateExpense = exports.test = exports.approveLeave = exports.BulkUploads = exports.BulkAddSalePerson = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getCategoryWithSubCategories = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = exports.UpdatePassword = exports.UpdateProfile = exports.GetProfile = exports.Login = exports.Register = void 0;
-exports.changePassword = exports.verifyOtp = exports.forgotPassword = exports.assignAdmin = exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.updateClient = exports.getClient = exports.addCompanyBank = exports.getLeaveById = exports.getLeave = exports.addLeave = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.getHolidayById = exports.getHoliday = exports.addHoliday = exports.getDepartmentById = exports.getDepartment = exports.addDepartment = exports.getShiftById = void 0;
+exports.assignAdmin = exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.updateClient = exports.getClient = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.assignEmployeeShift = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.assignMeeting = exports.createClient = exports.userExpense = exports.getTopPerformers = exports.getDashboardSummary = exports.GetExpense = exports.UpdateExpense = exports.test = exports.BulkUploads = exports.BulkAddSalePerson = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getCategoryWithSubCategories = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
-const client_s3_1 = require("@aws-sdk/client-s3");
+const spaces_1 = require("../../config/spaces");
 const csv_parser_1 = __importDefault(require("csv-parser"));
-const bcrypt_1 = __importDefault(require("bcrypt"));
 const puppeteer_1 = __importDefault(require("puppeteer"));
 const ejs_1 = __importDefault(require("ejs"));
 const fs_1 = __importDefault(require("fs"));
@@ -72,8 +70,9 @@ const errorMessage_1 = require("../middlewear/errorMessage");
 const dbConnection_2 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
 const email_1 = require("../../config/email");
-const permissionCache_1 = require("../../config/permissionCache");
-const UNIQUE_ROLES = ["super_admin"];
+const checkPermission_1 = require("../../config/checkPermission");
+const userHierarchy_1 = require("../../modules/shared/userHierarchy");
+const companyAccess_1 = require("../../modules/shared/companyAccess");
 const getPagination = (req) => {
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 10);
@@ -89,381 +88,9 @@ const findUser = (userId) => __awaiter(void 0, void 0, void 0, function* () {
         attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
     });
 });
-const Register = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { email, password, firstName, lastName, phone, dob, role, createdBy, permissionIds, } = req.body;
-        /** ✅ Required field validation */
-        const requiredFields = {
-            email,
-            password,
-            firstName,
-            lastName,
-            phone,
-            dob,
-            role,
-        };
-        for (const key in requiredFields) {
-            if (!requiredFields[key]) {
-                (0, errorMessage_1.badRequest)(res, `${key} is required`);
-                return;
-            }
-        }
-        const primaryCreatorId = Array.isArray(createdBy)
-            ? Number(createdBy[0])
-            : createdBy
-                ? Number(createdBy)
-                : undefined;
-        // ── Resolve tenantId for the new user ──────────────────────────────
-        // super_admin / standalone user creation: no tenantId yet (set after create)
-        // All other roles inherit tenantId from their creator's tree
-        let resolvedTenantId = null;
-        if (primaryCreatorId && !isNaN(primaryCreatorId) && role !== "super_admin") {
-            const creator = yield dbConnection_2.User.findByPk(primaryCreatorId, {
-                attributes: ["id", "role", "tenantId"],
-            });
-            if (creator) {
-                if (creator.role === "user") {
-                    // creator IS the tenant root
-                    resolvedTenantId = creator.id;
-                }
-                else if (creator.tenantId) {
-                    // creator already belongs to a tenant tree
-                    resolvedTenantId = creator.tenantId;
-                }
-                // creator is super_admin → new user will become a tenant root (set after create)
-            }
-        }
-        /** ✅ Check if user with same email exists — scoped to tenant */
-        // super_admin and user (tenant roots) are globally unique
-        // admin/manager/sale_person are unique only within their tenant
-        const emailCheckTenantId = (role === "super_admin" || role === "user") ? null : resolvedTenantId;
-        const isExist = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, emailCheckTenantId);
-        if (isExist) {
-            (0, errorMessage_1.badRequest)(res, "Email already exists");
-            return;
-        }
-        /** ✅ Check role — admin/super_admin only once in DB */
-        if (UNIQUE_ROLES.includes(role)) {
-            const existing = yield Middleware.findByRole(dbConnection_2.User, role);
-            if (existing) {
-                (0, errorMessage_1.badRequest)(res, `${role} already exists. Only one ${role} can be created.`);
-                return;
-            }
-        }
-        const obj = Object.assign({ email,
-            password,
-            firstName,
-            lastName,
-            phone,
-            dob,
-            role, tenantId: resolvedTenantId }, (primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}));
-        const item = yield dbConnection_2.User.create(obj);
-        // If this is a tenant root (user role created by super_admin), point tenantId at self
-        if (role === "user" && !resolvedTenantId) {
-            yield item.update({ tenantId: item.getDataValue("id") });
-        }
-        if ((role === "sale_person" || role === "manager" || role === "admin" || role === "user") && createdBy) {
-            const ids = Array.isArray(createdBy)
-                ? createdBy.map((id) => Number(id)).filter((id) => !isNaN(id))
-                : [Number(createdBy)].filter((id) => !isNaN(id));
-            if (ids.length > 0) {
-                // ✅ Connect relations
-                yield item.setCreators(ids);
-            }
-            // When a new admin is created by a user, inherit that user's permissions
-            if (role === "admin" && ids.length > 0) {
-                const newAdminId = item.getDataValue("id");
-                for (const creatorId of ids) {
-                    const creator = yield dbConnection_2.User.findOne({
-                        where: { id: creatorId, role: "user" },
-                        attributes: ["id"],
-                    });
-                    if (!creator)
-                        continue;
-                    const creatorPerms = yield dbConnection_2.UserPermission.findAll({
-                        where: { userId: creatorId },
-                        attributes: ["permissionId"],
-                    });
-                    if (creatorPerms.length > 0) {
-                        yield Promise.all(creatorPerms.map((p) => dbConnection_2.UserPermission.findOrCreate({
-                            where: { userId: newAdminId, permissionId: p.permissionId, companyId: null },
-                            defaults: { userId: newAdminId, permissionId: p.permissionId, companyId: null, grantedBy: creatorId },
-                        })));
-                    }
-                }
-            }
-        }
-        // When super_admin creates a user (role="user"), assign permissions immediately if provided
-        if (role === "user" && Array.isArray(permissionIds) && permissionIds.length > 0 && createdBy) {
-            const granterId = Number(createdBy);
-            const granterUser = yield dbConnection_2.User.findOne({
-                where: { id: granterId, role: "super_admin" },
-                attributes: ["id"],
-            });
-            if (granterUser) {
-                const newUserId = item.getDataValue("id");
-                const validPerms = yield dbConnection_2.Permission.findAll({
-                    where: { id: { [sequelize_1.Op.in]: permissionIds } },
-                    attributes: ["id"],
-                });
-                yield Promise.all(validPerms.map((p) => dbConnection_2.UserPermission.findOrCreate({
-                    where: { userId: newUserId, permissionId: p.id, companyId: null },
-                    defaults: { userId: newUserId, permissionId: p.id, companyId: null, grantedBy: granterId },
-                })));
-            }
-        }
-        /** ✅ JWT Tokens */
-        const { accessToken, refreshToken } = Middleware.CreateToken(String(item.getDataValue("id")), String(item.getDataValue("role")));
-        yield item.update({ refreshToken });
-        // Email login credentials in the background (no await — don't block registration)
-        (0, email_1.sendEmail)("Welcome to SalesVera - Your Login Credentials", password, email, firstName, lastName).catch((err) => console.error(`Failed to send credentials email to ${email}:`, err));
-        (0, errorMessage_1.createSuccess)(res, `${role} registered successfully`, {
-            item,
-            accessToken,
-            // refreshToken,
-        });
-    }
-    catch (error) {
-        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong", error);
-        return;
-    }
-});
-exports.Register = Register;
-const Login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { email, password, tenantId } = req.body || {};
-        // Validate input
-        if (!email || !password) {
-            (0, errorMessage_1.badRequest)(res, "Email and password are required");
-            return;
-        }
-        // Tenant-scoped lookup: if tenantId provided, scope to that tenant; otherwise global
-        const loginTenantId = tenantId ? Number(tenantId) : null;
-        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "Invalid email or password");
-            return;
-        }
-        // Allowed roles
-        const allowedRoles = ["admin", "manager", "super_admin", "sale_person", "user"];
-        const userRole = user.get("role");
-        if (!allowedRoles.includes(userRole)) {
-            (0, errorMessage_1.badRequest)(res, "Access restricted. Only admin, manager, sales & user can login.");
-            return;
-        }
-        // Validate password
-        const hashedPassword = user.get("password");
-        const isPasswordValid = yield bcrypt_1.default.compare(password, hashedPassword);
-        if (!isPasswordValid) {
-            (0, errorMessage_1.badRequest)(res, "Invalid email or password");
-            return;
-        }
-        const userId = user.get("id");
-        // ── Resolve companyId for the JWT ─────────────────────────────────
-        let companyId = null;
-        if (userRole === "admin") {
-            // Priority 1: Primary admin of a company
-            const company = yield dbConnection_2.Company.findOne({
-                where: { adminId: userId },
-                attributes: ["id"],
-            });
-            companyId = company ? company.id : null;
-        }
-        else if (userRole === "manager" || userRole === "sale_person") {
-            // Priority 1: Primary manager of a company
-            const company = yield dbConnection_2.Company.findOne({
-                where: { managerId: userId },
-                attributes: ["id"],
-            });
-            companyId = company ? company.id : null;
-        }
-        // Priority 2: Fallback — find ANY company where this user has assigned permissions
-        // user role spans multiple companies (like super_admin), no companyId needed
-        if (!companyId && userRole !== "super_admin" && userRole !== "user") {
-            const firstPermission = yield dbConnection_2.UserPermission.findOne({
-                where: { userId },
-                attributes: ["companyId"],
-            });
-            companyId = firstPermission ? firstPermission.companyId : null;
-        }
-        // super_admin: companyId remains null (global access)
-        // Create tokens (companyId embedded in JWT)
-        const { accessToken, refreshToken } = Middleware.CreateToken(String(userId), userRole, companyId);
-        // Save refresh token
-        yield user.update({ refreshToken });
-        // ── Fetch Permissions for the Login Response ─────────────────────
-        let permissions = [];
-        if (userRole === "super_admin" || userRole === "user") {
-            // Super Admin & User: get all master permissions
-            const all = yield dbConnection_2.Permission.findAll({ attributes: ["module", "action"] });
-            permissions = all.map((p) => `${p.module}:${p.action}`);
-        }
-        else if (userRole === "admin" && companyId) {
-            // Admin: has all permissions within their company
-            const all = yield dbConnection_2.Permission.findAll({ attributes: ["module", "action"] });
-            permissions = all.map((p) => `${p.module}:${p.action}`);
-        }
-        else if (companyId) {
-            // Manager / Sales: fetch specific assigned permissions
-            const records = yield dbConnection_2.UserPermission.findAll({
-                where: { userId, companyId },
-                include: [{ model: dbConnection_2.Permission, as: "permission", attributes: ["module", "action"] }],
-            });
-            permissions = records.map((r) => `${r.permission.module}:${r.permission.action}`);
-        }
-        (0, errorMessage_1.createSuccess)(res, "Login successful", {
-            accessToken,
-            refreshToken,
-            companyId,
-            user: {
-                id: user.get("id"),
-                firstName: user.get("firstName"),
-                lastName: user.get("lastName"),
-                email: user.get("email"),
-                role: userRole,
-                tallyGuid: user.get("tallyGuid") || null,
-                tallyName: user.get("tallyName") || null,
-                tallyStartDate: user.get("tallyStartDate") || null,
-            },
-            permissions,
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.Login = Login;
-const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        console.log(">>>>>>>getprofile", userData);
-        const { userId, role, companyId } = userData;
-        const user = yield dbConnection_2.User.findByPk(Number(userId), {
-            include: [
-                {
-                    model: dbConnection_2.Company,
-                    as: "company",
-                    include: [
-                        { model: dbConnection_2.Branch, as: "branches" },
-                        { model: dbConnection_2.Shift, as: "shifts" },
-                        { model: dbConnection_2.Department, as: "departments" },
-                        { model: dbConnection_2.CompanyLeave, as: "companyLeaves" },
-                        { model: dbConnection_2.CompanyBank, as: "companyBanks" },
-                    ],
-                },
-            ],
-        });
-        const permissions = [];
-        const matrix = {};
-        if (role === "super_admin" || role === "user") {
-            const all = yield dbConnection_2.Permission.findAll({
-                order: [["module", "ASC"], ["action", "ASC"]],
-            });
-            for (const p of all) {
-                if (!matrix[p.module])
-                    matrix[p.module] = {};
-                matrix[p.module][p.action] = true;
-                permissions.push(`${p.module}:${p.action}`);
-            }
-        }
-        else {
-            const records = yield dbConnection_2.UserPermission.findAll({
-                where: { userId: Number(userId), companyId: Number(companyId) },
-                include: [{ model: dbConnection_2.Permission, as: "permission", attributes: ["module", "action"] }],
-            });
-            for (const r of records) {
-                const { module, action } = r.permission;
-                if (!matrix[module])
-                    matrix[module] = {};
-                matrix[module][action] = true;
-                permissions.push(`${module}:${action}`);
-            }
-        }
-        (0, errorMessage_1.createSuccess)(res, "User profile fetched successfully", { user, permissions, matrix });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-        return;
-    }
-});
-exports.GetProfile = GetProfile;
-const UpdateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const { userId } = userData;
-        const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob", "tallyGuid", "tallyName", "tallyStartDate"];
-        const updates = {};
-        for (const field of ALLOWED_FIELDS) {
-            if (req.body[field] !== undefined && req.body[field] !== "") {
-                updates[field] = req.body[field];
-            }
-        }
-        if (req.file) {
-            const s3File = req.file;
-            updates.profile = s3File.location;
-        }
-        if (Object.keys(updates).length === 0) {
-            (0, errorMessage_1.badRequest)(res, "No fields provided to update");
-            return;
-        }
-        const user = yield dbConnection_2.User.findByPk(Number(userId));
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-            return;
-        }
-        const updatePayload = Object.assign({}, updates);
-        if (updatePayload.tallyStartDate) {
-            updatePayload.tallyStartDate = new Date(updatePayload.tallyStartDate);
-        }
-        yield user.update(updatePayload);
-        const updatedUser = yield dbConnection_2.User.findByPk(Number(userId), {
-            attributes: ["id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid", "tallyName", "tallyStartDate"],
-        });
-        (0, errorMessage_1.createSuccess)(res, "Profile updated successfully", { user: updatedUser });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.UpdateProfile = UpdateProfile;
-const UpdatePassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const { oldPassword, newPassword } = req.body || {};
-        if (!oldPassword || !newPassword) {
-            (0, errorMessage_1.badRequest)(res, "Please provide old password and new password");
-            return;
-        }
-        if (oldPassword === newPassword) {
-            (0, errorMessage_1.badRequest)(res, "New password must be different from the old password");
-            return;
-        }
-        // ✅ Fetch user
-        const user = yield Middleware.getById(dbConnection_2.User, Number(userData.userId));
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-            return;
-        }
-        // ✅ Now TypeScript knows `user` is not null
-        const isPasswordValid = yield bcrypt_1.default.compare(oldPassword, user.get("password"));
-        if (!isPasswordValid) {
-            (0, errorMessage_1.badRequest)(res, "Old password is incorrect");
-            return;
-        }
-        user.set("password", newPassword);
-        yield user.save();
-        (0, errorMessage_1.createSuccess)(res, "Password updated successfully");
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-        return;
-    }
-});
-exports.UpdatePassword = UpdatePassword;
+// Register/Login/Logout/GetProfile/UpdateProfile/UpdatePassword have moved
+// to src/modules/auth/ — see auth.controller.ts/service.ts/repository.ts.
+// Routes are mounted from server.ts, same URL paths as before.
 const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { page = 1, limit = 10, search = "", managerId } = req.query;
@@ -488,7 +115,7 @@ const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* (
                 {
                     model: dbConnection_2.User,
                     as: "createdUsers",
-                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role"],
                     through: { attributes: [] },
                     where, // ✅ apply search
                     required: false, // ✅ so user must exist even if none found
@@ -547,7 +174,8 @@ exports.assignSalesman = assignSalesman;
 const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const { page = 1, limit = 10, search = "", role } = req.query;
+        console.log("userData in GetAllUser:", userData); // Debugging line
+        const { page = 1, limit = 10, search = "", role, shiftId, branchId } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
@@ -559,7 +187,7 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             idFilter = { [sequelize_1.Op.ne]: loggedInId };
         }
         else {
-            const childIds = yield getAllChildUserIds(loggedInId);
+            const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
             if (childIds.length === 0) {
                 (0, errorMessage_1.createSuccess)(res, "Users fetched successfully", {
                     page: pageNum,
@@ -574,6 +202,10 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const where = { id: idFilter };
         if (role)
             where.role = role;
+        if (shiftId)
+            where.shiftId = Number(shiftId);
+        if (branchId)
+            where.branchId = Number(branchId);
         if (search) {
             where[sequelize_1.Op.or] = [
                 { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
@@ -585,11 +217,14 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const { rows, count } = yield dbConnection_2.User.findAndCountAll({
             attributes: [
                 "id",
+                "employeeCode",
                 "firstName",
                 "lastName",
                 "email",
                 "phone",
                 "role",
+                "shiftId",
+                "branchId",
                 "createdAt",
             ],
             where,
@@ -613,7 +248,7 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 },
                 {
                     model: dbConnection_2.Company,
-                    as: "managedCompany",
+                    as: "managedCompanies",
                     attributes: ["id", "companyName"],
                     required: false,
                 },
@@ -891,14 +526,27 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
-        // adminId:ll
+        // FIX: previously `where` stayed `{}` (no userId filter at all) unless the
+        // caller explicitly passed `empty=true` or `userId` — a plain GET with no
+        // query params returned every company's meeting records. Always scope to
+        // the caller's own team.
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(ll);
+        const allowedIds = [ll, ...childIds];
         const where = {};
         if (empty === "true") {
-            where.userId = null;
-            where.userId = ll; // <-- correctly added to where clause
+            where.userId = ll;
         }
-        if (userId)
-            where.userId = userId;
+        else if (userId) {
+            const requestedId = Number(userId);
+            if (!allowedIds.includes(requestedId)) {
+                (0, errorMessage_1.forbidden)(res, "You can only view meetings of your own team members");
+                return;
+            }
+            where.userId = requestedId;
+        }
+        else {
+            where.userId = { [sequelize_1.Op.in]: allowedIds };
+        }
         if (search) {
             where[sequelize_1.Op.or] = [
                 { companyName: { [sequelize_1.Op.iLike]: `%${search}%` } },
@@ -929,6 +577,12 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             //   "userId",
             // ],
             where,
+            include: [
+                {
+                    model: dbConnection_2.Meeting, // joined via Meeting.meetingUserId -> MeetingUser.id
+                },
+            ],
+            distinct: true, // avoid inflated count from the hasMany join
             offset,
             limit: limitNum,
             order: [["createdAt", "DESC"]],
@@ -962,7 +616,40 @@ const BulkAddSalePerson = (req, res) => __awaiter(void 0, void 0, void 0, functi
             (0, errorMessage_1.badRequest)(res, "Unauthorized");
             return;
         }
-        const { createdBy } = req.body;
+        const { createdBy, branchId, shiftId } = req.body;
+        // Validate branchId/shiftId (optional — applied to every row in the
+        // batch) belong to the caller's own company, same as assignEmployeeShift
+        // — an unvalidated cross-company id here would silently apply another
+        // company's geofence/shift config to every bulk-created sale person.
+        const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+        let resolvedBranchId = null;
+        let resolvedShiftId = null;
+        if (branchId !== undefined && branchId !== null && branchId !== "") {
+            const branch = yield dbConnection_2.Branch.findByPk(Number(branchId));
+            if (!branch || (callerCompanyId && Number(branch.companyId) !== callerCompanyId)) {
+                (0, errorMessage_1.badRequest)(res, "Branch not found");
+                return;
+            }
+            resolvedBranchId = Number(branchId);
+        }
+        if (shiftId !== undefined && shiftId !== null && shiftId !== "") {
+            const shift = yield dbConnection_2.Shift.findByPk(Number(shiftId));
+            if (!shift || (callerCompanyId && Number(shift.companyId) !== callerCompanyId)) {
+                (0, errorMessage_1.badRequest)(res, "Shift not found");
+                return;
+            }
+            resolvedShiftId = Number(shiftId);
+        }
+        // Neither given for this batch — default to the company's main branch
+        // (its first-ever registered branch) and its first-ever registered
+        // shift instead of leaving every bulk-created sale person unassigned.
+        if ((resolvedBranchId === null || resolvedShiftId === null) && callerCompanyId) {
+            const defaults = yield (0, companyAccess_1.resolveDefaultBranchAndShift)(callerCompanyId);
+            if (resolvedBranchId === null)
+                resolvedBranchId = defaults.branchId;
+            if (resolvedShiftId === null)
+                resolvedShiftId = defaults.shiftId;
+        }
         let creatorId;
         if (loginRole === "manager") {
             creatorId = Number(loginUser);
@@ -976,6 +663,18 @@ const BulkAddSalePerson = (req, res) => __awaiter(void 0, void 0, void 0, functi
             if (isNaN(creatorId)) {
                 (0, errorMessage_1.badRequest)(res, "Invalid createdBy");
                 return;
+            }
+            // FIX: previously createdBy was trusted straight from the request body
+            // with no check that it's the caller themself or one of the caller's
+            // own subordinates — an admin could attribute the bulk-created
+            // sale-persons to a user in a completely different tenant, linking new
+            // accounts into that other tenant's hierarchy.
+            if (creatorId !== Number(loginUser)) {
+                const callerChildIds = yield (0, userHierarchy_1.getAllChildUserIds)(Number(loginUser));
+                if (!callerChildIds.includes(creatorId)) {
+                    (0, errorMessage_1.forbidden)(res, "createdBy must be yourself or one of your own team members");
+                    return;
+                }
             }
         }
         // Resolve tenantId from the creator so bulk-created users are scoped correctly
@@ -996,19 +695,9 @@ const BulkAddSalePerson = (req, res) => __awaiter(void 0, void 0, void 0, functi
             return;
         }
         const csvFile = req.file;
-        const s3 = new client_s3_1.S3Client({
-            region: process.env.AWS_REGION,
-            credentials: {
-                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            },
-        });
-        const data = yield s3.send(new client_s3_1.GetObjectCommand({
-            Bucket: csvFile.bucket,
-            Key: csvFile.key,
-        }));
+        const data = yield (0, spaces_1.getObjectFromSpaces)(csvFile.key, csvFile.bucket);
         if (!data.Body) {
-            (0, errorMessage_1.badRequest)(res, "Unable to read CSV from S3");
+            (0, errorMessage_1.badRequest)(res, "Unable to read CSV from Spaces");
             return;
         }
         const stream = data.Body;
@@ -1106,6 +795,8 @@ const BulkAddSalePerson = (req, res) => __awaiter(void 0, void 0, void 0, functi
                         role: req.body.role,
                         createdBy: creatorId,
                         tenantId: resolvedTenantId,
+                        branchId: resolvedBranchId,
+                        shiftId: resolvedShiftId,
                     });
                     yield item.setCreators([creatorId]);
                     (0, email_1.sendEmail)("Welcome to SalesVera - Your Login Credentials", tempPassword, r.email, r.firstName, r.lastName).catch((err) => console.error(`Failed to send credentials email to ${r.email}:`, err));
@@ -1153,20 +844,9 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             return;
         }
         const csvFile = req.file;
-        const s3 = new client_s3_1.S3Client({
-            region: process.env.AWS_REGION,
-            credentials: {
-                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            },
-        });
-        const params = {
-            Bucket: csvFile.bucket,
-            Key: csvFile.key,
-        };
-        const data = yield s3.send(new client_s3_1.GetObjectCommand(params));
+        const data = yield (0, spaces_1.getObjectFromSpaces)(csvFile.key, csvFile.bucket);
         if (!data.Body) {
-            (0, errorMessage_1.badRequest)(res, "Unable to read CSV from S3");
+            (0, errorMessage_1.badRequest)(res, "Unable to read CSV from Spaces");
             return;
         }
         const stream = data.Body;
@@ -1226,44 +906,15 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.BulkUploads = BulkUploads;
-const approveLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { employee_id, leaveID, status } = req.body;
-        if (!employee_id)
-            (0, errorMessage_1.badRequest)(res, "Employee id is missing");
-        if (!leaveID)
-            (0, errorMessage_1.badRequest)(res, "leaveID id is missing");
-        const obj = {};
-        if (status) {
-            obj.status = status;
-        }
-        // Update Status
-        yield dbConnection_2.Leave.update(obj, {
-            where: { employee_id, id: leaveID },
-        });
-        if (status === "rejected") {
-            yield dbConnection_2.Attendance.update({ status: "leaveReject" }, { where: { employee_id, status: "leave" } });
-        }
-        if (status === "approved") {
-            yield dbConnection_2.Attendance.update({ status: "leaveApproved" }, { where: { employee_id, status: "leave" } });
-        }
-        // Fetch updated leave after update
-        const updatedLeave = yield dbConnection_2.Leave.findOne({
-            where: { employee_id, id: leaveID },
-            attributes: ["id", "employee_id", "status"], // choose fields you need
-        });
-        if (!updatedLeave) {
-            (0, errorMessage_1.badRequest)(res, "Leave not found");
-            return;
-        }
-        (0, errorMessage_1.createSuccess)(res, "Status updated", updatedLeave);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.approveLeave = approveLeave;
+// Maps a leave_type to the EmployeeLeaveBalance columns it draws from.
+// unpaid/short_leave/half_day are not balance-tracked — always approvable.
+// Exported so user.ts can run the same balance check at request time (not just on approval).
+// LEAVE_BALANCE_FIELDS/countLeaveDays/rejectLeaveAndRestoreBalance/
+// approveLeave/assignLeaveBalance/formatLeaveBalance/getEmployeeLeaveBalance/
+// getTeamLeaveBalances have moved to src/modules/leave/ — see
+// leave.controller.ts/service.ts/repository.ts. Routes are mounted from
+// server.ts, same URL paths as before. (user.ts imports
+// LEAVE_BALANCE_FIELDS/countLeaveDays from leave.service now.)
 const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -1287,6 +938,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const result = yield dbConnection_2.User.findByPk(loggedInId, {
             attributes: [
                 "id",
+                "employeeCode",
                 "firstName",
                 "lastName",
                 "email",
@@ -1300,6 +952,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                     as: "createdUsers",
                     attributes: [
                         "id",
+                        "employeeCode",
                         "firstName",
                         "lastName",
                         "email",
@@ -1317,6 +970,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                             as: "createdUsers",
                             attributes: [
                                 "id",
+                                "employeeCode",
                                 "firstName",
                                 "lastName",
                                 "email",
@@ -1361,7 +1015,13 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 exports.test = test;
 const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { approvedByAdmin, approvedBySuperAdmin, userId, expenseId, role } = req.body || {};
+        const { approvedByAdmin, approvedBySuperAdmin, userId, expenseId } = req.body || {};
+        // FIX: `role` previously came from req.body — any caller could claim
+        // role:"admin" to skip the manager-approval-first gate below. It must
+        // come from the server-verified token instead.
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const role = userData === null || userData === void 0 ? void 0 : userData.role;
         // Validate userId
         if (!userId) {
             (0, errorMessage_1.badRequest)(res, "userId is missing");
@@ -1369,6 +1029,14 @@ const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         }
         if (!expenseId) {
             (0, errorMessage_1.badRequest)(res, "expenseId is missing");
+            return;
+        }
+        // FIX: previously trusted userId straight from the request body with no
+        // check that the employee is on the caller's own team, letting any
+        // admin/manager approve another company's expense by ID.
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
+            (0, errorMessage_1.forbidden)(res, "You can only manage expenses of your own team members");
             return;
         }
         // Get expense record
@@ -1384,8 +1052,11 @@ const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.createSuccess)(res, "Manager approval updated", { expense: item });
             return;
         }
-        // ---------- Admin Approval ----------
-        if (role === "admin") {
+        // ---------- Admin / Super Admin Approval ----------
+        // FIX: role now comes from the verified token (see above), so super_admin
+        // reaches this branch as itself instead of needing to misreport its role
+        // as "admin" in the request body to pass the old body-trusted check.
+        if (role === "admin" || role === "super_admin") {
             // Check if manager approved first
             if (item.approvedByAdmin !== "accepted") {
                 (0, errorMessage_1.badRequest)(res, "Manager must approve first before admin approval.");
@@ -1406,100 +1077,112 @@ const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.UpdateExpense = UpdateExpense;
-function getAllChildUserIds(userId) {
-    return __awaiter(this, void 0, void 0, function* () {
-        const result = new Set();
-        console.log(">>>>>>>>>>>>>>>>>>>>>>>>first");
-        function fetchLevel(id) {
-            return __awaiter(this, void 0, void 0, function* () {
-                const user = (yield dbConnection_2.User.findByPk(id, {
-                    include: [
-                        {
-                            model: dbConnection_2.User,
-                            as: "createdUsers",
-                            attributes: ["id"],
-                            through: { attributes: [] },
-                        },
-                    ],
-                }));
-                console.log("second", user);
-                if (!(user === null || user === void 0 ? void 0 : user.createdUsers))
-                    return;
-                for (const child of user.createdUsers) {
-                    if (!result.has(child.id)) {
-                        result.add(child.id);
-                        yield fetchLevel(child.id); // recursive call
-                    }
-                }
-            });
-        }
-        yield fetchLevel(userId);
-        return Array.from(result);
-    });
-}
-const leaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const loggedInId = userData.userId;
-        const { status } = req.query;
-        const { page, limit, offset } = getPagination(req);
-        // <- status comes from query
-        const childIds = yield getAllChildUserIds(loggedInId);
-        const allUserIds = [loggedInId, ...childIds];
-        const { rows, count } = yield dbConnection_2.User.findAndCountAll({
-            where: {
-                id: {
-                    [sequelize_1.Op.in]: allUserIds, // include all child users
-                    [sequelize_1.Op.ne]: loggedInId, // ❌ exclude logged-in user
-                },
-            },
-            attributes: [
-                "id",
-                "firstName",
-                "lastName",
-                "email",
-                "phone",
-                "role",
-                "createdAt",
-            ],
-            include: [
-                {
-                    model: dbConnection_2.Leave,
-                    as: "Leaves",
-                    required: false,
-                    where: status ? { status } : undefined,
-                },
-            ],
-            // attributes: ["id", "fromDate", "toDate", "status", "createdAt"],
-            order: [["createdAt", "DESC"]],
-        });
-        res.status(200).json({
-            success: true,
-            message: "Leaves fetched successfully",
-            data: rows,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limit),
-                currentPage: page,
-                limit,
-            },
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
-    }
-});
-exports.leaveList = leaveList;
+// export const leaveList = async (req: Request, res: Response): Promise<void> => {
+//   try {
+//     const userData = req.userData as JwtPayload;
+//     const { page = 1, limit = 10, search = "", role } = req.query;
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     const loggedInId = userData?.userId;
+//     const mainWhere: any = { id: loggedInId };
+//     const createdWhere: any = {};
+//     if (search) {
+//       createdWhere[Op.or] = [
+//         { firstName: { [Op.iLike]: `%${search}%` } },
+//         { lastName: { [Op.iLike]: `%${search}%` } },
+//         { email: { [Op.iLike]: `%${search}%` } },
+//         { phone: { [Op.iLike]: `%${search}%` } },
+//       ];
+//     }
+//     // Get total count
+//     const totalCount = await User.count({
+//       where: mainWhere,
+//       // include: [
+//       //   {
+//       //     model: User,
+//       //     as: "createdUsers",
+//       //     where: createdWhere,
+//       //     required: false,
+//       //   },
+//       // ],
+//     });
+//     const rows = await User.findByPk(loggedInId, {
+//       attributes: [
+//         "id",
+//         "firstName",
+//         "lastName",
+//         "email",
+//         "phone",
+//         "role",
+//         "createdAt",
+//       ],
+//       include: [
+//         {
+//           model: User,
+//           as: "createdUsers",
+//           attributes: ["id", "firstName", "lastName", "email", "phone", "role","createdAt"],
+//           through: { attributes: [] },
+//           where: createdWhere,
+//           required: false,
+//           include: [
+//             {
+//               model: User,
+//               as: "createdUsers",
+//               attributes: [
+//                 "id",
+//                 "firstName",
+//                 "lastName",
+//                 "email",
+//                 "phone",
+//                 "role",
+//                 "createdAt"
+//               ],
+//               through: { attributes: [] },
+//               where: createdWhere,
+//               required: false,
+//               include: [
+//                 {
+//                   model: Leave,
+//                   as: "Leaves",
+//                   required: false,
+//                 },
+//               ],
+//             },
+//           ],
+//         },
+//       ],
+//       order: [["createdAt", "DESC"]],
+//     });
+//     createSuccess(res, "Users fetched successfully", {
+//       page: pageNum,
+//       limit: limitNum,
+//       total: totalCount,
+//       pages: Math.ceil(totalCount / limitNum),
+//       user: rows,
+//     });
+//   } catch (error) {
+//       const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+// getAllChildUserIds has moved to src/modules/shared/userHierarchy.ts
+// (imported below) so the leave/attendance/etc. modules can share it
+// instead of duplicating the recursive team-hierarchy walk.
+// leaveList/getTodayLeaveRequests have moved to src/modules/leave/ — see
+// leave.controller.ts/service.ts/repository.ts.
 const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
         const loggedInId = userData.userId;
         const search = req.query.search;
         const { page, limit, offset } = getPagination(req);
-        const childIds = yield getAllChildUserIds(loggedInId);
-        const allUserIds = [loggedInId, ...childIds];
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        const allUserIds = [...childIds];
+        console.log("userData", userData);
+        console.log("<<>>>>>>>>>>>>>", allUserIds);
         const { approvedByAdmin, approvedBySuperAdmin } = req.query;
         // 🔥 Build dynamic where condition
         const expenseWhere = {
@@ -1537,9 +1220,12 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             ],
             order: [["createdAt", "DESC"]],
         });
-        if (rows.length === 0) {
-            (0, errorMessage_1.badRequest)(res, "data not found");
-        }
+        // FIX: previously called badRequest() here without returning, then fell
+        // through to the 200 response below anyway — an empty list was never
+        // actually an error case, it just tried to send two responses on the
+        // same request (crashing with "headers already sent" server-side),
+        // which is why this page failed for any company/user with zero expense
+        // records instead of just showing an empty list.
         res.status(200).json({
             success: true,
             message: "Expense fetched successfully",
@@ -1619,67 +1305,12 @@ exports.GetExpense = GetExpense;
 //     badRequest(res, errorMessage);
 //   }
 // };
-const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const loggedInId = userData.userId;
-        const { page, limit, offset } = getPagination(req);
-        const childIds = yield getAllChildUserIds(loggedInId);
-        const allUserIds = [loggedInId, ...childIds];
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
-        const { rows, count } = yield dbConnection_2.User.findAndCountAll({
-            where: {
-                id: {
-                    [sequelize_1.Op.in]: allUserIds,
-                    [sequelize_1.Op.ne]: loggedInId, // exclude logged-in user
-                },
-            },
-            attributes: [
-                "id",
-                "firstName",
-                "lastName",
-                "email",
-                "phone",
-                "role",
-                "createdAt",
-            ],
-            include: [
-                {
-                    model: dbConnection_2.Attendance,
-                    as: "Attendances",
-                    where: {
-                        punch_in: {
-                            [sequelize_1.Op.between]: [todayStart, todayEnd],
-                        },
-                    },
-                    required: false,
-                },
-            ],
-            offset,
-            limit,
-            order: [["createdAt", "DESC"]],
-        });
-        res.status(200).json({
-            success: true,
-            message: "Attendance fetched successfully",
-            data: rows,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limit),
-                currentPage: page,
-                limit,
-            },
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.getAttendance = getAttendance;
+// getAttendance/markAttendancePresent have moved to src/modules/attendance/
+// — see attendance.controller.ts/service.ts/repository.ts.
+// cancelLeaveAndMarkPresent has moved to src/modules/leave/ — see
+// leave.controller.ts/service.ts/repository.ts.
+// bulkMarkAttendance has moved to src/modules/attendance/ — see
+// attendance.controller.ts/service.ts/repository.ts.
 const getDateFilter = (query) => {
     const { startDate, endDate, lastDays, today } = query;
     const filter = {};
@@ -1709,50 +1340,274 @@ const getDateFilter = (query) => {
     }
     return filter;
 };
-const fetchData = (model, where, limit, offset, dateFilter) => __awaiter(void 0, void 0, void 0, function* () {
+const getDashboardSummary = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData.userId;
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        const todayDateOnly = new Date().toISOString().slice(0, 10);
+        const now = new Date();
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - now.getDay());
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+        // ── KPI windows ──────────────────────────────────────────────────────
+        const sevenDaysAgo = new Date(now);
+        sevenDaysAgo.setDate(now.getDate() - 6);
+        const sevenDaysAgoDateOnly = sevenDaysAgo.toISOString().slice(0, 10);
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(now.getDate() - 29);
+        const thirtyDaysAgoDateOnly = thirtyDaysAgo.toISOString().slice(0, 10);
+        const currentYear = now.getFullYear();
+        // Valid Attendance.status enum values that count as "marked" (present in
+        // some form) for rate calculations — "late" is a separate boolean
+        // column, not a status value, and isn't included here.
+        const MARKED_STATUSES = ["in", "present", "out", "leaveApproved"];
+        const [presentCount, pendingLeaveApprovalCount, pendingExpenseCount, meetingsThisWeekCount, completedQuotationCount, completedInvoiceCount, attendanceMarkedLast7DaysCount, attendanceMarkedLast30DaysCount, lateMarkedLast30DaysCount, taskTotalCount, taskCompletedCount, taskOverdueCount, leaveBalances, headcountByBranchRaw,] = yield Promise.all([
+            dbConnection_2.Attendance.count({
+                where: {
+                    employee_id: { [sequelize_1.Op.in]: childIds },
+                    status: "present",
+                    date: todayDateOnly,
+                },
+            }),
+            dbConnection_2.Leave.count({
+                where: {
+                    employee_id: { [sequelize_1.Op.in]: childIds },
+                    status: "pending",
+                },
+            }),
+            dbConnection_2.Expense.count({
+                where: {
+                    userId: { [sequelize_1.Op.in]: childIds },
+                    approvedByAdmin: "pending",
+                },
+            }),
+            dbConnection_2.Meeting.count({
+                where: {
+                    userId: { [sequelize_1.Op.in]: childIds },
+                    scheduledTime: { [sequelize_1.Op.between]: [weekStart, weekEnd] },
+                },
+            }),
+            dbConnection_2.Quotations.count({
+                where: {
+                    userId: { [sequelize_1.Op.in]: childIds },
+                    status: "accepted",
+                },
+            }),
+            dbConnection_2.Invoices.count({
+                where: {
+                    userId: { [sequelize_1.Op.in]: childIds },
+                    status: "accepted",
+                },
+            }),
+            // Attendance rate (last 7 days): marked days / (team size * 7) — a
+            // simple proxy, not adjusted for holidays/weekends off, matching the
+            // "cheap to compute from data already modeled" brief.
+            dbConnection_2.Attendance.count({
+                where: {
+                    employee_id: { [sequelize_1.Op.in]: childIds },
+                    status: { [sequelize_1.Op.in]: MARKED_STATUSES },
+                    date: { [sequelize_1.Op.gte]: sevenDaysAgoDateOnly },
+                },
+            }),
+            // Punctuality rate (last 30 days): marked days vs. how many were late.
+            dbConnection_2.Attendance.count({
+                where: {
+                    employee_id: { [sequelize_1.Op.in]: childIds },
+                    status: { [sequelize_1.Op.in]: MARKED_STATUSES },
+                    date: { [sequelize_1.Op.gte]: thirtyDaysAgoDateOnly },
+                },
+            }),
+            dbConnection_2.Attendance.count({
+                where: {
+                    employee_id: { [sequelize_1.Op.in]: childIds },
+                    late: true,
+                    date: { [sequelize_1.Op.gte]: thirtyDaysAgoDateOnly },
+                },
+            }),
+            // Task velocity
+            dbConnection_2.Task.count({ where: { assignedTo: { [sequelize_1.Op.in]: childIds } } }),
+            dbConnection_2.Task.count({ where: { assignedTo: { [sequelize_1.Op.in]: childIds }, status: { [sequelize_1.Op.in]: ["completed", "done"] } } }),
+            dbConnection_2.Task.count({
+                where: {
+                    assignedTo: { [sequelize_1.Op.in]: childIds },
+                    status: { [sequelize_1.Op.notIn]: ["completed", "done", "cancelled"] },
+                    dueDate: { [sequelize_1.Op.lt]: now },
+                },
+            }),
+            // Leave utilization (current year)
+            dbConnection_2.EmployeeLeaveBalance.findAll({
+                where: { employeeId: { [sequelize_1.Op.in]: childIds }, year: currentYear },
+                raw: true,
+            }),
+            // Headcount by branch
+            dbConnection_2.User.findAll({
+                where: { id: { [sequelize_1.Op.in]: childIds } },
+                attributes: ["branchId", [(0, sequelize_1.fn)("COUNT", (0, sequelize_1.col)("id")), "count"]],
+                group: ["branchId"],
+                raw: true,
+            }),
+        ]);
+        const teamSize = childIds.length || 1;
+        const attendanceRateLast7Days = Math.round((attendanceMarkedLast7DaysCount / (teamSize * 7)) * 1000) / 10;
+        const punctualityRateLast30Days = attendanceMarkedLast30DaysCount > 0
+            ? Math.round(((attendanceMarkedLast30DaysCount - lateMarkedLast30DaysCount) / attendanceMarkedLast30DaysCount) * 1000) / 10
+            : null;
+        const leaveAllocated = leaveBalances.reduce((sum, b) => sum + (b.casualLeaveAllocated || 0) + (b.sickLeaveAllocated || 0) + (b.paidLeaveAllocated || 0), 0);
+        const leaveUsed = leaveBalances.reduce((sum, b) => sum + (b.casualLeaveUsed || 0) + (b.sickLeaveUsed || 0) + (b.paidLeaveUsed || 0), 0);
+        const leaveUtilizationRate = leaveAllocated > 0 ? Math.round((leaveUsed / leaveAllocated) * 1000) / 10 : null;
+        const headcountByBranch = headcountByBranchRaw.map((r) => ({
+            branchId: r.branchId,
+            count: Number(r.count),
+        }));
+        res.status(200).json({
+            success: true,
+            message: "Dashboard summary fetched successfully",
+            data: {
+                teamMemberCount: childIds.length,
+                presentCount,
+                pendingLeaveApprovalCount,
+                pendingExpenseCount,
+                meetingsThisWeekCount,
+                completedQuotationCount,
+                completedInvoiceCount,
+                kpis: {
+                    attendanceRateLast7Days,
+                    punctualityRateLast30Days,
+                    taskStats: {
+                        total: taskTotalCount,
+                        completed: taskCompletedCount,
+                        overdue: taskOverdueCount,
+                        completionRate: taskTotalCount > 0 ? Math.round((taskCompletedCount / taskTotalCount) * 1000) / 10 : null,
+                    },
+                    leaveUtilizationRate,
+                    headcountByBranch,
+                },
+            },
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.getDashboardSummary = getDashboardSummary;
+const getTopPerformers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData.userId;
+        const limit = Number(req.query.limit) || 5;
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        if (childIds.length === 0) {
+            res.status(200).json({
+                success: true,
+                message: "Top performers fetched successfully",
+                data: [],
+            });
+            return;
+        }
+        const [users, taskRows, meetingRows] = yield Promise.all([
+            dbConnection_2.User.findAll({
+                where: { id: { [sequelize_1.Op.in]: childIds } },
+                attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+            }),
+            // Tasks completed on/before their dueDate
+            dbConnection_2.Task.findAll({
+                where: {
+                    [sequelize_1.Op.and]: [
+                        { assignedTo: { [sequelize_1.Op.in]: childIds } },
+                        { status: { [sequelize_1.Op.in]: ["completed", "done"] } },
+                        { dueDate: { [sequelize_1.Op.ne]: null } },
+                        // Compare calendar dates only — dueDate is stored at midnight, so a
+                        // same-day completion later in the day must still count as on time.
+                        sequelize_1.Sequelize.where((0, sequelize_1.fn)("DATE", (0, sequelize_1.col)("updatedAt")), sequelize_1.Op.lte, (0, sequelize_1.fn)("DATE", (0, sequelize_1.col)("dueDate"))),
+                    ],
+                },
+                attributes: ["assignedTo", [(0, sequelize_1.fn)("COUNT", (0, sequelize_1.col)("id")), "count"]],
+                group: ["assignedTo"],
+                raw: true,
+            }),
+            // Meetings that were completed/closed out
+            dbConnection_2.Meeting.findAll({
+                where: {
+                    userId: { [sequelize_1.Op.in]: childIds },
+                    status: { [sequelize_1.Op.in]: ["completed", "out"] },
+                },
+                attributes: ["userId", [(0, sequelize_1.fn)("COUNT", (0, sequelize_1.col)("id")), "count"]],
+                group: ["userId"],
+                raw: true,
+            }),
+        ]);
+        const taskCountMap = new Map();
+        taskRows.forEach((r) => taskCountMap.set(Number(r.assignedTo), Number(r.count)));
+        const meetingCountMap = new Map();
+        meetingRows.forEach((r) => meetingCountMap.set(Number(r.userId), Number(r.count)));
+        const performers = users.map((u) => {
+            const tasksCompletedOnTime = taskCountMap.get(u.id) || 0;
+            const meetingsDone = meetingCountMap.get(u.id) || 0;
+            return {
+                id: u.id,
+                firstName: u.firstName,
+                lastName: u.lastName,
+                email: u.email,
+                phone: u.phone,
+                role: u.role,
+                tasksCompletedOnTime,
+                meetingsDone,
+                score: tasksCompletedOnTime + meetingsDone,
+            };
+        });
+        performers.sort((a, b) => b.score - a.score);
+        res.status(200).json({
+            success: true,
+            message: "Top performers fetched successfully",
+            data: performers.slice(0, limit),
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.getTopPerformers = getTopPerformers;
+const fetchData = (model_1, where_1, limit_1, offset_1, dateFilter_1, ...args_1) => __awaiter(void 0, [model_1, where_1, limit_1, offset_1, dateFilter_1, ...args_1], void 0, function* (model, where, limit, offset, dateFilter, dateField = "date") {
     return yield model.findAndCountAll({
-        where,
+        // FIX: dateFilter was accepted as a param but never applied to the query —
+        // startDate/endDate/lastDays/today filters were silently ignored.
+        where: dateFilter && Object.keys(dateFilter).length > 0
+            ? Object.assign(Object.assign({}, where), { [dateField]: dateFilter }) : where,
         limit,
         offset,
         order: [["createdAt", "DESC"]],
     });
 });
-const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { userId } = req.query;
-        if (!userId)
-            return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
-        const { page, limit, offset } = getPagination(req);
-        const dateFilter = getDateFilter(req.query);
-        // const user = await findUser(Number(userId));
-        // if (!user) return badRequest(res, "User not found", 404);
-        const { rows, count } = yield fetchData(dbConnection_2.Attendance, { employee_id: Number(userId) }, limit, offset, dateFilter);
-        (0, errorMessage_1.createSuccess)(res, "User attendance fetched successfully", {
-            // user,
-            attendance: rows,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limit),
-                currentPage: page,
-                limit,
-            },
-        });
-    }
-    catch (error) {
-        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
-    }
-});
-exports.userAttendance = userAttendance;
+// Attendance history for one employee, by id — paginated, optionally filtered
+// by startDate/endDate, lastDays, or today (see getDateFilter).
+// userAttendance has moved to src/modules/attendance/ — see
+// attendance.controller.ts/service.ts/repository.ts.
 const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userId } = req.query;
         if (!userId)
             return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
+        // FIX: previously trusted userId straight from the query string with no
+        // ownership check — any caller with expense:view could pass any userId
+        // and read another team's/company's expense history.
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        const requestedUserId = Number(userId);
+        if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
+            return (0, errorMessage_1.forbidden)(res, "You can only view expenses of your own team members");
+        }
         const { page, limit, offset } = getPagination(req);
         const dateFilter = getDateFilter(req.query);
         // const user = await findUser(Number(userId));
         // if (!user) return badRequest(res, "User not found", 404);
-        const { rows, count } = yield fetchData(dbConnection_2.Expense, { userId: Number(userId) }, limit, offset, dateFilter);
+        const { rows, count } = yield fetchData(dbConnection_2.Expense, { userId: requestedUserId }, limit, offset, dateFilter);
         (0, errorMessage_1.createSuccess)(res, "User expense fetched successfully", {
             // user,
             leave: rows,
@@ -1769,34 +1624,8 @@ const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.userExpense = userExpense;
-const userLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { userId } = req.query;
-        if (!userId)
-            return (0, errorMessage_1.badRequest)(res, "UserId is required", 400);
-        const { page, limit, offset } = getPagination(req);
-        // const dateFilter = getDateFilter(req.query);
-        // const user = await findUser(Number(userId));
-        // if (!user) return badRequest(res, "User not found", 404);
-        const { rows, count } = yield fetchData(dbConnection_2.Leave, { employee_id: Number(userId) }, limit, offset
-        // dateFilter
-        );
-        (0, errorMessage_1.createSuccess)(res, "User leave fetched successfully", {
-            // user,
-            leave: rows,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limit),
-                currentPage: page,
-                limit,
-            },
-        });
-    }
-    catch (error) {
-        (0, errorMessage_1.badRequest)(res, error instanceof Error ? error.message : "Something went wrong");
-    }
-});
-exports.userLeave = userLeave;
+// userLeave has moved to src/modules/leave/ — see leave.controller.ts/
+// service.ts/repository.ts.
 const createClient = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userId } = req.userData;
@@ -1847,92 +1676,17 @@ const createClient = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.createClient = createClient;
-const generateDayMap = (totalDays) => Object.fromEntries(Array.from({ length: totalDays }, (_, i) => [String(i + 1), "-"]));
-// Build search filter
-const buildSearchFilter = (search) => search
-    ? {
-        [sequelize_1.Op.or]: [
-            { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-            { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-        ],
-    }
-    : {};
-// =========================== MAIN FUNCTION ===============================
-const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { userId } = req.userData;
-        const childIds = yield getAllChildUserIds(userId); // assuming this returns array
-        if (!childIds.length)
-            (0, errorMessage_1.badRequest)(res, "No child users found");
-        // Query Params
-        const month = Number(req.query.month) || new Date().getMonth() + 1;
-        const year = Number(req.query.year) || new Date().getFullYear();
-        const search = String(req.query.search || "");
-        const pageNum = Number(req.query.page) || 1;
-        const limitNum = Number(req.query.limit) || 10;
-        const offset = (pageNum - 1) * limitNum;
-        const startDate = new Date(year, month - 1, 1);
-        const endDate = new Date(year, month, 0);
-        const totalDays = endDate.getDate();
-        // Fetch users + Attendance together (Optimized Query)
-        const { rows: users, count: totalCount } = yield dbConnection_2.User.findAndCountAll({
-            where: Object.assign({ id: { [sequelize_1.Op.in]: childIds } }, buildSearchFilter(search)),
-            attributes: [
-                "id",
-                "firstName",
-                "lastName",
-                "role",
-                "email",
-                "dob",
-                "profile",
-            ],
-            include: [
-                {
-                    model: dbConnection_2.Attendance,
-                    as: "Attendances",
-                    where: { date: { [sequelize_1.Op.between]: [startDate, endDate] } },
-                    required: false,
-                },
-            ],
-            offset,
-            limit: limitNum,
-            order: [["firstName", "ASC"]],
-        });
-        // Format response
-        const formatted = users.map((u) => {
-            var _a;
-            const days = generateDayMap(totalDays);
-            (_a = u.Attendances) === null || _a === void 0 ? void 0 : _a.forEach((a) => {
-                var _a;
-                const start = new Date(a.date).getDate();
-                const end = new Date(a.punch_in).getDate();
-                for (let i = start; i <= end; i++)
-                    days[String(i)] = (_a = a.status) !== null && _a !== void 0 ? _a : "-";
-            });
-            return {
-                id: u.id,
-                name: `${u.firstName} ${u.lastName}`,
-                email: u.email,
-                dob: u.dob,
-                profile: u.profile,
-                role: u.role,
-                days,
-            };
-        });
-        res.status(200).json({
-            success: true,
-            message: "Attendance loaded",
-            data: { page: pageNum, limit: limitNum, totalCount, users: formatted },
-        });
-    }
-    catch (error) {
-        (0, errorMessage_1.badRequest)(res, error.message);
-    }
-});
-exports.AttendanceBook = AttendanceBook;
+// AttendanceBook has moved to src/modules/attendance/ — see
+// attendance.controller.ts/service.ts/repository.ts. (Fixed a pre-existing
+// double-response bug while moving: the empty-childIds case called
+// badRequest() and then fell through to the full query/response anyway —
+// same pattern already applied to ownLeave/GetExpense.)
 const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { userId, meetingId, scheduledTime } = req.body || {};
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const role = userData === null || userData === void 0 ? void 0 : userData.role;
         // Validate required fields
         if (!userId || !meetingId || !scheduledTime) {
             (0, errorMessage_1.badRequest)(res, "userId, meetingId and scheduledTime are required");
@@ -1942,6 +1696,19 @@ const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         const meeting = yield dbConnection_2.Meeting.findOne({ where: { id: meetingId } });
         if (!meeting) {
             (0, errorMessage_1.badRequest)(res, "Meeting not found");
+            return;
+        }
+        // FIX: previously neither the meeting's company nor the assignee's team
+        // membership were checked — a caller could supply a meetingId belonging
+        // to another company and/or an arbitrary userId, cross-linking data
+        // across tenants.
+        if (role !== "super_admin" && meeting.companyId !== (userData === null || userData === void 0 ? void 0 : userData.companyId)) {
+            (0, errorMessage_1.forbidden)(res, "You can only assign meetings within your own company");
+            return;
+        }
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
+            (0, errorMessage_1.forbidden)(res, "You can only assign meetings to your own team members");
             return;
         }
         // If meeting is already assigned & scheduled time conflicts
@@ -1972,35 +1739,11 @@ const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
     }
 });
 exports.assignMeeting = assignMeeting;
-const ownLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        const { page, limit, offset } = getPagination(req);
-        const { rows, count } = yield dbConnection_2.Leave.findAndCountAll({
-            where: { employee_id: Number(userData === null || userData === void 0 ? void 0 : userData.userId) },
-            limit,
-            offset,
-            order: [["id", "DESC"]],
-        });
-        if (rows.length === 0) {
-            (0, errorMessage_1.badRequest)(res, "No leaves found");
-        }
-        (0, errorMessage_1.createSuccess)(res, "Leave fetched successfully", {
-            leave: rows,
-            pagination: {
-                totalRecords: count,
-                totalPages: Math.ceil(count / limit),
-                currentPage: page,
-                limit,
-            },
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.ownLeave = ownLeave;
+// ownLeave has moved to src/modules/leave/ — see leave.controller.ts/
+// service.ts/repository.ts. (Fixed a pre-existing double-response bug while
+// moving: the empty-list case called badRequest() and then fell through to
+// createSuccess() anyway — now it returns after badRequest, same pattern
+// already applied to GetExpense.)
 const addQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { quotationNumber, userId, clientName, clientEmail, clientPhone, totalAmount, validTill, notes } = req.body;
@@ -2057,7 +1800,7 @@ const addSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        const { sub_category_name, amount, tax, status, CategoryId, gst, unit, hsnCode } = req.body;
+        const { sub_category_name, amount, tax, status, gstedit, totaledit, CategoryId, gst, unit, hsnCode, baseUnit, secondaryUnit } = req.body;
         if (!(sub_category_name === null || sub_category_name === void 0 ? void 0 : sub_category_name.trim())) {
             (0, errorMessage_1.badRequest)(res, "Sub category name is required");
             return;
@@ -2092,6 +1835,10 @@ const addSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, function*
             gst: gst !== null && gst !== void 0 ? gst : null,
             unit: unit !== null && unit !== void 0 ? unit : null,
             hsnCode: hsnCode !== null && hsnCode !== void 0 ? hsnCode : null,
+            baseUnit: baseUnit !== null && baseUnit !== void 0 ? baseUnit : null,
+            secondaryUnit: secondaryUnit !== null && secondaryUnit !== void 0 ? secondaryUnit : null,
+            gstedit: gstedit !== null && gstedit !== void 0 ? gstedit : null,
+            totaledit: totaledit !== null && totaledit !== void 0 ? totaledit : null
         });
         (0, errorMessage_1.createSuccess)(res, "Sub category created successfully", subCategory);
     }
@@ -2114,7 +1861,7 @@ const updateSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, functi
             (0, errorMessage_1.badRequest)(res, "SubCategory id is required");
             return;
         }
-        const { sub_category_name, amount, tax, CategoryId, status } = req.body;
+        const { sub_category_name, amount, tax, CategoryId, status, baseUnit, secondaryUnit, discountedit, gstedit, totaledit, hsnCode } = req.body;
         // Check if subcategory exists
         const existingSubCategory = yield dbConnection_2.SubCategory.findByPk(id);
         if (!existingSubCategory) {
@@ -2136,6 +1883,24 @@ const updateSubCategory = (req, res) => __awaiter(void 0, void 0, void 0, functi
         }
         if (status !== undefined) {
             object.status = status;
+        }
+        if (baseUnit !== undefined) {
+            object.baseUnit = baseUnit;
+        }
+        if (secondaryUnit !== undefined) {
+            object.secondaryUnit = secondaryUnit;
+        }
+        if (discountedit !== undefined) {
+            object.discountedit = discountedit;
+        }
+        if (gstedit !== undefined) {
+            object.gstedit = gstedit;
+        }
+        if (totaledit !== undefined) {
+            object.totaledit = totaledit;
+        }
+        if (hsnCode !== undefined) {
+            object.hsnCode = hsnCode;
         }
         object.managerId = loggedInId;
         // Duplicate check ONLY if name is being updated
@@ -2357,108 +2122,6 @@ const downloadQuotationPdf = (req, res) => __awaiter(void 0, void 0, void 0, fun
     }
 });
 exports.downloadQuotationPdf = downloadQuotationPdf;
-// export const addQuotationPdf = async (req: Request, res: Response): Promise<void> => {
-//   try {
-//     const userData = req.userData as JwtPayload;
-//     if (!userData || !userData.userId) {
-//       badRequest(res, "Unauthorized request");
-//       return;
-//     }
-//     const data = req.body;
-//     // ✅ Helper: Convert image → base64
-//     const toBase64 = (filePath: string): string => {
-//       try {
-//         if (fs.existsSync(filePath)) {
-//           const ext = filePath.split(".").pop()?.toLowerCase();
-//           const mime =
-//             ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
-//           const buf = fs.readFileSync(filePath);
-//           return `data:${mime};base64,${buf.toString("base64")}`;
-//         }
-//       } catch (_) {}
-//       return "";
-//     };
-//     const logo = toBase64(
-//       path.join(__dirname, "../../../uploads/images/logo.jpeg")
-//     );
-//     const signature = toBase64(
-//       path.join(__dirname, "../../../uploads/signature.png")
-//     );
-//     const stamp = toBase64(
-//       path.join(__dirname, "../../../uploads/stamp.png")
-//     );
-//     // ✅ GST State
-//     const ownstate = String(data.ownstate || "").toLowerCase();
-//     const clientState = String(data.clientState || "").toLowerCase();
-//     // ✅ Calculations
-//     const subtotal = data.items.reduce((sum: number, item: any) => {
-//       return sum + Number(item.amount || 0);
-//     }, 0);
-//     const discount = Number(data.discount || 0);
-//     const taxableAmount = subtotal - discount;
-//     const gstRate = Number(data.gstRate || 0);
-//     const totalGST = (taxableAmount * gstRate) / 100;
-//     let cgst = 0;
-//     let sgst = 0;
-//     let igst = 0;
-//     // ✅ GST Logic (India)
-//     if (ownstate && clientState && ownstate === clientState) {
-//       cgst = totalGST / 2;
-//       sgst = totalGST / 2;
-//     } else {
-//       igst = totalGST;
-//     }
-//     const finalAmount = taxableAmount + totalGST;
-//     // ✅ Render EJS
-//     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
-//     const html = await ejs.renderFile(filePath, {
-//       ...data,
-//       logo,
-//       signature,
-//       stamp,
-//       subtotal,
-//       discount,
-//       taxableAmount,
-//       gstRate,
-//       cgst,
-//       sgst,
-//       igst,
-//       totalGST,
-//       finalAmount
-//     });
-//     // ✅ Save to DB
-//     await Quotations.create({
-//       userId: Number(userData?.userId),
-//       companyId: data.companyId || 0,
-//       quotation: data,
-//       status: "draft"
-//     });
-//     // ✅ Puppeteer
-//     const browser = await puppeteer.launch({
-//       args: ["--no-sandbox", "--disable-setuid-sandbox"]
-//     });
-//     const page = await browser.newPage();
-//     await page.setContent(html as string, { waitUntil: "load" });
-//     const pdfBuffer = await page.pdf({
-//       format: "a4",
-//       printBackground: true,
-//       margin: {
-//         top: "20mm",
-//         bottom: "20mm",
-//         left: "15mm",
-//         right: "15mm"
-//       }
-//     });
-//     await browser.close();
-//     res.set({
-//       "Content-Type": "application/pdf",
-//       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber}.pdf`
-//     });
-//     res.send(pdfBuffer);
-//   } catch (error) {
-//     res.status(400).json({ error: "Something went wrong" });
-//   }
-// };
 const generateQuotationNumber = () => __awaiter(void 0, void 0, void 0, function* () {
     const count = yield dbConnection_2.Quotations.count();
     const serial = count + 1;
@@ -2615,6 +2278,15 @@ const getMeetingDistance = (req, res) => __awaiter(void 0, void 0, void 0, funct
         const limit = Number(req.query.limit) || 10;
         const userId = Number(req.query.userId);
         const offset = (page - 1) * limit;
+        // FIX: previously trusted userId straight from the query string with no
+        // ownership check — any caller could pass any userId and read another
+        // team's/company's meeting-distance data.
+        const loggedInId = Number(userData.userId);
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        if (userId !== loggedInId && !childIds.includes(userId)) {
+            (0, errorMessage_1.forbidden)(res, "You can only view meeting distances of your own team members");
+            return;
+        }
         // Date filters
         const { startDate, endDate } = req.query;
         const whereCondition = {
@@ -2656,6 +2328,15 @@ const getFuelExpense = (req, res) => __awaiter(void 0, void 0, void 0, function*
             return;
         }
         const userId = Number(req.query.userId);
+        // FIX: previously trusted userId straight from the query string with no
+        // ownership check — any caller could pass any userId and read another
+        // team's/company's fuel-expense data.
+        const loggedInId = Number(userData.userId);
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        if (userId !== loggedInId && !childIds.includes(userId)) {
+            (0, errorMessage_1.forbidden)(res, "You can only view fuel expenses of your own team members");
+            return;
+        }
         const { startDate, endDate } = req.query;
         const whereCondition = {
             userId: userId,
@@ -2689,925 +2370,109 @@ const getFuelExpense = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.getFuelExpense = getFuelExpense;
-const addCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+// addCompany/getCompany/getCompanyById/updateCompany/assignCompanyManager/
+// removeCompanyManager/getCompanyManagers/getMyCompanies/switchCompany/
+// deleteCompany/getOwnCompany have moved to src/modules/company/ — see
+// company.controller.ts/service.ts/repository.ts. Routes are mounted from
+// server.ts, same URL paths as before. (Dropped a leftover debug console.log
+// of the full userData object in addCompany while moving.)
+// Branch CRUD (addBranch/updateBranch/getBranch/getBranchById) has moved to
+// src/modules/branch/ — see branch.controller.ts/service.ts/repository.ts.
+// Routes are mounted from server.ts, same URL paths as before.
+// validateShiftItem/buildShiftCreateAttrs/addShift have moved to
+// src/modules/shift/ — see shift.controller.ts/service.ts/repository.ts.
+// Routes are mounted from server.ts, same URL paths as before.
+// (assignEmployeeShift below stays here — cross-domain concern, not shift-only.)
+// ============================================================
+// PATCH /admin/assign-employee-shift
+// Assign (or clear) an employee's shift/department/branch — there was
+// previously no way to do this at all; the attendance engine needs it to
+// resolve "this employee's assigned shift" instead of a hardcoded default.
+// Body: { employeeId, shiftId?, departmentId?, branchId? } (null clears)
+// ============================================================
+const assignEmployeeShift = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        console.log(">>>>>>>>>>>>>>>userData>", userData);
-        if (!userData || !userData.userId) {
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        if (!userData || !loggedInId) {
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        // console.log(userData.role)
-        if (userData.role !== "user") {
-            (0, errorMessage_1.badRequest)(res, "You are not authorized to add a company");
+        const { employeeId, shiftId, departmentId, branchId } = req.body || {};
+        if (!employeeId || isNaN(Number(employeeId))) {
+            (0, errorMessage_1.badRequest)(res, "Valid employeeId is required");
             return;
         }
-        const { companyName, legalName, registrationNo, gst, pan, industry, companySize, website, companyEmail, companyPhone, city, timezone, currency, 
-        // Bank
-        bankAccountHolder, bankName, bankAccountNumber, bankIfsc, bankBranchName, bankAccountType, bankMicr, upiId, 
-        // HR Config
-        payrollCycle, lateMarkAfter, autoHalfDayAfter, casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice, compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry, adminId, managerId, createdBy, userid } = req.body;
-        // ================= VALIDATION =================
-        if (!companyName || companyName.trim().length < 2) {
-            (0, errorMessage_1.badRequest)(res, "Company name is required (min 2 chars)");
+        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(Number(loggedInId));
+        if (Number(employeeId) !== Number(loggedInId) && !childIds.includes(Number(employeeId))) {
+            (0, errorMessage_1.forbidden)(res, "You can only assign shifts to your own team members");
             return;
         }
-        if (!legalName) {
-            (0, errorMessage_1.badRequest)(res, "Legal name is required");
+        const employee = yield dbConnection_2.User.findByPk(Number(employeeId));
+        if (!employee) {
+            (0, errorMessage_1.badRequest)(res, "Employee not found");
             return;
         }
-        if (!registrationNo) {
-            (0, errorMessage_1.badRequest)(res, "Registration number is required");
-            return;
-        }
-        if (!companyEmail || !/^\S+@\S+\.\S+$/.test(companyEmail)) {
-            (0, errorMessage_1.badRequest)(res, "Valid company email is required");
-            return;
-        }
-        if (!companyPhone || companyPhone.length < 8) {
-            (0, errorMessage_1.badRequest)(res, "Valid company phone is required");
-            return;
-        }
-        if (gst && gst.length !== 15) {
-            (0, errorMessage_1.badRequest)(res, "GST must be 15 characters");
-            return;
-        }
-        if (pan && pan.length !== 10) {
-            (0, errorMessage_1.badRequest)(res, "PAN must be 10 characters");
-            return;
-        }
-        if (website && !/^https?:\/\/.+/.test(website)) {
-            (0, errorMessage_1.badRequest)(res, "Website must be a valid URL");
-            return;
-        }
-        if (bankIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc)) {
-            (0, errorMessage_1.badRequest)(res, "Invalid IFSC code");
-            return;
-        }
-        if (upiId && !/^[\w.-]+@[\w.-]+$/.test(upiId)) {
-            (0, errorMessage_1.badRequest)(res, "Invalid UPI ID");
-            return;
-        }
-        // HR numeric validations
-        const numericFields = [
-            { field: lateMarkAfter, name: "lateMarkAfter" },
-            { field: autoHalfDayAfter, name: "autoHalfDayAfter" },
-            { field: casualHolidaysTotal, name: "casualHolidaysTotal" },
-            { field: casualHolidaysPerMonth, name: "casualHolidaysPerMonth" },
-            { field: casualHolidayNotice, name: "casualHolidayNotice" },
-            { field: compOffMinHours, name: "compOffMinHours" },
-            { field: compOffExpiryDays, name: "compOffExpiryDays" },
-            { field: casualCarryForwardLimit, name: "casualCarryForwardLimit" },
-            { field: casualCarryForwardExpiry, name: "casualCarryForwardExpiry" },
-        ];
-        for (const item of numericFields) {
-            if (item.field && isNaN(Number(item.field))) {
-                (0, errorMessage_1.badRequest)(res, `${item.name} must be a number`);
+        // FIX: previously only checked that the shift/department *existed*
+        // anywhere in the system, and branchId wasn't validated at all — a
+        // caller could assign an employee a shift/branch/department belonging
+        // to a completely different company, silently applying that other
+        // company's geofence/working-hours config to this employee's attendance.
+        // Every reference must belong to the caller's own resolved company.
+        const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+        if (shiftId !== undefined && shiftId !== null) {
+            const shift = yield dbConnection_2.Shift.findByPk(Number(shiftId));
+            if (!shift || (callerCompanyId && Number(shift.companyId) !== callerCompanyId)) {
+                (0, errorMessage_1.badRequest)(res, "Shift not found");
                 return;
             }
         }
-        // ================= CREATE =================
-        const company = yield dbConnection_2.Company.create({
-            companyName,
-            legalName,
-            registrationNo,
-            gst,
-            pan,
-            industry,
-            companySize,
-            website,
-            companyEmail,
-            companyPhone,
-            city,
-            timezone,
-            currency,
-            bankAccountHolder,
-            bankName,
-            bankAccountNumber,
-            bankIfsc,
-            bankBranchName,
-            bankAccountType,
-            bankMicr,
-            upiId,
-            payrollCycle,
-            lateMarkAfter,
-            autoHalfDayAfter,
-            casualHolidaysTotal,
-            casualHolidaysPerMonth,
-            casualHolidayNotice,
-            compOffMinHours,
-            compOffExpiryDays,
-            casualCarryForwardLimit,
-            casualCarryForwardExpiry,
-            userId: createdBy || userData.userId,
-            adminId: adminId || null,
-            managerId: managerId || null,
-        });
-        // When a company is linked to an admin, propagate the creator-user's permissions
-        // to that admin scoped to this company. Company is optional — if no adminId, skip.
-        if (adminId) {
-            const creatorUserId = Number(userData.userId);
-            const newCompanyId = company.id;
-            const creatorPerms = yield dbConnection_2.UserPermission.findAll({
-                where: { userId: creatorUserId },
-                attributes: ["permissionId"],
-            });
-            if (creatorPerms.length > 0) {
-                yield Promise.all(creatorPerms.map((p) => dbConnection_2.UserPermission.findOrCreate({
-                    where: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId },
-                    defaults: { userId: Number(adminId), permissionId: p.permissionId, companyId: newCompanyId, grantedBy: creatorUserId },
-                })));
-                (0, permissionCache_1.invalidatePermissionCache)(Number(adminId));
+        if (departmentId !== undefined && departmentId !== null) {
+            const department = yield dbConnection_2.Department.findByPk(Number(departmentId));
+            if (!department || (callerCompanyId && Number(department.companyId) !== callerCompanyId)) {
+                (0, errorMessage_1.badRequest)(res, "Department not found");
+                return;
             }
         }
-        (0, errorMessage_1.createSuccess)(res, "Company added successfully", company);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.addCompany = addCompany;
-const getCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        // ✅ Pagination
-        const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 10;
-        const offset = (page - 1) * limit;
-        // ✅ Search
-        const search = req.query.search || "";
-        let whereCondition = {
-            userId: userData.userId,
-        };
-        if (search) {
-            whereCondition = Object.assign(Object.assign({}, whereCondition), { [sequelize_1.Op.or]: [
-                    { companyName: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { legalName: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { companyEmail: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { companyPhone: { [sequelize_1.Op.like]: `%${search}%` } },
-                ] });
-        }
-        // ✅ Query
-        const { count, rows } = yield dbConnection_2.Company.findAndCountAll({
-            where: whereCondition,
-            limit,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ Response
-        (0, errorMessage_1.createSuccess)(res, "Company fetched successfully", {
-            total: count,
-            page,
-            limit,
-            totalPages: Math.ceil(count / limit),
-            data: rows,
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getCompany = getCompany;
-const getCompanyById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!req.params.id) {
-            return (0, errorMessage_1.badRequest)(res, "Company id is required");
-        }
-        if (isNaN(Number(req.params.id))) {
-            return (0, errorMessage_1.badRequest)(res, "Company id must be a number");
-        }
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const company = yield dbConnection_2.Company.findOne({
-            where: { id: req.params.id, userId: userData.userId },
-        });
-        if (!company) {
-            return (0, errorMessage_1.badRequest)(res, "Company not found");
-        }
-        (0, errorMessage_1.createSuccess)(res, "Company fetched successfully", company);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getCompanyById = getCompanyById;
-const updateCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!req.params.id) {
-            return (0, errorMessage_1.badRequest)(res, "Company id is required");
-        }
-        if (isNaN(Number(req.params.id))) {
-            return (0, errorMessage_1.badRequest)(res, "Company id must be a number");
-        }
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const company = yield dbConnection_2.Company.findOne({
-            where: { id: req.params.id, userId: userData.userId },
-        });
-        if (!company) {
-            return (0, errorMessage_1.badRequest)(res, "Company not found");
-        }
-        const updatedCompany = yield company.update(req.body);
-        (0, errorMessage_1.createSuccess)(res, "Company updated successfully", updatedCompany);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.updateCompany = updateCompany;
-const deleteCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!req.params.id) {
-            return (0, errorMessage_1.badRequest)(res, "Company id is required");
-        }
-        if (isNaN(Number(req.params.id))) {
-            return (0, errorMessage_1.badRequest)(res, "Company id must be a number");
-        }
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const company = yield dbConnection_2.Company.findOne({
-            where: { id: req.params.id, userId: userData.userId },
-        });
-        if (!company) {
-            return (0, errorMessage_1.badRequest)(res, "Company not found");
-        }
-        yield company.destroy();
-        (0, errorMessage_1.createSuccess)(res, "Company deleted successfully");
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.deleteCompany = deleteCompany;
-const getOwnCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const companies = yield dbConnection_2.Company.findAll({
-            where: {
-                userId: userData.userId,
-            },
-            include: [
-                { model: dbConnection_2.Branch, as: "branches" },
-                { model: dbConnection_2.Shift, as: "shifts" },
-                { model: dbConnection_2.Department, as: "departments" },
-                { model: dbConnection_2.CompanyLeave, as: "companyLeaves" },
-                { model: dbConnection_2.CompanyBank, as: "companyBanks" },
-            ],
-        });
-        if (!companies || companies.length === 0) {
-            return (0, errorMessage_1.badRequest)(res, "No company found for this user");
-        }
-        // const companyIds = companies.map((c: any) => c.id);
-        // const [branches, holidays, departments, shifts, banks, leaveTypes] = await Promise.all([
-        //   Branch.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-        //   Holiday.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-        //   Department.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-        //   Shift.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-        //   CompanyBank.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-        //   CompanyLeave.findAll({ where: { companyId: { [Op.in]: companyIds } } }),
-        // ]);
-        // const result = companies.map((company: any) => {
-        //   const cId = company.id;
-        //   const companyBranches = branches.filter((b: any) => b.companyId === cId);
-        //   const enrichedBranches = companyBranches.map((branch: any) => ({
-        //     ...branch.toJSON(),
-        //     holidays: holidays.filter((h: any) => h.branchId === branch.id).map((h: any) => h.toJSON()),
-        //     departments: departments.filter((d: any) => d.branchId === branch.id).map((d: any) => d.toJSON()),
-        //     shifts: shifts.filter((s: any) => s.branchId === branch.id).map((s: any) => s.toJSON()),
-        //     banks: banks.filter((b: any) => b.branchId === branch.id).map((b: any) => b.toJSON()),
-        //     leaveTypes: leaveTypes.filter((l: any) => l.branchId === branch.id).map((l: any) => l.toJSON()),
-        //   }));
-        //   return {
-        //     ...company.toJSON(),
-        //     branches: enrichedBranches,
-        //     holidays: holidays.filter((h: any) => h.companyId === cId && !h.branchId).map((h: any) => h.toJSON()),
-        //     departments: departments.filter((d: any) => d.companyId === cId && !d.branchId).map((d: any) => d.toJSON()),
-        //     shifts: shifts.filter((s: any) => s.companyId === cId && !s.branchId).map((s: any) => s.toJSON()),
-        //     banks: banks.filter((b: any) => b.companyId === cId && !b.branchId).map((b: any) => b.toJSON()),
-        //   };
-        // });
-        (0, errorMessage_1.createSuccess)(res, "Company fetched successfully", companies);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getOwnCompany = getOwnCompany;
-const addBranch = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const { branchName, branchCode, branchCity, branchState, branchCountry, postalCode, addressLine1, addressLine2, branchEmail, branchPhone, latitude, longitude, geoRadius, adminId, managerId, companyId, } = req.body;
-        // ================= VALIDATIONS =================
-        if (!branchName || branchName.trim().length < 2) {
-            return (0, errorMessage_1.badRequest)(res, "Branch name is required (min 2 chars)");
-        }
-        if (!branchCode || branchCode.trim().length < 2) {
-            return (0, errorMessage_1.badRequest)(res, "Branch code is required");
-        }
-        if (!branchCity) {
-            return (0, errorMessage_1.badRequest)(res, "Branch city is required");
-        }
-        if (!branchState) {
-            return (0, errorMessage_1.badRequest)(res, "Branch state is required");
-        }
-        if (!branchCountry) {
-            return (0, errorMessage_1.badRequest)(res, "Branch country is required");
-        }
-        if (!postalCode || postalCode.length < 4) {
-            return (0, errorMessage_1.badRequest)(res, "Valid postal code is required");
-        }
-        if (!addressLine1) {
-            return (0, errorMessage_1.badRequest)(res, "Address Line 1 is required");
-        }
-        if (!branchEmail || !/^\S+@\S+\.\S+$/.test(branchEmail)) {
-            return (0, errorMessage_1.badRequest)(res, "Valid branch email is required");
-        }
-        if (!branchPhone || branchPhone.length < 8) {
-            return (0, errorMessage_1.badRequest)(res, "Valid branch phone is required");
-        }
-        // Latitude: -90 to 90
-        if (latitude === undefined ||
-            isNaN(Number(latitude)) ||
-            Number(latitude) < -90 ||
-            Number(latitude) > 90) {
-            return (0, errorMessage_1.badRequest)(res, "Latitude must be between -90 and 90");
-        }
-        // Longitude: -180 to 180
-        if (longitude === undefined ||
-            isNaN(Number(longitude)) ||
-            Number(longitude) < -180 ||
-            Number(longitude) > 180) {
-            return (0, errorMessage_1.badRequest)(res, "Longitude must be between -180 and 180");
-        }
-        if (geoRadius === undefined ||
-            isNaN(Number(geoRadius)) ||
-            Number(geoRadius) <= 0) {
-            return (0, errorMessage_1.badRequest)(res, "Geo radius must be a positive number");
-        }
-        if (adminId && isNaN(Number(adminId))) {
-            return (0, errorMessage_1.badRequest)(res, "adminId must be a number");
-        }
-        if (managerId && isNaN(Number(managerId))) {
-            return (0, errorMessage_1.badRequest)(res, "managerId must be a number");
-        }
-        // ================= DUPLICATE CHECK =================
-        // const existingBranch = await Branch.findOne({
-        //   where: { branchCode },
-        // });
-        // if (existingBranch) {
-        //   return badRequest(res, "Branch already exists with this code");
-        // }
-        // ================= CREATE =================
-        const branch = yield dbConnection_2.Branch.create({
-            branchName,
-            branchCode,
-            branchCity,
-            branchState,
-            branchCountry,
-            postalCode,
-            addressLine1,
-            addressLine2: addressLine2 || null,
-            branchEmail,
-            branchPhone,
-            latitude: Number(latitude),
-            longitude: Number(longitude),
-            geoRadius: Number(geoRadius),
-            adminId: adminId || null,
-            managerId: managerId || null,
-            userId: userData.userId,
-            companyId: companyId || null,
-        });
-        (0, errorMessage_1.createSuccess)(res, "Branch added successfully", branch);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.addBranch = addBranch;
-const getBranch = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        // ✅ Pagination
-        const page = Number(req.query.page) || 1;
-        const limit = Number(req.query.limit) || 10;
-        const offset = (page - 1) * limit;
-        // ✅ Search
-        const search = req.query.search || "";
-        let whereCondition = {
-            userId: userData.userId,
-        };
-        if (search) {
-            whereCondition = Object.assign(Object.assign({}, whereCondition), { [sequelize_1.Op.or]: [
-                    { branchName: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { branchCode: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { branchCity: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { branchState: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { branchCountry: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { postalCode: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { addressLine1: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { addressLine2: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { branchEmail: { [sequelize_1.Op.like]: `%${search}%` } },
-                    { branchPhone: { [sequelize_1.Op.like]: `%${search}%` } },
-                ] });
-        }
-        // ✅ Query
-        const { count, rows } = yield dbConnection_2.Branch.findAndCountAll({
-            where: whereCondition,
-            limit,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ Response
-        (0, errorMessage_1.createSuccess)(res, "Branch fetched successfully", {
-            total: count,
-            page,
-            limit,
-            totalPages: Math.ceil(count / limit),
-            data: rows,
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getBranch = getBranch;
-const getBranchById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!req.params.id) {
-            return (0, errorMessage_1.badRequest)(res, "Branch id is required");
-        }
-        if (isNaN(Number(req.params.id))) {
-            return (0, errorMessage_1.badRequest)(res, "Branch id must be a number");
-        }
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const branch = yield dbConnection_2.Branch.findOne({
-            where: { id: req.params.id, userId: userData.userId },
-        });
-        if (!branch) {
-            return (0, errorMessage_1.badRequest)(res, "Branch not found");
-        }
-        (0, errorMessage_1.createSuccess)(res, "Branch fetched successfully", branch);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getBranchById = getBranchById;
-const addShift = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const { shiftName, shiftCode, startTime, endTime, breakMinutes, workingHours, lateMarkAfter, halfDayAfter, branchId, companyId, } = req.body;
-        // ================= VALIDATION =================
-        // if (!shiftName || shiftName.trim().length < 2) {
-        //   return badRequest(res, "Shift name is required");
-        // }
-        // if (!shiftCode || shiftCode.trim().length < 2) {
-        //   return badRequest(res, "Shift code is required");
-        // }
-        // if (!startTime || !endTime) {
-        //   return badRequest(res, "Start time and end time are required");
-        // }
-        // if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime)) {
-        //   return badRequest(res, "Time must be in HH:mm format");
-        // }
-        // if (breakMinutes && isNaN(Number(breakMinutes))) {
-        //   return badRequest(res, "Break minutes must be number");
-        // }
-        // if (workingHours && isNaN(Number(workingHours))) {
-        //   return badRequest(res, "Working hours must be number");
-        // }
-        // if (lateMarkAfter && isNaN(Number(lateMarkAfter))) {
-        //   return badRequest(res, "lateMarkAfter must be number");
-        // }
-        // if (halfDayAfter && isNaN(Number(halfDayAfter))) {
-        //   return badRequest(res, "halfDayAfter must be number");
-        // }
-        // if (!branchId || isNaN(Number(branchId))) {
-        //   return badRequest(res, "Valid branchId is required");
-        // }
-        // if (!companyId || isNaN(Number(companyId))) {
-        //   return badRequest(res, "Valid companyId is required");
-        // }
-        // ================= DUPLICATE =================
-        // const existing = await Shift.findOne({
-        //   where: { shiftCode },
-        // });
-        // if (existing) {
-        //   return badRequest(res, "Shift already exists with this code");
-        // }
-        // ================= CREATE =================
-        const shift = yield dbConnection_2.Shift.create({
-            shiftName,
-            shiftCode,
-            startTime,
-            endTime,
-            // breakMinutes: breakMinutes || 0,
-            // workingHours: workingHours || 8,
-            // lateMarkAfter: lateMarkAfter || 0,
-            // halfDayAfter: halfDayAfter || 0,
-            branchId,
-            companyId,
-            userId: userData.userId,
-        });
-        (0, errorMessage_1.createSuccess)(res, "Shift added successfully", shift);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.addShift = addShift;
-const getShift = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        // ✅ Pagination
-        const page = Number(req.query.page) || 1;
-        const limit = Math.min(Number(req.query.limit) || 10, 50);
-        const offset = (page - 1) * limit;
-        // ✅ Search
-        const search = req.query.search || "";
-        // ✅ Filters (optional but useful)
-        const branchId = req.query.branchId;
-        const companyId = req.query.companyId;
-        let whereCondition = {
-            userId: userData.userId,
-        };
-        // 🔍 Search condition
-        if (search) {
-            whereCondition[sequelize_1.Op.or] = [
-                { shiftName: { [sequelize_1.Op.like]: `%${search}%` } },
-                { shiftCode: { [sequelize_1.Op.like]: `%${search}%` } },
-            ];
-        }
-        // 🎯 Optional filters
-        if (branchId) {
-            whereCondition.branchId = branchId;
-        }
-        if (companyId) {
-            whereCondition.companyId = companyId;
-        }
-        // ✅ Query
-        const { count, rows } = yield dbConnection_2.Shift.findAndCountAll({
-            where: whereCondition,
-            limit,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ Response
-        (0, errorMessage_1.createSuccess)(res, "Shifts fetched successfully", {
-            total: count,
-            page,
-            limit,
-            totalPages: Math.ceil(count / limit),
-            data: rows,
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getShift = getShift;
-const getShiftById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        if (!req.params.id) {
-            return (0, errorMessage_1.badRequest)(res, "Shift id is required");
-        }
-        if (isNaN(Number(req.params.id))) {
-            return (0, errorMessage_1.badRequest)(res, "Shift id must be a number");
-        }
-        const shift = yield dbConnection_2.Shift.findOne({
-            where: { id: req.params.id, userId: userData.userId },
-        });
-        if (!shift) {
-            return (0, errorMessage_1.badRequest)(res, "Shift not found");
-        }
-        (0, errorMessage_1.createSuccess)(res, "Shift fetched successfully", shift);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getShiftById = getShiftById;
-const addDepartment = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const { deptName, deptCode, deptHead, branchId, shiftId, maxHeadcount, halfSaturday, adminId, managerId, companyId, } = req.body;
-        // ================= VALIDATION =================
-        if (!deptName || deptName.trim().length < 2) {
-            return (0, errorMessage_1.badRequest)(res, "Department name is required");
-        }
-        if (!deptCode || deptCode.trim().length < 2) {
-            return (0, errorMessage_1.badRequest)(res, "Department code is required");
-        }
-        if (!deptHead || deptHead.trim().length < 2) {
-            return (0, errorMessage_1.badRequest)(res, "Department head is required");
-        }
-        if (!branchId || isNaN(Number(branchId))) {
-            return (0, errorMessage_1.badRequest)(res, "Valid branchId is required");
-        }
-        if (!shiftId || isNaN(Number(shiftId))) {
-            return (0, errorMessage_1.badRequest)(res, "Valid shiftId is required");
-        }
-        if (!maxHeadcount || isNaN(Number(maxHeadcount))) {
-            return (0, errorMessage_1.badRequest)(res, "Valid maxHeadcount is required");
-        }
-        // if (!adminId || isNaN(Number(adminId))) {
-        //   return badRequest(res, "Valid adminId is required");
-        // }
-        // if (!managerId || isNaN(Number(managerId))) {
-        //   return badRequest(res, "Valid managerId is required");
-        // }
-        // ================= DUPLICATE =================
-        // const existing = await Department.findOne({
-        //   where: { deptCode },
-        // });
-        // if (existing) {
-        //   return badRequest(res, "Department already exists with this code");
-        // }
-        // ================= CREATE =================
-        const department = yield dbConnection_2.Department.create({
-            deptName,
-            deptCode,
-            deptHead,
-            branchId,
-            shiftId,
-            maxHeadcount,
-            halfSaturday,
-            adminId,
-            managerId,
-            userId: userData.userId,
-            companyId: companyId || null,
-        });
-        (0, errorMessage_1.createSuccess)(res, "Department added successfully", department);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.addDepartment = addDepartment;
-const getDepartment = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        // ✅ Pagination
-        const page = Number(req.query.page) || 1;
-        const limit = Math.min(Number(req.query.limit) || 10, 50);
-        const offset = (page - 1) * limit;
-        // ✅ Search
-        const search = req.query.search || "";
-        // ✅ Filters (optional but useful)
-        const branchId = req.query.branchId;
-        const companyId = req.query.companyId;
-        let whereCondition = {
-            userId: userData.userId,
-        };
-        // 🔍 Search condition
-        if (search) {
-            whereCondition[sequelize_1.Op.or] = [
-                { deptName: { [sequelize_1.Op.like]: `%${search}%` } },
-                { deptCode: { [sequelize_1.Op.like]: `%${search}%` } },
-            ];
-        }
-        // 🎯 Optional filters
-        if (branchId) {
-            whereCondition.branchId = branchId;
-        }
-        if (companyId) {
-            whereCondition.companyId = companyId;
-        }
-        // ✅ Query
-        const { count, rows } = yield dbConnection_2.Department.findAndCountAll({
-            where: whereCondition,
-            limit,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ Response
-        (0, errorMessage_1.createSuccess)(res, "Departments fetched successfully", {
-            total: count,
-            page,
-            limit,
-            totalPages: Math.ceil(count / limit),
-            data: rows,
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getDepartment = getDepartment;
-const getDepartmentById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        if (!req.params.id) {
-            return (0, errorMessage_1.badRequest)(res, "Department id is required");
-        }
-        if (isNaN(Number(req.params.id))) {
-            return (0, errorMessage_1.badRequest)(res, "Department id must be a number");
-        }
-        const department = yield dbConnection_2.Department.findOne({
-            where: { id: req.params.id, userId: userData.userId },
-        });
-        if (!department) {
-            return (0, errorMessage_1.badRequest)(res, "Department not found");
-        }
-        (0, errorMessage_1.createSuccess)(res, "Department fetched successfully", department);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getDepartmentById = getDepartmentById;
-const addHoliday = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const { holidays, companyId } = req.body;
-        // ================= VALIDATION =================
-        if (!Array.isArray(holidays) || holidays.length === 0) {
-            return (0, errorMessage_1.badRequest)(res, "holidays array is required");
-        }
-        const holidayData = [];
-        for (const item of holidays) {
-            const { holidayName, holidayDate, holidayType, branchId, description, adminId, managerId, } = item;
-            // ---------- FIELD VALIDATION ----------
-            if (!holidayName || holidayName.trim().length < 2) {
-                return (0, errorMessage_1.badRequest)(res, "Holiday name is required");
-            }
-            if (!holidayDate || String(holidayDate).trim().length < 2) {
-                return (0, errorMessage_1.badRequest)(res, "Holiday date is required");
-            }
-            if (!holidayType || holidayType.trim().length < 2) {
-                return (0, errorMessage_1.badRequest)(res, "Holiday type is required");
-            }
-            if (!Array.isArray(branchId) || branchId.length === 0) {
-                return (0, errorMessage_1.badRequest)(res, "branchId must be a non-empty array");
-            }
-            // ---------- PREPARE MULTI-BRANCH DATA ----------
-            for (const branch of branchId) {
-                if (isNaN(Number(branch))) {
-                    return (0, errorMessage_1.badRequest)(res, "Invalid branchId value");
-                }
-                holidayData.push({
-                    holidayName: String(holidayName),
-                    holidayDate,
-                    holidayType: String(holidayType),
-                    branchId: Number(branch),
-                    description: description || null,
-                    // ✅ FIX: Avoid NaN
-                    adminId: adminId ? Number(adminId) : null,
-                    managerId: managerId ? Number(managerId) : null,
-                    userId: Number(userData.userId),
-                    companyId: companyId ? Number(companyId) : null,
-                });
+        if (branchId !== undefined && branchId !== null) {
+            const branch = yield dbConnection_2.Branch.findByPk(Number(branchId));
+            if (!branch || (callerCompanyId && Number(branch.companyId) !== callerCompanyId)) {
+                (0, errorMessage_1.badRequest)(res, "Branch not found");
+                return;
             }
         }
-        // ================= DEBUG (optional) =================
-        // ================= BULK CREATE =================
-        const holidaysCreated = yield dbConnection_2.Holiday.bulkCreate(holidayData);
-        return (0, errorMessage_1.createSuccess)(res, "Holidays added successfully", holidaysCreated);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        return (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.addHoliday = addHoliday;
-const getHoliday = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        // ✅ Pagination
-        const page = Number(req.query.page) || 1;
-        const limit = Math.min(Number(req.query.limit) || 10, 50);
-        const offset = (page - 1) * limit;
-        // ✅ Search
-        const search = req.query.search || "";
-        // ✅ Filters (optional but useful)
-        const branchId = req.query.branchId;
-        const companyId = req.query.companyId;
-        let whereCondition = {
-            userId: userData.userId,
-        };
-        // 🔍 Search condition
-        if (search) {
-            whereCondition[sequelize_1.Op.or] = [
-                { holidayName: { [sequelize_1.Op.like]: `%${search}%` } },
-                { holidayType: { [sequelize_1.Op.like]: `%${search}%` } },
-            ];
-        }
-        // 🎯 Optional filters
-        if (branchId) {
-            whereCondition.branchId = branchId;
-        }
-        if (companyId) {
-            whereCondition.companyId = companyId;
-        }
-        // ✅ Query
-        const { count, rows } = yield dbConnection_2.Holiday.findAndCountAll({
-            where: whereCondition,
-            limit,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ Response
-        (0, errorMessage_1.createSuccess)(res, "Holidays fetched successfully", {
-            total: count,
-            page,
-            limit,
-            totalPages: Math.ceil(count / limit),
-            data: rows,
+        const updates = {};
+        if (shiftId !== undefined)
+            updates.shiftId = shiftId === null ? null : Number(shiftId);
+        if (departmentId !== undefined)
+            updates.departmentId = departmentId === null ? null : Number(departmentId);
+        if (branchId !== undefined)
+            updates.branchId = branchId === null ? null : Number(branchId);
+        yield employee.update(updates);
+        (0, errorMessage_1.createSuccess)(res, "Employee shift assignment updated", {
+            id: employee.getDataValue("id"),
+            shiftId: employee.getDataValue("shiftId"),
+            departmentId: employee.getDataValue("departmentId"),
+            branchId: employee.getDataValue("branchId"),
         });
     }
     catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+        (0, errorMessage_1.badRequest)(res, errorMessage);
     }
 });
-exports.getHoliday = getHoliday;
-const getHolidayById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        if (!req.params.id) {
-            return (0, errorMessage_1.badRequest)(res, "Holiday id is required");
-        }
-        if (isNaN(Number(req.params.id))) {
-            return (0, errorMessage_1.badRequest)(res, "Holiday id must be a number");
-        }
-        const holiday = yield dbConnection_2.Holiday.findOne({
-            where: { id: req.params.id, userId: userData.userId },
-        });
-        if (!holiday) {
-            return (0, errorMessage_1.badRequest)(res, "Holiday not found");
-        }
-        (0, errorMessage_1.createSuccess)(res, "Holiday fetched successfully", holiday);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getHolidayById = getHolidayById;
+exports.assignEmployeeShift = assignEmployeeShift;
+// updateShift/getShift/getShiftById have moved to src/modules/shift/ — see
+// shift.controller.ts/service.ts/repository.ts. Routes are mounted from
+// server.ts, same URL paths as before.
+// Department CRUD (addDepartment/updateDepartment/getDepartment/
+// getDepartmentById) has moved to src/modules/department/ — see
+// department.controller.ts/service.ts/repository.ts. Routes are mounted
+// from server.ts, same URL paths as before.
+// Holiday CRUD (addHoliday/updateHoliday/getHoliday/getHolidayById) has
+// moved to src/modules/holiday/ — see holiday.controller.ts/service.ts/
+// repository.ts. Routes are mounted from server.ts, same URL paths as
+// before, so nothing outside this file changed.
 const addQuotation2 = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -3791,6 +2656,7 @@ const updateQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function
             return;
         }
         quotationData.status = status;
+        quotationData.TallyAPISync = true;
         yield quotationData.save();
         (0, errorMessage_1.createSuccess)(res, "Quotation updated successfully");
     }
@@ -3800,175 +2666,12 @@ const updateQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function
     }
 });
 exports.updateQuotation = updateQuotation;
-const addLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-            return;
-        }
-        const { leaveTypes, companyId, branchId } = req.body;
-        // 🔍 Validation
-        if (!Array.isArray(leaveTypes) || leaveTypes.length === 0) {
-            (0, errorMessage_1.badRequest)(res, "leaveTypes array is required");
-            return;
-        }
-        if (!companyId) {
-            (0, errorMessage_1.badRequest)(res, "Company ID is required");
-            return;
-        }
-        if (!branchId) {
-            (0, errorMessage_1.badRequest)(res, "Branch ID is required");
-            return;
-        }
-        // ✅ Prepare bulk data
-        const leaveData = leaveTypes.map((leave) => {
-            if (!leave.leaveName || !leave.leaveCode || !leave.leavesPerYear) {
-                throw new Error("leaveName, leaveCode, leavesPerYear are required in each item");
-            }
-            return {
-                leaveName: String(leave.leaveName),
-                leaveCode: String(leave.leaveCode),
-                leavesPerYear: Number(leave.leavesPerYear),
-                carryForward: Boolean(leave.carryForward),
-                carryForwardLimit: Number(leave.carryForwardLimit || 0),
-                managerApproval: Boolean(leave.managerApproval),
-                companyId: Number(companyId),
-                branchId: Number(branchId),
-                userId: Number(userData.userId),
-            };
-        });
-        // ✅ Bulk insert
-        const leaves = yield dbConnection_2.CompanyLeave.bulkCreate(leaveData);
-        (0, errorMessage_1.createSuccess)(res, "Leaves added successfully", leaves);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.addLeave = addLeave;
-const getLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-            return;
-        }
-        // ✅ Query params
-        const { page = "1", limit = "10", search = "", leaveCode, companyId, branchId, managerApproval, } = req.query;
-        const pageNumber = Number(page);
-        const pageSize = Number(limit);
-        const offset = (pageNumber - 1) * pageSize;
-        // ✅ Base filter
-        const whereCondition = {
-            userId: Number(userData.userId),
-        };
-        // ✅ Search (leaveName / leaveCode)
-        if (search) {
-            whereCondition[sequelize_1.Op.or] = [
-                { leaveName: { [sequelize_1.Op.like]: `%${search}%` } },
-                { leaveCode: { [sequelize_1.Op.like]: `%${search}%` } },
-            ];
-        }
-        // ✅ Filters
-        if (leaveCode) {
-            whereCondition.leaveCode = leaveCode;
-        }
-        if (companyId) {
-            whereCondition.companyId = Number(companyId);
-        }
-        if (branchId) {
-            whereCondition.branchId = Number(branchId);
-        }
-        if (managerApproval !== undefined) {
-            whereCondition.managerApproval = managerApproval === "true";
-        }
-        // ✅ Query with count
-        const { rows, count } = yield dbConnection_2.CompanyLeave.findAndCountAll({
-            where: whereCondition,
-            limit: pageSize,
-            offset,
-            order: [["createdAt", "DESC"]],
-        });
-        // ✅ Response
-        (0, errorMessage_1.createSuccess)(res, "Leaves fetched successfully", {
-            total: count,
-            currentPage: pageNumber,
-            totalPages: Math.ceil(count / pageSize),
-            data: rows,
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getLeave = getLeave;
-const getLeaveById = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-            return;
-        }
-        const { id } = req.params || {};
-        if (!id) {
-            (0, errorMessage_1.badRequest)(res, "Leave ID is required");
-            return;
-        }
-        const leave = yield dbConnection_2.CompanyLeave.findOne({
-            where: {
-                id: Number(id),
-                userId: Number(userData.userId),
-            },
-        });
-        if (!leave) {
-            (0, errorMessage_1.badRequest)(res, "Leave not found");
-            return;
-        }
-        (0, errorMessage_1.createSuccess)(res, "Leave fetched successfully", leave);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage, error);
-    }
-});
-exports.getLeaveById = getLeaveById;
-const addCompanyBank = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
-        if (!userData || !userData.userId) {
-            return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
-        }
-        const { companyId, banks } = req.body;
-        if (!companyId) {
-            return (0, errorMessage_1.badRequest)(res, "companyId is required");
-        }
-        if (!Array.isArray(banks) || banks.length === 0) {
-            return (0, errorMessage_1.badRequest)(res, "banks array is required");
-        }
-        const bankData = banks.map((b) => ({
-            companyId: Number(companyId),
-            branchId: b.branchId ? Number(b.branchId) : null, // ✅ optional
-            userId: Number(userData.userId),
-            bankAccountHolder: b.bankAccountHolder,
-            bankName: b.bankName,
-            bankAccountNumber: b.bankAccountNumber,
-            bankIfsc: b.bankIfsc,
-            bankBranchName: b.bankBranchName || null,
-            bankAccountType: b.bankAccountType || null,
-            bankMicr: b.bankMicr || null,
-            upiId: b.upiId || null,
-        }));
-        const result = yield dbConnection_2.CompanyBank.bulkCreate(bankData);
-        return (0, errorMessage_1.createSuccess)(res, "Bank details added successfully", result);
-    }
-    catch (error) {
-        return (0, errorMessage_1.badRequest)(res, "Error adding bank details", error);
-    }
-});
-exports.addCompanyBank = addCompanyBank;
+// addLeave/getLeave/getLeaveById/updateLeave (CompanyLeave leave-type
+// policy CRUD) have moved to src/modules/leave/ — see leave.controller.ts/
+// service.ts/repository.ts. Routes are mounted from server.ts, same URL
+// paths as before.
+// addCompanyBank has moved to src/modules/company/ — see
+// company.controller.ts/service.ts/repository.ts.
 const getClient = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -4471,11 +3174,14 @@ const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             });
             currentParentIds = nextLevelParentIds;
         }
+        // Drafts are gated separately via proformainvoice:view — a user with only
+        // invoice:view should not see draft-status invoices in the list.
+        const canViewDraft = yield (0, checkPermission_1.userHasPermission)(Number(userData.userId), userData.role, "proformainvoice", "view");
         // ✅ FIX: Use ONLY ONE whereCondition
         let whereCondition = {
             userId: { [sequelize_1.Op.in]: teamUserIds },
             status: {
-                [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
+                [sequelize_1.Op.notIn]: canViewDraft ? ["cancelled", "deleted"] : ["cancelled", "deleted", "draft"]
             }
         };
         // 🔍 Global search
@@ -4515,6 +3221,10 @@ const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             else {
                 // Handle the case where it might be a ParsedQs object or other type
                 statusArray = [String(status)];
+            }
+            // Without proformainvoice:view, drop "draft" from an explicit status filter too.
+            if (!canViewDraft) {
+                statusArray = statusArray.filter((s) => s !== "draft");
             }
             whereCondition.status = {
                 [sequelize_1.Op.in]: statusArray,
@@ -4565,6 +3275,7 @@ const updateInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             return;
         }
         invoice.status = req.body.status;
+        invoice.TallyAPISync = true;
         yield invoice.save();
         (0, errorMessage_1.createSuccess)(res, "Invoice updated successfully", invoice);
     }
@@ -5365,84 +4076,5 @@ const assignAdmin = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
     }
 });
 exports.assignAdmin = assignAdmin;
-const forgotPassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { email, tenantId } = req.body || {};
-        if (!email) {
-            (0, errorMessage_1.badRequest)(res, "Email is missing");
-            return;
-        }
-        const loginTenantId = tenantId ? Number(tenantId) : null;
-        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-            return;
-        }
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        user.otp = otp;
-        user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-        yield user.save();
-        (0, errorMessage_1.createSuccess)(res, "OTP sent to your email");
-        (0, email_1.forgotpassword)("Password Reset OTP", otp, user.email);
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.forgotPassword = forgotPassword;
-const verifyOtp = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { email, otp, tenantId } = req.body || {};
-        if (!email || !otp) {
-            (0, errorMessage_1.badRequest)(res, "Email and OTP are required");
-            return;
-        }
-        const loginTenantId = tenantId ? Number(tenantId) : null;
-        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-            return;
-        }
-        if (user.otp !== otp) {
-            (0, errorMessage_1.badRequest)(res, "Invalid OTP");
-            return;
-        }
-        if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) {
-            (0, errorMessage_1.badRequest)(res, "OTP has expired");
-            return;
-        }
-        user.otp = null;
-        user.otpExpiry = null;
-        yield user.save();
-        (0, errorMessage_1.createSuccess)(res, "OTP verified successfully");
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.verifyOtp = verifyOtp;
-const changePassword = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { email, newPassword, tenantId } = req.body || {};
-        if (!email || !newPassword) {
-            (0, errorMessage_1.badRequest)(res, "Email and new password are required");
-            return;
-        }
-        const loginTenantId = tenantId ? Number(tenantId) : null;
-        const user = yield Middleware.FindByEmailInTenant(dbConnection_2.User, email, loginTenantId);
-        if (!user) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-            return;
-        }
-        user.set("password", newPassword);
-        yield user.save();
-        (0, errorMessage_1.createSuccess)(res, "Password changed successfully");
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.changePassword = changePassword;
+// forgotPassword/verifyOtp/changePassword have moved to src/modules/auth/
+// — see auth.controller.ts/service.ts/repository.ts.

@@ -55,6 +55,21 @@ class CompanyLeave extends sequelize_1.Model {
                 allowNull: false,
                 defaultValue: "pending",
             },
+            compOffBalance: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                defaultValue: 0,
+            },
+            casualLeaveBalance: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                defaultValue: 0,
+            },
+            sickLeaveBalance: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                defaultValue: 0,
+            },
         }, {
             sequelize,
             tableName: "company_leaves",

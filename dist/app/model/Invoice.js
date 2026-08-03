@@ -51,6 +51,11 @@ class Invoices extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.DATE,
                 allowNull: true,
             },
+            TallyAPISync: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false,
+                allowNull: true,
+            },
             invoiceDate: {
                 type: sequelize_1.DataTypes.DATE,
                 allowNull: true,

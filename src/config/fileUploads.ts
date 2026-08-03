@@ -1,16 +1,7 @@
 import multer from "multer";
 import multerS3 from "multer-s3";
-import { S3Client,GetObjectCommand  } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
-
-// Create S3 client once (with credentials)
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+import { spacesClient, SPACES_BUCKET } from "./spaces";
 
 const getUploadMiddleware = (
   type: string,
@@ -19,8 +10,8 @@ const getUploadMiddleware = (
 ): multer.Multer => {
   return multer({
     storage: multerS3({
-      s3,
-      bucket: process.env.AWS_S3_BUCKET as string,
+      s3: spacesClient,
+      bucket: SPACES_BUCKET,
       contentType: (multerS3 as any).AUTO_CONTENT_TYPE,
       key: (_req, file, cb) => {
         const ext = file.originalname.split(".").pop();
