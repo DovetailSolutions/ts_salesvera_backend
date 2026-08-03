@@ -16,16 +16,8 @@ import {
   setUserSocket,
   removeUserSocket,
 } from "../config/notificationService";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import {getAllSubordinateIds} from "../app/middlewear/comman"
-
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+import { uploadBufferToSpaces } from "../config/spaces";
 
 const uploadToS3 = async (
   base64Data: string,
@@ -38,16 +30,7 @@ const uploadToS3 = async (
   const ext = fileName.split(".").pop() || "bin";
   const key = `salesvera/chat/${uuid()}.${ext}`;
 
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET!,
-      Key: key,
-      Body: buffer,
-      ContentType: mimeType,
-    })
-  );
-
-  return `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+  return uploadBufferToSpaces(key, buffer, mimeType);
 };
 
 // FIX: loads a user's "module:action" permission strings from the DB.
