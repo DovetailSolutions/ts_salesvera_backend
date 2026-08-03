@@ -669,10 +669,9 @@ export const getMeeting = async (
       order: [["createdAt", "DESC"]],
     });
 
-    if (rows.length == 0) {
-      badRequest(res, "Not meeting found");
-      return;
-    }
+    // FIX: an empty result is a legitimate state (no meetings/clients yet),
+    // not an error — was previously a 400, which made every caller treat
+    // "nothing to show" as a failed request instead of an empty list.
     createSuccess(res, "User Meeting fetched successfully", {
       page: pageNum,
       limit: limitNum,

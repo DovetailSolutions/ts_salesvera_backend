@@ -3,12 +3,18 @@ const router = Router();
 import * as Controller from "../controller/user";
 import * as NotificationController from "../controller/notification";
 import * as PermissionController from "../controller/permission";
+import * as AdminController from "../controller/admin";
+import * as LeaveController from "../../modules/leave/leave.controller";
+import * as AttendanceController from "../../modules/attendance/attendance.controller";
+import * as MeetingController from "../../modules/meeting/meeting.controller";
 import { tokenCheck } from "../../config/jwtVerify2";
 import { checkPermission, checkInvoiceCreatePermission, checkInvoiceViewPermission } from "../../config/checkPermission";
+import { authorizeRoles } from "../middlewear/rbac";
 import getUploadMiddleware from "../../config/fileUploads";
 const profile = getUploadMiddleware("image");
 const meeting = getUploadMiddleware("image");
 const expense = getUploadMiddleware("expense");
+const attendanceBulk = getUploadMiddleware("attendance-bulk");
 router.post("/register", Controller.Register);
 router.post("/login", Controller.Login);
 router.get("/getprofile", tokenCheck, Controller.GetProfile);
@@ -103,5 +109,71 @@ router.get("/dashboardmobile",tokenCheck,Controller.getDashboardMobile)
 router.get("/getsalesPerformance",tokenCheck,Controller.getSalesPerformance)
 router.get("/getbranch",tokenCheck,Controller.getBranchall)
 
+// ============================================================
+// Manager mobile — team oversight, mounted flat on this SAME /api
+// surface sale_person's mobile app already uses (jwtVerify2 already
+// allows role "manager" here) — no separate route family/prefix, no
+// new namespace for the mobile team to integrate against. Two kinds
+// of addition:
+//
+//  1. Existing self-service routes above (mysaleperson, getexpense,
+//     leave-list, dashboardmobile) were made role-aware in-place —
+//     see the role branch inside their controller functions in
+//     src/app/controller/user.ts. A sale_person calling them gets the
+//     EXACT same behavior as before; a manager gets the team-scoped
+//     version of the same endpoint. No new routes needed for those.
+//
+//  2. The routes below are genuinely new — sale_person has no
+//     equivalent capability at all (approve/assign/mark-for-someone-
+//     else/schedule-for-someone-else) — so there's nothing existing to
+//     extend. Named to match their /admin/* counterparts exactly
+//     (same controller functions, same scoping, same checkPermission
+//     gates) so behavior is predictable and consistent with the rest
+//     of this file's naming. Every one is additionally restricted to
+//     role:"manager" (authorizeRoles) — a sale_person token gets a
+//     clean 403, not a confusing empty result.
+// ============================================================
+
+router.get("/top-performers", tokenCheck, authorizeRoles("manager"), AdminController.getTopPerformers);
+
+// ── Attendance (team) ────────────────────────────────────────────────────────
+router.get("/get-attendance", tokenCheck, authorizeRoles("manager"), checkPermission("attendance", "view"), AttendanceController.getAttendance);
+router.get("/user-attendance", tokenCheck, authorizeRoles("manager"), checkPermission("attendance", "view"), AttendanceController.userAttendance);
+router.get("/attendance-book", tokenCheck, authorizeRoles("manager"), checkPermission("attendance", "view"), AttendanceController.AttendanceBook);
+router.post("/mark-attendance-present", tokenCheck, authorizeRoles("manager"), checkPermission("attendance", "update"), AttendanceController.markAttendancePresent);
+router.post(
+  "/bulk-mark-attendance",
+  tokenCheck,
+  authorizeRoles("manager"),
+  checkPermission("attendance", "update"),
+  attendanceBulk.single("file"),
+  AttendanceController.bulkMarkAttendance
+);
+
+// ── Leave (team) ──────────────────────────────────────────────────────────────
+router.patch("/approved-leave", tokenCheck, authorizeRoles("manager"), checkPermission("leave", "approve"), LeaveController.approveLeave);
+router.get("/user-leave", tokenCheck, authorizeRoles("manager"), checkPermission("leave", "view"), LeaveController.userLeave);
+router.get("/leave-request-today", tokenCheck, authorizeRoles("manager"), checkPermission("leave", "view"), LeaveController.getTodayLeaveRequests);
+router.get("/leave-balance-list", tokenCheck, authorizeRoles("manager"), checkPermission("leave", "view"), LeaveController.getTeamLeaveBalances);
+router.get("/leave-balance/:employeeId", tokenCheck, authorizeRoles("manager"), checkPermission("leave", "view"), LeaveController.getEmployeeLeaveBalance);
+router.post("/request-leave", tokenCheck, authorizeRoles("manager"), checkPermission("leave", "apply"), LeaveController.createLeaveRequest);
+router.post(
+  "/cancel-leave-and-mark-present",
+  tokenCheck,
+  authorizeRoles("manager"),
+  checkPermission("leave", "approve"),
+  checkPermission("attendance", "update"),
+  LeaveController.cancelLeaveAndMarkPresent
+);
+router.post("/assign-leave-balance", tokenCheck, authorizeRoles("manager"), checkPermission("leave", "manage"), LeaveController.assignLeaveBalance);
+
+// ── Expense (team) ────────────────────────────────────────────────────────────
+router.get("/user-expense", tokenCheck, authorizeRoles("manager"), checkPermission("expense", "view"), AdminController.userExpense);
+router.patch("/approved-expense", tokenCheck, authorizeRoles("manager"), checkPermission("expense", "approve"), AdminController.UpdateExpense);
+
+// ── Meetings (team) ───────────────────────────────────────────────────────────
+router.post("/meetings/schedule", tokenCheck, authorizeRoles("manager"), checkPermission("meeting", "schedule"), MeetingController.scheduleMeeting);
+router.patch("/meetings/:id/reschedule", tokenCheck, authorizeRoles("manager"), checkPermission("meeting", "update"), MeetingController.rescheduleMeeting);
+router.get("/meetings/dashboard", tokenCheck, authorizeRoles("manager"), checkPermission("meeting", "view"), MeetingController.getMeetingDashboard);
 
 export default router;

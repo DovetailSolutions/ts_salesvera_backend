@@ -48,7 +48,10 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
+import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
 import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
+import * as LeaveController from "../../modules/leave/leave.controller";
+import * as AdminController from "./admin";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -447,7 +450,7 @@ export const MySalePerson = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { page = 1, limit = 10, search = "" } = req.query;
+    const { page = 1, limit = 10, search = "", role: filterRole, shiftId, branchId } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -467,7 +470,41 @@ export const MySalePerson = async (
       ];
     }
 
-    /** ✅ Fetch created users */
+    // Role-based scope: a manager gets their FULL recursive team (not just
+    // direct reports) plus optional role/shift/branch filters — this is
+    // "the manager's functionality" for this same endpoint. Every other
+    // caller (sale_person, tenant "user") keeps the exact original
+    // direct-createdUsers-only behavior, unchanged.
+    if (userData.role === "manager") {
+      if (filterRole) where.role = filterRole;
+      if (shiftId) where.shiftId = Number(shiftId);
+      if (branchId) where.branchId = Number(branchId);
+
+      const childIds = await getAllChildUserIds(Number(userData.userId));
+      if (childIds.length === 0) {
+        createSuccess(res, "My sale persons", { page: pageNum, limit: limitNum, total: 0, rows: [] });
+        return;
+      }
+
+      where.id = { [Op.in]: childIds };
+      const { count, rows } = await User.findAndCountAll({
+        where,
+        attributes: ["id", "firstName", "lastName", "email", "phone", "role", "shiftId", "branchId"],
+        limit: limitNum,
+        offset,
+        order: [["firstName", "ASC"]],
+      });
+
+      createSuccess(res, "My sale persons", {
+        page: pageNum,
+        limit: limitNum,
+        total: count,
+        rows,
+      });
+      return;
+    }
+
+    /** ✅ Fetch created users (original behavior, unchanged) */
     const result = await User.findByPk(userData.userId, {
       include: [
         {
@@ -1576,6 +1613,17 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
+    // Role-based scope, same endpoint: a manager reviewing their team's leave
+    // requests is "the manager's functionality" for this route — delegate
+    // straight to the team-scoped, grouped-by-employee module handler
+    // (identical to /admin/get-leave-list) instead of duplicating that
+    // query here. Every other caller (sale_person) falls through to the
+    // original self-only behavior below, unchanged.
+    if (userData.role === "manager") {
+      await LeaveController.leaveList(req, res);
+      return;
+    }
+
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
 
@@ -1821,6 +1869,17 @@ export const GetExpense = async (
 
     if (!finalUserId) {
       badRequest(res, "Invalid user");
+      return;
+    }
+
+    // Role-based scope, same endpoint: a manager reviewing their team's
+    // expenses (to approve them) is "the manager's functionality" for this
+    // route — delegate to the team-scoped handler (identical to
+    // /admin/get-expense) instead of duplicating that query here. Every
+    // other caller (sale_person) falls through to the original self-only
+    // behavior below, unchanged.
+    if (userData.role === "manager") {
+      await AdminController.GetExpense(req, res);
       return;
     }
 
@@ -3644,9 +3703,27 @@ export const getDashboardMobile = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId } = req.userData as JwtPayload;
+    const { userId, role } = req.userData as JwtPayload;
 
-    const allUserIds = await Middleware.getAllSubordinateIds(Number(userId));
+    // Role-based scope, same endpoint: a manager's mobile home screen needs
+    // team HR-ops KPIs (team size, present today, pending leave/expense
+    // approvals, meetings this week, attendance/punctuality/task rates) —
+    // "the manager's functionality" for this route — delegate to the
+    // dashboard-summary handler (identical to /admin/dashboard-summary)
+    // instead of duplicating that computation here. sale_person keeps the
+    // original quotation/invoice/report counts below, unchanged.
+    if (role === "manager") {
+      await AdminController.getDashboardSummary(req, res);
+      return;
+    }
+
+    // FIX: Middleware.getAllSubordinateIds throws ("column User.createdBy
+    // does not exist" — a pre-existing bug, unrelated to the role-branch
+    // above) for every caller that reaches this line. Same root cause and
+    // same fix already applied to getSalesPerformance below: self + the
+    // correct getAllChildUserIds recursive-descendants helper. For
+    // sale_person (no descendants) this is simply self-only.
+    const allUserIds = [Number(userId), ...(await getAllChildUserIds(Number(userId)))];
 
     const commonFilter = {
       userId: { [Op.in]: allUserIds },
@@ -3705,8 +3782,17 @@ export const getSalesPerformance = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId } = req.userData as JwtPayload;
+    const { userId, role } = req.userData as JwtPayload;
     const finalUserId = Number(userId);
+
+    // Role-based scope: a manager sees their whole team's completion rate
+    // (self + recursive sale_person reports, same getAllChildUserIds scope
+    // every other team-oversight endpoint uses); every other role
+    // (sale_person) keeps the original self-only behavior unchanged.
+    const scopeUserIds =
+      role === "manager"
+        ? [finalUserId, ...(await getAllChildUserIds(finalUserId))]
+        : [finalUserId];
 
     const range = String(req.query.range || "week").toLowerCase();
     if (!["week", "month", "year"].includes(range)) {
@@ -3754,7 +3840,7 @@ export const getSalesPerformance = async (
 
     const meetings = await Meeting.findAll({
       where: {
-        userId: finalUserId,
+        userId: { [Op.in]: scopeUserIds },
         status: { [Op.ne]: "cancelled" },
         createdAt: { [Op.between]: [startDate, endDate] },
       },
@@ -3807,6 +3893,7 @@ export const getSalesPerformance = async (
 
     createSuccess(res, "Sales performance fetched successfully", {
       range,
+      scope: role === "manager" ? "team" : "self",
       startDate,
       endDate,
       totalMeetings,
