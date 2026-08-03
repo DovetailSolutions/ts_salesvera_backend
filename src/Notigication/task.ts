@@ -5,6 +5,7 @@ import { getUserPermissionsFromCache } from "../config/permissionCache";
 import { sendNotification } from "../config/notificationService";
 import { NotificationType } from "../app/model/Notification";
 import { getDirectCreator } from "../modules/shared/userHierarchy";
+import { getISTDateString } from "../modules/shared/dateUtils";
 
 const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
 
@@ -190,8 +191,15 @@ export const initTaskSocket = (io: Server): void => {
         if (assignedBy && role !== "sale_person") where.assignedBy = Number(assignedBy);
 
         if (status === "completed" && (dateScope === "today" || dateScope === "history")) {
-          const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
-          const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
+          // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
+          // operates in the server process's OS-local timezone, only landing
+          // on the IST calendar day if the OS timezone happens to be set to
+          // Asia/Kolkata (not guaranteed on the production host). Parsing an
+          // ISO string with an explicit "+05:30" offset is not OS-timezone-
+          // dependent, so this is deployment-proof regardless of server tz.
+          const istToday = getISTDateString();
+          const startOfToday = new Date(`${istToday}T00:00:00.000+05:30`);
+          const endOfToday = new Date(`${istToday}T23:59:59.999+05:30`);
           where.completedAt = dateScope === "today"
             ? { [Op.between]: [startOfToday, endOfToday] }
             : { [Op.lt]: startOfToday };

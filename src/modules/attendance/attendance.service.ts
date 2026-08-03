@@ -4,6 +4,7 @@ import { Readable } from "stream";
 import * as XLSX from "xlsx";
 import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds } from "../shared/userHierarchy";
+import { getISTDateString } from "../shared/dateUtils";
 import * as AttendanceRepo from "./attendance.repository";
 
 // ============================================================
@@ -27,7 +28,14 @@ export const getAttendance = async (loggedInId: number, query: any) => {
   const { page, limit, offset } = getPagination(query);
   const childIds = await getAllChildUserIds(loggedInId);
   const allUserIds = [loggedInId, ...childIds];
-  const todayDateOnly = new Date().toISOString().slice(0, 10);
+  // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
+  // to UTC first, which rolls the calendar day backward for any real-world
+  // IST time before ~05:30 (e.g. 2:30 AM IST still reports yesterday's
+  // date), so this "today" attendance list would silently show yesterday's
+  // completed data as "today" in the early morning. getISTDateString()
+  // computes the IST calendar date via explicit +5:30 offset arithmetic
+  // instead, so it's correct regardless of the server's OS timezone.
+  const todayDateOnly = getISTDateString();
   const search = String(query?.search || "").trim();
 
   const { rows, count } = await AttendanceRepo.findTeamAttendanceToday({
@@ -85,7 +93,13 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
     if (!leaveTypeRow) throw new ServiceError("companyLeaveId is not a leave type configured for your company");
   }
 
-  const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  // FIX: fallback was new Date().toISOString().slice(0, 10) — toISOString()
+  // converts to UTC first, rolling the calendar day backward for any
+  // real-world IST time before ~05:30, so an admin marking "today's"
+  // attendance in the early morning would silently record it against
+  // yesterday. getISTDateString() computes the IST calendar date via
+  // explicit +5:30 offset arithmetic instead, correct regardless of OS tz.
+  const attendanceDate = date ? String(date).slice(0, 10) : getISTDateString();
 
   const employee = (await AttendanceRepo.findEmployeeById(Number(employeeId))) as any;
   const shift = employee?.shiftId ? await AttendanceRepo.findShiftById(employee.shiftId) : null;
@@ -96,7 +110,11 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
   // correction, not a real-time attendance event, and absent/leave never
   // involve showing up at all. Skipped entirely if the employee has no
   // assigned shift.
-  const todayDateOnly = new Date().toISOString().slice(0, 10);
+  // FIX: was new Date().toISOString().slice(0, 10) — same UTC-first rollback
+  // bug as above; a wrong "today" here would let the shift-start gate be
+  // silently skipped (or wrongly applied) for a genuinely-today mark made
+  // in the early IST morning. getISTDateString() is deployment-proof.
+  const todayDateOnly = getISTDateString();
   if (SHOWED_UP_STATUSES.includes(status) && attendanceDate === todayDateOnly && isBeforeShiftWindow(shift as any, attendanceDate)) {
     throw new ServiceError(formatShiftWindowMessage(shift as any, attendanceDate, employee?.firstName));
   }
@@ -250,10 +268,20 @@ const getDateFilter = (query: any) => {
     filter[Op.between] = [past, now];
   }
   if (today === "true") {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
+    // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
+    // operates in the server process's OS-local timezone, so "today"'s
+    // start/end only land on the IST calendar day because this dev
+    // machine's OS timezone happens to be IST; on a UTC-timezone production
+    // host this would compute UTC midnight-to-midnight instead, silently
+    // filtering to the wrong day's attendance. getISTDateString() resolves
+    // the calendar date correctly regardless of OS tz, but the multi-arg
+    // Date constructor (new Date(y, m-1, d, ...)) would still interpret
+    // those numbers as OS-local time and reintroduce the same bug one step
+    // later — parsing an ISO string with an explicit "+05:30" offset avoids
+    // that, since string-with-offset parsing is not OS-timezone-dependent.
+    const istToday = getISTDateString();
+    const start = new Date(`${istToday}T00:00:00.000+05:30`);
+    const end = new Date(`${istToday}T23:59:59.999+05:30`);
     filter[Op.between] = [start, end];
   }
   return filter;
@@ -281,16 +309,25 @@ export const attendanceBook = async (userId: number, query: any) => {
     throw new ServiceError("No child users found");
   }
 
-  const month = Number(query.month) || new Date().getMonth() + 1;
-  const year = Number(query.year) || new Date().getFullYear();
+  // FIX: month/year defaults were new Date().getMonth()/getFullYear() (OS-
+  // local getters), and startDate/endDate were built via the multi-arg
+  // Date constructor (also OS-local-interpreted) — only correct here
+  // because this dev machine's OS timezone happens to be IST, not
+  // guaranteed on the production host. Deriving "now" in IST first via
+  // explicit offset arithmetic, then building month boundaries with
+  // Date.UTC (shifted back by the same offset), is deployment-proof.
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+  const month = Number(query.month) || nowIST.getUTCMonth() + 1;
+  const year = Number(query.year) || nowIST.getUTCFullYear();
   const search = String(query.search || "");
   const pageNum = Number(query.page) || 1;
   const limitNum = Number(query.limit) || 10;
   const offset = (pageNum - 1) * limitNum;
 
-  const startDate = new Date(year, month - 1, 1);
-  const endDate = new Date(year, month, 0);
-  const totalDays = endDate.getDate();
+  const startDate = new Date(Date.UTC(year, month - 1, 1) - IST_OFFSET_MS);
+  const endDate = new Date(Date.UTC(year, month, 0) - IST_OFFSET_MS);
+  const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
 
   const { rows: users, count: totalCount } = await AttendanceRepo.findUsersWithAttendanceForMonth({
     childIds,
@@ -373,9 +410,16 @@ export const exportAttendanceReportExcel = async (loggedInId: number, query: any
   if (Reflect.ownKeys(dateFilter).length === 0) {
     // No range given — default to the current calendar month (same default
     // attendanceBook uses) instead of dumping an employee's entire history.
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    // FIX: was now.getFullYear()/getMonth() (OS-local getters) — only
+    // correct here because this dev machine's OS timezone happens to be
+    // IST, not guaranteed on the production host. Deriving IST year/month
+    // via explicit offset arithmetic first is deployment-proof.
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+    const istYear = nowIST.getUTCFullYear();
+    const istMonth = nowIST.getUTCMonth();
+    const start = new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS);
+    const end = new Date(Date.UTC(istYear, istMonth + 1, 0) - IST_OFFSET_MS);
     dateFilter[Op.between] = [start, end];
   }
 
@@ -665,7 +709,12 @@ export const bulkMarkAttendance = async (
     ? new Map((await AttendanceRepo.findShiftsByIds(involvedShiftIds)).map((s: any) => [s.id, s]))
     : new Map<number, any>();
 
-  const todayDateOnly = new Date().toISOString().slice(0, 10);
+  // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
+  // to UTC first, rolling the calendar day backward for any real-world IST
+  // time before ~05:30, so a bulk "present" row for a genuinely-today date
+  // could be wrongly gated (or wrongly let through) by the shift-start
+  // window check below. getISTDateString() is deployment-proof.
+  const todayDateOnly = getISTDateString();
 
   type Assignment = { employee_id: number; date: string; status: string; punch_in?: Date; companyLeaveId?: number | null };
   const assignments: Assignment[] = [];
@@ -1005,12 +1054,15 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
 
   if (!punch_in) throw new ServiceError("Punch-in time is required");
 
-  // FIX: was new Date().toISOString().slice(0,10) — toISOString() converts
-  // to UTC first, which rolls the calendar day backward for any local time
-  // before ~05:30 IST, silently recording an early-morning punch against
-  // yesterday instead of today. formatLocalDate uses local getters instead,
-  // matching the fix already applied to bulk attendance in this same file.
-  const today = formatLocalDate(new Date());
+  // FIX: was formatLocalDate(new Date()) — formatLocalDate reads local
+  // getFullYear()/getMonth()/getDate(), which only resolve to the IST
+  // calendar day because this dev machine's OS timezone happens to be set
+  // to Asia/Kolkata; on the DigitalOcean production host (OS timezone not
+  // guaranteed to be IST) this would silently record an early-morning punch
+  // against the wrong day. getISTDateString() computes the IST calendar
+  // date via explicit +5:30 offset arithmetic instead, so it's correct
+  // regardless of the server's OS timezone.
+  const today = getISTDateString();
 
   const activeSession = await AttendanceRepo.findActivePunchSession(finalUserId, today);
   if (activeSession) throw new ServiceError("You have already punched-in. Please punch-out first.");
@@ -1135,7 +1187,12 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
 
   if (!punch_out) throw new ServiceError("Punch-out time is required");
 
-  const today = formatLocalDate(new Date());
+  // FIX: was formatLocalDate(new Date()) — OS-timezone-dependent (only
+  // correct here because this dev machine's OS tz happens to be IST); not
+  // guaranteed on the production host. getISTDateString() resolves "today"
+  // via explicit +5:30 offset arithmetic, deployment-proof regardless of
+  // the server's OS timezone.
+  const today = getISTDateString();
   const attendance = await AttendanceRepo.findActivePunchSessionById(finalUserId, today, AttendanceId);
   if (!attendance) throw new ServiceError("No active punch-in record found. Please punch-in first.");
 
@@ -1172,7 +1229,12 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
 };
 
 export const getTodayAttendance = async (finalUserId: number) => {
-  const today = formatLocalDate(new Date());
+  // FIX: was formatLocalDate(new Date()) — OS-timezone-dependent (only
+  // correct here because this dev machine's OS tz happens to be IST); not
+  // guaranteed on the production host. getISTDateString() resolves "today"
+  // via explicit +5:30 offset arithmetic, deployment-proof regardless of
+  // the server's OS timezone.
+  const today = getISTDateString();
   const record = await AttendanceRepo.findLatestAttendanceForDate(finalUserId, today);
   if (!record) throw new ServiceError("No attendance found for today");
   return record;

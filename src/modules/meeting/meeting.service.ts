@@ -1,5 +1,6 @@
 import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds, getDirectCreator } from "../shared/userHierarchy";
+import { getISTDateString } from "../shared/dateUtils";
 import * as MeetingRepo from "./meeting.repository";
 
 // ============================================================
@@ -149,15 +150,26 @@ export const rescheduleMeeting = async (
   return MeetingRepo.findMeetingById(meetingId);
 };
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+// FIX: these used to call setUTCHours() directly on the given Date, i.e.
+// UTC calendar-day boundaries. IST is a fixed UTC+5:30 offset (no DST), so
+// a meeting at, say, 8 PM IST already falls on the next UTC day, and one
+// before 5:30 AM IST still falls on the previous UTC day — both got bucketed
+// into the wrong day by the today/this-week/month/14-day-trend windows
+// below. Shifting by the fixed IST offset before truncating to a day (and
+// shifting back after) anchors the boundary to the IST calendar day a
+// manager/admin actually experiences, matching getISTDateString() in
+// shared/dateUtils.ts.
 const startOfDay = (d: Date) => {
-  const x = new Date(d);
-  x.setUTCHours(0, 0, 0, 0);
-  return x;
+  const ist = new Date(d.getTime() + IST_OFFSET_MS);
+  ist.setUTCHours(0, 0, 0, 0);
+  return new Date(ist.getTime() - IST_OFFSET_MS);
 };
 const endOfDay = (d: Date) => {
-  const x = new Date(d);
-  x.setUTCHours(23, 59, 59, 999);
-  return x;
+  const ist = new Date(d.getTime() + IST_OFFSET_MS);
+  ist.setUTCHours(23, 59, 59, 999);
+  return new Date(ist.getTime() - IST_OFFSET_MS);
 };
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
 
@@ -169,8 +181,20 @@ export const getMeetingDashboard = async (loggedInId: number, role: string | und
   const now = new Date();
   const today0 = startOfDay(now);
   const today1 = endOfDay(now);
-  const monthStart = startOfDay(new Date(now.getFullYear(), now.getMonth(), 1));
-  const monthEnd = endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  // FIX: was `new Date(now.getFullYear(), now.getMonth(), 1)` — those
+  // getters read the Node process's OS-local calendar date, which only
+  // resolves to IST if the server's OS timezone happens to be set to
+  // Asia/Kolkata (true on this dev machine, not guaranteed on the
+  // production droplet). Deriving the IST year/month via the same +5:30
+  // offset arithmetic keeps "this month" correct regardless of server OS
+  // timezone, notably right around a month boundary in the early IST
+  // morning (e.g. 00:15 IST on the 1st is still the last UTC day of the
+  // previous month).
+  const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const istYear = istNow.getUTCFullYear();
+  const istMonth = istNow.getUTCMonth();
+  const monthStart = new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS);
+  const monthEnd = new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS);
   const trendStart = startOfDay(addDays(now, -13));
   const upcomingEnd = endOfDay(addDays(now, 7));
 
@@ -191,7 +215,12 @@ export const getMeetingDashboard = async (loggedInId: number, role: string | und
   let upcoming = 0;
   const statusBreakdown: Record<string, number> = { scheduled: 0, pending: 0, in: 0, out: 0, completed: 0, cancelled: 0 };
   const trendByDay = new Map<string, number>();
-  for (let i = 0; i < 14; i++) trendByDay.set(startOfDay(addDays(now, -13 + i)).toISOString().slice(0, 10), 0);
+  // FIX: was `startOfDay(...).toISOString().slice(0, 10)` — startOfDay now
+  // returns the UTC instant of IST midnight (e.g. 18:30 UTC the previous
+  // day), so re-slicing that through toISOString() reports the UTC day,
+  // one calendar day off from the IST trend-bucket key it's meant to be.
+  // getISTDateString() derives the IST y-m-d string directly instead.
+  for (let i = 0; i < 14; i++) trendByDay.set(getISTDateString(addDays(now, -13 + i)), 0);
   const completedByEmployee = new Map<number, number>();
 
   for (const m of meetings) {
@@ -209,7 +238,11 @@ export const getMeetingDashboard = async (loggedInId: number, role: string | und
     if (inRange(t, weekStart, today1)) scheduledThisWeek += 1;
     if (inRange(t, now, upcomingEnd) && m.status !== "cancelled") upcoming += 1;
 
-    const dayKey = startOfDay(t).toISOString().slice(0, 10);
+    // FIX: was `startOfDay(t).toISOString().slice(0, 10)` — same UTC
+    // re-slicing issue as the trendByDay initialization above; a meeting at
+    // 8 PM IST landed one bucket early (or one bucket late for meetings
+    // before 5:30 AM IST) once startOfDay itself became IST-aware.
+    const dayKey = getISTDateString(t);
     if (trendByDay.has(dayKey)) trendByDay.set(dayKey, (trendByDay.get(dayKey) || 0) + 1);
   }
 

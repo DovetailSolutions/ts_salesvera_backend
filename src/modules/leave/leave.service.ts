@@ -2,6 +2,7 @@ import { Op } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds } from "../shared/userHierarchy";
 import { hasCompanyAccess } from "../shared/companyAccess";
+import { getISTDateString } from "../shared/dateUtils";
 import * as LeaveRepo from "./leave.repository";
 
 // ============================================================
@@ -307,7 +308,11 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
     );
   }
 
-  const targetYear = Number(year) || new Date().getFullYear();
+  // FIX: was new Date().getFullYear() (OS-local getter) — not guaranteed
+  // to equal the IST calendar year on the production host. Derived from
+  // getISTDateString() instead so a request in the Dec 31/Jan 1 IST-vs-UTC
+  // gap can't default to the wrong year's leave balance allocation.
+  const targetYear = Number(year) || Number(getISTDateString().slice(0, 4));
 
   // Validate every requested companyLeaveId belongs to this company and cap
   // each allocation at that type's own configured leavesPerYear.
@@ -482,7 +487,15 @@ export const cancelLeaveAndMarkPresent = async (loggedInId: number, body: any) =
 
   // Then mark the requested day present, overwriting whatever the
   // leave-cancellation step just set it to.
-  const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  // FIX: the no-`date` fallback used to be new Date().toISOString().slice(0,10),
+  // which converts to UTC first and rolls the calendar day backward for any
+  // real-world IST time before ~05:30 AM — e.g. cancelling a leave at 2 AM IST
+  // with no explicit date would mark yesterday present instead of today.
+  // getISTDateString() computes the IST calendar date via explicit +5:30
+  // offset arithmetic, correct regardless of the server's OS timezone. (The
+  // explicit-`date` branch above just reformats a caller-supplied date, not
+  // "now", so it's left as-is.)
+  const attendanceDate = date ? String(date).slice(0, 10) : getISTDateString();
   const punchInTime = punchIn ? new Date(punchIn) : new Date();
 
   const existing = await LeaveRepo.findOrCreateAttendanceForDate(employeeId, attendanceDate);

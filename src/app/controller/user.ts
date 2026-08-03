@@ -49,6 +49,7 @@ import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
 import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
+import { getISTDateString } from "../../modules/shared/dateUtils";
 import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
@@ -1066,11 +1067,14 @@ export const EndMeeting = async (
     await isExist.save();
 
     // ✅ Day Start & End
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 59, 999);
+    // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
+    // operates in the server process's OS-local timezone, only landing on
+    // the IST calendar day if the OS timezone happens to be Asia/Kolkata
+    // (not guaranteed on the production host). Parsing an ISO string with
+    // an explicit "+05:30" offset is not OS-timezone-dependent.
+    const istToday = getISTDateString();
+    const startOfDay = new Date(`${istToday}T00:00:00.000+05:30`);
+    const endOfDay = new Date(`${istToday}T23:59:59.999+05:30`);
 
     // ✅ Get Attendance
     const attendance = await Attendance.findOne({
@@ -1664,7 +1668,11 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
   try {
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
-    const year = Number(req.query.year) || new Date().getFullYear();
+    // FIX: was new Date().getFullYear() (OS-local getter) — not guaranteed
+    // to equal the IST calendar year on the production host. Derived from
+    // getISTDateString() instead so a request in the Dec 31/Jan 1 IST-vs-
+    // UTC gap can't default to the wrong year's leave balance.
+    const year = Number(req.query.year) || Number(getISTDateString().slice(0, 4));
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
 
     // Dynamic per-company-configured leave types (Sick Leave, Casual Leave,
@@ -3805,31 +3813,48 @@ export const getSalesPerformance = async (
     let endDate: Date;
     let buckets: { key: number; label: string }[];
 
-    if (range === "week") {
-      // Monday-start week containing "now"
-      const mondayOffset = (now.getDay() + 6) % 7; // Mon=0 ... Sun=6
-      startDate = new Date(now);
-      startDate.setDate(now.getDate() - mondayOffset);
-      startDate.setHours(0, 0, 0, 0);
+    // FIX: week/month/year start-end were derived via now.getDay()/
+    // getFullYear()/getMonth() and the multi-arg Date constructor, which
+    // read/interpret in the server process's OS-local timezone — only
+    // correct here because this dev machine's OS timezone happens to be
+    // Asia/Kolkata (not guaranteed on the production host). Shifting by the
+    // fixed IST offset first and working in UTC-getter space (then shifting
+    // back to real UTC instants) keeps the "current week/month/year" bucket
+    // correct in IST regardless of server OS timezone — same pattern used
+    // for dashboard-summary's weekStart/weekEnd and the meeting trend chart.
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(now.getTime() + IST_OFFSET_MS);
 
-      endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
+    if (range === "week") {
+      // Monday-start week containing "now" (IST)
+      const mondayOffset = (nowIST.getUTCDay() + 6) % 7; // Mon=0 ... Sun=6
+      const weekStartIST = new Date(nowIST);
+      weekStartIST.setUTCDate(nowIST.getUTCDate() - mondayOffset);
+      weekStartIST.setUTCHours(0, 0, 0, 0);
+      startDate = new Date(weekStartIST.getTime() - IST_OFFSET_MS);
+
+      const weekEndIST = new Date(weekStartIST);
+      weekEndIST.setUTCDate(weekStartIST.getUTCDate() + 6);
+      weekEndIST.setUTCHours(23, 59, 59, 999);
+      endDate = new Date(weekEndIST.getTime() - IST_OFFSET_MS);
 
       const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
       buckets = labels.map((label, key) => ({ key, label }));
     } else if (range === "month") {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      const istYear = nowIST.getUTCFullYear();
+      const istMonth = nowIST.getUTCMonth();
+      startDate = new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS);
+      endDate = new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS);
 
-      const daysInMonth = endDate.getDate();
+      const daysInMonth = new Date(Date.UTC(istYear, istMonth + 1, 0)).getUTCDate();
       buckets = Array.from({ length: daysInMonth }, (_, i) => ({
         key: i + 1,
         label: String(i + 1),
       }));
     } else {
-      startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      const istYear = nowIST.getUTCFullYear();
+      startDate = new Date(Date.UTC(istYear, 0, 1) - IST_OFFSET_MS);
+      endDate = new Date(Date.UTC(istYear, 11, 31, 23, 59, 59, 999) - IST_OFFSET_MS);
 
       const labels = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -3851,12 +3876,17 @@ export const getSalesPerformance = async (
     buckets.forEach((b) => bucketStats.set(b.key, { total: 0, completed: 0 }));
 
     meetings.forEach((m: any) => {
-      const date = new Date(m.createdAt);
+      // FIX: was date.getDay()/getDate()/getMonth() (OS-local getters) —
+      // same timezone-dependency as the boundary computation above. Shift
+      // into IST before reading the day-of-week/day-of-month/month so a
+      // meeting near the IST day/month boundary lands in the same bucket a
+      // manager/admin in India would expect, regardless of server OS tz.
+      const dateIST = new Date(new Date(m.createdAt).getTime() + IST_OFFSET_MS);
       let key: number;
 
-      if (range === "week") key = (date.getDay() + 6) % 7;
-      else if (range === "month") key = date.getDate();
-      else key = date.getMonth();
+      if (range === "week") key = (dateIST.getUTCDay() + 6) % 7;
+      else if (range === "month") key = dateIST.getUTCDate();
+      else key = dateIST.getUTCMonth();
 
       const stat = bucketStats.get(key);
       if (!stat) return;

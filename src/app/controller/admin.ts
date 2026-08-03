@@ -53,6 +53,7 @@ import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
 import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
+import { getISTDateString } from "../../modules/shared/dateUtils";
 
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
@@ -1566,27 +1567,54 @@ export const getDashboardSummary = async (
 
     const childIds = await getAllChildUserIds(loggedInId);
 
-    const todayDateOnly = new Date().toISOString().slice(0, 10);
+    // FIX: was `new Date().toISOString().slice(0, 10)` — toISOString()
+    // converts to UTC first, which rolls the calendar day backward for any
+    // real-world IST time before ~05:30 AM (e.g. at 2:30 AM IST it still
+    // reported yesterday's date), so "Present Today" was silently counting
+    // yesterday's already-finished attendance instead of today's. This is
+    // also NOT safe to fix with local getFullYear()/getMonth()/getDate() —
+    // those only resolve to IST because this dev machine's OS timezone
+    // happens to be Asia/Kolkata, which isn't guaranteed on the production
+    // droplet (cloud Linux images commonly default to UTC). Use the
+    // explicit-offset IST helper instead so this is correct everywhere.
+    const todayDateOnly = getISTDateString();
 
     const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - now.getDay());
-    weekStart.setHours(0, 0, 0, 0);
+    // FIX: weekStart/weekEnd were derived from now.getDay()/now.getDate(),
+    // which read the OS process's LOCAL timezone — same risk as
+    // todayDateOnly above (correct only because this dev box happens to be
+    // set to Asia/Kolkata). Shift `now` by the fixed +5:30 IST offset first
+    // so the UTC-getters below read as IST wall-clock time regardless of
+    // server timezone, compute the week boundary in that shifted space, then
+    // shift back to get the real UTC instants for the Op.between query.
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(now.getTime() + IST_OFFSET_MS);
+    const weekStartIST = new Date(nowIST);
+    weekStartIST.setUTCDate(nowIST.getUTCDate() - nowIST.getUTCDay());
+    weekStartIST.setUTCHours(0, 0, 0, 0);
+    const weekStart = new Date(weekStartIST.getTime() - IST_OFFSET_MS);
 
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
+    const weekEndIST = new Date(weekStartIST);
+    weekEndIST.setUTCDate(weekStartIST.getUTCDate() + 6);
+    weekEndIST.setUTCHours(23, 59, 59, 999);
+    const weekEnd = new Date(weekEndIST.getTime() - IST_OFFSET_MS);
 
     // ── KPI windows ──────────────────────────────────────────────────────
-    const sevenDaysAgo = new Date(now);
-    sevenDaysAgo.setDate(now.getDate() - 6);
-    const sevenDaysAgoDateOnly = sevenDaysAgo.toISOString().slice(0, 10);
+    // FIX: same UTC-slice bug as todayDateOnly, compounded with a local
+    // setDate() call — the old code first shifted `now` by N days using
+    // local-timezone getters, then converted that result to UTC and sliced,
+    // double-dipping on timezone risk. Subtracting a fixed millisecond
+    // offset is timezone-invariant (IST has no DST), so feeding that instant
+    // through the same IST-aware helper gives the correct "N calendar days
+    // ago" boundary regardless of server timezone.
+    const sevenDaysAgoDateOnly = getISTDateString(new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000));
+    const thirtyDaysAgoDateOnly = getISTDateString(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
 
-    const thirtyDaysAgo = new Date(now);
-    thirtyDaysAgo.setDate(now.getDate() - 29);
-    const thirtyDaysAgoDateOnly = thirtyDaysAgo.toISOString().slice(0, 10);
-
-    const currentYear = now.getFullYear();
+    // FIX: was now.getFullYear() (OS-local-timezone getter, same risk
+    // class as above). Derive it from the already-IST-correct
+    // todayDateOnly string instead so a leave-balance lookup near
+    // midnight IST on Dec 31/Jan 1 can't land on the wrong year.
+    const currentYear = Number(todayDateOnly.slice(0, 4));
     // Valid Attendance.status enum values that count as "marked" (present in
     // some form) for rate calculations — "late" is a separate boolean
     // column, not a status value, and isn't included here.

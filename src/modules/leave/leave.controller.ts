@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { createSuccess, badRequest, forbidden } from "../../app/middlewear/errorMessage";
 import { ServiceError } from "../shared/serviceError";
+import { getISTDateString } from "../shared/dateUtils";
 import * as LeaveService from "./leave.service";
 
 // ============================================================
@@ -64,7 +65,11 @@ export const getEmployeeLeaveBalance = async (req: Request, res: Response): Prom
   try {
     const userData = req.userData as JwtPayload;
     const { employeeId } = req.params;
-    const year = Number(req.query.year) || new Date().getFullYear();
+    // FIX: was new Date().getFullYear() (OS-local getter) — not guaranteed
+    // to equal the IST calendar year on the production host. Derived from
+    // getISTDateString() instead so a request in the Dec 31/Jan 1 IST-vs-
+    // UTC gap can't default to the wrong year's leave balance.
+    const year = Number(req.query.year) || Number(getISTDateString().slice(0, 4));
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const result = await LeaveService.getEmployeeLeaveBalance(Number(userData?.userId), employeeId, year, callerCompanyId);
     createSuccess(res, "Leave balance fetched successfully", result);
@@ -76,7 +81,11 @@ export const getEmployeeLeaveBalance = async (req: Request, res: Response): Prom
 export const getTeamLeaveBalances = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const year = Number(req.query.year) || new Date().getFullYear();
+    // FIX: was new Date().getFullYear() (OS-local getter) — not guaranteed
+    // to equal the IST calendar year on the production host. Derived from
+    // getISTDateString() instead so a request in the Dec 31/Jan 1 IST-vs-
+    // UTC gap can't default to the wrong year's leave balance.
+    const year = Number(req.query.year) || Number(getISTDateString().slice(0, 4));
     const { page, limit, offset } = getPagination(req);
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const result = await LeaveService.getTeamLeaveBalances(Number(userData?.userId), year, page, limit, offset, callerCompanyId);
