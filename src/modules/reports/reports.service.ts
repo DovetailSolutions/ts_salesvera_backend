@@ -1,6 +1,7 @@
 import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds } from "../shared/userHierarchy";
 import { hasCompanyAccess, resolveCompanyEmployeeIds } from "../shared/companyAccess";
+import { getISTDateString } from "../shared/dateUtils";
 import * as ReportsRepo from "./reports.repository";
 
 // ============================================================
@@ -23,18 +24,30 @@ export const generateReport = async (
   if (!companyId) throw new ServiceError("companyId is required");
   if (!fromDateStr || !toDateStr) throw new ServiceError("fromDate and toDate are required");
 
-  const fromDate = new Date(fromDateStr);
-  const toDate = new Date(toDateStr);
-  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) throw new ServiceError("Invalid date format");
-  if (toDate < fromDate) throw new ServiceError("toDate must be after fromDate");
+  // Parsed only to validate the input and compute the day span — a bare
+  // "YYYY-MM-DD" is parsed as UTC midnight per spec (not OS-timezone-
+  // dependent), so the ordering/day-count math below is safe regardless of
+  // server config.
+  const fromDateRaw = new Date(fromDateStr);
+  const toDateRaw = new Date(toDateStr);
+  if (isNaN(fromDateRaw.getTime()) || isNaN(toDateRaw.getTime())) throw new ServiceError("Invalid date format");
+  if (toDateRaw < fromDateRaw) throw new ServiceError("toDate must be after fromDate");
 
-  // toDate as parsed above lands on midnight — anything scheduled/created
-  // later that same calendar day would otherwise fall outside the
-  // Op.between range and silently disappear from the report.
-  const toDateEnd = new Date(toDate);
-  toDateEnd.setHours(23, 59, 59, 999);
+  // This app operates only in India, so fromDate/toDate mean IST calendar
+  // days. Re-anchor them to the real IST day-start/day-end instants here —
+  // the query boundaries actually used below (for meetings/tasks/
+  // quotations/invoices/expenses, all real timestamp columns).
+  // FIX: previously built the end-of-day boundary via
+  // `new Date(toDate); toDateEnd.setHours(23, 59, 59, 999)` — setHours
+  // mutates in the server PROCESS's OS-local timezone, only landing on the
+  // real IST end-of-day if the OS timezone happens to be set to
+  // Asia/Kolkata (not guaranteed on the production host) — the exact bug
+  // class that broke shift-window punch-in gating. getISTDateString +
+  // parsing an explicit "+05:30" ISO offset are not OS-timezone-dependent.
+  const fromDate = new Date(`${getISTDateString(fromDateRaw)}T00:00:00.000+05:30`);
+  const toDateEnd = new Date(`${getISTDateString(toDateRaw)}T23:59:59.999+05:30`);
 
-  const spanDays = Math.round((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+  const spanDays = Math.round((toDateRaw.getTime() - fromDateRaw.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   if (spanDays > MAX_RANGE_DAYS) throw new ServiceError(`Date range too large (max ${MAX_RANGE_DAYS} days)`);
 
   const allowed = await hasCompanyAccess(companyId, loggedInId, role);

@@ -5,7 +5,6 @@ import { JWT_SECRET } from "../../config/env";
 import { promises } from "dns";
 import { Mode } from "fs";
 import axios from "axios";
-import { parseISTTime } from "../../modules/shared/dateUtils";
 
 interface FindOneWithIncludeParams {
   baseModel: any; // typeof Model works but is tricky for TS generics
@@ -677,21 +676,32 @@ export const withuserlogin = async (
       }
     });
 
-    // Month filter
-    // FIX: was `new Date(year, month-1, 1)` / `new Date(year, month, 0, ...)`
-    // — the multi-arg constructor interprets day-1/day-0 midnight as the
-    // server's OS-local time, not IST, so on a non-IST host this could shift
-    // the whole month's boundary by hours, silently including/excluding
-    // records right at the edges. parseISTTime with an explicit "+05:30"
-    // offset is not OS-timezone-dependent.
+    // Month filter — `date` here is Attendance.date, a DATEONLY column.
+    // FIX (round 1, incomplete): was `new Date(year, month-1, 1)` /
+    // `new Date(year, month, 0, ...)` — the multi-arg constructor interprets
+    // day-1/day-0 midnight as the server's OS-local time, not IST.
+    // FIX (round 2, this pass): the round-1 fix built the boundaries via
+    // parseISTTime() into real Date *instants* and compared those directly
+    // against the DATEONLY column — but Sequelize stringifies a Date value
+    // for a DATEONLY column via `moment(date).format("YYYY-MM-DD")`
+    // (dialects/abstract/data-types.js DATEONLY#_stringify), and plain
+    // `moment(aDate)` reads that Date's wall-clock fields in the server
+    // PROCESS's OS-local timezone — not IST — reintroducing the exact same
+    // OS-timezone bug one layer down inside the ORM (verified: on a server
+    // with TZ=UTC, the IST-midnight instant for the 1st of the month
+    // stringifies to the *previous* day). A DATEONLY column has no time
+    // component at all, so there's no instant to build in the first place —
+    // compare it directly against plain "YYYY-MM-DD" strings instead, same
+    // convention already used correctly for this same column in
+    // reports.repository.ts's findScopedAttendance.
     if (month && year) {
       const mm = String(month).padStart(2, "0");
-      const startDate = parseISTTime(`${year}-${mm}-01`, "00:00:00");
+      const startDateStr = `${year}-${mm}-01`;
       const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
-      const endDate = parseISTTime(`${year}-${mm}-${String(lastDay).padStart(2, "0")}`, "23:59:59");
+      const endDateStr = `${year}-${mm}-${String(lastDay).padStart(2, "0")}`;
 
       whereConditions.date = {
-        [Op.between]: [startDate, endDate],
+        [Op.between]: [startDateStr, endDateStr],
       };
     }
 

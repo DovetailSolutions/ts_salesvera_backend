@@ -32,7 +32,15 @@ export const countLeaveDays = (from_date: string | Date, to_date: string | Date)
 const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
   if (leave.status !== "rejected") {
     const days = countLeaveDays(leave.from_date, leave.to_date);
-    const year = new Date(leave.from_date).getFullYear();
+    // FIX: was `new Date(leave.from_date).getFullYear()` — from_date is a
+    // DATEONLY column (a plain "YYYY-MM-DD" string), so `new Date(...)`
+    // parses it as UTC midnight, and the local `.getFullYear()` getter then
+    // only reads back the intended calendar year if the server's OS
+    // timezone happens to line up (the exact double-bug pattern: an
+    // OS-timezone-dependent getter reintroduced one step after the value
+    // looked "safe"). getISTDateString() reads the year via explicit +5:30
+    // offset arithmetic instead, correct regardless of server OS timezone.
+    const year = Number(getISTDateString(new Date(leave.from_date)).slice(0, 4));
 
     if (leave.companyLeaveId) {
       // Dynamic per-type balance — this request was deducted against a
@@ -136,7 +144,13 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
   }
 
   const days = countLeaveDays(from, to);
-  const year = from.getFullYear();
+  // FIX: was `from.getFullYear()` — same double-bug pattern as
+  // rejectLeaveAndRestoreBalance above: `from` is a UTC-midnight instant
+  // parsed from a caller-supplied "YYYY-MM-DD" date, and the local getter
+  // only recovers the right calendar year if the server's OS timezone
+  // happens to cooperate. getISTDateString() reads it via explicit +5:30
+  // offset arithmetic instead.
+  const year = Number(getISTDateString(from).slice(0, 4));
 
   const typeBalance: any = await resolveLeaveTypeBalance(targetEmployeeId, leaveTypeRow, year, loggedInId);
   const allocated = typeBalance.allocated || 0;
@@ -163,8 +177,16 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
   await typeBalance.save();
 
   if (leave_type !== "half_day" && leave_type !== "short_leave") {
+    // FIX: was `cursor.setDate(cursor.getDate() + 1)` — local getter/setter
+    // pair stepping a UTC-midnight instant one calendar day at a time only
+    // stays aligned to real day boundaries if the server's OS timezone has
+    // a non-negative offset (true for IST and UTC, the two realistic
+    // deployment configs here, but still an OS-timezone-dependent local
+    // getter in principle). Stepping by a fixed 24h in milliseconds instead
+    // is not OS-timezone-dependent at all — IST has no DST, so a real day is
+    // always exactly 86,400,000 ms.
     const leaveDates: Date[] = [];
-    for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+    for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += 86400000) {
       leaveDates.push(new Date(cursor));
     }
     await LeaveRepo.bulkCreateLeaveAttendance(

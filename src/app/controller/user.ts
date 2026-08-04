@@ -49,7 +49,7 @@ import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
 import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
-import { getISTDateString } from "../../modules/shared/dateUtils";
+import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
 import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
@@ -766,9 +766,16 @@ export const CreateMeeting = async (
 
     if (activeMeeting) {
       await transaction.rollback();
+      // FIX: was template-literal interpolation of a raw Date
+      // (`${activeMeeting.meetingTimeIn}`), which implicitly calls
+      // Date#toString() — that renders in the server process's OS-local
+      // timezone (e.g. shows a UTC wall-clock time on a non-IST host)
+      // instead of the IST time an Indian mobile user expects to see.
+      // formatISTTime renders the real IST wall-clock time regardless of
+      // server OS timezone.
       badRequest(
         res,
-        `You already have an active meeting started at ${activeMeeting.meetingTimeIn}`
+        `You already have an active meeting started at ${formatISTTime(new Date(activeMeeting.meetingTimeIn))} IST`
       );
       return;
     }
@@ -1492,7 +1499,16 @@ export const requestLeave = async (
     // callers that only ever send the leave_type enum (e.g. older clients).
     // --------------------
     const days = countLeaveDays(from, to);
-    const year = from.getFullYear();
+    // FIX: was from.getFullYear() (OS-local getter) — from_date is parsed
+    // above as a UTC-midnight instant (new Date("YYYY-MM-DD")), so reading
+    // its year back out via a server-OS-local getter only matches the IST
+    // calendar year the mobile client meant if the server's OS timezone
+    // happens to be at/after UTC (true on this Asia/Kolkata dev machine,
+    // not guaranteed on the production host — e.g. a host west of UTC would
+    // roll a Jan 1st from_date back to the previous year). getISTDateString
+    // shifts by the explicit IST offset first, matching the same year this
+    // endpoint's balance lookups (and myLeaveBalance) already key off.
+    const year = Number(getISTDateString(from).slice(0, 4));
     let balance: any = null;
     let typeBalance: any = null;
     let resolvedCompanyLeaveId: number | null = null;
@@ -1592,7 +1608,14 @@ export const requestLeave = async (
     // --------------------
     if (leave && leave_type !== "half_day" && leave_type !== "short_leave") {
       const leaveDates: Date[] = [];
-      for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+      // FIX: was cursor.getDate()/setDate() (OS-local getters/setters) to
+      // walk one day at a time from `from` to `to`. Those two Date values
+      // were parsed as UTC-midnight instants, so advancing them a local
+      // calendar day at a time only lines up with a real 24h step if the
+      // server process's OS timezone is UTC-based (not guaranteed on the
+      // production host). The UTC getter/setter pair advances by an actual
+      // day regardless of server OS timezone.
+      for (const cursor = new Date(from); cursor <= to; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
         leaveDates.push(new Date(cursor));
       }
 

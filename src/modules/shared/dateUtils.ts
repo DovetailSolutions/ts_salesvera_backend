@@ -29,12 +29,31 @@ export const getISTDateString = (d: Date = new Date()): string => {
 // this is the exact bug class that broke shift-window punch-in gating.
 // Parsing an ISO string with an explicit "+05:30" offset is not
 // OS-timezone-dependent, so this is correct regardless of server config.
+// FIX: previously did `String(timeStr).split(":").map(Number)` and fell
+// back to 0 for any missing/NaN piece via `h || 0` — an empty string,
+// `undefined`, or garbage like "bad" all silently parsed as midnight
+// instead of failing loudly, which for a shift start/end time would mean a
+// misconfigured/corrupt shift record silently opens the gate at 00:00 IST
+// instead of surfacing the bad data. Seconds are still genuinely optional
+// (a bare "HH:mm" is valid input and correctly defaults to :00 seconds) —
+// only hour/minute (and a present-but-malformed seconds part) are required
+// to be real numbers.
 export const parseISTTime = (dateStr: string, timeStr: string): Date => {
-  const [h, min, sec] = String(timeStr).split(":").map(Number);
-  const hh = String(h || 0).padStart(2, "0");
-  const mm = String(min || 0).padStart(2, "0");
-  const ss = String(sec || 0).padStart(2, "0");
-  return new Date(`${dateStr}T${hh}:${mm}:${ss}.000+05:30`);
+  const parts = String(timeStr ?? "").split(":");
+  const h = Number(parts[0]);
+  const min = Number(parts[1]);
+  const sec = parts.length > 2 ? Number(parts[2]) : 0;
+  if (!dateStr || parts.length < 2 || Number.isNaN(h) || Number.isNaN(min) || Number.isNaN(sec)) {
+    throw new Error(`parseISTTime: invalid time "${timeStr}" for date "${dateStr}"`);
+  }
+  const hh = String(h).padStart(2, "0");
+  const mm = String(min).padStart(2, "0");
+  const ss = String(sec).padStart(2, "0");
+  const result = new Date(`${dateStr}T${hh}:${mm}:${ss}.000+05:30`);
+  if (isNaN(result.getTime())) {
+    throw new Error(`parseISTTime: invalid date "${dateStr}"`);
+  }
+  return result;
 };
 
 // Inverse of parseISTTime — formats an instant back as its IST wall-clock

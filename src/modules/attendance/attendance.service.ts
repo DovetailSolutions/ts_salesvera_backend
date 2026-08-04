@@ -254,35 +254,53 @@ const getDateFilter = (query: any) => {
   const { startDate, endDate, lastDays, today } = query;
   const filter: any = {};
 
+  // NOTE (applies to every branch below): `date` (the column this filter is
+  // applied to, in both callers) is a Sequelize DATEONLY attribute — a
+  // plain Postgres DATE with no time/timezone component. Sequelize's own
+  // where-clause escaping for a DATEONLY value runs it through
+  // `moment(value).format("YYYY-MM-DD")`, and plain `moment()` (no
+  // explicit .tz()) resolves using the *server process's OS-local
+  // timezone* — verified against this repo's installed sequelize@6.37.7
+  // (DATEONLY inherits ABSTRACT.escape -> stringify -> moment().format()).
+  // So passing a `Date` *instant* here — even one built correctly via an
+  // explicit "+05:30" offset — gets silently reformatted back through the
+  // server's own OS timezone one step later when Sequelize turns it into
+  // SQL: on a UTC-OS production host, an IST-midnight instant sits at
+  // 18:30 UTC the *previous* day, so the filter would silently shift onto
+  // the wrong day. A plain "YYYY-MM-DD" string is immune — moment's format
+  // of a date-only string is an identity operation, no timezone
+  // conversion at all. Every branch below therefore builds/emits plain
+  // date strings, never Date instants.
   if (startDate && endDate) {
-    filter[Op.between] = [new Date(startDate), new Date(endDate)];
+    filter[Op.between] = [String(startDate).slice(0, 10), String(endDate).slice(0, 10)];
   } else if (startDate) {
-    filter[Op.gte] = new Date(startDate);
+    filter[Op.gte] = String(startDate).slice(0, 10);
   } else if (endDate) {
-    filter[Op.lte] = new Date(endDate);
+    filter[Op.lte] = String(endDate).slice(0, 10);
   }
-  if (lastDays) {
-    const now = new Date();
-    const past = new Date();
-    past.setDate(now.getDate() - Number(lastDays));
-    filter[Op.between] = [past, now];
+  if (lastDays && Number.isFinite(Number(lastDays))) {
+    // FIX: was new Date() + getDate()/setDate() — OS-local calendar
+    // getters/setters compute "N days ago" in the server's own timezone,
+    // not India's. Deriving today's IST date string first, then stepping
+    // back N days via Date.UTC (never OS-local setDate), keeps the
+    // boundary correct regardless of server OS timezone. (Number.isFinite
+    // guard preserves the original's "garbage input quietly does nothing
+    // useful" behavior instead of throwing out of toISOString() here.)
+    const istTodayStr = getISTDateString();
+    const [ty, tm, td] = istTodayStr.split("-").map(Number);
+    const pastDateStr = new Date(Date.UTC(ty, tm - 1, td - Number(lastDays))).toISOString().slice(0, 10);
+    filter[Op.between] = [pastDateStr, istTodayStr];
   }
   if (today === "true") {
     // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
-    // operates in the server process's OS-local timezone, so "today"'s
-    // start/end only land on the IST calendar day because this dev
-    // machine's OS timezone happens to be IST; on a UTC-timezone production
-    // host this would compute UTC midnight-to-midnight instead, silently
-    // filtering to the wrong day's attendance. getISTDateString() resolves
-    // the calendar date correctly regardless of OS tz, but the multi-arg
-    // Date constructor (new Date(y, m-1, d, ...)) would still interpret
-    // those numbers as OS-local time and reintroduce the same bug one step
-    // later — parsing an ISO string with an explicit "+05:30" offset avoids
-    // that, since string-with-offset parsing is not OS-timezone-dependent.
+    // operates in the server process's OS-local timezone. getISTDateString()
+    // resolves the IST calendar date correctly regardless of OS tz, and
+    // (per the NOTE above) is used directly as the DATEONLY comparison
+    // value instead of being turned into a Date instant, which would
+    // reintroduce the same OS-timezone dependency one step later via
+    // Sequelize's own DATEONLY-to-SQL formatting.
     const istToday = getISTDateString();
-    const start = new Date(`${istToday}T00:00:00.000+05:30`);
-    const end = new Date(`${istToday}T23:59:59.999+05:30`);
-    filter[Op.between] = [start, end];
+    filter[Op.between] = [istToday, istToday];
   }
   return filter;
 };
@@ -325,15 +343,26 @@ export const attendanceBook = async (userId: number, query: any) => {
   const limitNum = Number(query.limit) || 10;
   const offset = (pageNum - 1) * limitNum;
 
-  const startDate = new Date(Date.UTC(year, month - 1, 1) - IST_OFFSET_MS);
-  const endDate = new Date(Date.UTC(year, month, 0) - IST_OFFSET_MS);
   const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  // FIX (part 2): startDate/endDate are compared against the `date`
+  // column, a DATEONLY attribute — Sequelize's DATEONLY where-clause
+  // escaping reformats whatever Date *instant* it's given via
+  // `moment(value).format("YYYY-MM-DD")` using the server's OS-local
+  // timezone (see the matching NOTE in getDateFilter above), so even
+  // these correctly-computed IST month-boundary instants would get
+  // silently shifted back a day on a UTC-OS production host. Plain
+  // "YYYY-MM-DD" strings sidestep that Date-instant round-trip entirely.
+  // (findUsersWithAttendanceForMonth's params still type these as `Date`
+  // — cast below; it only ever forwards them into Sequelize's Op.between
+  // array and never calls a Date method on them.)
+  const startDateStr = `${year}-${String(month).padStart(2, "0")}-01`;
+  const endDateStr = `${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}`;
 
   const { rows: users, count: totalCount } = await AttendanceRepo.findUsersWithAttendanceForMonth({
     childIds,
     search: buildSearchFilter(search),
-    startDate,
-    endDate,
+    startDate: startDateStr as unknown as Date,
+    endDate: endDateStr as unknown as Date,
     limit: limitNum,
     offset,
   });
@@ -354,7 +383,16 @@ export const attendanceBook = async (userId: number, query: any) => {
 
     if (u.Attendances?.length) {
       u.Attendances.forEach((attendance: any) => {
-        const day = new Date(attendance.date).getDate();
+        // FIX: was new Date(attendance.date).getDate() — attendance.date is
+        // a DATEONLY value already read back as a plain "YYYY-MM-DD" string
+        // (Sequelize registers a raw passthrough parser for Postgres DATE
+        // columns). Round-tripping that through `new Date(...)`
+        // (UTC-midnight-anchored for a date-only string) and then reading
+        // the day via local getDate() only lands on the right day for
+        // server OS timezones at/ahead of UTC. Slicing the day straight out
+        // of the string never touches a Date object, so it can't be
+        // OS-timezone-dependent.
+        const day = Number(String(attendance.date).slice(8, 10));
         days[String(day)] = attendance.status ?? "-";
         if (attendance.dayType) dayTypes[String(day)] = attendance.dayType;
         if (attendance.leaveType) {
@@ -414,12 +452,21 @@ export const exportAttendanceReportExcel = async (loggedInId: number, query: any
     // correct here because this dev machine's OS timezone happens to be
     // IST, not guaranteed on the production host. Deriving IST year/month
     // via explicit offset arithmetic first is deployment-proof.
+    // FIX (part 2): the resulting start/end used to be built as Date
+    // instants — but `date` is a DATEONLY column, and Sequelize's
+    // DATEONLY where-clause escaping reformats whatever Date instant it's
+    // given via the server's OS-local timezone (see getDateFilter's NOTE
+    // above), silently shifting the range on a non-IST host even though
+    // the instants themselves were computed correctly. Plain "YYYY-MM-DD"
+    // strings avoid that round-trip entirely.
     const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
     const nowIST = new Date(Date.now() + IST_OFFSET_MS);
     const istYear = nowIST.getUTCFullYear();
-    const istMonth = nowIST.getUTCMonth();
-    const start = new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS);
-    const end = new Date(Date.UTC(istYear, istMonth + 1, 0) - IST_OFFSET_MS);
+    const istMonth = nowIST.getUTCMonth(); // 0-based
+    const lastDay = new Date(Date.UTC(istYear, istMonth + 1, 0)).getUTCDate();
+    const mm = String(istMonth + 1).padStart(2, "0");
+    const start = `${istYear}-${mm}-01`;
+    const end = `${istYear}-${mm}-${String(lastDay).padStart(2, "0")}`;
     dateFilter[Op.between] = [start, end];
   }
 
@@ -429,7 +476,12 @@ export const exportAttendanceReportExcel = async (loggedInId: number, query: any
     if (!value) return "";
     const d = new Date(value);
     if (isNaN(d.getTime())) return "";
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    // FIX: was d.getHours()/getMinutes() (OS-local getters) — would print
+    // the wrong wall-clock time on a server whose OS timezone isn't IST,
+    // even though punch_in/punch_out are correctly-computed instants.
+    // formatISTTime shifts into IST before reading hour/minute, regardless
+    // of the server's OS timezone.
+    return formatISTTime(d);
   };
 
   const sheetRows = rows.map((row: any) => {
@@ -460,7 +512,13 @@ export const exportAttendanceReportExcel = async (loggedInId: number, query: any
 
   return {
     buffer,
-    filename: `attendance-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    // FIX: was new Date().toISOString().slice(0, 10) — toISOString()
+    // converts to UTC first, rolling the calendar day backward for any
+    // real-world IST time before ~05:30, so a report exported in the early
+    // IST morning would silently get yesterday's date baked into its
+    // filename. getISTDateString() is deployment-proof regardless of the
+    // server's OS timezone.
+    filename: `attendance-report-${getISTDateString()}.xlsx`,
   };
 };
 
@@ -656,11 +714,20 @@ export const bulkMarkAttendance = async (
     const spanDays = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
     if (spanDays > MAX_RANGE_DAYS) throw new ServiceError(`Date range too large (max ${MAX_RANGE_DAYS} days)`);
 
+    // FIX: was formatLocalDate(cursor) + cursor.setDate(cursor.getDate()+1)
+    // — normalizedFrom/normalizedTo are plain "YYYY-MM-DD" strings, which
+    // the native Date parser anchors at UTC midnight, but formatLocalDate
+    // reads the day back via *local* (OS) getters — a UTC-encode/
+    // local-decode mismatch that only round-trips correctly on server OS
+    // timezones at/ahead of UTC. Walking (and reading back) the cursor
+    // with the UTC equivalents keeps encode and decode consistently
+    // anchored to the same UTC-midnight instant throughout, regardless of
+    // the server's OS timezone.
     rangeDates = [];
     const cursor = new Date(start);
     while (cursor <= end) {
-      rangeDates.push(formatLocalDate(cursor));
-      cursor.setDate(cursor.getDate() + 1);
+      rangeDates.push(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
   }
 
@@ -962,7 +1029,12 @@ const shiftEndInstant = (
   if (!shift?.endTime) return null;
   const start = shiftStartInstant(shift, dateStr);
   const end = parseISTTime(dateStr, shift.endTime);
-  if (start && end <= start) end.setDate(end.getDate() + 1);
+  // FIX: was end.setDate(end.getDate() + 1) — OS-local getDate/setDate.
+  // India has no DST so this happened to still land on the correct instant
+  // on any fixed-offset server OS timezone, but pure ms arithmetic (+24h)
+  // is unconditionally correct and removes any dependency on the server's
+  // OS timezone (or its DST rules) at all.
+  if (start && end <= start) return new Date(end.getTime() + 24 * 60 * 60 * 1000);
   return end;
 };
 
@@ -1127,9 +1199,17 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
   if (!existingRecordsForToday) {
     const officeStartTime = shift?.startTime || "09:30:00";
     const graceMinutes = company?.lateMarkAfter ?? 0;
-    const [y, m, d] = today.split("-").map(Number);
-    const [startHour, startMin] = String(officeStartTime).split(":").map(Number);
-    const officeTime = new Date(y, (m || 1) - 1, d, startHour || 0, (startMin || 0) + graceMinutes, 0);
+    // FIX: was new Date(y, m-1, d, startHour, startMin+grace, 0) — the
+    // multi-arg constructor interprets these numbers as the server's
+    // OS-local time, not IST — the exact same bug class that broke
+    // shift-window punch-in gating in production. A shift/company-
+    // configured start time (e.g. "09:30") is always meant as India
+    // wall-clock time, regardless of the server's own OS timezone.
+    // parseISTTime resolves the base instant via an explicit "+05:30"
+    // offset; grace minutes are then pure ms arithmetic on that
+    // already-correct instant.
+    const officeTimeBase = parseISTTime(today, String(officeStartTime));
+    const officeTime = new Date(officeTimeBase.getTime() + graceMinutes * 60000);
     const punchInTime = new Date(punch_in);
     if (punchInTime > officeTime) late = true;
   }

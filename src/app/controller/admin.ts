@@ -53,7 +53,7 @@ import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
 import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
-import { getISTDateString } from "../../modules/shared/dateUtils";
+import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
 
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
@@ -61,6 +61,26 @@ const getPagination = (req: Request) => {
   const offset = (page - 1) * limit;
 
   return { page, limit, offset };
+};
+
+// Shared IST day-boundary helper for admin report/list date-range filters.
+// Callers here pass plain "YYYY-MM-DD" strings from a date-range picker.
+// Resolves which real IST calendar day that string represents, then returns
+// the actual UTC instant for the start (00:00:00.000) or end (23:59:59.999)
+// of that day. This fixes two compounding bugs seen throughout this file:
+//   1. `new Date(dateStr)` alone lands on that day's UTC midnight, not IST
+//      midnight — a plain calendar date is ~5.5h off from the real IST day
+//      boundary the admin UI's date picker means.
+//   2. Using the SAME instant for both the start and end bound of a range
+//      (i.e. never adding a day / end-of-day time) silently truncates the
+//      end date to its first instant, excluding virtually the entire last
+//      day of the range.
+// Building both edges from the explicit-offset IST helpers avoids both,
+// regardless of the server's OS timezone.
+const getISTDayBoundary = (dateLike: string, edge: "start" | "end"): Date => {
+  const istDateStr = getISTDateString(new Date(String(dateLike)));
+  const start = parseISTTime(istDateStr, "00:00:00");
+  return edge === "start" ? start : new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
 };
 
 const generateTempPassword = (): string => {
@@ -631,18 +651,21 @@ export const getMeeting = async (
       ];
     }
 
-    /** ✅ Filter by Date (UTC) */
+    /** ✅ Filter by Date (IST calendar day) */
+    // FIX: was setUTCHours(0/23,...) — a UTC calendar day is offset 5:30h
+    // from the real IST business day this business operates in, so a
+    // "date=2026-08-01" filter silently excluded that morning's meetings
+    // before 5:30 AM IST (they fell in the previous UTC day) and instead
+    // pulled in meetings from the following IST morning. Resolve which IST
+    // calendar day the input represents, then build the boundary from that
+    // via the explicit-offset helpers so this is correct regardless of
+    // server timezone too.
     if (date) {
-      const inputDate = new Date(String(date));
-
-      const start = new Date(inputDate);
-      start.setUTCHours(0, 0, 0, 0);
-
-      const end = new Date(inputDate);
-      end.setUTCHours(23, 59, 59, 999);
-
       where.meetingTimeIn = {
-        [Op.between]: [start, end],
+        [Op.between]: [
+          getISTDayBoundary(String(date), "start"),
+          getISTDayBoundary(String(date), "end"),
+        ],
       };
     }
 
@@ -1525,16 +1548,22 @@ const getDateFilter = (query: any) => {
 
   //  between
 
+  // FIX: was `new Date(startDate)` / `new Date(endDate)` directly — a
+  // plain "YYYY-MM-DD" string parses to UTC midnight (not real IST
+  // midnight), and using that same instant as the END bound truncated the
+  // range to the very start of the end date instead of covering it, so a
+  // "last day" of any requested range was almost entirely excluded. See
+  // getISTDayBoundary above.
   if (startDate && endDate) {
-    filter[Op.between] = [new Date(startDate), new Date(endDate)];
+    filter[Op.between] = [getISTDayBoundary(startDate, "start"), getISTDayBoundary(endDate, "end")];
   }
   // only start date
   if (startDate) {
-    filter[Op.gte] = new Date(startDate);
+    filter[Op.gte] = getISTDayBoundary(startDate, "start");
   }
 
   if (endDate) {
-    filter[Op.lte] = new Date(endDate);
+    filter[Op.lte] = getISTDayBoundary(endDate, "end");
   }
 
   if (lastDays) {
@@ -1545,11 +1574,19 @@ const getDateFilter = (query: any) => {
   }
 
   if (today === "true") {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
+    // FIX: was `new Date(); start.setHours(0,0,0,0)` / `end.setHours(23,59,59,999)`
+    // — setHours reads/writes the server process's OWN local timezone, so
+    // "today" only meant the real IST calendar day because this dev box's OS
+    // timezone happens to be Asia/Kolkata. On a server whose OS timezone is
+    // UTC, this would silently window from IST 5:30 AM to the next day's
+    // IST 5:29:59 AM instead of real IST midnight-to-midnight. Build the
+    // boundaries from the real IST date string via the explicit-offset
+    // helper instead so this is correct regardless of server timezone.
+    const todayIST = getISTDateString();
+    const start = parseISTTime(todayIST, "00:00:00");
+    // IST has no DST, so the calendar day is always exactly 24h long — end
+    // of day is midnight + 24h - 1ms, no separate parse/getters needed.
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
 
     filter[Op.between] = [start, end];
   }
@@ -2777,11 +2814,14 @@ export const getMeetingDistance = async (
     };
 
     // Apply date filter if provided
+    // FIX: was `new Date(startDate)`/`new Date(endDate)` — see
+    // getISTDayBoundary; UTC-midnight start plus an un-widened end date
+    // silently truncated the range's last day.
     if (startDate && endDate) {
       whereCondition.createdAt = {
         [Op.between]: [
-          new Date(startDate as string),
-          new Date(endDate as string),
+          getISTDayBoundary(startDate as string, "start"),
+          getISTDayBoundary(endDate as string, "end"),
         ],
       };
     }
@@ -2834,11 +2874,14 @@ export const getFuelExpense = async (req: Request, res: Response) => {
       userId: userId,
     };
 
+    // FIX: was `new Date(startDate)`/`new Date(endDate)` — see
+    // getISTDayBoundary; UTC-midnight start plus an un-widened end date
+    // silently truncated the range's last day.
     if (startDate && endDate) {
       whereCondition.createdAt = {
         [Op.between]: [
-          new Date(startDate as string),
-          new Date(endDate as string),
+          getISTDayBoundary(startDate as string, "start"),
+          getISTDayBoundary(endDate as string, "end"),
         ],
       };
     }
@@ -4312,20 +4355,26 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
     }
 
     // ✅ Date filter (createdAt)
+    // FIX: was `new Date(startDate + "T00:00:00.000Z")` /
+    // `new Date(endDate + "T23:59:59.999Z")` — an explicit UTC day boundary,
+    // ~5.5h off from the real IST business day this app's date pickers
+    // mean (see getISTDayBoundary). Records created before 5:30 AM IST on
+    // startDate were excluded, and records created after 5:30 AM IST on
+    // endDate leaked into the following day's UTC bucket.
     if (startDate && endDate) {
       whereCondition.createdAt = {
         [Op.between]: [
-          new Date(startDate + "T00:00:00.000Z"),
-          new Date(endDate + "T23:59:59.999Z"),
+          getISTDayBoundary(startDate, "start"),
+          getISTDayBoundary(endDate, "end"),
         ],
       };
     } else if (startDate) {
       whereCondition.createdAt = {
-        [Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+        [Op.gte]: getISTDayBoundary(startDate, "start"),
       };
     } else if (endDate) {
       whereCondition.createdAt = {
-        [Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+        [Op.lte]: getISTDayBoundary(endDate, "end"),
       };
     }
 
@@ -4833,25 +4882,29 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
     }
 
     // 📅 Date range filter (using createdAt)
+    // FIX: was `new Date(startDate)`/`new Date(endDate)` — see
+    // getISTDayBoundary; UTC-midnight start plus an un-widened end date
+    // silently truncated the range's last day (this list's team-scoping was
+    // already fixed separately and is untouched here).
     if (startDate && endDate) {
       andConditions.push({
         createdAt: {
           [Op.between]: [
-            new Date(startDate),
-            new Date(endDate),
+            getISTDayBoundary(startDate, "start"),
+            getISTDayBoundary(endDate, "end"),
           ],
         },
       });
     } else if (startDate) {
       andConditions.push({
         createdAt: {
-          [Op.gte]: new Date(startDate),
+          [Op.gte]: getISTDayBoundary(startDate, "start"),
         },
       });
     } else if (endDate) {
       andConditions.push({
         createdAt: {
-          [Op.lte]: new Date(endDate),
+          [Op.lte]: getISTDayBoundary(endDate, "end"),
         },
       });
     }
