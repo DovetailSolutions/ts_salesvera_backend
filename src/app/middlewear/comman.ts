@@ -5,6 +5,7 @@ import { JWT_SECRET } from "../../config/env";
 import { promises } from "dns";
 import { Mode } from "fs";
 import axios from "axios";
+import { parseISTTime } from "../../modules/shared/dateUtils";
 
 interface FindOneWithIncludeParams {
   baseModel: any; // typeof Model works but is tricky for TS generics
@@ -677,9 +678,17 @@ export const withuserlogin = async (
     });
 
     // Month filter
+    // FIX: was `new Date(year, month-1, 1)` / `new Date(year, month, 0, ...)`
+    // — the multi-arg constructor interprets day-1/day-0 midnight as the
+    // server's OS-local time, not IST, so on a non-IST host this could shift
+    // the whole month's boundary by hours, silently including/excluding
+    // records right at the edges. parseISTTime with an explicit "+05:30"
+    // offset is not OS-timezone-dependent.
     if (month && year) {
-      const startDate = new Date(year, month - 1, 1);
-      const endDate = new Date(year, month, 0, 23, 59, 59);
+      const mm = String(month).padStart(2, "0");
+      const startDate = parseISTTime(`${year}-${mm}-01`, "00:00:00");
+      const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+      const endDate = parseISTTime(`${year}-${mm}-${String(lastDay).padStart(2, "0")}`, "23:59:59");
 
       whereConditions.date = {
         [Op.between]: [startDate, endDate],

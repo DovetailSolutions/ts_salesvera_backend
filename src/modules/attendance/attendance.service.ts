@@ -4,7 +4,7 @@ import { Readable } from "stream";
 import * as XLSX from "xlsx";
 import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds } from "../shared/userHierarchy";
-import { getISTDateString } from "../shared/dateUtils";
+import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
 import * as AttendanceRepo from "./attendance.repository";
 
 // ============================================================
@@ -560,8 +560,15 @@ const parseTimeOfDayOnDate = (dateStr: string, value: any): Date | null => {
     else hours = hours === 12 ? 12 : hours + 12;
   }
 
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const result = new Date(y, m - 1, d, hours, minutes, seconds);
+  // FIX: was `new Date(y, m-1, d, hours, minutes, seconds)` — the multi-arg
+  // constructor interprets the time as the server's OS-local time, not
+  // IST, same bug class as shiftStartInstant below. A bulk-uploaded
+  // "09:15" punch-in is meant as 9:15 AM India time regardless of the
+  // server's own timezone configuration.
+  const hh = String(hours).padStart(2, "0");
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  const result = new Date(`${dateStr}T${hh}:${mm}:${ss}.000+05:30`);
   return isNaN(result.getTime()) ? null : result;
 };
 
@@ -931,11 +938,17 @@ const EARLY_MARK_LEAD_MINUTES = 30;
 
 // dateStr: "YYYY-MM-DD". Builds the actual Date instant the shift starts on
 // that day from its "HH:mm[:ss]" startTime string.
+// FIX: was `new Date(y, m-1, d, h, min, 0)` — the multi-arg constructor
+// interprets h/min as the server's OS-local time, not IST, so a shift
+// configured as "09:30" (meant as 9:30 AM India time) silently meant a
+// different real-world moment on any server whose OS timezone isn't IST
+// (e.g. 09:30 UTC = 3:00 PM IST on a UTC-configured host) — this is what
+// was blocking real punch-ins with a shift-window error at the wrong time.
+// parseISTTime parses an explicit "+05:30" offset, which is not
+// OS-timezone-dependent.
 const shiftStartInstant = (shift: { startTime?: string } | null | undefined, dateStr: string): Date | null => {
   if (!shift?.startTime) return null;
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const [h, min] = String(shift.startTime).split(":").map(Number);
-  return new Date(y, (m || 1) - 1, d, h || 0, min || 0, 0);
+  return parseISTTime(dateStr, shift.startTime);
 };
 
 // Builds the shift's end instant on `dateStr`, rolling to the next calendar
@@ -948,9 +961,7 @@ const shiftEndInstant = (
 ): Date | null => {
   if (!shift?.endTime) return null;
   const start = shiftStartInstant(shift, dateStr);
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const [h, min] = String(shift.endTime).split(":").map(Number);
-  const end = new Date(y, (m || 1) - 1, d, h || 0, min || 0, 0);
+  const end = parseISTTime(dateStr, shift.endTime);
   if (start && end <= start) end.setDate(end.getDate() + 1);
   return end;
 };
@@ -1013,7 +1024,11 @@ const formatShiftWindowMessage = (
 ): string => {
   const start = shiftStartInstant(shift, dateStr)!;
   const earliestAllowed = new Date(start.getTime() - EARLY_MARK_LEAD_MINUTES * 60000);
-  const fmt = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  // FIX: was d.getHours()/getMinutes() (OS-local getters) — would display
+  // the wrong wall-clock time on a server whose OS timezone isn't IST, even
+  // after the instant itself was computed correctly. formatISTTime shifts
+  // into IST before reading the hour/minute, regardless of server OS tz.
+  const fmt = formatISTTime;
   const who = employeeName ? `${employeeName}'s` : "This employee's";
   const shiftLabel = shift.shiftName ? `${shift.shiftName} shift` : "shift";
   return `${who} ${shiftLabel} starts at ${fmt(start)} — attendance can only be marked from ${fmt(earliestAllowed)} onward.`;
