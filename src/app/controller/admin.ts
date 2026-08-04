@@ -1668,6 +1668,10 @@ export const getDashboardSummary = async (
         where: {
           userId: { [Op.in]: childIds },
           scheduledTime: { [Op.between]: [weekStart, weekEnd] },
+          // A cancelled meeting isn't a real meeting from the caller's point
+          // of view — counting it made "Meetings (Week)" show a number the
+          // Meetings module itself wouldn't reasonably back up.
+          status: { [Op.ne]: "cancelled" },
         },
       }),
       Quotations.count({
