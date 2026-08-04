@@ -17,9 +17,11 @@ export const scheduleMeeting = async (req: Request, res: Response): Promise<void
   try {
     const userData = req.userData as JwtPayload;
     const { targetUserId, meetingUserId, meetingPurpose, categoryId, subCategoryId, scheduledTime } = req.body || {};
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const meeting = await MeetingService.scheduleMeeting(
       Number(userData.userId),
       userData.role as string | undefined,
+      callerCompanyId,
       {
         targetUserId: Number(targetUserId),
         meetingUserId: Number(meetingUserId),
@@ -39,9 +41,11 @@ export const rescheduleMeeting = async (req: Request, res: Response): Promise<vo
   try {
     const userData = req.userData as JwtPayload;
     const { scheduledTime } = req.body || {};
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const meeting = await MeetingService.rescheduleMeeting(
       Number(userData.userId),
       userData.role as string | undefined,
+      callerCompanyId,
       Number(req.params.id),
       scheduledTime
     );
@@ -54,9 +58,11 @@ export const rescheduleMeeting = async (req: Request, res: Response): Promise<vo
 export const getMeetingDashboard = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const dashboard = await MeetingService.getMeetingDashboard(
       Number(userData.userId),
-      userData.role as string | undefined
+      userData.role as string | undefined,
+      callerCompanyId
     );
     createSuccess(res, "Meeting dashboard fetched successfully", dashboard);
   } catch (error) {

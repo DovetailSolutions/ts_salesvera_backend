@@ -27,7 +27,8 @@ const handleServiceError = (res: Response, error: unknown) => {
 export const getAttendance = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const result = await AttendanceService.getAttendance(Number(userData.userId), req.query);
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const result = await AttendanceService.getAttendance(Number(userData.userId), callerCompanyId, req.query);
     res.status(200).json({
       success: true,
       message: "Attendance fetched successfully",
@@ -58,7 +59,8 @@ export const userAttendance = async (req: Request, res: Response): Promise<void>
       return;
     }
     const userData = req.userData as JwtPayload;
-    const result = await AttendanceService.userAttendance(Number(userData.userId), userId as string, req.query);
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const result = await AttendanceService.userAttendance(Number(userData.userId), callerCompanyId, userId as string, req.query);
     createSuccess(res, "User attendance fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);
@@ -68,7 +70,8 @@ export const userAttendance = async (req: Request, res: Response): Promise<void>
 export const AttendanceBook = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const result = await AttendanceService.attendanceBook(Number(userData.userId), req.query);
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const result = await AttendanceService.attendanceBook(Number(userData.userId), callerCompanyId, req.query);
     res.status(200).json({
       success: true,
       message: "Attendance loaded",
@@ -82,8 +85,10 @@ export const AttendanceBook = async (req: Request, res: Response): Promise<void>
 export const exportAttendanceReport = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
     const { buffer, filename } = await AttendanceService.exportAttendanceReportExcel(
       Number(userData.userId),
+      callerCompanyId,
       req.query
     );
     res.set({

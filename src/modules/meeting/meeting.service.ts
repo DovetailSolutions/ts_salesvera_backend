@@ -1,5 +1,5 @@
 import { ServiceError } from "../shared/serviceError";
-import { getAllChildUserIds, getDirectCreator } from "../shared/userHierarchy";
+import { getAllChildUserIds, getCompanyScopedChildUserIds, getDirectCreator } from "../shared/userHierarchy";
 import { getISTDateString } from "../shared/dateUtils";
 import * as MeetingRepo from "./meeting.repository";
 
@@ -21,7 +21,11 @@ import * as MeetingRepo from "./meeting.repository";
 //   - Team scope ("who can I act on behalf of"): the caller's own
 //     descendants only, exactly what assignMeeting's existing
 //     `getAllChildUserIds(loggedInId)` check uses. A manager does NOT get
-//     resolved up to their parent admin here.
+//     resolved up to their parent admin here. The descendants are further
+//     narrowed to the company the caller's token is currently acting in —
+//     a manager/admin can be assigned to more than one company, and the
+//     raw who-created-whom walk has no notion of company, so without that
+//     they kept acting on the other company's employees after switching.
 //   - Client scope ("which clients can I use"): resolved up to the
 //     caller's parent admin for a manager, exactly what getMeeting's
 //     existing `ll` resolution does — clients (MeetingUser) are a shared
@@ -30,11 +34,20 @@ import * as MeetingRepo from "./meeting.repository";
 
 const NOT_STARTED_STATUSES = new Set(["scheduled", "pending"]);
 
-export const resolveTeamScope = async (loggedInId: number): Promise<number[]> => {
-  const childIds = await getAllChildUserIds(loggedInId);
+export const resolveTeamScope = async (
+  loggedInId: number,
+  callerCompanyId: number | null
+): Promise<number[]> => {
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   return [loggedInId, ...childIds];
 };
 
+// Client scope stays on the *unscoped* hierarchy on purpose: it is anchored
+// on a DIFFERENT user (a manager is resolved up to their parent admin) and
+// answers "which clients may I use", a pool deliberately shared across every
+// manager under the same admin. Company-filtering that pool would change
+// that shared-pool semantics rather than fix a scoping bug, so it is left
+// exactly as the existing getMeeting/assignMeeting convention has it.
 export const resolveClientScope = async (loggedInId: number, role: string | undefined): Promise<number[]> => {
   let ll = loggedInId;
   if (role === "manager") {
@@ -48,6 +61,7 @@ export const resolveClientScope = async (loggedInId: number, role: string | unde
 export const scheduleMeeting = async (
   loggedInId: number,
   role: string | undefined,
+  callerCompanyId: number | null,
   params: {
     targetUserId: number;
     meetingUserId: number;
@@ -64,7 +78,7 @@ export const scheduleMeeting = async (
   const parsedTime = new Date(scheduledTime);
   if (isNaN(parsedTime.getTime())) throw new ServiceError("Invalid scheduledTime");
 
-  const teamScope = await resolveTeamScope(loggedInId);
+  const teamScope = await resolveTeamScope(loggedInId, callerCompanyId);
   if (role !== "super_admin" && !teamScope.includes(Number(targetUserId))) {
     throw new ServiceError("You can only schedule meetings for your own team members", 403);
   }
@@ -123,6 +137,7 @@ export const scheduleMeeting = async (
 export const rescheduleMeeting = async (
   loggedInId: number,
   role: string | undefined,
+  callerCompanyId: number | null,
   meetingId: number,
   newScheduledTime: string
 ) => {
@@ -134,7 +149,7 @@ export const rescheduleMeeting = async (
   if (!meeting) throw new ServiceError("Meeting not found");
 
   if (role !== "super_admin") {
-    const teamScope = await resolveTeamScope(loggedInId);
+    const teamScope = await resolveTeamScope(loggedInId, callerCompanyId);
     if (!teamScope.includes(Number((meeting as any).userId))) {
       throw new ServiceError("You can only reschedule meetings for your own team members", 403);
     }
@@ -173,10 +188,15 @@ const endOfDay = (d: Date) => {
 };
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
 
-export const getMeetingDashboard = async (loggedInId: number, role: string | undefined) => {
+export const getMeetingDashboard = async (
+  loggedInId: number,
+  role: string | undefined,
+  callerCompanyId: number | null
+) => {
   // Team scope (not client scope) — a manager's dashboard reflects their
-  // own team's activity, not their whole admin's org.
-  const allowedIds = await resolveTeamScope(loggedInId);
+  // own team's activity, not their whole admin's org, and only the team of
+  // the company this token is currently acting in.
+  const allowedIds = await resolveTeamScope(loggedInId, callerCompanyId);
 
   const now = new Date();
   const today0 = startOfDay(now);

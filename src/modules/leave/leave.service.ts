@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
-import { getAllChildUserIds } from "../shared/userHierarchy";
+import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
 import { hasCompanyAccess } from "../shared/companyAccess";
 import { getISTDateString } from "../shared/dateUtils";
 import * as LeaveRepo from "./leave.repository";
@@ -107,7 +107,12 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
 
   const targetEmployeeId = employeeId ? Number(employeeId) : loggedInId;
   if (targetEmployeeId !== loggedInId) {
-    const childIds = await getAllChildUserIds(loggedInId);
+    // FIX: was getAllChildUserIds — a pure who-created-whom walk with no
+    // notion of company, so an admin/manager assigned to two companies kept
+    // authority over everyone they ever created even after switching into
+    // the other company. Scoped to the caller's ACTIVE company now; the
+    // helper still keeps anyone whose company membership is indeterminate.
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
     if (!childIds.includes(targetEmployeeId)) {
       throw new ServiceError("You can only request leave on behalf of your own team members", 403);
     }
@@ -202,7 +207,7 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
   return leave;
 };
 
-export const approveLeave = async (loggedInId: number, body: any) => {
+export const approveLeave = async (loggedInId: number, callerCompanyId: number | null, body: any) => {
   const { employee_id, leaveID, status } = body;
 
   if (!employee_id) throw new ServiceError("Employee id is missing");
@@ -211,7 +216,10 @@ export const approveLeave = async (loggedInId: number, body: any) => {
   // FIX: previously trusted employee_id straight from the request body with
   // no check that the employee is on the caller's own team, letting any
   // admin approve/reject another company's leave requests by ID.
-  const childIds = await getAllChildUserIds(loggedInId);
+  // FIX: the team check itself was getAllChildUserIds (company-blind), so a
+  // multi-company admin/manager could still approve/reject the OTHER
+  // company's leave after switching. Scoped to the active company now.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (Number(employee_id) !== loggedInId && !childIds.includes(Number(employee_id))) {
     throw new ServiceError("You can only manage leave requests of your own team members", 403);
   }
@@ -322,7 +330,10 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
     ? employeeId.map((id: any) => Number(id))
     : [Number(employeeId)];
 
-  const childIds = await getAllChildUserIds(loggedInId);
+  // Company-scoped team: allocating balance is a write against another
+  // user's record, so it must not reach staff of a company the caller
+  // merely also belongs to (see getCompanyScopedChildUserIds).
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   const unauthorizedIds = employeeIds.filter((id) => id !== loggedInId && !childIds.includes(id));
   if (unauthorizedIds.length > 0) {
     throw new ServiceError(
@@ -382,7 +393,10 @@ export const getEmployeeLeaveBalance = async (
   year: number,
   callerCompanyId: number | null
 ) => {
-  const childIds = await getAllChildUserIds(loggedInId);
+  // Company-scoped team — the balances below are read against this company's
+  // leave types, so the "is this my team member" gate must use the same
+  // company context rather than the company-blind hierarchy.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
     throw new ServiceError("You can only view leave balance of your own sale_persons");
   }
@@ -417,7 +431,10 @@ export const getTeamLeaveBalances = async (
   offset: number,
   callerCompanyId: number | null
 ) => {
-  const childIds = await getAllChildUserIds(loggedInId);
+  // Company-scoped team — this list is rendered against the ACTIVE company's
+  // leave types, so it must not include employees of another company the
+  // caller happens to also be assigned to.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
 
   const leaveTypes = callerCompanyId ? await LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId) : [];
   const { rows, count } = await LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset });
@@ -453,8 +470,17 @@ export const getTeamLeaveBalances = async (
   };
 };
 
-export const leaveList = async (loggedInId: number, status: any, page: number, limit: number, offset: number) => {
-  const childIds = await getAllChildUserIds(loggedInId);
+export const leaveList = async (
+  loggedInId: number,
+  status: any,
+  page: number,
+  limit: number,
+  offset: number,
+  callerCompanyId: number | null
+) => {
+  // Company-scoped team — otherwise a multi-company admin/manager sees the
+  // other company's leave requests in this list after switching companies.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   const allUserIds = [loggedInId, ...childIds];
 
   const { rows, count } = await LeaveRepo.findLeavesForUsersPaginated({
@@ -476,8 +502,11 @@ export const leaveList = async (loggedInId: number, status: any, page: number, l
   };
 };
 
-export const getTodayLeaveRequests = async (loggedInId: number) => {
-  const childIds = await getAllChildUserIds(loggedInId);
+export const getTodayLeaveRequests = async (loggedInId: number, callerCompanyId: number | null) => {
+  // Company-scoped team — this feeds the dashboard's "on leave today" widget,
+  // which otherwise counts the other company's employees for a caller
+  // assigned to more than one company.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   const [appliedToday, onLeaveToday] = await LeaveRepo.findTodayLeaveActivity(childIds);
 
   return {
@@ -488,14 +517,17 @@ export const getTodayLeaveRequests = async (loggedInId: number) => {
   };
 };
 
-export const cancelLeaveAndMarkPresent = async (loggedInId: number, body: any) => {
+export const cancelLeaveAndMarkPresent = async (loggedInId: number, callerCompanyId: number | null, body: any) => {
   const { employeeId, leaveID, date, punchIn } = body || {};
 
   if (!employeeId) throw new ServiceError("employeeId is required");
   if (!leaveID) throw new ServiceError("leaveID is required");
 
   // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
-  const childIds = await getAllChildUserIds(loggedInId);
+  // Company-scoped: this cancels a leave and writes an attendance row for
+  // someone else, so it must not reach staff of another company the caller
+  // is also assigned to (the company-blind hierarchy used to allow that).
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (!childIds.includes(Number(employeeId))) {
     throw new ServiceError("You can only manage attendance/leave for your own team members");
   }
@@ -535,8 +567,17 @@ export const cancelLeaveAndMarkPresent = async (loggedInId: number, body: any) =
   return { leave, attendance: record };
 };
 
-export const userLeave = async (loggedInId: number, userId: string, page: number, limit: number, offset: number) => {
-  const childIds = await getAllChildUserIds(loggedInId);
+export const userLeave = async (
+  loggedInId: number,
+  userId: string,
+  page: number,
+  limit: number,
+  offset: number,
+  callerCompanyId: number | null
+) => {
+  // Company-scoped team — gates reading another user's full leave history,
+  // which the company-blind hierarchy exposed across companies.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   const requestedUserId = Number(userId);
   if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
     throw new ServiceError("You can only view leave records of your own team members", 403);

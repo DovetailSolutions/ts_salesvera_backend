@@ -43,7 +43,8 @@ export const createLeaveRequest = async (req: Request, res: Response): Promise<v
 export const approveLeave = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const leave = await LeaveService.approveLeave(Number(userData?.userId), req.body);
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const leave = await LeaveService.approveLeave(Number(userData?.userId), callerCompanyId, req.body);
     createSuccess(res, "Status updated", leave);
   } catch (error) {
     handleServiceError(res, error);
@@ -100,7 +101,8 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
     const userData = req.userData as JwtPayload;
     const { status } = req.query;
     const { page, limit, offset } = getPagination(req);
-    const result = await LeaveService.leaveList(Number(userData.userId), status, page, limit, offset);
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const result = await LeaveService.leaveList(Number(userData.userId), status, page, limit, offset, callerCompanyId);
     res.status(200).json({
       success: true,
       message: "Leaves fetched successfully",
@@ -115,7 +117,8 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
 export const getTodayLeaveRequests = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const result = await LeaveService.getTodayLeaveRequests(Number(userData.userId));
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const result = await LeaveService.getTodayLeaveRequests(Number(userData.userId), callerCompanyId);
     res.status(200).json({
       success: true,
       message: "Today's leave requests fetched successfully",
@@ -129,7 +132,8 @@ export const getTodayLeaveRequests = async (req: Request, res: Response): Promis
 export const cancelLeaveAndMarkPresent = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const result = await LeaveService.cancelLeaveAndMarkPresent(Number(userData.userId), req.body);
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const result = await LeaveService.cancelLeaveAndMarkPresent(Number(userData.userId), callerCompanyId, req.body);
     createSuccess(res, "Leave cancelled and attendance marked present", result);
   } catch (error) {
     handleServiceError(res, error);
@@ -145,7 +149,8 @@ export const userLeave = async (req: Request, res: Response): Promise<void> => {
     }
     const userData = req.userData as JwtPayload;
     const { page, limit, offset } = getPagination(req);
-    const result = await LeaveService.userLeave(Number(userData?.userId), userId as string, page, limit, offset);
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const result = await LeaveService.userLeave(Number(userData?.userId), userId as string, page, limit, offset, callerCompanyId);
     createSuccess(res, "User leave fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);

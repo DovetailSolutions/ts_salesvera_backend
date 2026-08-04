@@ -1,4 +1,5 @@
-import { User } from "../../config/dbConnection";
+import { Op } from "sequelize";
+import { User, Company, CompanyManager, CompanyAdmin, Branch } from "../../config/dbConnection";
 
 type UserWithChildren = any & {
   createdUsers?: UserWithChildren[];
@@ -36,6 +37,104 @@ export async function getAllChildUserIds(userId: number): Promise<number[]> {
   await fetchLevel(userId);
 
   return Array.from(result);
+}
+
+// ── Company-scoped team resolution ──────────────────────────────────────
+//
+// getAllChildUserIds above answers "who did this user create, recursively"
+// — a pure who-created-whom hierarchy with NO notion of which company any
+// of those people belong to. That's the right answer for a single-company
+// tenant, but it silently leaks across companies the moment an admin or
+// manager is assigned to more than one (a supported, real scenario via the
+// CompanyAdmin/CompanyManager junctions + switch-company): the caller keeps
+// seeing every person they ever created, including employees of a company
+// they aren't currently acting in.
+//
+// resolveCompanyEmployeeIds (companyAccess.ts) answers the complementary
+// question — "who belongs to THIS company" — but can't be used on its own
+// for team scoping either: it resolves sale_persons purely via
+// User.branchId, and branchId is not reliably populated on older accounts
+// (verified: a large share of existing users have branchId = null). Hard-
+// intersecting with it would silently HIDE those legitimate team members.
+//
+// So this helper deliberately fails OPEN, not closed: it removes only the
+// users it can POSITIVELY prove belong to a different company, and keeps
+// anyone whose company membership is indeterminate. That fixes the real
+// leak (people demonstrably in another company) without breaking access to
+// anyone whose data is merely incomplete.
+//
+// A user's company membership is collected from every available signal —
+// their branch's companyId, the CompanyManager/CompanyAdmin junctions, and
+// Company.adminId/Company.userId ownership. A user legitimately linked to
+// several companies (e.g. a manager assigned to two) stays visible in each
+// of them.
+const collectUserCompanyIds = async (userIds: number[]): Promise<Map<number, Set<number>>> => {
+  const map = new Map<number, Set<number>>();
+  if (userIds.length === 0) return map;
+
+  const add = (userId: number, companyId: number | null | undefined) => {
+    if (companyId == null) return;
+    if (!map.has(userId)) map.set(userId, new Set<number>());
+    map.get(userId)!.add(Number(companyId));
+  };
+
+  const [users, managerLinks, adminLinks, ownedOrAdminedCompanies] = await Promise.all([
+    (User as any).findAll({ where: { id: { [Op.in]: userIds } }, attributes: ["id", "branchId"] }),
+    (CompanyManager as any).findAll({ where: { managerId: { [Op.in]: userIds } }, attributes: ["managerId", "companyId"] }),
+    (CompanyAdmin as any).findAll({ where: { adminId: { [Op.in]: userIds } }, attributes: ["adminId", "companyId"] }),
+    (Company as any).findAll({
+      where: { [Op.or]: [{ adminId: { [Op.in]: userIds } }, { userId: { [Op.in]: userIds } }] },
+      attributes: ["id", "adminId", "userId"],
+    }),
+  ]);
+
+  // Branch membership (the primary signal for sale_persons).
+  const branchIds = Array.from(
+    new Set(users.map((u: any) => u.branchId).filter((b: any) => b != null).map((b: any) => Number(b)))
+  );
+  const branches: any[] = branchIds.length
+    ? await (Branch as any).findAll({ where: { id: { [Op.in]: branchIds } }, attributes: ["id", "companyId"] })
+    : [];
+  const companyIdByBranch = new Map<number, number | null>(
+    branches.map((b: any) => [Number(b.id), b.companyId == null ? null : Number(b.companyId)])
+  );
+  users.forEach((u: any) => {
+    if (u.branchId == null) return;
+    add(Number(u.id), companyIdByBranch.get(Number(u.branchId)) ?? null);
+  });
+
+  managerLinks.forEach((r: any) => add(Number(r.managerId), r.companyId));
+  adminLinks.forEach((r: any) => add(Number(r.adminId), r.companyId));
+  ownedOrAdminedCompanies.forEach((c: any) => {
+    if (c.adminId != null) add(Number(c.adminId), c.id);
+    if (c.userId != null) add(Number(c.userId), c.id);
+  });
+
+  return map;
+};
+
+// The company-scoped counterpart to getAllChildUserIds: the caller's
+// recursive team, minus anyone positively belonging to a different company.
+// Passing a null/undefined companyId (no company context resolvable —
+// e.g. super_admin) returns the unfiltered hierarchy, preserving the
+// previous behavior exactly.
+export async function getCompanyScopedChildUserIds(
+  userId: number,
+  companyId: number | null | undefined
+): Promise<number[]> {
+  const childIds = await getAllChildUserIds(userId);
+  if (companyId == null || childIds.length === 0) return childIds;
+
+  const target = Number(companyId);
+  const companyIdsByUser = await collectUserCompanyIds(childIds);
+
+  return childIds.filter((id) => {
+    const companies = companyIdsByUser.get(id);
+    // Indeterminate membership (no branch, no junction row, owns nothing) —
+    // keep, rather than silently hiding a legitimate team member.
+    if (!companies || companies.size === 0) return true;
+    return companies.has(target);
+  });
 }
 
 // Returns the given user's immediate creator (one level up the createdBy

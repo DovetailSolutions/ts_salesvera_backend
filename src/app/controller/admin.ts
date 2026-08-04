@@ -51,7 +51,7 @@ import * as Middleware from "../middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
-import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds } from "../../modules/shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
 
@@ -220,7 +220,13 @@ export const GetAllUser = async (
       idFilter = { [Op.ne]: loggedInId };
     } 
     else {
-      const childIds = await getAllChildUserIds(loggedInId);
+      // FIX: the who-created-whom hierarchy alone leaks across companies for
+      // an admin/manager assigned to more than one — after switching company
+      // they still saw every user they ever created, including the other
+      // company's staff. Scope the team to the company the caller is acting
+      // in (null companyId keeps the previous, unfiltered behavior).
+      const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+      const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
       if (childIds.length === 0) {
         createSuccess(res, "Users fetched successfully", {
           page: pageNum,
@@ -626,7 +632,14 @@ export const getMeeting = async (
     // caller explicitly passed `empty=true` or `userId` — a plain GET with no
     // query params returned every company's meeting records. Always scope to
     // the caller's own team.
-    const childIds = await getAllChildUserIds(ll);
+    // FIX: the team walk itself has no notion of company, so an admin (or the
+    // parent admin `ll` re-anchored to above) who is assigned to more than one
+    // company exposed the OTHER company's meetings to whichever company the
+    // caller is currently acting in. The anchor stays the parent admin — the
+    // shared client pool is deliberate — but the pool is now limited to the
+    // company in the caller's active token.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(ll, callerCompanyId);
     const allowedIds = [ll, ...childIds];
 
     const where: any = {};
@@ -785,8 +798,15 @@ export const BulkAddSalePerson = async (
       // own subordinates — an admin could attribute the bulk-created
       // sale-persons to a user in a completely different tenant, linking new
       // accounts into that other tenant's hierarchy.
+      // Scoped to the caller's ACTIVE company for the same reason branchId/
+      // shiftId above are: every row in this batch is stamped with this
+      // company's branch/shift, so attributing them to a subordinate who
+      // provably belongs to a different company would file company-X accounts
+      // under a company-Y manager. Membership-indeterminate subordinates are
+      // still accepted (the helper fails open), so legacy accounts with no
+      // branch/junction row keep working exactly as before.
       if (creatorId !== Number(loginUser)) {
-        const callerChildIds = await getAllChildUserIds(Number(loginUser));
+        const callerChildIds = await getCompanyScopedChildUserIds(Number(loginUser), callerCompanyId);
         if (!callerChildIds.includes(creatorId)) {
           forbidden(res, "createdBy must be yourself or one of your own team members");
           return;
@@ -1224,7 +1244,11 @@ export const UpdateExpense = async (
     // FIX: previously trusted userId straight from the request body with no
     // check that the employee is on the caller's own team, letting any
     // admin/manager approve another company's expense by ID.
-    const childIds = await getAllChildUserIds(loggedInId);
+    // Team membership is resolved for the company the caller is currently
+    // acting in — the plain hierarchy walk let a multi-company admin/manager
+    // keep approving the other company's expenses after switching company.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
     if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
       forbidden(res, "You can only manage expenses of your own team members");
       return;
@@ -1390,7 +1414,10 @@ export const  GetExpense = async (
     const loggedInId = userData.userId;
     const search = req.query.search
     const { page, limit, offset } = getPagination(req);
-    const childIds = await getAllChildUserIds(loggedInId);
+    // Company-scoped team: an admin/manager assigned to several companies
+    // otherwise kept seeing the other company's expense rows here.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
 
     const allUserIds = [ ...childIds];
     console.log("userData",userData)
@@ -1602,7 +1629,13 @@ export const getDashboardSummary = async (
     const loggedInId = userData.userId;
     const callerRole = userData?.role;
 
-    const childIds = await getAllChildUserIds(loggedInId);
+    // FIX: every KPI below is derived from this id list, and the plain
+    // hierarchy walk has no notion of company — an admin/manager assigned to
+    // more than one company kept counting the OTHER company's headcount,
+    // attendance, leaves, expenses and meetings after switching company.
+    // Scope the team to the company in the caller's active token.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
 
     // FIX: was `new Date().toISOString().slice(0, 10)` — toISOString()
     // converts to UTC first, which rolls the calendar day backward for any
@@ -1835,7 +1868,10 @@ export const getTopPerformers = async (
     const loggedInId = userData.userId;
     const limit = Number(req.query.limit) || 5;
 
-    const childIds = await getAllChildUserIds(loggedInId);
+    // Company-scoped team — the leaderboard otherwise mixed in employees of
+    // another company the caller also administers.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
 
     if (childIds.length === 0) {
       res.status(200).json({
@@ -1950,7 +1986,10 @@ export const userExpense = async (req: Request, res: Response) => {
     // and read another team's/company's expense history.
     const userData = req.userData as JwtPayload;
     const loggedInId = userData?.userId;
-    const childIds = await getAllChildUserIds(loggedInId);
+    // Resolved for the caller's active company so a multi-company admin can't
+    // read the other company's expense history after switching company.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
     const requestedUserId = Number(userId);
     if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
       return forbidden(res, "You can only view expenses of your own team members");
@@ -2087,7 +2126,11 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
       forbidden(res, "You can only assign meetings within your own company");
       return;
     }
-    const childIds = await getAllChildUserIds(loggedInId);
+    // ...and the team itself is resolved for the caller's active company, so a
+    // multi-company admin/manager can't assign this company's meeting to an
+    // employee who belongs to the other company they also administer.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
     if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
       forbidden(res, "You can only assign meetings to your own team members");
       return;
@@ -2800,7 +2843,10 @@ export const getMeetingDistance = async (
     // ownership check — any caller could pass any userId and read another
     // team's/company's meeting-distance data.
     const loggedInId = Number(userData.userId);
-    const childIds = await getAllChildUserIds(loggedInId);
+    // Team resolved for the caller's active company — the plain hierarchy walk
+    // still matched employees of another company the caller also administers.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
     if (userId !== loggedInId && !childIds.includes(userId)) {
       forbidden(res, "You can only view meeting distances of your own team members");
       return;
@@ -2862,7 +2908,9 @@ export const getFuelExpense = async (req: Request, res: Response) => {
     // ownership check — any caller could pass any userId and read another
     // team's/company's fuel-expense data.
     const loggedInId = Number(userData.userId);
-    const childIds = await getAllChildUserIds(loggedInId);
+    // Team resolved for the caller's active company — see getMeetingDistance.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
     if (userId !== loggedInId && !childIds.includes(userId)) {
       forbidden(res, "You can only view fuel expenses of your own team members");
       return;
@@ -2967,7 +3015,13 @@ export const assignEmployeeShift = async (req: Request, res: Response): Promise<
       return;
     }
 
-    const childIds = await getAllChildUserIds(Number(loggedInId));
+    // Resolved once here (also reused by the shift/department/branch company
+    // checks further down) so the team membership gate below is answered for
+    // the company the caller is CURRENTLY acting in — the plain hierarchy walk
+    // let a multi-company admin/manager reassign the other company's employees.
+    const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+
+    const childIds = await getCompanyScopedChildUserIds(Number(loggedInId), callerCompanyId);
     if (Number(employeeId) !== Number(loggedInId) && !childIds.includes(Number(employeeId))) {
       forbidden(res, "You can only assign shifts to your own team members");
       return;
@@ -2984,8 +3038,8 @@ export const assignEmployeeShift = async (req: Request, res: Response): Promise<
     // caller could assign an employee a shift/branch/department belonging
     // to a completely different company, silently applying that other
     // company's geofence/working-hours config to this employee's attendance.
-    // Every reference must belong to the caller's own resolved company.
-    const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+    // Every reference must belong to the caller's own resolved company
+    // (callerCompanyId is resolved above, before the team membership check).
 
     if (shiftId !== undefined && shiftId !== null) {
       const shift = await Shift.findByPk(Number(shiftId));
@@ -4856,7 +4910,10 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
     // Team-scoped, not just the caller's own rows — a manager/admin needs to
     // see their whole team's outstanding balances, not only reports created
     // under their own userId (matches the scoping used for quotations/invoices).
-    const childIds = await getAllChildUserIds(Number(userData.userId));
+    // ...and company-scoped, so an admin/manager assigned to more than one
+    // company stops seeing the other company's reports after switching.
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const childIds = await getCompanyScopedChildUserIds(Number(userData.userId), callerCompanyId);
     const teamUserIds = [Number(userData.userId), ...childIds];
 
     // ✅ Use AND conditions (important)

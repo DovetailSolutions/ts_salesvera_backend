@@ -3,7 +3,7 @@ import { getObjectFromSpaces, SpacesFile } from "../../config/spaces";
 import { Readable } from "stream";
 import * as XLSX from "xlsx";
 import { ServiceError } from "../shared/serviceError";
-import { getAllChildUserIds } from "../shared/userHierarchy";
+import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
 import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
 import * as AttendanceRepo from "./attendance.repository";
 
@@ -24,9 +24,15 @@ const getPagination = (query: any) => {
 
 // ---- Admin/team-scoped ----
 
-export const getAttendance = async (loggedInId: number, query: any) => {
+export const getAttendance = async (loggedInId: number, callerCompanyId: number | null, query: any) => {
   const { page, limit, offset } = getPagination(query);
-  const childIds = await getAllChildUserIds(loggedInId);
+  // FIX: was getAllChildUserIds — a pure who-created-whom walk with no notion
+  // of company, so an admin/manager assigned to more than one company (via
+  // CompanyAdmin/CompanyManager + switch-company) kept seeing the OTHER
+  // company's employees in today's list after switching. Scoped to the
+  // company they're currently acting in; callers with no resolvable company
+  // context get the unfiltered hierarchy exactly as before.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   const allUserIds = [loggedInId, ...childIds];
   // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
   // to UTC first, which rolls the calendar day backward for any real-world
@@ -81,7 +87,12 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
   }
 
   // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
-  const childIds = await getAllChildUserIds(loggedInId);
+  // FIX: was getAllChildUserIds — the unscoped hierarchy let an admin/manager
+  // assigned to two companies mark attendance for the OTHER company's staff
+  // while acting in this one. Scoped to the company they're currently acting
+  // in (callerCompanyId, the same one already used for leave types below);
+  // no resolvable company context falls back to the previous behavior.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (!childIds.includes(Number(employeeId))) {
     throw new ServiceError("You can only mark attendance for your own team members");
   }
@@ -216,7 +227,7 @@ const buildMarkAttendanceFields = (
   return { status: "present", companyLeaveId: null, ...derived };
 };
 
-export const userAttendance = async (loggedInId: number, userId: string, query: any) => {
+export const userAttendance = async (loggedInId: number, callerCompanyId: number | null, userId: string, query: any) => {
   const employeeId = Number(userId);
   if (!Number.isInteger(employeeId) || employeeId < 0) {
     throw new ServiceError("Invalid userId");
@@ -224,7 +235,12 @@ export const userAttendance = async (loggedInId: number, userId: string, query: 
 
   // FIX: this previously had no ownership check at all — any caller with
   // attendance:view could pass any userId and read another team's data.
-  const childIds = await getAllChildUserIds(loggedInId);
+  // FIX (part 2): the ownership check used getAllChildUserIds — the unscoped
+  // hierarchy — so an admin/manager assigned to more than one company could
+  // still read the OTHER company's employees' history while acting in this
+  // one. Scoped to the company they're currently acting in; no resolvable
+  // company context keeps the previous behavior.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (employeeId !== loggedInId && !childIds.includes(employeeId)) {
     throw new ServiceError("You can only view attendance of your own team members", 403);
   }
@@ -320,8 +336,12 @@ const buildSearchFilter = (search: string) =>
       }
     : {};
 
-export const attendanceBook = async (userId: number, query: any) => {
-  const childIds = await getAllChildUserIds(userId);
+export const attendanceBook = async (userId: number, callerCompanyId: number | null, query: any) => {
+  // FIX: was getAllChildUserIds — the unscoped hierarchy put the OTHER
+  // company's employees into this month's register for an admin/manager
+  // assigned to more than one company. Scoped to the company they're
+  // currently acting in; no resolvable company context behaves as before.
+  const childIds = await getCompanyScopedChildUserIds(userId, callerCompanyId);
 
   if (!childIds.length) {
     throw new ServiceError("No child users found");
@@ -429,8 +449,12 @@ export const attendanceBook = async (userId: number, query: any) => {
 // row per attendance record so it can be opened directly as a payroll-style
 // register. Scoped to childIds only (never includes the caller's own
 // attendance), same ownership rule as attendanceBook/markAttendancePresent.
-export const exportAttendanceReportExcel = async (loggedInId: number, query: any) => {
-  const childIds = await getAllChildUserIds(loggedInId);
+export const exportAttendanceReportExcel = async (loggedInId: number, callerCompanyId: number | null, query: any) => {
+  // FIX: was getAllChildUserIds — the unscoped hierarchy exported the OTHER
+  // company's employees (and let ?userId= target them) for an admin/manager
+  // assigned to more than one company. Scoped to the company they're
+  // currently acting in; no resolvable company context behaves as before.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (!childIds.length) {
     throw new ServiceError("No child users found");
   }
@@ -731,7 +755,13 @@ export const bulkMarkAttendance = async (
     }
   }
 
-  const childIds = await getAllChildUserIds(loggedInId);
+  // FIX: was getAllChildUserIds — the unscoped hierarchy meant a sheet row
+  // naming an employee of the OTHER company (for an admin/manager assigned to
+  // more than one) was accepted and written instead of being reported under
+  // skippedNotInTeam. Scoped to the company this upload is being made in —
+  // the same companyId already used above to resolve the leave types and
+  // overtime policy; no resolvable company context behaves as before.
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, companyId ? Number(companyId) : null);
   const allowedIds = new Set<number>([loggedInId, ...childIds]);
 
   const skippedNonNumericEmployeeId: any[] = [];

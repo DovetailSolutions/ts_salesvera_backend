@@ -48,7 +48,7 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
-import { getAllChildUserIds } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds } from "../../modules/shared/userHierarchy";
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
 import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
@@ -481,7 +481,13 @@ export const MySalePerson = async (
       if (shiftId) where.shiftId = Number(shiftId);
       if (branchId) where.branchId = Number(branchId);
 
-      const childIds = await getAllChildUserIds(Number(userData.userId));
+      // FIX: was getAllChildUserIds (pure who-created-whom, no notion of
+      // company) — a manager assigned to more than one company kept seeing
+      // every person they ever created, including the other company's
+      // employees, after switching company. Scope the recursive team to the
+      // company this token is currently acting in.
+      const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+      const childIds = await getCompanyScopedChildUserIds(Number(userData.userId), callerCompanyId);
       if (childIds.length === 0) {
         createSuccess(res, "My sale persons", { page: pageNum, limit: limitNum, total: 0, rows: [] });
         return;
@@ -3734,7 +3740,7 @@ export const getDashboardMobile = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId, role } = req.userData as JwtPayload;
+    const { userId, role, companyId } = req.userData as JwtPayload;
 
     // Role-based scope, same endpoint: a manager's mobile home screen needs
     // team HR-ops KPIs (team size, present today, pending leave/expense
@@ -3752,9 +3758,16 @@ export const getDashboardMobile = async (
     // does not exist" — a pre-existing bug, unrelated to the role-branch
     // above) for every caller that reaches this line. Same root cause and
     // same fix already applied to getSalesPerformance below: self + the
-    // correct getAllChildUserIds recursive-descendants helper. For
-    // sale_person (no descendants) this is simply self-only.
-    const allUserIds = [Number(userId), ...(await getAllChildUserIds(Number(userId)))];
+    // correct recursive-descendants helper. For sale_person (no
+    // descendants) this is simply self-only.
+    //
+    // Company-scoped: getAllChildUserIds knows nothing about companies, so a
+    // caller assigned to two companies kept counting the other company's
+    // documents after switching company. getCompanyScopedChildUserIds drops
+    // descendants that positively belong to a different company (and keeps
+    // anyone whose company membership is indeterminate).
+    const callerCompanyId = companyId ? Number(companyId) : null;
+    const allUserIds = [Number(userId), ...(await getCompanyScopedChildUserIds(Number(userId), callerCompanyId))];
 
     const commonFilter = {
       userId: { [Op.in]: allUserIds },
@@ -3789,11 +3802,55 @@ export const getDashboardMobile = async (
       where: commonFilter,
     });
 
+    // ── New fields: shift, presentDays, casualLeaves ──────────────────
+    // 1. Employee's assigned shift
+    const userWithShift = await User.findByPk(Number(userId), {
+      attributes: ["id"],
+      include: [{ model: Shift, as: "shift" }],
+    });
+    const shift = (userWithShift as any)?.shift ?? null;
+
+    // 2. Days present in the current month (IST-safe boundaries)
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+    const istYear = nowIST.getUTCFullYear();
+    const istMonth = nowIST.getUTCMonth(); // 0-based
+    const mm = String(istMonth + 1).padStart(2, "0");
+    const startDateStr = `${istYear}-${mm}-01`;
+    const lastDay = new Date(Date.UTC(istYear, istMonth + 1, 0)).getUTCDate();
+    const endDateStr = `${istYear}-${mm}-${String(lastDay).padStart(2, "0")}`;
+
+    const presentDays = await Attendance.count({
+      where: {
+        employee_id: Number(userId),
+        status: { [Op.in]: ["present", "out"] },
+        date: { [Op.between]: [startDateStr, endDateStr] },
+      },
+    });
+
+    // 3. Casual leave balance for the current year
+    const leaveBalance = await EmployeeLeaveBalance.findOne({
+      where: {
+        employeeId: Number(userId),
+        year: istYear,
+      },
+    });
+    const casualLeaves = leaveBalance
+      ? {
+          allocated: leaveBalance.casualLeaveAllocated,
+          used: leaveBalance.casualLeaveUsed,
+          remaining: leaveBalance.casualLeaveAllocated - leaveBalance.casualLeaveUsed,
+        }
+      : { allocated: 0, used: 0, remaining: 0 };
+
     createSuccess(res, "Dashboard data fetched successfully", {
       saleordercount,
       perfomaInvoice,
       invoice,
       Reports,
+      shift,
+      presentDays,
+      casualLeaves,
     });
   } catch (error) {
     console.error(error);
@@ -3813,16 +3870,22 @@ export const getSalesPerformance = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { userId, role } = req.userData as JwtPayload;
+    const { userId, role, companyId } = req.userData as JwtPayload;
     const finalUserId = Number(userId);
 
     // Role-based scope: a manager sees their whole team's completion rate
-    // (self + recursive sale_person reports, same getAllChildUserIds scope
-    // every other team-oversight endpoint uses); every other role
-    // (sale_person) keeps the original self-only behavior unchanged.
+    // (self + recursive sale_person reports, same team scope every other
+    // team-oversight endpoint uses); every other role (sale_person) keeps
+    // the original self-only behavior unchanged.
+    //
+    // Company-scoped: a manager assigned to more than one company must only
+    // see the meetings of the team belonging to the company this token is
+    // currently acting in — getAllChildUserIds alone leaked the other
+    // company's employees into these numbers.
+    const callerCompanyId = companyId ? Number(companyId) : null;
     const scopeUserIds =
       role === "manager"
-        ? [finalUserId, ...(await getAllChildUserIds(finalUserId))]
+        ? [finalUserId, ...(await getCompanyScopedChildUserIds(finalUserId, callerCompanyId))]
         : [finalUserId];
 
     const range = String(req.query.range || "week").toLowerCase();

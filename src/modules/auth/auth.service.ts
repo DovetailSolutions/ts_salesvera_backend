@@ -65,6 +65,15 @@ export const register = async (body: any, callerData?: { userId?: number | strin
   // createdBy (when supplied) must be the caller themself or one of their
   // own subordinates — otherwise a caller could attribute the new account
   // to an arbitrary user in a completely different tenant.
+  //
+  // Deliberately the UNSCOPED hierarchy (not getCompanyScopedChildUserIds):
+  // this gates who may CREATE/LINK an account, not what team data anyone can
+  // see. An admin/manager assigned to several companies legitimately creates
+  // staff under a subordinate of any of their own companies, and the branch/
+  // shift defaults below are resolved from the CREATOR's company (not the
+  // caller's active token company) anyway — narrowing this to the token's
+  // company would reject that supported flow without closing any cross-tenant
+  // hole, since the subordinate must still be inside the caller's own tree.
   if (role !== "super_admin" && primaryCreatorId && !isNaN(primaryCreatorId) && primaryCreatorId !== callerId) {
     const childIds = await getAllChildUserIds(callerId!);
     if (!childIds.includes(primaryCreatorId)) {
