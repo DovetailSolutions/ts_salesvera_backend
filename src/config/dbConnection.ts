@@ -38,6 +38,7 @@ import { CompanyModell } from "../app/model/company";
 import { CompanyManagerModel } from "../app/model/companyManager";
 import { CompanyAdminModel } from "../app/model/companyAdmin";
 import { BranchModel } from "../app/model/branch";
+import { UserBranchModel } from "../app/model/userBranch";
 import { ShiftModel } from "../app/model/shift";
 import { DepartmentModel } from "../app/model/department";
 import { HolidayModel } from "../app/model/holiday";
@@ -131,6 +132,7 @@ const Company = CompanyModell(sequelize);
 const CompanyManager = CompanyManagerModel(sequelize);
 const CompanyAdmin = CompanyAdminModel(sequelize);
 const Branch = BranchModel(sequelize);
+const UserBranch = UserBranchModel(sequelize);
 
 const Department = DepartmentModel(sequelize);
 const Holiday = HolidayModel(sequelize);
@@ -293,6 +295,26 @@ Branch.hasMany(User, {
   foreignKey: "branchId",
   as: "branch",
 });
+
+// Full multi-branch allocation (admin/manager can hold several branches).
+// User.branchId above remains the PRIMARY branch and is unchanged — this
+// junction records the complete set. Aliases are deliberately distinct
+// ("allocatedBranches"/"allocatedUsers") so nothing that already includes
+// the singular "branch" association is affected.
+User.belongsToMany(Branch, {
+  through: UserBranch,
+  as: "allocatedBranches",
+  foreignKey: "userId",
+  otherKey: "branchId",
+});
+Branch.belongsToMany(User, {
+  through: UserBranch,
+  as: "allocatedUsers",
+  foreignKey: "branchId",
+  otherKey: "userId",
+});
+UserBranch.belongsTo(User, { foreignKey: "userId", as: "user" });
+UserBranch.belongsTo(Branch, { foreignKey: "branchId", as: "branch" });
 
 Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
 Department.belongsTo(Company, { foreignKey: "companyId", as: "company" });
@@ -613,6 +635,32 @@ const ensureColumns = async (sequelize: Sequelize) => {
     `);
   } catch (err) {
     console.error(`❌ Error creating table company_managers:`, err);
+  }
+
+  // ✅ Ensure user_branches junction table exists (many-to-many: user ↔ branch)
+  try {
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "user_branches" (
+        "id" SERIAL PRIMARY KEY,
+        "userId" INTEGER NOT NULL,
+        "branchId" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "user_branches_unique" UNIQUE ("userId", "branchId")
+      );
+    `);
+    // Backfill from the existing single-branch column so every already-
+    // assigned user shows up in the junction immediately — otherwise the
+    // new allocation APIs would report existing staff as having no branch.
+    await sequelize.query(`
+      INSERT INTO "user_branches" ("userId", "branchId", "createdAt", "updatedAt")
+      SELECT u."id", u."branchId", CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      FROM "users" u
+      WHERE u."branchId" IS NOT NULL
+      ON CONFLICT ("userId", "branchId") DO NOTHING;
+    `);
+  } catch (err) {
+    console.error(`❌ Error creating table user_branches:`, err);
   }
 
   // ✅ Ensure company_banks table exists (new table added to model)
@@ -1117,6 +1165,7 @@ export {
   CompanyManager,
   CompanyAdmin,
   Branch,
+  UserBranch,
   Shift,
   Department,
   Holiday,

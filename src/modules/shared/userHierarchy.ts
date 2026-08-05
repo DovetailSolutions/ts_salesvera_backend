@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { User, Company, CompanyManager, CompanyAdmin, Branch } from "../../config/dbConnection";
+import { User, Company, CompanyManager, CompanyAdmin, Branch, UserBranch } from "../../config/dbConnection";
 
 type UserWithChildren = any & {
   createdUsers?: UserWithChildren[];
@@ -111,6 +111,31 @@ const collectUserCompanyIds = async (
     if (u.branchId == null) return;
     add(Number(u.id), companyIdByBranch.get(Number(u.branchId)) ?? null);
   });
+
+  // Additional branches from the multi-branch allocation junction — an
+  // admin/manager may hold several branches (User.branchId only records
+  // their primary one), and each of those branches implies membership of
+  // its company. Without this, allocating a second branch would leave the
+  // user unable to see that branch's company data.
+  const allocated: any[] = await (UserBranch as any).findAll({
+    where: { userId: { [Op.in]: userIds } },
+    attributes: ["userId", "branchId"],
+  });
+  if (allocated.length > 0) {
+    const extraBranchIds = Array.from(
+      new Set(allocated.map((r: any) => Number(r.branchId)).filter((b) => !companyIdByBranch.has(b)))
+    );
+    if (extraBranchIds.length > 0) {
+      const extraBranches: any[] = await (Branch as any).findAll({
+        where: { id: { [Op.in]: extraBranchIds } },
+        attributes: ["id", "companyId"],
+      });
+      extraBranches.forEach((b: any) =>
+        companyIdByBranch.set(Number(b.id), b.companyId == null ? null : Number(b.companyId))
+      );
+    }
+    allocated.forEach((r: any) => add(Number(r.userId), companyIdByBranch.get(Number(r.branchId)) ?? null));
+  }
 
   managerLinks.forEach((r: any) => add(Number(r.managerId), r.companyId));
   adminLinks.forEach((r: any) => add(Number(r.adminId), r.companyId));
