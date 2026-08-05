@@ -3859,30 +3859,38 @@ export const getDashboardMobile = async (
         }
       : { allocated: 0, used: 0, remaining: 0 };
 
-    // Personal fields every role gets on their own mobile home screen.
-    const personal = { shift, presentDays, casualLeaves };
-
-    // Role-aware payload, one endpoint:
-    //  - manager: their team's HR-ops KPIs (identical numbers to
-    //    /admin/dashboard-summary) PLUS their own personal fields — a
-    //    manager is an employee too and still has a shift, attendance and
-    //    a leave balance to see.
-    //  - everyone else (sale_person / tenant user): the original
-    //    quotation/invoice/report counts, unchanged, plus the same
-    //    personal fields.
-    if (role === "manager") {
-      const summary = await AdminController.buildDashboardSummary(req.userData as JwtPayload);
-      createSuccess(res, "Dashboard data fetched successfully", { ...summary, ...personal });
-      return;
-    }
-
-    createSuccess(res, "Dashboard data fetched successfully", {
+    // Same endpoint, same field names, richer scope for a manager — the
+    // pattern every role-aware /api route here follows: a sale_person gets
+    // exactly what they always got, a manager gets the team-scoped version
+    // of the SAME payload with their oversight numbers added on top.
+    //
+    // The four counts above are already team-scoped for a manager (allUserIds
+    // is self + company-scoped descendants), so the mobile home screen's
+    // existing tiles keep working unchanged for both roles — for a manager
+    // they simply cover the whole team instead of one person. Previously the
+    // manager branch discarded them entirely and returned only HR KPIs,
+    // leaving those tiles empty.
+    const base = {
       saleordercount,
       perfomaInvoice,
       invoice,
       Reports,
-      ...personal,
-    });
+      // Personal fields — every role sees their own shift, attendance and
+      // leave balance, a manager included.
+      shift,
+      presentDays,
+      casualLeaves,
+    };
+
+    if (role === "manager") {
+      // Superset: the shared tiles above (team-scoped) + the team HR-ops
+      // KPIs, the identical numbers /admin/dashboard-summary serves.
+      const summary = await AdminController.buildDashboardSummary(req.userData as JwtPayload);
+      createSuccess(res, "Dashboard data fetched successfully", { ...base, ...summary });
+      return;
+    }
+
+    createSuccess(res, "Dashboard data fetched successfully", base);
   } catch (error) {
     console.error(error);
     badRequest(

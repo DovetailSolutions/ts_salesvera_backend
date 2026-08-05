@@ -929,19 +929,29 @@ No params. For `sale_person`: unchanged — scoped to self (no descendants to in
 - `Reports` = active `Report` rows.
 (Field name casing is inconsistent as returned — `perfomaInvoice`/`Reports` are not typos to "fix" client-side, that's the literal JSON key.)
 
-For `manager`: the SAME URL returns their team's HR-ops KPIs (the identical numbers `/admin/dashboard-summary` serves, §11) **merged with the same three personal fields** a sale_person gets — a manager is an employee too and still has their own shift, attendance and leave balance to show on their home screen. The quotation/invoice counts are replaced by the team KPIs; `shift`/`presentDays`/`casualLeaves` are present for **both** roles.
+For `manager`: the SAME URL returns a **superset** — every field a `sale_person` gets, plus the team HR-ops KPIs (the identical numbers `/admin/dashboard-summary` serves, §11) on top. Nothing is replaced or removed:
 
-> **Changed 2026-08-04** — this previously delegated wholesale to the summary handler, which silently dropped `shift`, `presentDays` and `casualLeaves` from a manager's response. If your client reads those fields, they are now populated for managers as well.
+| Field group | `sale_person` | `manager` |
+|---|---|---|
+| `saleordercount` / `perfomaInvoice` / `invoice` / `Reports` | own documents | **same field names, whole team's documents** |
+| `shift` / `presentDays` / `casualLeaves` | own | own (a manager is an employee too) |
+| `teamMemberCount` / `presentCount` / `pendingLeaveApprovalCount` / `pendingExpenseCount` / `meetingsThisWeekCount` / `completedQuotationCount` / `completedInvoiceCount` / `kpis` | — | team HR-ops KPIs |
+
+This means the mobile home screen's existing tiles need **no per-role branching** — bind them once and a manager simply sees their whole team's numbers instead of their own. Add the KPI block as extra manager-only cards.
+
+> **Changed 2026-08-04** — this previously delegated wholesale to the summary handler, so a manager's response contained *only* the KPI block: `saleordercount`/`perfomaInvoice`/`invoice`/`Reports` (leaving those tiles empty) and `shift`/`presentDays`/`casualLeaves` were all silently dropped. All seven are now present for managers. Purely additive — no field was removed or renamed for either role.
 
 Live-verified:
 ```json
 { "success": true, "message": "Dashboard data fetched successfully",
-  "data": { "teamMemberCount": 2, "presentCount": 1, "pendingLeaveApprovalCount": 0, "pendingExpenseCount": 1, "meetingsThisWeekCount": 0,
+  "data": {
+    "saleordercount": 0, "perfomaInvoice": 0, "invoice": 0, "Reports": 0,
+    "shift": null, "presentDays": 0, "casualLeaves": { "allocated": 0, "used": 0, "remaining": 0 },
+    "teamMemberCount": 2, "presentCount": 1, "pendingLeaveApprovalCount": 0, "pendingExpenseCount": 1, "meetingsThisWeekCount": 0,
     "completedQuotationCount": 0, "completedInvoiceCount": 0,
     "kpis": { "attendanceRateLast7Days": 7.1, "punctualityRateLast30Days": 77.8,
       "taskStats": { "total": 2, "completed": 0, "overdue": 1, "completionRate": 0 },
-      "leaveUtilizationRate": null, "headcountByBranch": [ { "branchId": 14, "count": 1 }, { "branchId": 15, "count": 1 } ] },
-    "shift": null, "presentDays": 0, "casualLeaves": { "allocated": 0, "used": 0, "remaining": 0 } } }
+      "leaveUtilizationRate": null, "headcountByBranch": [ { "branchId": 14, "count": 1 }, { "branchId": 15, "count": 1 } ] } } }
 ```
 This is the best single source for a manager's mobile home-screen KPI row — every number is already server-computed and recursively team-scoped. Don't re-derive any of these client-side from raw attendance/leave/expense list endpoints (a real bug in the web app's manager dashboard did exactly that and silently showed near-empty data — see the commit history around 2026-08-03 for the full root-cause list if useful context).
 
