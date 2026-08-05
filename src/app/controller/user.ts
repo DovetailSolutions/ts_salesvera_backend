@@ -1979,9 +1979,20 @@ export const ReFressToken = async (
       badRequest(res, "User not found");
       return;
     }
+    // FIX: this used to omit companyId entirely, so every refresh silently
+    // dropped it from the new token — breaking company-scoped REST endpoints
+    // and (worse) throwing inside the task socket handler, which does
+    // Number(companyId) on it unconditionally. Carry it forward from the
+    // token being refreshed; for a session whose token already lost it
+    // (already deployed instances of this bug), fall back to the user's
+    // lastLoginCompanyId so it self-heals on next refresh instead of staying
+    // broken until the next full login.
+    const carriedCompanyId =
+      (userData as any)?.companyId ?? (user.getDataValue("lastLoginCompanyId") as number | null) ?? null;
     const { accessToken, refreshToken } = Middleware.CreateToken(
       String(user.getDataValue("id")),
-      String(user.getDataValue("role"))
+      String(user.getDataValue("role")),
+      carriedCompanyId
     );
 
     // update refresh token in DB
