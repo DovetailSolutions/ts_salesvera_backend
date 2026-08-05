@@ -661,7 +661,22 @@ export const withuserlogin = async (
   include: any[] = []
 ) => {
   try {
-    const { page = 1, limit = 10, month, year, search, ...filters } = data;
+    // FIX: `limit` defaulted to 10 unconditionally. The only caller of this
+    // helper is the attendance list, which the mobile app drives as a MONTH
+    // CALENDAR (?month=&year=) — so a normal employee with ~22-26 attendance
+    // days silently got only the 10 most recent, and the rest of their
+    // calendar rendered blank. When a specific month is requested and the
+    // caller didn't ask for an explicit page size, return the whole month
+    // (31 covers the longest month). An explicit ?limit= is still honoured.
+    const { page = 1, limit: rawLimit, month, year, search, ...filters } = data;
+    const requestedLimit =
+      rawLimit === undefined || rawLimit === null || rawLimit === "" ? null : Number(rawLimit);
+    const limit =
+      requestedLimit !== null && Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? requestedLimit
+        : month && year
+        ? 31
+        : 10;
 
     const whereConditions: any = {};
 
@@ -714,15 +729,21 @@ export const withuserlogin = async (
 
     const offset = (Number(page) - 1) * Number(limit);
 
-    const rows = await model.findAll({
+    // FIX: was findAll + `count = rows.length` — that counts only the rows on
+    // the CURRENT page, so totalRecords could never exceed `limit` and
+    // totalPages was always 1. A client paginating on that metadata could
+    // never discover, let alone reach, page 2. findAndCountAll returns the
+    // true total for the same where-clause. `distinct: true` keeps the count
+    // correct if a caller ever passes a hasMany include (would otherwise
+    // count one row per joined child).
+    const { rows, count } = await model.findAndCountAll({
       where: whereConditions,
       include,
       limit: Number(limit),
       offset,
       order: [["createdAt", "DESC"]],
+      distinct: true,
     });
-
-    const count = rows.length;
 
     return {
       success: true,
