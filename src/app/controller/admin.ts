@@ -610,6 +610,8 @@ export const getMeeting = async (
       search = "",
       userId,
       date,
+      startDate,
+      endDate,
       empty,
     } = req.query;
     const userData = req.userData as JwtPayload;
@@ -671,29 +673,64 @@ export const getMeeting = async (
       where.userId = { [Op.in]: allowedIds };
     }
 
+    // FIX: was `personName` — MeetingUser has no such column (that field
+    // only exists on the separate MeetingCompany model), so this crashed
+    // every search with a 400 "column MeetingUser.personName does not
+    // exist" the moment the team search box's text was also sent through
+    // as the meetings search param. MeetingUser's actual client-name column
+    // is `name`.
     if (search) {
       where[Op.or] = [
         { companyName: { [Op.iLike]: `%${search}%` } },
-        { personName: { [Op.iLike]: `%${search}%` } },
+        { name: { [Op.iLike]: `%${search}%` } },
       ];
     }
 
-    /** ✅ Filter by Date (IST calendar day) */
-    // FIX: was setUTCHours(0/23,...) — a UTC calendar day is offset 5:30h
-    // from the real IST business day this business operates in, so a
-    // "date=2026-08-01" filter silently excluded that morning's meetings
-    // before 5:30 AM IST (they fell in the previous UTC day) and instead
-    // pulled in meetings from the following IST morning. Resolve which IST
-    // calendar day the input represents, then build the boundary from that
-    // via the explicit-offset helpers so this is correct regardless of
-    // server timezone too.
+    // FIX: `meetingTimeIn`/`meetingTimeOut` live on the child Meeting model
+    // (one client can have many visits), not on MeetingUser itself — filtering
+    // `where.meetingTimeIn` directly on the MeetingUser query crashed every
+    // "Today"/"Yesterday" tab with a 400 "column MeetingUser.meetingTimeIn
+    // does not exist", and the "Range" (startDate/endDate) filter was never
+    // read at all, so it silently had no effect. Both are resolved into a
+    // single IST-aware window, then applied two ways below: (1) to select
+    // which clients qualify — a client matches if ANY of their visits falls
+    // in the window — and (2) to scope which of that client's visits are
+    // actually returned, so "Visits" count / "Last Check-in" / "Last
+    // Check-out" reflect the selected filter instead of always showing the
+    // client's all-time history regardless of which date tab is active.
+    let meetingTimeWindow: { [key: symbol]: any } | null = null;
     if (date) {
-      where.meetingTimeIn = {
+      // FIX: was setUTCHours(0/23,...) — a UTC calendar day is offset 5:30h
+      // from the real IST business day this business operates in, so a
+      // "date=2026-08-01" filter silently excluded that morning's meetings
+      // before 5:30 AM IST (they fell in the previous UTC day) and instead
+      // pulled in meetings from the following IST morning. Resolve which IST
+      // calendar day the input represents, then build the boundary from that
+      // via the explicit-offset helpers so this is correct regardless of
+      // server timezone too.
+      meetingTimeWindow = {
         [Op.between]: [
           getISTDayBoundary(String(date), "start"),
           getISTDayBoundary(String(date), "end"),
         ],
       };
+    } else if (startDate || endDate) {
+      const filter = getDateFilter({ startDate, endDate });
+      if (Object.keys(filter).length > 0) meetingTimeWindow = filter;
+    }
+
+    if (meetingTimeWindow) {
+      const matches = (await Meeting.findAll({
+        where: { meetingTimeIn: meetingTimeWindow, userId: { [Op.in]: allowedIds } },
+        attributes: ["meetingUserId"],
+        group: ["meetingUserId"],
+        raw: true,
+      })) as any[];
+      const matchingIds = matches.map((m) => m.meetingUserId).filter((id) => id != null);
+      // No matches is a legitimate "nothing in this window" result, not
+      // "ignore the filter" — Op.in: [] would do the latter in some dialects,
+      // so force an always-false condition instead.
+      where.id = { [Op.in]: matchingIds.length > 0 ? matchingIds : [-1] };
     }
 
     const { rows, count } = await MeetingUser.findAndCountAll({
@@ -712,6 +749,14 @@ export const getMeeting = async (
       include: [
         {
           model: Meeting, // joined via Meeting.meetingUserId -> MeetingUser.id
+          // `separate: true` runs this as its own query per returned client
+          // rather than a JOIN — needed so its own `where` here narrows which
+          // visits come back without ALSO corrupting the outer LIMIT/OFFSET
+          // (a hasMany include with a `where` and a JOIN can silently drop or
+          // duplicate parent rows once paginated).
+          separate: true,
+          ...(meetingTimeWindow ? { where: { meetingTimeIn: meetingTimeWindow } } : {}),
+          order: [["meetingTimeIn", "DESC"]],
         },
       ],
       distinct: true, // avoid inflated count from the hasMany join
