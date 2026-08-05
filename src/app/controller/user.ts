@@ -3297,11 +3297,25 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const recordSaleData = await RecordSales.findAll({
-      where: {
-        userId: userData.userId,
-      }
-    });
+    // Company isolation — this list is already self-scoped, but a user who
+    // belongs to more than one company would otherwise carry their own
+    // record-sales from one company into the other after switching. Scope
+    // by the row's own companyId, failing OPEN for rows whose company is
+    // unknown so nothing existing is hidden (same convention as
+    // getCompanyScopedChildUserIds / the quotation+invoice lists).
+    //
+    // NOTE: unlike quotations/invoices (which the Tally sync stamps with a
+    // real companyId), recordSale's own create path writes
+    // `companyId: data.companyId || 0` — so 0, not NULL, is this table's
+    // "no company" sentinel. Both must count as unknown here, otherwise
+    // every legacy row would silently disappear from the list.
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const recordSaleWhere: any = { userId: userData.userId };
+    if (callerCompanyId) {
+      recordSaleWhere.companyId = { [Op.or]: [callerCompanyId, null, 0] };
+    }
+
+    const recordSaleData = await RecordSales.findAll({ where: recordSaleWhere });
     createSuccess(res, "Record sale list fetched successfully", recordSaleData);
   } catch (error) {
     const errorMessage =
