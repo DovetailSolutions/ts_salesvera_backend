@@ -3256,6 +3256,21 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
       }
     };
 
+    // Company isolation — an admin/manager assigned to more than one company
+    // must not keep seeing another company's quotations after switching.
+    // The hierarchy walk above is company-blind (it only knows who created
+    // whom), so scope by the quotation's own companyId, which is the
+    // authoritative owner.
+    //
+    // Deliberately fails OPEN on NULL: legacy/Tally-synced rows may predate
+    // companyId being stamped, and hiding every such row would be far worse
+    // than showing it. Only rows that positively belong to a DIFFERENT
+    // company are excluded — same convention as getCompanyScopedChildUserIds.
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    if (callerCompanyId) {
+      whereCondition.companyId = { [Op.or]: [callerCompanyId, null] };
+    }
+
 
 
     // ✅ Status filter
@@ -4052,6 +4067,16 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
         [Op.notIn]: canViewDraft ? ["cancelled", "deleted"] : ["cancelled", "deleted", "draft"]
       }
     };
+
+    // Company isolation — see the matching comment in getQuotationPdfList2.
+    // The hierarchy walk above is company-blind, so also scope by the
+    // invoice's own companyId. Fails OPEN on NULL so legacy/Tally-synced
+    // rows that predate companyId being stamped are never hidden; only
+    // rows positively belonging to a DIFFERENT company are excluded.
+    const callerCompanyIdForInvoice = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    if (callerCompanyIdForInvoice) {
+      whereCondition.companyId = { [Op.or]: [callerCompanyIdForInvoice, null] };
+    }
 
 
     
