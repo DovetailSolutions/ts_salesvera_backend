@@ -68,9 +68,18 @@ export async function getAllChildUserIds(userId: number): Promise<number[]> {
 // Company.adminId/Company.userId ownership. A user legitimately linked to
 // several companies (e.g. a manager assigned to two) stays visible in each
 // of them.
-const collectUserCompanyIds = async (userIds: number[]): Promise<Map<number, Set<number>>> => {
+const collectUserCompanyIds = async (
+  userIds: number[],
+  // Cycle/runaway guard for the creator-chain fallback below. A malformed
+  // creator loop in the data (A created B, B created A) would otherwise
+  // recurse forever; `visited` makes each account resolvable at most once
+  // per top-level call, and the depth cap bounds a pathologically deep tree.
+  visited: Set<number> = new Set<number>(),
+  depth = 0
+): Promise<Map<number, Set<number>>> => {
   const map = new Map<number, Set<number>>();
-  if (userIds.length === 0) return map;
+  if (userIds.length === 0 || depth > 10) return map;
+  userIds.forEach((id) => visited.add(Number(id)));
 
   const add = (userId: number, companyId: number | null | undefined) => {
     if (companyId == null) return;
@@ -109,6 +118,50 @@ const collectUserCompanyIds = async (userIds: number[]): Promise<Map<number, Set
     if (c.adminId != null) add(Number(c.adminId), c.id);
     if (c.userId != null) add(Number(c.userId), c.id);
   });
+
+  // ── Fallback: inherit the company from whoever created them ──────────
+  // branchId is the primary company signal for a sale_person, but it is
+  // only reliably populated on accounts created after it started being
+  // defaulted at registration — a large share of existing accounts still
+  // have branchId = null and no junction row of their own, leaving their
+  // company genuinely indeterminate above. Since every account is created
+  // BY somebody who does have a resolvable company, walking one step up
+  // the creator chain recovers it: an employee belongs to whatever company
+  // their creator belongs to.
+  //
+  // Only applied when the creator resolves to EXACTLY ONE company. If the
+  // creator is themselves multi-company (e.g. a manager assigned to two),
+  // the employee's company is genuinely ambiguous from the data alone, so
+  // we leave them indeterminate and keep failing open rather than guessing
+  // and hiding a legitimate team member.
+  const stillUnresolved = userIds.filter((id) => !map.has(id) || map.get(id)!.size === 0);
+  if (stillUnresolved.length > 0) {
+    const creatorRows: any[] = await (User as any).findAll({
+      where: { id: { [Op.in]: stillUnresolved } },
+      attributes: ["id"],
+      include: [{ model: User, as: "creators", attributes: ["id"], through: { attributes: [] } }],
+    });
+
+    const creatorIdByUser = new Map<number, number>();
+    creatorRows.forEach((row: any) => {
+      const plain = row.get ? row.get({ plain: true }) : row;
+      const creatorId = plain?.creators?.[0]?.id;
+      if (creatorId != null) creatorIdByUser.set(Number(plain.id), Number(creatorId));
+    });
+
+    const creatorIds = Array.from(new Set(creatorIdByUser.values())).filter((id) => !visited.has(id));
+    if (creatorIds.length > 0) {
+      // Recurse so a chain of unresolved accounts (sale_person -> manager
+      // -> admin) still terminates at the first ancestor that resolves.
+      const creatorCompanies = await collectUserCompanyIds(creatorIds, visited, depth + 1);
+      creatorIdByUser.forEach((creatorId, userId) => {
+        const companies = creatorCompanies.get(creatorId);
+        if (companies && companies.size === 1) {
+          add(userId, Array.from(companies)[0]);
+        }
+      });
+    }
+  }
 
   return map;
 };
