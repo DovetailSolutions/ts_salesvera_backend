@@ -237,3 +237,74 @@ export const bulkAssignShift = async (
     })),
   };
 };
+
+// ── API 3: read current allocation(s) ────────────────────────────────────
+// Powers both the "who's assigned where" table column (bulk, one round
+// trip for the whole page) and the per-person detail popup (single id) —
+// same shape either way, since the popup is just this same data.
+//
+// Viewing is a lighter bar than allocating: any caller may see their OWN
+// allocation, and otherwise the target need only be in the caller's
+// company-scoped team — no ASSIGNABLE_TARGET_ROLES check, since e.g. an
+// admin's team already legitimately spans both managers and sale_persons
+// and there's nothing sensitive about seeing where a team member is
+// currently posted (only about REASSIGNING them, which bulkAssignBranches/
+// Shift above still gate separately).
+export const getAllocations = async (
+  loggedInId: number,
+  callerRole: string | undefined,
+  callerCompanyId: number | null,
+  userIdsParam: any
+) => {
+  const userIds = parseIdList(userIdsParam, "userIds");
+
+  if (callerRole !== "super_admin") {
+    const teamIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const outsiders = userIds.filter((id) => id !== loggedInId && !teamIds.includes(id));
+    if (outsiders.length > 0) {
+      throw new ServiceError(
+        `These users are not in your team (or belong to another company): ${outsiders.join(", ")}`,
+        403
+      );
+    }
+  }
+
+  const [users, allocations] = await Promise.all([
+    (User as any).findAll({
+      where: { id: { [Op.in]: userIds } },
+      attributes: ["id", "branchId", "shiftId"],
+      include: [
+        { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"] },
+        { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"] },
+      ],
+    }),
+    (UserBranch as any).findAll({
+      where: { userId: { [Op.in]: userIds } },
+      include: [{ model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"] }],
+      order: [["branchId", "ASC"]],
+    }),
+  ]);
+
+  const branchesByUser = new Map<number, any[]>();
+  allocations.forEach((r: any) => {
+    const uid = Number(r.userId);
+    if (!branchesByUser.has(uid)) branchesByUser.set(uid, []);
+    if (r.branch) branchesByUser.get(uid)!.push({ id: r.branch.id, branchName: r.branch.branchName, branchCode: r.branch.branchCode });
+  });
+
+  const found = new Set(users.map((u: any) => Number(u.id)));
+  const missing = userIds.filter((id) => !found.has(id));
+  if (missing.length > 0) throw new ServiceError(`User(s) not found: ${missing.join(", ")}`);
+
+  return users.map((u: any) => ({
+    userId: Number(u.id),
+    primaryBranch: u.branch ? { id: u.branch.id, branchName: u.branch.branchName, branchCode: u.branch.branchCode } : null,
+    // Every branch this user is allocated to (the multi-branch junction) —
+    // for a sale_person this is always exactly [primaryBranch] or empty,
+    // since they can only ever hold one.
+    branches: branchesByUser.get(Number(u.id)) ?? (u.branch ? [{ id: u.branch.id, branchName: u.branch.branchName, branchCode: u.branch.branchCode }] : []),
+    shift: u.shift
+      ? { id: u.shift.id, shiftName: u.shift.shiftName, startTime: u.shift.startTime, endTime: u.shift.endTime }
+      : null,
+  }));
+};

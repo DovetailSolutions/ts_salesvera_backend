@@ -49,3 +49,24 @@ export const bulkAssignShift = async (req: Request, res: Response): Promise<void
     handleServiceError(res, error);
   }
 };
+
+// GET /admin/allocations?userIds=1,2,3 — current branch(es)/shift for one or
+// more users in a single round trip. Accepts either a comma-separated
+// string (the common query-param shape) or repeated userIds[] params.
+export const getAllocations = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const raw = req.query.userIds;
+    const userIds = typeof raw === "string" ? raw.split(",").map((s) => s.trim()).filter(Boolean) : raw;
+    const result = await AllocationService.getAllocations(
+      Number(userData?.userId),
+      userData?.role,
+      callerCompanyId,
+      userIds
+    );
+    createSuccess(res, "Allocations fetched successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};

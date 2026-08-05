@@ -497,6 +497,12 @@ export const MySalePerson = async (
       const { count, rows } = await User.findAndCountAll({
         where,
         attributes: ["id", "firstName", "lastName", "email", "phone", "role", "shiftId", "branchId"],
+        // branchId/shiftId were already selected but never joined to their
+        // names, so the manager's team table could show a raw id at best.
+        include: [
+          { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+          { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+        ],
         limit: limitNum,
         offset,
         order: [["firstName", "ASC"]],

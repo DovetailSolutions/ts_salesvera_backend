@@ -130,10 +130,18 @@ export const MySalePerson = async (
         {
           model: User,
           as: "createdUsers",
-          attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role"],
+          // FIX: branchId/shiftId (and the joined branch/shift names) were
+          // never selected here, so the manager's team table had no way to
+          // show — or even know — where each salesperson was currently
+          // posted.
+          attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "branchId", "shiftId"],
           through: { attributes: [] },
           where, // ✅ apply search
           required: false, // ✅ so user must exist even if none found
+          include: [
+            { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+            { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+          ],
         },
       ],
     });
@@ -292,6 +300,12 @@ export const GetAllUser = async (
           attributes: ["id", "companyName"],
           required: false,
         },
+        // FIX: branchId/shiftId were already selected but never joined to
+        // their names, so this list could show a raw id at best. Adds the
+        // names alongside the existing ids without changing what's returned
+        // for anyone who reads branchId/shiftId directly.
+        { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+        { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
       ],
     });
 
@@ -1150,6 +1164,11 @@ export const test = async (req: Request, res: Response): Promise<void> => {
         {
           model: User,
           as: "createdUsers",
+          // FIX: branchId/shiftId (and the joined branch/shift names) were
+          // never selected here at all, so an admin's team table had no way
+          // to show — or even know — where each manager/salesperson was
+          // currently posted. Added at both nesting levels (manager row,
+          // and the sale_persons nested under each manager).
           attributes: [
             "id",
             "employeeCode",
@@ -1159,12 +1178,16 @@ export const test = async (req: Request, res: Response): Promise<void> => {
             "phone",
             "role",
             "createdAt",
+            "branchId",
+            "shiftId",
           ],
           through: { attributes: [] },
           where: createdWhere,
           required: false,
           order: [["createdAt", "DESC"]],
           include: [
+            { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+            { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
             {
               model: User,
               as: "createdUsers",
@@ -1177,9 +1200,15 @@ export const test = async (req: Request, res: Response): Promise<void> => {
                 "phone",
                 "role",
                 "createdAt",
+                "branchId",
+                "shiftId",
               ],
               through: { attributes: [] },
               required: false,
+              include: [
+                { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+                { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+              ],
             },
           ],
         },

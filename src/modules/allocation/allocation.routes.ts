@@ -28,4 +28,11 @@ router.post(
   AllocationController.bulkAssignShift
 );
 
+router.get(
+  "/allocations",
+  tokenCheck,
+  authorizeRoles(...ADMIN_AND_MANAGER),
+  AllocationController.getAllocations
+);
+
 export default router;
