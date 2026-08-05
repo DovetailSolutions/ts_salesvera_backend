@@ -316,6 +316,34 @@ Branch.belongsToMany(User, {
 UserBranch.belongsTo(User, { foreignKey: "userId", as: "user" });
 UserBranch.belongsTo(Branch, { foreignKey: "branchId", as: "branch" });
 
+// Keep the allocation junction in sync with User.branchId (the primary
+// branch). Every path that assigns a branch — registration defaults, the
+// bulk employee upload, direct profile edits — flows through the model, so
+// hooking here means no caller has to remember to write the junction row,
+// and a user defaulted to the head branch shows up as allocated to it
+// immediately. Additive only: it never removes rows, so the multi-branch
+// allocations made via the allocation API are left alone.
+const syncPrimaryBranchAllocation = async (instance: any) => {
+  const userId = Number(instance?.id);
+  const branchId = instance?.branchId == null ? null : Number(instance.branchId);
+  if (!userId || !branchId) return;
+  try {
+    await (UserBranch as any).findOrCreate({
+      where: { userId, branchId },
+      defaults: { userId, branchId },
+    });
+  } catch (err) {
+    // Never let bookkeeping fail the user create/update itself.
+    console.error("syncPrimaryBranchAllocation failed:", err);
+  }
+};
+
+User.addHook("afterCreate", (instance: any) => syncPrimaryBranchAllocation(instance));
+User.addHook("afterUpdate", (instance: any) => {
+  if (typeof instance?.changed === "function" && !instance.changed("branchId")) return;
+  return syncPrimaryBranchAllocation(instance);
+});
+
 Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
 Department.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 
