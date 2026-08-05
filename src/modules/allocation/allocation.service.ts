@@ -157,8 +157,14 @@ export const bulkAssignBranches = async (
   const results: any[] = [];
   for (const target of targets) {
     const userId = Number(target.id);
+    const isSingleBranch = !MULTI_BRANCH_ROLES.includes(String(target.role));
 
-    if (mode === "replace") {
+    // The length check above only inspects the REQUEST. On its own that
+    // still let mode:"add" hand a sale_person a second branch one call at a
+    // time (each call passing a single id). The constraint has to hold on
+    // the RESULTING state, so a single-branch role always replaces — they
+    // end up holding exactly the one branch requested, never accumulating.
+    if (isSingleBranch || mode === "replace") {
       await (UserBranch as any).destroy({ where: { userId, branchId: { [Op.notIn]: branchIds } } });
     }
 
