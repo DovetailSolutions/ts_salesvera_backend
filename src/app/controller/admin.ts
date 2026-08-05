@@ -1620,12 +1620,14 @@ const getDateFilter = (query: any) => {
   return filter;
 };
 
-export const getDashboardSummary = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const userData = req.userData as JwtPayload;
+// Computes the team HR-ops summary and RETURNS it, rather than writing the
+// response. Extracted so other endpoints can embed the same numbers instead
+// of duplicating the computation — notably /api/dashboardmobile, which
+// merges these team KPIs with the caller's own personal fields for a
+// manager. getDashboardSummary below is unchanged in behaviour: it calls
+// this and serialises the result exactly as before.
+export const buildDashboardSummary = async (userData: JwtPayload) => {
+  {
     const loggedInId = userData.userId;
     const callerRole = userData?.role;
 
@@ -1827,30 +1829,40 @@ export const getDashboardSummary = async (
       count: Number(r.count),
     }));
 
+    return {
+      teamMemberCount: childIds.length,
+      presentCount,
+      pendingLeaveApprovalCount,
+      pendingExpenseCount,
+      meetingsThisWeekCount,
+      completedQuotationCount,
+      completedInvoiceCount,
+      kpis: {
+        attendanceRateLast7Days,
+        punctualityRateLast30Days,
+        taskStats: {
+          total: taskTotalCount,
+          completed: taskCompletedCount,
+          overdue: taskOverdueCount,
+          completionRate: taskTotalCount > 0 ? Math.round((taskCompletedCount / taskTotalCount) * 1000) / 10 : null,
+        },
+        leaveUtilizationRate,
+        headcountByBranch,
+      },
+    };
+  }
+};
+
+export const getDashboardSummary = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const data = await buildDashboardSummary(req.userData as JwtPayload);
     res.status(200).json({
       success: true,
       message: "Dashboard summary fetched successfully",
-      data: {
-        teamMemberCount: childIds.length,
-        presentCount,
-        pendingLeaveApprovalCount,
-        pendingExpenseCount,
-        meetingsThisWeekCount,
-        completedQuotationCount,
-        completedInvoiceCount,
-        kpis: {
-          attendanceRateLast7Days,
-          punctualityRateLast30Days,
-          taskStats: {
-            total: taskTotalCount,
-            completed: taskCompletedCount,
-            overdue: taskOverdueCount,
-            completionRate: taskTotalCount > 0 ? Math.round((taskCompletedCount / taskTotalCount) * 1000) / 10 : null,
-          },
-          leaveUtilizationRate,
-          headcountByBranch,
-        },
-      },
+      data,
     });
   } catch (error) {
     const errorMessage =

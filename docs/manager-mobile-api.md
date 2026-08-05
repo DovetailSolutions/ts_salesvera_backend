@@ -915,22 +915,33 @@ Two endpoints purpose-built for a mobile home screen — both `/api/*`, `tokenCh
 ### `GET /api/dashboardmobile` — top-of-screen KPI tiles — ⚠️ **role-aware, same URL for both roles** (updated 2026-08-03)
 No params. For `sale_person`: unchanged — scoped to self (no descendants to include).
 ```json
-{ "data": { "saleordercount": 12, "perfomaInvoice": 3, "invoice": 9, "Reports": 5 } }
+{ "data": { "saleordercount": 12, "perfomaInvoice": 3, "invoice": 9, "Reports": 5,
+            "shift": { "id": 11, "shiftName": "Morning Shift", "startTime": "09:30:00", "endTime": "18:30:00" },
+            "presentDays": 14,
+            "casualLeaves": { "allocated": 12, "used": 2, "remaining": 10 } } }
 ```
+- `shift` = the caller's own assigned shift (`null` if none assigned).
+- `presentDays` = their own days marked present/out in the **current IST month**.
+- `casualLeaves` = their own casual-leave balance for the current year.
 - `saleordercount` = active (non-cancelled/deleted) `Quotations` count.
 - `perfomaInvoice` = `Invoices` with `status IN (draft, imported)`.
 - `invoice` = `Invoices` with `status = accepted`.
 - `Reports` = active `Report` rows.
 (Field name casing is inconsistent as returned — `perfomaInvoice`/`Reports` are not typos to "fix" client-side, that's the literal JSON key.)
 
-For `manager`: the SAME URL now delegates entirely to the `dashboard-summary` handler (identical to `/admin/dashboard-summary`, §11) — a completely different, much richer response (team size, present-today, pending leave/expense approvals, meetings this week, attendance/punctuality/task-completion rates), **not** the quotation/invoice counts above. Live-verified:
+For `manager`: the SAME URL returns their team's HR-ops KPIs (the identical numbers `/admin/dashboard-summary` serves, §11) **merged with the same three personal fields** a sale_person gets — a manager is an employee too and still has their own shift, attendance and leave balance to show on their home screen. The quotation/invoice counts are replaced by the team KPIs; `shift`/`presentDays`/`casualLeaves` are present for **both** roles.
+
+> **Changed 2026-08-04** — this previously delegated wholesale to the summary handler, which silently dropped `shift`, `presentDays` and `casualLeaves` from a manager's response. If your client reads those fields, they are now populated for managers as well.
+
+Live-verified:
 ```json
-{ "success": true, "message": "Dashboard summary fetched successfully",
+{ "success": true, "message": "Dashboard data fetched successfully",
   "data": { "teamMemberCount": 2, "presentCount": 1, "pendingLeaveApprovalCount": 0, "pendingExpenseCount": 1, "meetingsThisWeekCount": 0,
     "completedQuotationCount": 0, "completedInvoiceCount": 0,
     "kpis": { "attendanceRateLast7Days": 7.1, "punctualityRateLast30Days": 77.8,
       "taskStats": { "total": 2, "completed": 0, "overdue": 1, "completionRate": 0 },
-      "leaveUtilizationRate": null, "headcountByBranch": [ { "branchId": 14, "count": 1 }, { "branchId": 15, "count": 1 } ] } } }
+      "leaveUtilizationRate": null, "headcountByBranch": [ { "branchId": 14, "count": 1 }, { "branchId": 15, "count": 1 } ] },
+    "shift": null, "presentDays": 0, "casualLeaves": { "allocated": 0, "used": 0, "remaining": 0 } } }
 ```
 This is the best single source for a manager's mobile home-screen KPI row — every number is already server-computed and recursively team-scoped. Don't re-derive any of these client-side from raw attendance/leave/expense list endpoints (a real bug in the web app's manager dashboard did exactly that and silently showed near-empty data — see the commit history around 2026-08-03 for the full root-cause list if useful context).
 

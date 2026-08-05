@@ -3763,10 +3763,12 @@ export const getDashboardMobile = async (
     // dashboard-summary handler (identical to /admin/dashboard-summary)
     // instead of duplicating that computation here. sale_person keeps the
     // original quotation/invoice/report counts below, unchanged.
-    if (role === "manager") {
-      await AdminController.getDashboardSummary(req, res);
-      return;
-    }
+    // NOTE: the manager branch is completed further down — it needs the
+    // same personal fields (shift / presentDays / casualLeaves) that a
+    // sale_person gets, so those are computed once for BOTH roles below and
+    // merged with the team KPIs. Delegating wholesale here (as this used to)
+    // returned only team numbers and silently dropped the manager's own
+    // shift, attendance and leave balance from their mobile home screen.
 
     // FIX: Middleware.getAllSubordinateIds throws ("column User.createdBy
     // does not exist" — a pre-existing bug, unrelated to the role-branch
@@ -3857,14 +3859,29 @@ export const getDashboardMobile = async (
         }
       : { allocated: 0, used: 0, remaining: 0 };
 
+    // Personal fields every role gets on their own mobile home screen.
+    const personal = { shift, presentDays, casualLeaves };
+
+    // Role-aware payload, one endpoint:
+    //  - manager: their team's HR-ops KPIs (identical numbers to
+    //    /admin/dashboard-summary) PLUS their own personal fields — a
+    //    manager is an employee too and still has a shift, attendance and
+    //    a leave balance to see.
+    //  - everyone else (sale_person / tenant user): the original
+    //    quotation/invoice/report counts, unchanged, plus the same
+    //    personal fields.
+    if (role === "manager") {
+      const summary = await AdminController.buildDashboardSummary(req.userData as JwtPayload);
+      createSuccess(res, "Dashboard data fetched successfully", { ...summary, ...personal });
+      return;
+    }
+
     createSuccess(res, "Dashboard data fetched successfully", {
       saleordercount,
       perfomaInvoice,
       invoice,
       Reports,
-      shift,
-      presentDays,
-      casualLeaves,
+      ...personal,
     });
   } catch (error) {
     console.error(error);
