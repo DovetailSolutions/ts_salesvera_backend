@@ -81,6 +81,13 @@ export const countNewClients = (employeeIds: number[], fromDate: Date, toDate: D
     where: { userId: { [Op.in]: employeeIds }, createdAt: { [Op.between]: [fromDate, toDate] } },
   });
 
+// All-time count, not windowed to any date range — the dashboard's other
+// numbers are all today/week/month, so there was previously no single
+// figure that just answered "how many meetings total" for the caller's
+// resolved scope (a manager's own team, or the whole company for admin).
+export const countAllMeetings = (employeeIds: number[]) =>
+  Meeting.count({ where: { userId: { [Op.in]: employeeIds } } });
+
 export const findEmployeesByIds = (employeeIds: number[]) =>
   User.findAll({
     where: { id: { [Op.in]: employeeIds } },

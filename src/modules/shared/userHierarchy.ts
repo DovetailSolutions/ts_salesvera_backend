@@ -68,7 +68,7 @@ export async function getAllChildUserIds(userId: number): Promise<number[]> {
 // Company.adminId/Company.userId ownership. A user legitimately linked to
 // several companies (e.g. a manager assigned to two) stays visible in each
 // of them.
-const collectUserCompanyIds = async (
+export const collectUserCompanyIds = async (
   userIds: number[],
   // Cycle/runaway guard for the creator-chain fallback below. A malformed
   // creator loop in the data (A created B, B created A) would otherwise
@@ -268,6 +268,61 @@ export async function getCompanyScopedChildUserIdsFast(
     if (!companies || companies.size === 0) return true;
     return companies.has(target);
   });
+}
+
+// Some listing endpoints (mobile category/quotation/invoice/report lists,
+// an admin's meeting dashboard) intentionally show the WHOLE company's
+// data, not just the caller's own subtree — e.g. every manager under the
+// same admin is meant to see the same shared category list, and an admin's
+// dashboard should reflect the whole company's activity. They used to
+// resolve this via getAllSubordinateIds (app/middlewear/comman.ts): climb
+// up to a single company root, then walk every descendant back down — with
+// NO company filtering on the way down at all, so an admin/manager assigned
+// to more than one company bled the OTHER company's data into whichever one
+// they're currently acting in. Same root cause getAllChildUserIds had, just
+// a separate, independently-written function that never got the same fix.
+//
+// This is that fix, generalized to "whole company" breadth instead of "just
+// my own subtree" — and walked from EVERY admin the company actually has
+// (the legacy single Company.adminId plus any additional admins via the
+// CompanyAdmin junction — the same multi-admin support already relied on
+// elsewhere, e.g. permission.ts's resolveRoleTargetUserIds), not just the
+// primary one. A company's additional admins are often independently
+// existing accounts assigned in later, not necessarily the primary admin's
+// own creator-descendants — anchoring on only Company.adminId would still
+// silently miss a second admin's own separately-created managers/
+// sale_persons, the same class of gap this function exists to close.
+export async function getCompanyScopedOrgWideUserIds(
+  callerId: number,
+  callerCompanyId: number | null | undefined
+): Promise<number[]> {
+  if (callerCompanyId == null) {
+    // No company context resolvable (e.g. super_admin with no active
+    // company) — fall back to the caller's own tree, same as before.
+    const own = await getCompanyScopedChildUserIds(callerId, null);
+    return [callerId, ...own];
+  }
+
+  const rootIds = new Set<number>();
+  const company = await Company.findByPk(Number(callerCompanyId), { attributes: ["adminId"] });
+  if (company?.adminId) rootIds.add(company.adminId);
+
+  const junctionAdmins = await (CompanyAdmin as any).findAll({
+    where: { companyId: Number(callerCompanyId) },
+    attributes: ["adminId"],
+  });
+  junctionAdmins.forEach((a: any) => rootIds.add(a.adminId));
+
+  // No admin on record at all for this company — fall back to the caller's
+  // own tree rather than returning nothing.
+  if (rootIds.size === 0) rootIds.add(callerId);
+
+  const idSets = await Promise.all(
+    Array.from(rootIds).map((rootId) => getCompanyScopedChildUserIds(rootId, callerCompanyId))
+  );
+  const merged = new Set<number>(rootIds);
+  idSets.flat().forEach((id) => merged.add(id));
+  return Array.from(merged);
 }
 
 // Returns the given user's immediate creator (one level up the createdBy

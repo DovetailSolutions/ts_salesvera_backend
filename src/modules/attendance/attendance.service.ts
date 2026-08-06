@@ -67,7 +67,14 @@ export const getAttendance = async (loggedInId: number, callerCompanyId: number 
   };
 };
 
-const LEAVE_STATUSES = ["leave", "leaveApproved", "leaveReject"];
+// FIX: "leaveReject" used to be in this set, which meant a REJECTED leave
+// request blocked correcting that day's attendance with the exact same
+// "reject/cancel the leave first" message — nonsensical, since a rejected
+// leave has nothing active left to cancel. Only a currently-active leave
+// commitment ("leave" = pending, "leaveApproved" = approved) should require
+// going through leave-cancellation first; a rejected one is just a normal
+// day again and should be freely correctable like any other.
+const LEAVE_STATUSES = ["leave", "leaveApproved"];
 
 // The single "Mark Attendance" action's outcome vocabulary — deliberately a
 // small fixed set of machine-friendly values (not bulk's free-text CSV
@@ -808,6 +815,12 @@ export const bulkMarkAttendance = async (
   const skippedUnknownStatus: { employeeId: number; date: string; status: any }[] = [];
   const skippedWrongShift: number[] = [];
   const skippedTooEarly: { employeeId: number; date: string; reason: string }[] = [];
+  // FIX: the "present" branch below used to overwrite ANY existing status
+  // unconditionally — including an active leave/leaveApproved day, which a
+  // blank cell (defaulting to "present") or a routine re-upload could
+  // silently clobber with no record of it happening. Same protection the
+  // single "Mark Attendance" action already has, applied here too.
+  const skippedActiveLeave: { employeeId: number; date: string; reason: string }[] = [];
 
   // "Employee ID" column holds each employee's human-facing code
   // (EMP00001, from the template's own "Employee ID" column) — resolved
@@ -945,6 +958,7 @@ export const bulkMarkAttendance = async (
       skippedUnknownStatus,
       skippedWrongShift,
       skippedTooEarly,
+      skippedActiveLeave,
     };
   }
 
@@ -976,6 +990,14 @@ export const bulkMarkAttendance = async (
     const empShiftForRow = resolveEmployeeShift(assignment.employee_id);
 
     if (assignment.status === "present") {
+      if (existing && LEAVE_STATUSES.includes(existing.status)) {
+        skippedActiveLeave.push({
+          employeeId: assignment.employee_id,
+          date: assignment.date,
+          reason: `Marked "${existing.status}" — reject/cancel the leave first before marking present.`,
+        });
+        continue;
+      }
       // Punch-in/out are derived from the employee's assigned shift, same
       // as the single "Mark Present" action — a typed punch-in time (e.g.
       // "09:15") overrides the shift's own start, but punch_out (and the
@@ -1020,6 +1042,14 @@ export const bulkMarkAttendance = async (
         } as any);
       }
     } else if (existing) {
+      if (LEAVE_STATUSES.includes(existing.status) && assignment.status !== "leave") {
+        skippedActiveLeave.push({
+          employeeId: assignment.employee_id,
+          date: assignment.date,
+          reason: `Marked "${existing.status}" — reject/cancel the leave first before marking ${String(assignment.status).replace("_", " ")}.`,
+        });
+        continue;
+      }
       // Bulk-marking overwrites the day's status directly; punch-derived
       // fields from any prior real punch no longer apply and must be
       // cleared, or they end up contradicting the new status (e.g.
@@ -1041,7 +1071,11 @@ export const bulkMarkAttendance = async (
   await AttendanceRepo.saveBulkAttendance(toUpdate, toCreate);
 
   return {
-    applied: assignments.length,
+    // FIX: was assignments.length — that counted every row that reached this
+    // stage, but a row can now be skipped here too (skippedActiveLeave)
+    // without ending up in toCreate/toUpdate, so it stopped meaning "actually
+    // applied" the moment that skip path was added.
+    applied: toCreate.length + toUpdate.length,
     created: toCreate.length,
     updated: toUpdate.length,
     skippedNonNumericEmployeeId,
@@ -1049,6 +1083,7 @@ export const bulkMarkAttendance = async (
     skippedUnknownStatus,
     skippedWrongShift,
     skippedTooEarly,
+    skippedActiveLeave,
   };
 };
 
@@ -1141,6 +1176,33 @@ const deriveShiftPunchFields = (
   const dayType = getDayTypeFromWorkingHours(workingHours, shift, company);
 
   return { punchIn, punchOut, workingHours, dayType, overtime };
+};
+
+// How much of [punchIn, punchOut] actually falls within the employee's
+// assigned shift window on `dateStr` — punching in well before the shift
+// starts, or staying logged in well past it, no longer pads out "hours
+// worked" for a window that was never actually the shift. Used only for the
+// half-day/absent status decision and dayType classification below; the
+// STORED working_hours (session length, overtime baseline) stays the raw
+// punch duration exactly as before — this is a separate, internal number.
+// Falls back to the raw duration when there's no assigned shift to compare
+// against (nothing to be "aware" of, same as isBeforeShiftWindow's own
+// no-op-without-a-shift behaviour).
+export const computeShiftOverlapHours = (
+  shift: { startTime?: string; endTime?: string } | null | undefined,
+  dateStr: string,
+  punchIn: Date,
+  punchOut: Date,
+  rawWorkingHours: number
+): number => {
+  const shiftStart = shiftStartInstant(shift, dateStr);
+  const shiftEnd = shiftEndInstant(shift, dateStr);
+  if (!shiftStart || !shiftEnd) return rawWorkingHours;
+
+  const effectiveStart = punchIn > shiftStart ? punchIn : shiftStart;
+  const effectiveEnd = punchOut < shiftEnd ? punchOut : shiftEnd;
+  const overlapMs = effectiveEnd.getTime() - effectiveStart.getTime();
+  return overlapMs > 0 ? Number((overlapMs / (1000 * 60 * 60)).toFixed(2)) : 0;
 };
 
 // True when `atInstant` is still more than EARLY_MARK_LEAD_MINUTES before
@@ -1328,19 +1390,30 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
 // precedence used throughout this file (geofencing, lateMarkAfter, etc.).
 // Previously this used a hardcoded <3h / <9h split regardless of shift —
 // which, e.g., misclassified a full 8h day as "half_day" since 8 < 9.
+// Extracted so both getDayTypeFromWorkingHours' classification and
+// attendancePunchOut/the auto-punch-out cron's "did they even reach half a
+// day" status rule below use the exact same threshold, instead of each
+// resolving it separately and risking the two drifting apart.
+export const resolveHalfDayThresholdHours = (
+  shift?: { fullDayHours?: number | null; halfDayAfter?: number | null } | null,
+  company?: { autoHalfDayAfter?: number | null } | null
+): number => {
+  const fullDayThreshold = shift?.fullDayHours && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
+  const companyHalfDayHours = company?.autoHalfDayAfter && company.autoHalfDayAfter > 0
+    ? company.autoHalfDayAfter / 60
+    : null;
+  return shift?.halfDayAfter && shift.halfDayAfter > 0
+    ? shift.halfDayAfter
+    : companyHalfDayHours ?? fullDayThreshold / 2;
+};
+
 export const getDayTypeFromWorkingHours = (
   workingHours: number,
   shift?: { fullDayHours?: number | null; halfDayAfter?: number | null } | null,
   company?: { autoHalfDayAfter?: number | null } | null
 ): "full_day" | "half_day" | "short_leave" => {
   const fullDayThreshold = shift?.fullDayHours && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
-  const companyHalfDayHours = company?.autoHalfDayAfter && company.autoHalfDayAfter > 0
-    ? company.autoHalfDayAfter / 60
-    : null;
-  const halfDayThreshold =
-    shift?.halfDayAfter && shift.halfDayAfter > 0
-      ? shift.halfDayAfter
-      : companyHalfDayHours ?? fullDayThreshold / 2;
+  const halfDayThreshold = resolveHalfDayThresholdHours(shift, company);
   if (workingHours < Math.min(3, halfDayThreshold)) return "short_leave";
   if (workingHours < fullDayThreshold) return "half_day";
   return "full_day";
@@ -1381,12 +1454,35 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
       : 0;
 
   attendance.punch_out = punchOutTime;
+  // Session length (overtime baseline, "Session Hours" display) stays the
+  // raw clocked duration, unchanged.
   attendance.working_hours = workingHoursRounded;
   attendance.overtime = overtime;
   attendance.latitude_out = latitude_out;
   attendance.longitude_out = longitude_out;
-  attendance.status = "out";
-  attendance.dayType = getDayTypeFromWorkingHours(workingHoursRounded, shift, company);
+
+  // FIX: dayType/status were both derived from raw punch duration alone —
+  // not "shift aware" in any real sense, since punching in well before the
+  // shift starts (or staying logged in well after it ends) padded out
+  // "hours worked" for time that was never actually the shift. Login/logout
+  // time now matter: only the portion of [punch_in, punch_out] that
+  // actually overlaps the employee's assigned shift window counts toward
+  // the half-day/absent decision.
+  const shiftAwareHours = computeShiftOverlapHours(shift, today, punchInTime, punchOutTime, workingHoursRounded);
+  attendance.dayType = getDayTypeFromWorkingHours(shiftAwareHours, shift, company);
+  // FIX: status was unconditionally "out" (the same "showed up" bucket as a
+  // full day) no matter how few (shift-relevant) hours were actually
+  // worked — punching in and back out again a few minutes later still
+  // counted as a normal present day everywhere the app reads `status`
+  // (attendance rate, the register/calendar colour, etc.); only the
+  // separate dayType field silently recorded the shortfall, and nothing in
+  // the app actually read dayType for that. Below the half-day threshold,
+  // this now reflects in status itself — "absent", the same as any other
+  // day that needs a manual correction — while still keeping the real
+  // punch_in/punch_out/working_hours on the record so whoever corrects it
+  // sees exactly what happened instead of a bare "absent" with no context.
+  const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
+  attendance.status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
   await attendance.save();
 
   return attendance;

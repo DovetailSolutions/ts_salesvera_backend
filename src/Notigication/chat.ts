@@ -18,6 +18,7 @@ import {
 } from "../config/notificationService";
 import {getAllSubordinateIds} from "../app/middlewear/comman"
 import { uploadBufferToSpaces } from "../config/spaces";
+import { collectUserCompanyIds } from "../modules/shared/userHierarchy";
 
 const uploadToS3 = async (
   base64Data: string,
@@ -808,7 +809,23 @@ export const initChatSocket = (io: Server) => {
             ? await getSalePersonChatUserIds(userId)
             : await getAllRelatedUserIds(userId);
 
-        const validUserIds = [...childIds];
+        // FIX: both helpers above walk the creator hierarchy with no notion
+        // of company — an admin/manager assigned to more than one company
+        // saw the OTHER company's staff in their chat contact list too.
+        // Filter using the same company-membership resolution
+        // getCompanyScopedChildUserIds uses elsewhere, failing open (keep)
+        // for anyone whose company membership is indeterminate rather than
+        // risk hiding a legitimate contact.
+        const socketCompanyId = socket.data.user?.companyId ? Number(socket.data.user.companyId) : null;
+        let validUserIds = childIds;
+        if (socketCompanyId != null && childIds.length > 0) {
+          const companyIdsByUser = await collectUserCompanyIds(childIds);
+          validUserIds = childIds.filter((id) => {
+            const companies = companyIdsByUser.get(id);
+            if (!companies || companies.size === 0) return true;
+            return companies.has(socketCompanyId);
+          });
+        }
         // 🟢 Get all rooms I am part of to filter unread messages correctly
         const myParticipations = await ChatParticipant.findAll({
           where: { userId },
@@ -920,6 +937,7 @@ export const initChatSocket = (io: Server) => {
           roomId: newRoomId,
           type: "group",
           groupName: name, // ← Save the group name
+          createdBy: userId, // so deleteGroup can restrict deletion to the creator
         });
 
         const dbRoomId = room.id;
@@ -947,6 +965,7 @@ export const initChatSocket = (io: Server) => {
           roomId: room.roomId,
           type: "group",
           groupName: room.groupName,
+          createdBy: room.createdBy,
           members: [userId, ...members],
         });
 
@@ -1254,6 +1273,16 @@ export const initChatSocket = (io: Server) => {
 
         if (!isParticipant) {
           return socket.emit("deleteGroup", { error: "You are not a member of this group." });
+        }
+
+        // FIX: previously any participant could delete the whole group for
+        // everyone, not just its creator. Restrict to the creator — but only
+        // for groups that actually have one on record: createdBy didn't
+        // exist before this, so every group created before it shipped has
+        // createdBy === null and keeps the original "any member" behavior
+        // rather than becoming permanently undeletable by anyone.
+        if (room.createdBy != null && Number(room.createdBy) !== userId) {
+          return socket.emit("deleteGroup", { error: "Only the group creator can delete this group." });
         }
 
         // Delete messages

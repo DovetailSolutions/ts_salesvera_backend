@@ -92,3 +92,22 @@ export const ensureNotificationPreferences = async (sequelize: Sequelize): Promi
 
   console.log("Notification preferences ensured (users.notifyChat/notifyTask/notifyMeeting)");
 };
+
+// ============================================================
+// Chat group ownership — "createdBy" identifies who created a group room, so
+// deleteGroup (Notigication/chat.ts) can restrict the destructive "delete
+// for everyone" action to that person instead of any member. Nullable and
+// backfilled to nothing on purpose: existing groups predate this column and
+// have no recorded creator, so deleteGroup treats a NULL createdBy as the
+// pre-existing "any member may delete" behavior — this only tightens
+// deletion on groups created AFTER this ships, never revokes access anyone
+// already has on a group that's currently working.
+// ============================================================
+export const ensureChatRoomOwnership = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    ALTER TABLE "chat_rooms"
+      ADD COLUMN IF NOT EXISTS "createdBy" INTEGER REFERENCES "users"("id") ON DELETE SET NULL;
+  `);
+
+  console.log("Chat room ownership ensured (chat_rooms.createdBy)");
+};
