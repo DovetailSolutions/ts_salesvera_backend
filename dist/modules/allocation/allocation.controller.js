@@ -42,10 +42,14 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMeetingDashboard = exports.rescheduleMeeting = exports.scheduleMeeting = void 0;
+exports.getAllocations = exports.bulkAssignShift = exports.bulkAssignBranches = void 0;
 const errorMessage_1 = require("../../app/middlewear/errorMessage");
 const serviceError_1 = require("../shared/serviceError");
-const MeetingService = __importStar(require("./meeting.service"));
+const AllocationService = __importStar(require("./allocation.service"));
+// ============================================================
+// Allocation controller — thin HTTP layer over allocation.service.
+// Mounted on /admin in server.ts.
+// ============================================================
 const handleServiceError = (res, error) => {
     if (error instanceof serviceError_1.ServiceError) {
         if (error.status === 403)
@@ -55,48 +59,44 @@ const handleServiceError = (res, error) => {
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
     return (0, errorMessage_1.badRequest)(res, errorMessage);
 };
-const scheduleMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+const bulkAssignBranches = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const { targetUserId, meetingUserId, meetingPurpose, categoryId, subCategoryId, scheduledTime } = req.body || {};
         const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
-        const meeting = yield MeetingService.scheduleMeeting(Number(userData.userId), userData.role, callerCompanyId, {
-            targetUserId: Number(targetUserId),
-            meetingUserId: Number(meetingUserId),
-            meetingPurpose,
-            categoryId: categoryId ? Number(categoryId) : null,
-            subCategoryId: subCategoryId ? Number(subCategoryId) : null,
-            scheduledTime,
-        });
-        (0, errorMessage_1.createSuccess)(res, "Meeting scheduled successfully", meeting);
+        const result = yield AllocationService.bulkAssignBranches(Number(userData === null || userData === void 0 ? void 0 : userData.userId), userData === null || userData === void 0 ? void 0 : userData.role, callerCompanyId, req.body);
+        (0, errorMessage_1.createSuccess)(res, "Branches allocated successfully", result);
     }
     catch (error) {
         handleServiceError(res, error);
     }
 });
-exports.scheduleMeeting = scheduleMeeting;
-const rescheduleMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+exports.bulkAssignBranches = bulkAssignBranches;
+const bulkAssignShift = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const { scheduledTime } = req.body || {};
         const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
-        const meeting = yield MeetingService.rescheduleMeeting(Number(userData.userId), userData.role, callerCompanyId, Number(req.params.id), scheduledTime);
-        (0, errorMessage_1.createSuccess)(res, "Meeting rescheduled successfully", meeting);
+        const result = yield AllocationService.bulkAssignShift(Number(userData === null || userData === void 0 ? void 0 : userData.userId), userData === null || userData === void 0 ? void 0 : userData.role, callerCompanyId, req.body);
+        (0, errorMessage_1.createSuccess)(res, "Shift allocated successfully", result);
     }
     catch (error) {
         handleServiceError(res, error);
     }
 });
-exports.rescheduleMeeting = rescheduleMeeting;
-const getMeetingDashboard = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+exports.bulkAssignShift = bulkAssignShift;
+// GET /admin/allocations?userIds=1,2,3 — current branch(es)/shift for one or
+// more users in a single round trip. Accepts either a comma-separated
+// string (the common query-param shape) or repeated userIds[] params.
+const getAllocations = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
         const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
-        const dashboard = yield MeetingService.getMeetingDashboard(Number(userData.userId), userData.role, callerCompanyId);
-        (0, errorMessage_1.createSuccess)(res, "Meeting dashboard fetched successfully", dashboard);
+        const raw = req.query.userIds;
+        const userIds = typeof raw === "string" ? raw.split(",").map((s) => s.trim()).filter(Boolean) : raw;
+        const result = yield AllocationService.getAllocations(Number(userData === null || userData === void 0 ? void 0 : userData.userId), userData === null || userData === void 0 ? void 0 : userData.role, callerCompanyId, userIds);
+        (0, errorMessage_1.createSuccess)(res, "Allocations fetched successfully", result);
     }
     catch (error) {
         handleServiceError(res, error);
     }
 });
-exports.getMeetingDashboard = getMeetingDashboard;
+exports.getAllocations = getAllocations;

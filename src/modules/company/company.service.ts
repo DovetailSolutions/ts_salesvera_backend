@@ -208,10 +208,28 @@ export const getCompanyManagers = async (companyIdParam: string, userId: number)
 };
 
 export const getMyCompanies = async (userId: number, role: any) => {
-  const assignments =
-    role === "admin"
-      ? await CompanyRepo.findAdminCompanyAssignments(userId)
-      : await CompanyRepo.findManagerCompanyAssignments(userId);
+  if (role === "admin") {
+    // FIX: the CompanyAdmin junction only holds companies an admin was
+    // explicitly ASSIGNED to — it has no row for the company an admin
+    // created and owns outright (Company.userId/adminId, stamped directly
+    // at creation), so an owning admin with no extra assignments got an
+    // empty array here even though getowncompany/profile correctly showed
+    // their company. Merge both sources, deduped by company id, same
+    // response shape (array of company objects) as before.
+    const [assignments, owned] = await Promise.all([
+      CompanyRepo.findAdminCompanyAssignments(userId),
+      CompanyRepo.findOwnedCompaniesByAdminId(userId),
+    ]);
+    const companies = [...assignments.map((a: any) => a.company), ...owned];
+    const seen = new Set<number>();
+    return companies.filter((c: any) => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  }
+
+  const assignments = await CompanyRepo.findManagerCompanyAssignments(userId);
   return assignments.map((a: any) => a.company);
 };
 

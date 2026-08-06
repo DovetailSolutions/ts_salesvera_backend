@@ -27,6 +27,10 @@ router.post(
 );
 router.get("/user-attendance", tokenCheck, checkPermission("attendance", "view"), AttendanceController.userAttendance);
 router.get("/attendance-book", tokenCheck, checkPermission("attendance", "view"), AttendanceController.AttendanceBook);
+// Admin/manager team attendance summary: total child count, present today,
+// absent today, on leave today — all derived from batched COUNT queries
+// (no row fetching) so it responds fast regardless of team size.
+router.get("/attendance-summary", tokenCheck, checkPermission("attendance", "view"), AttendanceController.attendanceSummary);
 // Excel export of the admin/manager's own team's attendance (childIds only).
 // Query: startDate/endDate (default: current month), userId (optional — one
 // team member instead of the whole team).

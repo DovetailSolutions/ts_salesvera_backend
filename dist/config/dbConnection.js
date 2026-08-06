@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TaskComment = exports.TaskHistory = exports.Task = exports.Report = exports.Notification = exports.UserPermission = exports.Permission = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.EmployeeLeaveTypeBalance = exports.EmployeeLeaveBalance = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.Branch = exports.CompanyAdmin = exports.CompanyManager = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.ContactQuery = exports.TaskComment = exports.TaskHistory = exports.Task = exports.Report = exports.Notification = exports.UserPermission = exports.Permission = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.EmployeeLeaveTypeBalance = exports.EmployeeLeaveBalance = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.UserBranch = exports.Branch = exports.CompanyAdmin = exports.CompanyManager = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 // Validates required DB_*/JWT_SECRET env vars before this module builds its
@@ -84,6 +84,7 @@ const company_1 = require("../app/model/company");
 const companyManager_1 = require("../app/model/companyManager");
 const companyAdmin_1 = require("../app/model/companyAdmin");
 const branch_1 = require("../app/model/branch");
+const userBranch_1 = require("../app/model/userBranch");
 const shift_1 = require("../app/model/shift");
 const department_1 = require("../app/model/department");
 const holiday_1 = require("../app/model/holiday");
@@ -110,6 +111,8 @@ const taskHistory_1 = require("../app/model/taskHistory");
 Object.defineProperty(exports, "TaskHistory", { enumerable: true, get: function () { return taskHistory_1.TaskHistory; } });
 const taskComment_1 = require("../app/model/taskComment");
 Object.defineProperty(exports, "TaskComment", { enumerable: true, get: function () { return taskComment_1.TaskComment; } });
+const contactQuery_1 = require("../app/model/contactQuery");
+Object.defineProperty(exports, "ContactQuery", { enumerable: true, get: function () { return contactQuery_1.ContactQuery; } });
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
 // this point — env.ts (imported above) exits the process if any are missing,
@@ -167,6 +170,8 @@ const CompanyAdmin = (0, companyAdmin_1.CompanyAdminModel)(sequelize);
 exports.CompanyAdmin = CompanyAdmin;
 const Branch = (0, branch_1.BranchModel)(sequelize);
 exports.Branch = Branch;
+const UserBranch = (0, userBranch_1.UserBranchModel)(sequelize);
+exports.UserBranch = UserBranch;
 const Department = (0, department_1.DepartmentModel)(sequelize);
 exports.Department = Department;
 const Holiday = (0, holiday_1.HolidayModel)(sequelize);
@@ -192,6 +197,7 @@ exports.Report = Report;
 task_1.Task.initModel(sequelize);
 taskHistory_1.TaskHistory.initModel(sequelize);
 taskComment_1.TaskComment.initModel(sequelize);
+contactQuery_1.ContactQuery.initModel(sequelize);
 // ===== ASSOCIATIONS =====
 // User self relation
 User.belongsToMany(User, {
@@ -296,6 +302,54 @@ User.belongsTo(Branch, {
 Branch.hasMany(User, {
     foreignKey: "branchId",
     as: "branch",
+});
+// Full multi-branch allocation (admin/manager can hold several branches).
+// User.branchId above remains the PRIMARY branch and is unchanged — this
+// junction records the complete set. Aliases are deliberately distinct
+// ("allocatedBranches"/"allocatedUsers") so nothing that already includes
+// the singular "branch" association is affected.
+User.belongsToMany(Branch, {
+    through: UserBranch,
+    as: "allocatedBranches",
+    foreignKey: "userId",
+    otherKey: "branchId",
+});
+Branch.belongsToMany(User, {
+    through: UserBranch,
+    as: "allocatedUsers",
+    foreignKey: "branchId",
+    otherKey: "userId",
+});
+UserBranch.belongsTo(User, { foreignKey: "userId", as: "user" });
+UserBranch.belongsTo(Branch, { foreignKey: "branchId", as: "branch" });
+// Keep the allocation junction in sync with User.branchId (the primary
+// branch). Every path that assigns a branch — registration defaults, the
+// bulk employee upload, direct profile edits — flows through the model, so
+// hooking here means no caller has to remember to write the junction row,
+// and a user defaulted to the head branch shows up as allocated to it
+// immediately. Additive only: it never removes rows, so the multi-branch
+// allocations made via the allocation API are left alone.
+const syncPrimaryBranchAllocation = (instance) => __awaiter(void 0, void 0, void 0, function* () {
+    const userId = Number(instance === null || instance === void 0 ? void 0 : instance.id);
+    const branchId = (instance === null || instance === void 0 ? void 0 : instance.branchId) == null ? null : Number(instance.branchId);
+    if (!userId || !branchId)
+        return;
+    try {
+        yield UserBranch.findOrCreate({
+            where: { userId, branchId },
+            defaults: { userId, branchId },
+        });
+    }
+    catch (err) {
+        // Never let bookkeeping fail the user create/update itself.
+        console.error("syncPrimaryBranchAllocation failed:", err);
+    }
+});
+User.addHook("afterCreate", (instance) => syncPrimaryBranchAllocation(instance));
+User.addHook("afterUpdate", (instance) => {
+    if (typeof (instance === null || instance === void 0 ? void 0 : instance.changed) === "function" && !instance.changed("branchId"))
+        return;
+    return syncPrimaryBranchAllocation(instance);
 });
 Company.hasMany(Department, { foreignKey: "companyId", as: "departments" });
 Department.belongsTo(Company, { foreignKey: "companyId", as: "company" });
@@ -589,6 +643,32 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
     catch (err) {
         console.error(`❌ Error creating table company_managers:`, err);
     }
+    // ✅ Ensure user_branches junction table exists (many-to-many: user ↔ branch)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "user_branches" (
+        "id" SERIAL PRIMARY KEY,
+        "userId" INTEGER NOT NULL,
+        "branchId" INTEGER NOT NULL,
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "user_branches_unique" UNIQUE ("userId", "branchId")
+      );
+    `);
+        // Backfill from the existing single-branch column so every already-
+        // assigned user shows up in the junction immediately — otherwise the
+        // new allocation APIs would report existing staff as having no branch.
+        yield sequelize.query(`
+      INSERT INTO "user_branches" ("userId", "branchId", "createdAt", "updatedAt")
+      SELECT u."id", u."branchId", CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      FROM "users" u
+      WHERE u."branchId" IS NOT NULL
+      ON CONFLICT ("userId", "branchId") DO NOTHING;
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table user_branches:`, err);
+    }
     // ✅ Ensure company_banks table exists (new table added to model)
     try {
         yield sequelize.query(`
@@ -700,6 +780,25 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
     }
     catch (err) {
         console.error(`❌ Error creating table record_sales:`, err);
+    }
+    // ✅ Ensure contact_queries table exists (public "Contact Us" landing form)
+    try {
+        yield sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "contact_queries" (
+        "id" SERIAL PRIMARY KEY,
+        "name" VARCHAR(255) NOT NULL,
+        "email" VARCHAR(255) NOT NULL,
+        "companyName" VARCHAR(255),
+        "subject" VARCHAR(255) NOT NULL,
+        "message" TEXT NOT NULL,
+        "status" VARCHAR(50) NOT NULL DEFAULT 'new',
+        "createdAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    }
+    catch (err) {
+        console.error(`❌ Error creating table contact_queries:`, err);
     }
     // ✅ Ensure repost table exists
     try {

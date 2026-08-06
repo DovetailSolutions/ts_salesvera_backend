@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.forgotpassword = exports.generatePassword = exports.sendMultipleMail = exports.sendEmail = void 0;
+exports.forgotpassword = exports.generatePassword = exports.sendContactQueryEmail = exports.sendMultipleMail = exports.sendEmail = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 const nodemailer_1 = __importDefault(require("nodemailer"));
 dotenv_1.default.config();
@@ -146,6 +146,47 @@ const sendMultipleMail = (companies) => __awaiter(void 0, void 0, void 0, functi
     }
 });
 exports.sendMultipleMail = sendMultipleMail;
+// ✅ Public "Contact Us" landing-page form — notifies a super_admin by email
+const sendContactQueryEmail = (toEmail, query) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const response = yield transporter.sendMail({
+            from: `"Salesvera Website 🌐" <${process.env.EMAIL_FROM || "salesvera@dovetailsolutions.in"}>`,
+            to: toEmail,
+            replyTo: query.email,
+            subject: `New Contact Query: ${query.subject}`,
+            text: `New query submitted on the Salesvera website.
+
+Name: ${query.name}
+Email: ${query.email}
+Company: ${query.companyName || "N/A"}
+Subject: ${query.subject}
+
+Message:
+${query.message}
+`,
+            html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <h2 style="color: #0073EB;">New Contact Query</h2>
+          <p>A new query was submitted on the Salesvera website.</p>
+          <div style="background:#f9f9f9; padding:12px; border-radius:8px; margin:15px 0; border:1px solid #ddd;">
+            <p><b>Name:</b> ${query.name}</p>
+            <p><b>Email:</b> ${query.email}</p>
+            <p><b>Company:</b> ${query.companyName || "N/A"}</p>
+            <p><b>Subject:</b> ${query.subject}</p>
+          </div>
+          <p><b>Message:</b></p>
+          <p style="white-space: pre-wrap;">${query.message}</p>
+        </div>
+      `,
+        });
+        return response;
+    }
+    catch (error) {
+        console.error("❌ Contact query email error:", error);
+        throw error;
+    }
+});
+exports.sendContactQueryEmail = sendContactQueryEmail;
 // utils/generatePassword.ts
 const generatePassword = () => {
     const chars = "0123456789";

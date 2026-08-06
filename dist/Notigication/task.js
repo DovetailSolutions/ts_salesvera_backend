@@ -16,6 +16,7 @@ const permissionCache_1 = require("../config/permissionCache");
 const notificationService_1 = require("../config/notificationService");
 const Notification_1 = require("../app/model/Notification");
 const userHierarchy_1 = require("../modules/shared/userHierarchy");
+const dateUtils_1 = require("../modules/shared/dateUtils");
 const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
 const loadUserPermissionsFromDB = (userId) => __awaiter(void 0, void 0, void 0, function* () {
     const userPerms = yield dbConnection_1.UserPermission.findAll({
@@ -176,10 +177,15 @@ const initTaskSocket = (io) => {
                 if (assignedBy && role !== "sale_person")
                     where.assignedBy = Number(assignedBy);
                 if (status === "completed" && (dateScope === "today" || dateScope === "history")) {
-                    const startOfToday = new Date();
-                    startOfToday.setHours(0, 0, 0, 0);
-                    const endOfToday = new Date();
-                    endOfToday.setHours(23, 59, 59, 999);
+                    // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
+                    // operates in the server process's OS-local timezone, only landing
+                    // on the IST calendar day if the OS timezone happens to be set to
+                    // Asia/Kolkata (not guaranteed on the production host). Parsing an
+                    // ISO string with an explicit "+05:30" offset is not OS-timezone-
+                    // dependent, so this is deployment-proof regardless of server tz.
+                    const istToday = (0, dateUtils_1.getISTDateString)();
+                    const startOfToday = new Date(`${istToday}T00:00:00.000+05:30`);
+                    const endOfToday = new Date(`${istToday}T23:59:59.999+05:30`);
                     where.completedAt = dateScope === "today"
                         ? { [sequelize_1.Op.between]: [startOfToday, endOfToday] }
                         : { [sequelize_1.Op.lt]: startOfToday };

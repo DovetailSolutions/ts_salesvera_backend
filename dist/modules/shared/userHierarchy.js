@@ -10,7 +10,10 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAllChildUserIds = getAllChildUserIds;
+exports.getCompanyScopedChildUserIds = getCompanyScopedChildUserIds;
+exports.getCompanyScopedChildUserIdsFast = getCompanyScopedChildUserIdsFast;
 exports.getDirectCreator = getDirectCreator;
+const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 // Walks the createdBy/createdUsers self-referential chain to collect every
 // user (at any depth) that the given userId created, directly or through an
@@ -43,6 +46,218 @@ function getAllChildUserIds(userId) {
         }
         yield fetchLevel(userId);
         return Array.from(result);
+    });
+}
+// ── Company-scoped team resolution ──────────────────────────────────────
+//
+// getAllChildUserIds above answers "who did this user create, recursively"
+// — a pure who-created-whom hierarchy with NO notion of which company any
+// of those people belong to. That's the right answer for a single-company
+// tenant, but it silently leaks across companies the moment an admin or
+// manager is assigned to more than one (a supported, real scenario via the
+// CompanyAdmin/CompanyManager junctions + switch-company): the caller keeps
+// seeing every person they ever created, including employees of a company
+// they aren't currently acting in.
+//
+// resolveCompanyEmployeeIds (companyAccess.ts) answers the complementary
+// question — "who belongs to THIS company" — but can't be used on its own
+// for team scoping either: it resolves sale_persons purely via
+// User.branchId, and branchId is not reliably populated on older accounts
+// (verified: a large share of existing users have branchId = null). Hard-
+// intersecting with it would silently HIDE those legitimate team members.
+//
+// So this helper deliberately fails OPEN, not closed: it removes only the
+// users it can POSITIVELY prove belong to a different company, and keeps
+// anyone whose company membership is indeterminate. That fixes the real
+// leak (people demonstrably in another company) without breaking access to
+// anyone whose data is merely incomplete.
+//
+// A user's company membership is collected from every available signal —
+// their branch's companyId, the CompanyManager/CompanyAdmin junctions, and
+// Company.adminId/Company.userId ownership. A user legitimately linked to
+// several companies (e.g. a manager assigned to two) stays visible in each
+// of them.
+const collectUserCompanyIds = (userIds_1, ...args_1) => __awaiter(void 0, [userIds_1, ...args_1], void 0, function* (userIds, 
+// Cycle/runaway guard for the creator-chain fallback below. A malformed
+// creator loop in the data (A created B, B created A) would otherwise
+// recurse forever; `visited` makes each account resolvable at most once
+// per top-level call, and the depth cap bounds a pathologically deep tree.
+visited = new Set(), depth = 0) {
+    const map = new Map();
+    if (userIds.length === 0 || depth > 10)
+        return map;
+    userIds.forEach((id) => visited.add(Number(id)));
+    const add = (userId, companyId) => {
+        if (companyId == null)
+            return;
+        if (!map.has(userId))
+            map.set(userId, new Set());
+        map.get(userId).add(Number(companyId));
+    };
+    const [users, managerLinks, adminLinks, ownedOrAdminedCompanies] = yield Promise.all([
+        dbConnection_1.User.findAll({ where: { id: { [sequelize_1.Op.in]: userIds } }, attributes: ["id", "branchId"] }),
+        dbConnection_1.CompanyManager.findAll({ where: { managerId: { [sequelize_1.Op.in]: userIds } }, attributes: ["managerId", "companyId"] }),
+        dbConnection_1.CompanyAdmin.findAll({ where: { adminId: { [sequelize_1.Op.in]: userIds } }, attributes: ["adminId", "companyId"] }),
+        dbConnection_1.Company.findAll({
+            where: { [sequelize_1.Op.or]: [{ adminId: { [sequelize_1.Op.in]: userIds } }, { userId: { [sequelize_1.Op.in]: userIds } }] },
+            attributes: ["id", "adminId", "userId"],
+        }),
+    ]);
+    // Branch membership (the primary signal for sale_persons).
+    const branchIds = Array.from(new Set(users.map((u) => u.branchId).filter((b) => b != null).map((b) => Number(b))));
+    const branches = branchIds.length
+        ? yield dbConnection_1.Branch.findAll({ where: { id: { [sequelize_1.Op.in]: branchIds } }, attributes: ["id", "companyId"] })
+        : [];
+    const companyIdByBranch = new Map(branches.map((b) => [Number(b.id), b.companyId == null ? null : Number(b.companyId)]));
+    users.forEach((u) => {
+        var _a;
+        if (u.branchId == null)
+            return;
+        add(Number(u.id), (_a = companyIdByBranch.get(Number(u.branchId))) !== null && _a !== void 0 ? _a : null);
+    });
+    // Additional branches from the multi-branch allocation junction — an
+    // admin/manager may hold several branches (User.branchId only records
+    // their primary one), and each of those branches implies membership of
+    // its company. Without this, allocating a second branch would leave the
+    // user unable to see that branch's company data.
+    const allocated = yield dbConnection_1.UserBranch.findAll({
+        where: { userId: { [sequelize_1.Op.in]: userIds } },
+        attributes: ["userId", "branchId"],
+    });
+    if (allocated.length > 0) {
+        const extraBranchIds = Array.from(new Set(allocated.map((r) => Number(r.branchId)).filter((b) => !companyIdByBranch.has(b))));
+        if (extraBranchIds.length > 0) {
+            const extraBranches = yield dbConnection_1.Branch.findAll({
+                where: { id: { [sequelize_1.Op.in]: extraBranchIds } },
+                attributes: ["id", "companyId"],
+            });
+            extraBranches.forEach((b) => companyIdByBranch.set(Number(b.id), b.companyId == null ? null : Number(b.companyId)));
+        }
+        allocated.forEach((r) => { var _a; return add(Number(r.userId), (_a = companyIdByBranch.get(Number(r.branchId))) !== null && _a !== void 0 ? _a : null); });
+    }
+    managerLinks.forEach((r) => add(Number(r.managerId), r.companyId));
+    adminLinks.forEach((r) => add(Number(r.adminId), r.companyId));
+    ownedOrAdminedCompanies.forEach((c) => {
+        if (c.adminId != null)
+            add(Number(c.adminId), c.id);
+        if (c.userId != null)
+            add(Number(c.userId), c.id);
+    });
+    // ── Fallback: inherit the company from whoever created them ──────────
+    // branchId is the primary company signal for a sale_person, but it is
+    // only reliably populated on accounts created after it started being
+    // defaulted at registration — a large share of existing accounts still
+    // have branchId = null and no junction row of their own, leaving their
+    // company genuinely indeterminate above. Since every account is created
+    // BY somebody who does have a resolvable company, walking one step up
+    // the creator chain recovers it: an employee belongs to whatever company
+    // their creator belongs to.
+    //
+    // Only applied when the creator resolves to EXACTLY ONE company. If the
+    // creator is themselves multi-company (e.g. a manager assigned to two),
+    // the employee's company is genuinely ambiguous from the data alone, so
+    // we leave them indeterminate and keep failing open rather than guessing
+    // and hiding a legitimate team member.
+    const stillUnresolved = userIds.filter((id) => !map.has(id) || map.get(id).size === 0);
+    if (stillUnresolved.length > 0) {
+        const creatorRows = yield dbConnection_1.User.findAll({
+            where: { id: { [sequelize_1.Op.in]: stillUnresolved } },
+            attributes: ["id"],
+            include: [{ model: dbConnection_1.User, as: "creators", attributes: ["id"], through: { attributes: [] } }],
+        });
+        const creatorIdByUser = new Map();
+        creatorRows.forEach((row) => {
+            var _a, _b;
+            const plain = row.get ? row.get({ plain: true }) : row;
+            const creatorId = (_b = (_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.id;
+            if (creatorId != null)
+                creatorIdByUser.set(Number(plain.id), Number(creatorId));
+        });
+        const creatorIds = Array.from(new Set(creatorIdByUser.values())).filter((id) => !visited.has(id));
+        if (creatorIds.length > 0) {
+            // Recurse so a chain of unresolved accounts (sale_person -> manager
+            // -> admin) still terminates at the first ancestor that resolves.
+            const creatorCompanies = yield collectUserCompanyIds(creatorIds, visited, depth + 1);
+            creatorIdByUser.forEach((creatorId, userId) => {
+                const companies = creatorCompanies.get(creatorId);
+                if (companies && companies.size === 1) {
+                    add(userId, Array.from(companies)[0]);
+                }
+            });
+        }
+    }
+    return map;
+});
+// The company-scoped counterpart to getAllChildUserIds: the caller's
+// recursive team, minus anyone positively belonging to a different company.
+// Passing a null/undefined companyId (no company context resolvable —
+// e.g. super_admin) returns the unfiltered hierarchy, preserving the
+// previous behavior exactly.
+function getCompanyScopedChildUserIds(userId, companyId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const childIds = yield getAllChildUserIds(userId);
+        if (companyId == null || childIds.length === 0)
+            return childIds;
+        const target = Number(companyId);
+        const companyIdsByUser = yield collectUserCompanyIds(childIds);
+        return childIds.filter((id) => {
+            const companies = companyIdsByUser.get(id);
+            // Indeterminate membership (no branch, no junction row, owns nothing) —
+            // keep, rather than silently hiding a legitimate team member.
+            if (!companies || companies.size === 0)
+                return true;
+            return companies.has(target);
+        });
+    });
+}
+// PERF fast-path used ONLY by admin.ts's getDashboardSummary/buildDashboardSummary.
+// Deliberately a separate function rather than a change to
+// getAllChildUserIds/getCompanyScopedChildUserIds above — those are called
+// from ~14 other endpoints and are left untouched to avoid any risk of
+// regressing them. This does the exact same job (recursive team walk,
+// company-scoped) but fetches each hierarchy LEVEL in one batched query
+// instead of the original's one-DB-round-trip-per-user recursion, which is
+// what made getDashboardSummary take 4-5s for teams of any real size.
+function getCompanyScopedChildUserIdsFast(userId, companyId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        var _a;
+        const result = new Set();
+        let currentLevelIds = [userId];
+        while (currentLevelIds.length > 0) {
+            const users = (yield dbConnection_1.User.findAll({
+                where: { id: { [sequelize_1.Op.in]: currentLevelIds } },
+                attributes: ["id"],
+                include: [
+                    {
+                        model: dbConnection_1.User,
+                        as: "createdUsers",
+                        attributes: ["id"],
+                        through: { attributes: [] },
+                    },
+                ],
+            }));
+            const nextLevelIds = [];
+            for (const user of users) {
+                for (const child of (_a = user.createdUsers) !== null && _a !== void 0 ? _a : []) {
+                    if (!result.has(child.id)) {
+                        result.add(child.id);
+                        nextLevelIds.push(child.id);
+                    }
+                }
+            }
+            currentLevelIds = nextLevelIds;
+        }
+        const childIds = Array.from(result);
+        if (companyId == null || childIds.length === 0)
+            return childIds;
+        const target = Number(companyId);
+        const companyIdsByUser = yield collectUserCompanyIds(childIds);
+        return childIds.filter((id) => {
+            const companies = companyIdsByUser.get(id);
+            if (!companies || companies.size === 0)
+                return true;
+            return companies.has(target);
+        });
     });
 }
 // Returns the given user's immediate creator (one level up the createdBy

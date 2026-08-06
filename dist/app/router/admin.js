@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const router = (0, express_1.Router)();
 const AdminController = __importStar(require("../controller/admin"));
+const NotificationController = __importStar(require("../controller/notification"));
 const jwtVerify_1 = require("../../config/jwtVerify");
 const checkPermission_1 = require("../../config/checkPermission");
 const rbac_1 = require("../middlewear/rbac");
@@ -138,4 +139,15 @@ router.get("/getalluser", jwtVerify_1.tokenCheck, AdminController.GetAllUser);
 router.get('/getusermeeting', jwtVerify_1.tokenCheck, AdminController.getMeeting);
 router.get("/dashboard-summary", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AdminController.getDashboardSummary);
 router.get("/top-performers", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AdminController.getTopPerformers);
+// ── Notifications (admin-surface) ───────────────────────────────────────
+// Same controller as /api/notifications (user.ts) — that surface's
+// tokenCheck (jwtVerify2) only allows user/manager/sale_person, so admin
+// and super_admin accounts 401 on every call there. The web admin panel's
+// notification bell needs this to work for those two roles too.
+router.get("/notifications", jwtVerify_1.tokenCheck, NotificationController.getNotifications);
+router.get("/notifications/unread-count", jwtVerify_1.tokenCheck, NotificationController.getUnreadCount);
+router.patch("/notifications/read-all", jwtVerify_1.tokenCheck, NotificationController.markAllAsRead);
+router.patch("/notifications/:id/read", jwtVerify_1.tokenCheck, NotificationController.markAsRead);
+router.delete("/notifications/clear-all", jwtVerify_1.tokenCheck, NotificationController.clearAllNotifications);
+router.delete("/notifications/:id", jwtVerify_1.tokenCheck, NotificationController.deleteNotification);
 exports.default = router;

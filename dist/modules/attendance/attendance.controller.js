@@ -67,7 +67,8 @@ const handleServiceError = (res, error) => {
 const getAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const result = yield AttendanceService.getAttendance(Number(userData.userId), req.query);
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const result = yield AttendanceService.getAttendance(Number(userData.userId), callerCompanyId, req.query);
         res.status(200).json({
             success: true,
             message: "Attendance fetched successfully",
@@ -100,7 +101,8 @@ const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function*
             return;
         }
         const userData = req.userData;
-        const result = yield AttendanceService.userAttendance(Number(userData.userId), userId, req.query);
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const result = yield AttendanceService.userAttendance(Number(userData.userId), callerCompanyId, userId, req.query);
         (0, errorMessage_1.createSuccess)(res, "User attendance fetched successfully", result);
     }
     catch (error) {
@@ -111,7 +113,8 @@ exports.userAttendance = userAttendance;
 const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const result = yield AttendanceService.attendanceBook(Number(userData.userId), req.query);
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const result = yield AttendanceService.attendanceBook(Number(userData.userId), callerCompanyId, req.query);
         res.status(200).json({
             success: true,
             message: "Attendance loaded",
@@ -126,7 +129,8 @@ exports.AttendanceBook = AttendanceBook;
 const exportAttendanceReport = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const { buffer, filename } = yield AttendanceService.exportAttendanceReportExcel(Number(userData.userId), req.query);
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const { buffer, filename } = yield AttendanceService.exportAttendanceReportExcel(Number(userData.userId), callerCompanyId, req.query);
         res.set({
             "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "Content-Disposition": `attachment; filename=${filename}`,

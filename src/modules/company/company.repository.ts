@@ -165,6 +165,19 @@ export const findAdminCompanyAssignments = (adminId: number) =>
     ],
   });
 
+// The CompanyAdmin junction above only has a row when an admin was
+// explicitly ASSIGNED to a company (assign-company-admin). It has no row for
+// the company an admin created and owns outright — addCompany stamps that
+// company's userId (and optionally adminId) with the creating admin's id
+// directly, never inserting a junction row. Same attribute set as
+// findAdminCompanyAssignments' company include, so callers can merge the two
+// without changing the response shape.
+export const findOwnedCompaniesByAdminId = (adminId: number) =>
+  Company.findAll({
+    where: { [Op.or]: [{ userId: adminId }, { adminId }] },
+    attributes: ["id", "companyName", "legalName", "companyEmail", "companyPhone", "city"],
+  });
+
 export const findAdminCompanyAssignment = (companyId: number, adminId: number) =>
   (CompanyAdmin as any).findOne({
     where: { companyId, adminId },

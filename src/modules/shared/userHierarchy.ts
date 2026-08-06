@@ -215,6 +215,61 @@ export async function getCompanyScopedChildUserIds(
   });
 }
 
+// PERF fast-path used ONLY by admin.ts's getDashboardSummary/buildDashboardSummary.
+// Deliberately a separate function rather than a change to
+// getAllChildUserIds/getCompanyScopedChildUserIds above — those are called
+// from ~14 other endpoints and are left untouched to avoid any risk of
+// regressing them. This does the exact same job (recursive team walk,
+// company-scoped) but fetches each hierarchy LEVEL in one batched query
+// instead of the original's one-DB-round-trip-per-user recursion, which is
+// what made getDashboardSummary take 4-5s for teams of any real size.
+export async function getCompanyScopedChildUserIdsFast(
+  userId: number,
+  companyId: number | null | undefined
+): Promise<number[]> {
+  const result = new Set<number>();
+  let currentLevelIds: number[] = [userId];
+
+  while (currentLevelIds.length > 0) {
+    const users = (await User.findAll({
+      where: { id: { [Op.in]: currentLevelIds } },
+      attributes: ["id"],
+      include: [
+        {
+          model: User,
+          as: "createdUsers",
+          attributes: ["id"],
+          through: { attributes: [] },
+        },
+      ],
+    })) as UserWithChildren[];
+
+    const nextLevelIds: number[] = [];
+    for (const user of users) {
+      for (const child of user.createdUsers ?? []) {
+        if (!result.has(child.id)) {
+          result.add(child.id);
+          nextLevelIds.push(child.id);
+        }
+      }
+    }
+
+    currentLevelIds = nextLevelIds;
+  }
+
+  const childIds = Array.from(result);
+  if (companyId == null || childIds.length === 0) return childIds;
+
+  const target = Number(companyId);
+  const companyIdsByUser = await collectUserCompanyIds(childIds);
+
+  return childIds.filter((id) => {
+    const companies = companyIdsByUser.get(id);
+    if (!companies || companies.size === 0) return true;
+    return companies.has(target);
+  });
+}
+
 // Returns the given user's immediate creator (one level up the createdBy
 // chain) — e.g. a sale_person's direct manager, or a manager's direct
 // admin. Used to route "task completed" / other escalation notifications

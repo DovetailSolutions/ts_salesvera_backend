@@ -19,7 +19,7 @@ class Task extends sequelize_1.Model {
                 allowNull: true,
             },
             status: {
-                type: sequelize_1.DataTypes.ENUM("todo", "in_progress", "completed", "cancelled"),
+                type: sequelize_1.DataTypes.ENUM("todo", "in_progress", "in_review", "completed", "cancelled"),
                 allowNull: false,
                 defaultValue: "todo",
             },

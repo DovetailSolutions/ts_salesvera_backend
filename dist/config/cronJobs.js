@@ -17,6 +17,7 @@ const node_cron_1 = __importDefault(require("node-cron"));
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("./dbConnection");
 const attendance_service_1 = require("../modules/attendance/attendance.service");
+const dateUtils_1 = require("../modules/shared/dateUtils");
 /**
  * ─────────────────────────────────────────────
  *  AUTO PUNCH-OUT CRON JOB
@@ -37,8 +38,16 @@ const startCronJobs = () => {
     node_cron_1.default.schedule("59 23 * * *", () => __awaiter(void 0, void 0, void 0, function* () {
         var _a;
         try {
-            // Today's date string (yyyy-mm-dd)
-            const todayStr = new Date().toISOString().slice(0, 10);
+            // FIX: was new Date().toISOString().slice(0,10) — toISOString()
+            // converts to UTC first, which rolls the calendar day backward for
+            // any real-world IST time before ~05:30. This job is only ever
+            // scheduled to fire at 23:59 IST (18:29 UTC same day) so the two
+            // dates happen to coincide right now, but that made the Op.lte
+            // upper-bound fragile against any future manual trigger or
+            // reschedule. getISTDateString() computes the IST calendar date via
+            // explicit +5:30 offset arithmetic, so it's correct regardless of
+            // when this job runs or the server's OS timezone.
+            const todayStr = (0, dateUtils_1.getISTDateString)();
             // ── Step 1: Find all un-punched-out records up to today ──
             const missed = yield dbConnection_1.Attendance.findAll({
                 where: {

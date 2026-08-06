@@ -72,7 +72,11 @@ const dbConnection_2 = require("../../config/dbConnection");
 const Middleware = __importStar(require("../middlewear/comman"));
 const web_1 = require("stream/web");
 const comman_1 = require("../middlewear/comman");
+const userHierarchy_1 = require("../../modules/shared/userHierarchy");
+const dateUtils_1 = require("../../modules/shared/dateUtils");
 const leave_service_1 = require("../../modules/leave/leave.service");
+const LeaveController = __importStar(require("../../modules/leave/leave.controller"));
+const AdminController = __importStar(require("./admin"));
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 function getDistance(lat1, lon1, lat2, lon2) {
     const toRad = (value) => (value * Math.PI) / 180;
@@ -398,7 +402,7 @@ const UpdateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
 exports.UpdateProfile = UpdateProfile;
 const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = 1, limit = 10, search = "" } = req.query;
+        const { page = 1, limit = 10, search = "", role: filterRole, shiftId, branchId } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
@@ -413,7 +417,52 @@ const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* (
                 { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
             ];
         }
-        /** ✅ Fetch created users */
+        // Role-based scope: a manager gets their FULL recursive team (not just
+        // direct reports) plus optional role/shift/branch filters — this is
+        // "the manager's functionality" for this same endpoint. Every other
+        // caller (sale_person, tenant "user") keeps the exact original
+        // direct-createdUsers-only behavior, unchanged.
+        if (userData.role === "manager") {
+            if (filterRole)
+                where.role = filterRole;
+            if (shiftId)
+                where.shiftId = Number(shiftId);
+            if (branchId)
+                where.branchId = Number(branchId);
+            // FIX: was getAllChildUserIds (pure who-created-whom, no notion of
+            // company) — a manager assigned to more than one company kept seeing
+            // every person they ever created, including the other company's
+            // employees, after switching company. Scope the recursive team to the
+            // company this token is currently acting in.
+            const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(Number(userData.userId), callerCompanyId);
+            if (childIds.length === 0) {
+                (0, errorMessage_1.createSuccess)(res, "My sale persons", { page: pageNum, limit: limitNum, total: 0, rows: [] });
+                return;
+            }
+            where.id = { [sequelize_1.Op.in]: childIds };
+            const { count, rows } = yield dbConnection_2.User.findAndCountAll({
+                where,
+                attributes: ["id", "firstName", "lastName", "email", "phone", "role", "shiftId", "branchId"],
+                // branchId/shiftId were already selected but never joined to their
+                // names, so the manager's team table could show a raw id at best.
+                include: [
+                    { model: dbConnection_2.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+                    { model: dbConnection_2.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+                ],
+                limit: limitNum,
+                offset,
+                order: [["firstName", "ASC"]],
+            });
+            (0, errorMessage_1.createSuccess)(res, "My sale persons", {
+                page: pageNum,
+                limit: limitNum,
+                total: count,
+                rows,
+            });
+            return;
+        }
+        /** ✅ Fetch created users (original behavior, unchanged) */
         const result = yield dbConnection_2.User.findByPk(userData.userId, {
             include: [
                 {
@@ -613,7 +662,14 @@ const CreateMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         });
         if (activeMeeting) {
             yield transaction.rollback();
-            (0, errorMessage_1.badRequest)(res, `You already have an active meeting started at ${activeMeeting.meetingTimeIn}`);
+            // FIX: was template-literal interpolation of a raw Date
+            // (`${activeMeeting.meetingTimeIn}`), which implicitly calls
+            // Date#toString() — that renders in the server process's OS-local
+            // timezone (e.g. shows a UTC wall-clock time on a non-IST host)
+            // instead of the IST time an Indian mobile user expects to see.
+            // formatISTTime renders the real IST wall-clock time regardless of
+            // server OS timezone.
+            (0, errorMessage_1.badRequest)(res, `You already have an active meeting started at ${(0, dateUtils_1.formatISTTime)(new Date(activeMeeting.meetingTimeIn))} IST`);
             return;
         }
         /** --------------------------
@@ -849,10 +905,14 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         isExist.meetingTimeOut = new Date();
         yield isExist.save();
         // ✅ Day Start & End
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date();
-        endOfDay.setHours(23, 59, 59, 999);
+        // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
+        // operates in the server process's OS-local timezone, only landing on
+        // the IST calendar day if the OS timezone happens to be Asia/Kolkata
+        // (not guaranteed on the production host). Parsing an ISO string with
+        // an explicit "+05:30" offset is not OS-timezone-dependent.
+        const istToday = (0, dateUtils_1.getISTDateString)();
+        const startOfDay = new Date(`${istToday}T00:00:00.000+05:30`);
+        const endOfDay = new Date(`${istToday}T23:59:59.999+05:30`);
         // ✅ Get Attendance
         const attendance = yield dbConnection_2.Attendance.findOne({
             where: {
@@ -1215,7 +1275,16 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         // callers that only ever send the leave_type enum (e.g. older clients).
         // --------------------
         const days = (0, leave_service_1.countLeaveDays)(from, to);
-        const year = from.getFullYear();
+        // FIX: was from.getFullYear() (OS-local getter) — from_date is parsed
+        // above as a UTC-midnight instant (new Date("YYYY-MM-DD")), so reading
+        // its year back out via a server-OS-local getter only matches the IST
+        // calendar year the mobile client meant if the server's OS timezone
+        // happens to be at/after UTC (true on this Asia/Kolkata dev machine,
+        // not guaranteed on the production host — e.g. a host west of UTC would
+        // roll a Jan 1st from_date back to the previous year). getISTDateString
+        // shifts by the explicit IST offset first, matching the same year this
+        // endpoint's balance lookups (and myLeaveBalance) already key off.
+        const year = Number((0, dateUtils_1.getISTDateString)(from).slice(0, 4));
         let balance = null;
         let typeBalance = null;
         let resolvedCompanyLeaveId = null;
@@ -1302,7 +1371,14 @@ const requestLeave = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         // --------------------
         if (leave && leave_type !== "half_day" && leave_type !== "short_leave") {
             const leaveDates = [];
-            for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+            // FIX: was cursor.getDate()/setDate() (OS-local getters/setters) to
+            // walk one day at a time from `from` to `to`. Those two Date values
+            // were parsed as UTC-midnight instants, so advancing them a local
+            // calendar day at a time only lines up with a real 24h step if the
+            // server process's OS timezone is UTC-based (not guaranteed on the
+            // production host). The UTC getter/setter pair advances by an actual
+            // day regardless of server OS timezone.
+            for (const cursor = new Date(from); cursor <= to; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
                 leaveDates.push(new Date(cursor));
             }
             yield dbConnection_2.Attendance.bulkCreate(leaveDates.map((date) => ({
@@ -1323,6 +1399,16 @@ const LeaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        // Role-based scope, same endpoint: a manager reviewing their team's leave
+        // requests is "the manager's functionality" for this route — delegate
+        // straight to the team-scoped, grouped-by-employee module handler
+        // (identical to /admin/get-leave-list) instead of duplicating that
+        // query here. Every other caller (sale_person) falls through to the
+        // original self-only behavior below, unchanged.
+        if (userData.role === "manager") {
+            yield LeaveController.leaveList(req, res);
+            return;
+        }
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 10;
         const offset = (page - 1) * limit;
@@ -1358,7 +1444,11 @@ const myLeaveBalance = (req, res) => __awaiter(void 0, void 0, void 0, function*
     try {
         const userData = req.userData;
         const finalUserId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const year = Number(req.query.year) || new Date().getFullYear();
+        // FIX: was new Date().getFullYear() (OS-local getter) — not guaranteed
+        // to equal the IST calendar year on the production host. Derived from
+        // getISTDateString() instead so a request in the Dec 31/Jan 1 IST-vs-
+        // UTC gap can't default to the wrong year's leave balance.
+        const year = Number(req.query.year) || Number((0, dateUtils_1.getISTDateString)().slice(0, 4));
         const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
         // Dynamic per-company-configured leave types (Sick Leave, Casual Leave,
         // Comp Off, or any custom type) — same source the web admin's Leave
@@ -1518,6 +1608,16 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             (0, errorMessage_1.badRequest)(res, "Invalid user");
             return;
         }
+        // Role-based scope, same endpoint: a manager reviewing their team's
+        // expenses (to approve them) is "the manager's functionality" for this
+        // route — delegate to the team-scoped handler (identical to
+        // /admin/get-expense) instead of duplicating that query here. Every
+        // other caller (sale_person) falls through to the original self-only
+        // behavior below, unchanged.
+        if (userData.role === "manager") {
+            yield AdminController.GetExpense(req, res);
+            return;
+        }
         const page = Number(req.query.page) || 1;
         const limit = Number(req.query.limit) || 10;
         const offset = (page - 1) * limit;
@@ -1553,6 +1653,7 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
 });
 exports.GetExpense = GetExpense;
 const ReFressToken = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
     try {
         const userData = req.userData;
         if (!userData || !userData.userId) {
@@ -1564,7 +1665,16 @@ const ReFressToken = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             (0, errorMessage_1.badRequest)(res, "User not found");
             return;
         }
-        const { accessToken, refreshToken } = Middleware.CreateToken(String(user.getDataValue("id")), String(user.getDataValue("role")));
+        // FIX: this used to omit companyId entirely, so every refresh silently
+        // dropped it from the new token — breaking company-scoped REST endpoints
+        // and (worse) throwing inside the task socket handler, which does
+        // Number(companyId) on it unconditionally. Carry it forward from the
+        // token being refreshed; for a session whose token already lost it
+        // (already deployed instances of this bug), fall back to the user's
+        // lastLoginCompanyId so it self-heals on next refresh instead of staying
+        // broken until the next full login.
+        const carriedCompanyId = (_b = (_a = userData === null || userData === void 0 ? void 0 : userData.companyId) !== null && _a !== void 0 ? _a : user.getDataValue("lastLoginCompanyId")) !== null && _b !== void 0 ? _b : null;
+        const { accessToken, refreshToken } = Middleware.CreateToken(String(user.getDataValue("id")), String(user.getDataValue("role")), carriedCompanyId);
         // update refresh token in DB
         user.setDataValue("refreshToken", refreshToken); // or user.refreshToken = refreshToken;
         yield user.save();
@@ -2600,11 +2710,24 @@ const getRecordSale = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        const recordSaleData = yield dbConnection_2.RecordSales.findAll({
-            where: {
-                userId: userData.userId,
-            }
-        });
+        // Company isolation — this list is already self-scoped, but a user who
+        // belongs to more than one company would otherwise carry their own
+        // record-sales from one company into the other after switching. Scope
+        // by the row's own companyId, failing OPEN for rows whose company is
+        // unknown so nothing existing is hidden (same convention as
+        // getCompanyScopedChildUserIds / the quotation+invoice lists).
+        //
+        // NOTE: unlike quotations/invoices (which the Tally sync stamps with a
+        // real companyId), recordSale's own create path writes
+        // `companyId: data.companyId || 0` — so 0, not NULL, is this table's
+        // "no company" sentinel. Both must count as unknown here, otherwise
+        // every legacy row would silently disappear from the list.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const recordSaleWhere = { userId: userData.userId };
+        if (callerCompanyId) {
+            recordSaleWhere.companyId = { [sequelize_1.Op.or]: [callerCompanyId, null, 0] };
+        }
+        const recordSaleData = yield dbConnection_2.RecordSales.findAll({ where: recordSaleWhere });
         (0, errorMessage_1.createSuccess)(res, "Record sale list fetched successfully", recordSaleData);
     }
     catch (error) {
@@ -2973,9 +3096,36 @@ const changePassword = (req, res) => __awaiter(void 0, void 0, void 0, function*
 });
 exports.changePassword = changePassword;
 const getDashboardMobile = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
-        const { userId } = req.userData;
-        const allUserIds = yield Middleware.getAllSubordinateIds(Number(userId));
+        const { userId, role, companyId } = req.userData;
+        // Role-based scope, same endpoint: a manager's mobile home screen needs
+        // team HR-ops KPIs (team size, present today, pending leave/expense
+        // approvals, meetings this week, attendance/punctuality/task rates) —
+        // "the manager's functionality" for this route — delegate to the
+        // dashboard-summary handler (identical to /admin/dashboard-summary)
+        // instead of duplicating that computation here. sale_person keeps the
+        // original quotation/invoice/report counts below, unchanged.
+        // NOTE: the manager branch is completed further down — it needs the
+        // same personal fields (shift / presentDays / casualLeaves) that a
+        // sale_person gets, so those are computed once for BOTH roles below and
+        // merged with the team KPIs. Delegating wholesale here (as this used to)
+        // returned only team numbers and silently dropped the manager's own
+        // shift, attendance and leave balance from their mobile home screen.
+        // FIX: Middleware.getAllSubordinateIds throws ("column User.createdBy
+        // does not exist" — a pre-existing bug, unrelated to the role-branch
+        // above) for every caller that reaches this line. Same root cause and
+        // same fix already applied to getSalesPerformance below: self + the
+        // correct recursive-descendants helper. For sale_person (no
+        // descendants) this is simply self-only.
+        //
+        // Company-scoped: getAllChildUserIds knows nothing about companies, so a
+        // caller assigned to two companies kept counting the other company's
+        // documents after switching company. getCompanyScopedChildUserIds drops
+        // descendants that positively belong to a different company (and keeps
+        // anyone whose company membership is indeterminate).
+        const callerCompanyId = companyId ? Number(companyId) : null;
+        const allUserIds = [Number(userId), ...(yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(Number(userId), callerCompanyId))];
         const commonFilter = {
             userId: { [sequelize_1.Op.in]: allUserIds },
             status: { [sequelize_1.Op.notIn]: ["cancelled", "deleted"] },
@@ -3004,12 +3154,73 @@ const getDashboardMobile = (req, res) => __awaiter(void 0, void 0, void 0, funct
         const Reports = yield dbConnection_2.Report.count({
             where: commonFilter,
         });
-        (0, errorMessage_1.createSuccess)(res, "Dashboard data fetched successfully", {
+        // ── New fields: shift, presentDays, casualLeaves ──────────────────
+        // 1. Employee's assigned shift
+        const userWithShift = yield dbConnection_2.User.findByPk(Number(userId), {
+            attributes: ["id"],
+            include: [{ model: dbConnection_2.Shift, as: "shift" }],
+        });
+        const shift = (_a = userWithShift === null || userWithShift === void 0 ? void 0 : userWithShift.shift) !== null && _a !== void 0 ? _a : null;
+        // 2. Days present in the current month (IST-safe boundaries)
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+        const istYear = nowIST.getUTCFullYear();
+        const istMonth = nowIST.getUTCMonth(); // 0-based
+        const mm = String(istMonth + 1).padStart(2, "0");
+        const startDateStr = `${istYear}-${mm}-01`;
+        const lastDay = new Date(Date.UTC(istYear, istMonth + 1, 0)).getUTCDate();
+        const endDateStr = `${istYear}-${mm}-${String(lastDay).padStart(2, "0")}`;
+        const presentDays = yield dbConnection_2.Attendance.count({
+            where: {
+                employee_id: Number(userId),
+                status: { [sequelize_1.Op.in]: ["present", "out"] },
+                date: { [sequelize_1.Op.between]: [startDateStr, endDateStr] },
+            },
+        });
+        // 3. Casual leave balance for the current year
+        const leaveBalance = yield dbConnection_2.EmployeeLeaveBalance.findOne({
+            where: {
+                employeeId: Number(userId),
+                year: istYear,
+            },
+        });
+        const casualLeaves = leaveBalance
+            ? {
+                allocated: leaveBalance.casualLeaveAllocated,
+                used: leaveBalance.casualLeaveUsed,
+                remaining: leaveBalance.casualLeaveAllocated - leaveBalance.casualLeaveUsed,
+            }
+            : { allocated: 0, used: 0, remaining: 0 };
+        // Same endpoint, same field names, richer scope for a manager — the
+        // pattern every role-aware /api route here follows: a sale_person gets
+        // exactly what they always got, a manager gets the team-scoped version
+        // of the SAME payload with their oversight numbers added on top.
+        //
+        // The four counts above are already team-scoped for a manager (allUserIds
+        // is self + company-scoped descendants), so the mobile home screen's
+        // existing tiles keep working unchanged for both roles — for a manager
+        // they simply cover the whole team instead of one person. Previously the
+        // manager branch discarded them entirely and returned only HR KPIs,
+        // leaving those tiles empty.
+        const base = {
             saleordercount,
             perfomaInvoice,
             invoice,
             Reports,
-        });
+            // Personal fields — every role sees their own shift, attendance and
+            // leave balance, a manager included.
+            shift,
+            presentDays,
+            casualLeaves,
+        };
+        if (role === "manager") {
+            // Superset: the shared tiles above (team-scoped) + the team HR-ops
+            // KPIs, the identical numbers /admin/dashboard-summary serves.
+            const summary = yield AdminController.buildDashboardSummary(req.userData);
+            (0, errorMessage_1.createSuccess)(res, "Dashboard data fetched successfully", Object.assign(Object.assign({}, base), summary));
+            return;
+        }
+        (0, errorMessage_1.createSuccess)(res, "Dashboard data fetched successfully", base);
     }
     catch (error) {
         console.error(error);
@@ -3023,8 +3234,21 @@ exports.getDashboardMobile = getDashboardMobile;
 // "Sales Performance" chart on the mobile dashboard.
 const getSalesPerformance = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { userId } = req.userData;
+        const { userId, role, companyId } = req.userData;
         const finalUserId = Number(userId);
+        // Role-based scope: a manager sees their whole team's completion rate
+        // (self + recursive sale_person reports, same team scope every other
+        // team-oversight endpoint uses); every other role (sale_person) keeps
+        // the original self-only behavior unchanged.
+        //
+        // Company-scoped: a manager assigned to more than one company must only
+        // see the meetings of the team belonging to the company this token is
+        // currently acting in — getAllChildUserIds alone leaked the other
+        // company's employees into these numbers.
+        const callerCompanyId = companyId ? Number(companyId) : null;
+        const scopeUserIds = role === "manager"
+            ? [finalUserId, ...(yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(finalUserId, callerCompanyId))]
+            : [finalUserId];
         const range = String(req.query.range || "week").toLowerCase();
         if (!["week", "month", "year"].includes(range)) {
             (0, errorMessage_1.badRequest)(res, "range must be one of: week, month, year");
@@ -3034,30 +3258,46 @@ const getSalesPerformance = (req, res) => __awaiter(void 0, void 0, void 0, func
         let startDate;
         let endDate;
         let buckets;
+        // FIX: week/month/year start-end were derived via now.getDay()/
+        // getFullYear()/getMonth() and the multi-arg Date constructor, which
+        // read/interpret in the server process's OS-local timezone — only
+        // correct here because this dev machine's OS timezone happens to be
+        // Asia/Kolkata (not guaranteed on the production host). Shifting by the
+        // fixed IST offset first and working in UTC-getter space (then shifting
+        // back to real UTC instants) keeps the "current week/month/year" bucket
+        // correct in IST regardless of server OS timezone — same pattern used
+        // for dashboard-summary's weekStart/weekEnd and the meeting trend chart.
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const nowIST = new Date(now.getTime() + IST_OFFSET_MS);
         if (range === "week") {
-            // Monday-start week containing "now"
-            const mondayOffset = (now.getDay() + 6) % 7; // Mon=0 ... Sun=6
-            startDate = new Date(now);
-            startDate.setDate(now.getDate() - mondayOffset);
-            startDate.setHours(0, 0, 0, 0);
-            endDate = new Date(startDate);
-            endDate.setDate(startDate.getDate() + 6);
-            endDate.setHours(23, 59, 59, 999);
+            // Monday-start week containing "now" (IST)
+            const mondayOffset = (nowIST.getUTCDay() + 6) % 7; // Mon=0 ... Sun=6
+            const weekStartIST = new Date(nowIST);
+            weekStartIST.setUTCDate(nowIST.getUTCDate() - mondayOffset);
+            weekStartIST.setUTCHours(0, 0, 0, 0);
+            startDate = new Date(weekStartIST.getTime() - IST_OFFSET_MS);
+            const weekEndIST = new Date(weekStartIST);
+            weekEndIST.setUTCDate(weekStartIST.getUTCDate() + 6);
+            weekEndIST.setUTCHours(23, 59, 59, 999);
+            endDate = new Date(weekEndIST.getTime() - IST_OFFSET_MS);
             const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
             buckets = labels.map((label, key) => ({ key, label }));
         }
         else if (range === "month") {
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-            const daysInMonth = endDate.getDate();
+            const istYear = nowIST.getUTCFullYear();
+            const istMonth = nowIST.getUTCMonth();
+            startDate = new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS);
+            endDate = new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS);
+            const daysInMonth = new Date(Date.UTC(istYear, istMonth + 1, 0)).getUTCDate();
             buckets = Array.from({ length: daysInMonth }, (_, i) => ({
                 key: i + 1,
                 label: String(i + 1),
             }));
         }
         else {
-            startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-            endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+            const istYear = nowIST.getUTCFullYear();
+            startDate = new Date(Date.UTC(istYear, 0, 1) - IST_OFFSET_MS);
+            endDate = new Date(Date.UTC(istYear, 11, 31, 23, 59, 59, 999) - IST_OFFSET_MS);
             const labels = [
                 "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -3066,7 +3306,7 @@ const getSalesPerformance = (req, res) => __awaiter(void 0, void 0, void 0, func
         }
         const meetings = yield dbConnection_2.Meeting.findAll({
             where: {
-                userId: finalUserId,
+                userId: { [sequelize_1.Op.in]: scopeUserIds },
                 status: { [sequelize_1.Op.ne]: "cancelled" },
                 createdAt: { [sequelize_1.Op.between]: [startDate, endDate] },
             },
@@ -3075,14 +3315,19 @@ const getSalesPerformance = (req, res) => __awaiter(void 0, void 0, void 0, func
         const bucketStats = new Map();
         buckets.forEach((b) => bucketStats.set(b.key, { total: 0, completed: 0 }));
         meetings.forEach((m) => {
-            const date = new Date(m.createdAt);
+            // FIX: was date.getDay()/getDate()/getMonth() (OS-local getters) —
+            // same timezone-dependency as the boundary computation above. Shift
+            // into IST before reading the day-of-week/day-of-month/month so a
+            // meeting near the IST day/month boundary lands in the same bucket a
+            // manager/admin in India would expect, regardless of server OS tz.
+            const dateIST = new Date(new Date(m.createdAt).getTime() + IST_OFFSET_MS);
             let key;
             if (range === "week")
-                key = (date.getDay() + 6) % 7;
+                key = (dateIST.getUTCDay() + 6) % 7;
             else if (range === "month")
-                key = date.getDate();
+                key = dateIST.getUTCDate();
             else
-                key = date.getMonth();
+                key = dateIST.getUTCMonth();
             const stat = bucketStats.get(key);
             if (!stat)
                 return;
@@ -3111,6 +3356,7 @@ const getSalesPerformance = (req, res) => __awaiter(void 0, void 0, void 0, func
             : 0;
         (0, errorMessage_1.createSuccess)(res, "Sales performance fetched successfully", {
             range,
+            scope: role === "manager" ? "team" : "self",
             startDate,
             endDate,
             totalMeetings,

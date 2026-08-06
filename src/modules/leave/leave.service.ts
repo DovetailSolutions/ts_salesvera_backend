@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
-import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import { hasCompanyAccess } from "../shared/companyAccess";
 import { getISTDateString } from "../shared/dateUtils";
 import * as LeaveRepo from "./leave.repository";
@@ -480,7 +480,10 @@ export const leaveList = async (
 ) => {
   // Company-scoped team — otherwise a multi-company admin/manager sees the
   // other company's leave requests in this list after switching companies.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  // PERF: Fast variant (see userHierarchy.ts) — this list is called from the
+  // dashboard alongside several other team-scoped calls, so the old one-DB-
+  // round-trip-per-user walk compounded directly into dashboard load time.
+  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   const allUserIds = [loggedInId, ...childIds];
 
   const { rows, count } = await LeaveRepo.findLeavesForUsersPaginated({
@@ -506,7 +509,8 @@ export const getTodayLeaveRequests = async (loggedInId: number, callerCompanyId:
   // Company-scoped team — this feeds the dashboard's "on leave today" widget,
   // which otherwise counts the other company's employees for a caller
   // assigned to more than one company.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  // PERF: Fast variant (see userHierarchy.ts) — same reasoning as leaveList above.
+  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   const [appliedToday, onLeaveToday] = await LeaveRepo.findTodayLeaveActivity(childIds);
 
   return {

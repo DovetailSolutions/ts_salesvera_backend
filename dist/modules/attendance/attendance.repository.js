@@ -21,9 +21,7 @@ const dbConnection_2 = require("../../config/dbConnection");
 // AttendanceList).
 // ============================================================
 const findTeamAttendanceToday = (params) => dbConnection_2.User.findAndCountAll({
-    where: {
-        id: { [sequelize_1.Op.in]: params.allUserIds, [sequelize_1.Op.ne]: params.excludeUserId },
-    },
+    where: Object.assign({ id: { [sequelize_1.Op.in]: params.allUserIds, [sequelize_1.Op.ne]: params.excludeUserId } }, params.search),
     attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "shiftId", "createdAt"],
     include: [
         {
@@ -37,6 +35,7 @@ const findTeamAttendanceToday = (params) => dbConnection_2.User.findAndCountAll(
     offset: params.offset,
     limit: params.limit,
     order: [["createdAt", "DESC"]],
+    distinct: true,
 });
 exports.findTeamAttendanceToday = findTeamAttendanceToday;
 const findAttendanceForDate = (employeeId, date) => dbConnection_2.Attendance.findOne({ where: { employee_id: employeeId, date } });
