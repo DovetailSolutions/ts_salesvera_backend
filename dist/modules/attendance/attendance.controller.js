@@ -42,7 +42,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.bulkMarkAttendance = exports.exportAttendanceReport = exports.AttendanceBook = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
+exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.bulkMarkAttendance = exports.exportAttendanceReport = exports.AttendanceBook = exports.attendanceSummary = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
 const errorMessage_1 = require("../../app/middlewear/errorMessage");
 const serviceError_1 = require("../shared/serviceError");
 const Middleware = __importStar(require("../../app/middlewear/comman"));
@@ -110,6 +110,22 @@ const userAttendance = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.userAttendance = userAttendance;
+const attendanceSummary = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const result = yield AttendanceService.attendanceSummary(Number(userData.userId), callerCompanyId);
+        res.status(200).json({
+            success: true,
+            message: "Attendance summary fetched successfully",
+            data: result,
+        });
+    }
+    catch (error) {
+        handleServiceError(res, error);
+    }
+});
+exports.attendanceSummary = attendanceSummary;
 const AttendanceBook = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;

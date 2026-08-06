@@ -120,6 +120,7 @@ server.listen(PORT, () => __awaiter(void 0, void 0, void 0, function* () {
     yield (0, schemaExtensions_1.ensureLeaveTypeSchema)(dbConnection_1.sequelize);
     yield (0, schemaExtensions_1.ensureEmployeeCode)(dbConnection_1.sequelize);
     yield (0, schemaExtensions_1.ensureNotificationPreferences)(dbConnection_1.sequelize);
+    yield (0, schemaExtensions_1.ensureChatRoomOwnership)(dbConnection_1.sequelize);
     (0, cronJobs_1.startCronJobs)(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
     console.log(`Server is running on http://localhost:${PORT}`);
 }));

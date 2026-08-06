@@ -202,10 +202,23 @@ const endOfDay = (d) => {
 };
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
 const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
-    // Team scope (not client scope) — a manager's dashboard reflects their
-    // own team's activity, not their whole admin's org, and only the team of
-    // the company this token is currently acting in.
-    const allowedIds = yield (0, exports.resolveTeamScope)(loggedInId, callerCompanyId);
+    // FIX: this dashboard's visibility scope was reusing resolveTeamScope,
+    // which answers a DIFFERENT question — "who can I act on behalf of"
+    // (scheduleMeeting/rescheduleMeeting's authorization check) — and only
+    // ever returns the caller's OWN creator-subtree. That's correct for a
+    // manager's dashboard (their own team's activity, nothing more), but
+    // wrong for admin: an admin's dashboard should reflect the WHOLE
+    // company's meetings regardless of which manager a salesperson happens
+    // to report to, including managers/salespersons the admin didn't
+    // personally create (a second admin added via the CompanyAdmin junction,
+    // staff created by the tenant owner, anyone reassigned after creation) —
+    // resolveTeamScope silently dropped all of those from the admin's own
+    // dashboard. Manager keeps the narrow, correct team scope; every other
+    // role that can reach this endpoint (admin, super_admin, "user") gets the
+    // whole company instead.
+    const allowedIds = role === "manager"
+        ? yield (0, exports.resolveTeamScope)(loggedInId, callerCompanyId)
+        : yield (0, userHierarchy_1.getCompanyScopedOrgWideUserIds)(loggedInId, callerCompanyId);
     const now = new Date();
     const today0 = startOfDay(now);
     const today1 = endOfDay(now);
@@ -286,7 +299,12 @@ const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(voi
         };
     }
     const newClientsThisMonth = yield MeetingRepo.countNewClients(allowedIds, monthStart, monthEnd);
+    // The plain "how many meetings does my scope actually have" figure — every
+    // other number here is windowed (today/week/month), so this was the one
+    // thing missing that a manager or admin would look for first.
+    const totalMeetings = yield MeetingRepo.countAllMeetings(allowedIds);
     return {
+        totalMeetings,
         scheduledToday,
         scheduledThisWeek,
         scheduledThisMonth,

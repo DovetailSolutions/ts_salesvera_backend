@@ -57,6 +57,10 @@ router.post("/mark-attendance-present", jwtVerify_1.tokenCheck, (0, checkPermiss
 router.post("/bulk-mark-attendance", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "update"), attendanceBulk.single("file"), AttendanceController.bulkMarkAttendance);
 router.get("/user-attendance", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.userAttendance);
 router.get("/attendance-book", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.AttendanceBook);
+// Admin/manager team attendance summary: total child count, present today,
+// absent today, on leave today — all derived from batched COUNT queries
+// (no row fetching) so it responds fast regardless of team size.
+router.get("/attendance-summary", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.attendanceSummary);
 // Excel export of the admin/manager's own team's attendance (childIds only).
 // Query: startDate/endDate (default: current month), userId (optional — one
 // team member instead of the whole team).

@@ -402,13 +402,41 @@ const UpdateProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* 
 exports.UpdateProfile = UpdateProfile;
 const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const { page = 1, limit = 10, search = "", role: filterRole, shiftId, branchId } = req.query;
+        const { page = 1, limit = 10, search = "", role: filterRole, shiftId, branchId, managerId } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
         const userData = req.userData;
+        const callerId = Number(userData.userId);
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        // Whose team this request is for — defaults to the caller's own, but an
+        // explicit managerId lets an admin/tenant-owner browse a specific
+        // manager's team (the meeting scheduler does this). Only allowed when
+        // that manager is actually inside the caller's own company-scoped
+        // hierarchy: this used to accept ANY managerId with no ownership check
+        // at all, so any authenticated caller could harvest a stranger's team
+        // roster (name/email/phone) just by guessing an id.
+        let targetUserId = callerId;
+        if (managerId !== undefined && Number(managerId) !== callerId) {
+            const requestedId = Number(managerId);
+            const callerTeam = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(callerId, callerCompanyId);
+            if (!callerTeam.includes(requestedId)) {
+                (0, errorMessage_1.badRequest)(res, "You are not authorized to view this manager's team");
+                return;
+            }
+            targetUserId = requestedId;
+        }
         /** ✅ Search condition */
         const where = {};
+        // The endpoint's whole purpose is "my sale persons" — default the role
+        // filter accordingly so a recursive team lookup (which also picks up
+        // any intermediate managers) doesn't hand back the wrong role. Still
+        // overridable for the rare caller that explicitly wants something else.
+        where.role = filterRole || "sale_person";
+        if (shiftId)
+            where.shiftId = Number(shiftId);
+        if (branchId)
+            where.branchId = Number(branchId);
         if (search) {
             where[sequelize_1.Op.or] = [
                 { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
@@ -417,78 +445,36 @@ const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* (
                 { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
             ];
         }
-        // Role-based scope: a manager gets their FULL recursive team (not just
-        // direct reports) plus optional role/shift/branch filters — this is
-        // "the manager's functionality" for this same endpoint. Every other
-        // caller (sale_person, tenant "user") keeps the exact original
-        // direct-createdUsers-only behavior, unchanged.
-        if (userData.role === "manager") {
-            if (filterRole)
-                where.role = filterRole;
-            if (shiftId)
-                where.shiftId = Number(shiftId);
-            if (branchId)
-                where.branchId = Number(branchId);
-            // FIX: was getAllChildUserIds (pure who-created-whom, no notion of
-            // company) — a manager assigned to more than one company kept seeing
-            // every person they ever created, including the other company's
-            // employees, after switching company. Scope the recursive team to the
-            // company this token is currently acting in.
-            const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
-            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(Number(userData.userId), callerCompanyId);
-            if (childIds.length === 0) {
-                (0, errorMessage_1.createSuccess)(res, "My sale persons", { page: pageNum, limit: limitNum, total: 0, rows: [] });
-                return;
-            }
-            where.id = { [sequelize_1.Op.in]: childIds };
-            const { count, rows } = yield dbConnection_2.User.findAndCountAll({
-                where,
-                attributes: ["id", "firstName", "lastName", "email", "phone", "role", "shiftId", "branchId"],
-                // branchId/shiftId were already selected but never joined to their
-                // names, so the manager's team table could show a raw id at best.
-                include: [
-                    { model: dbConnection_2.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
-                    { model: dbConnection_2.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
-                ],
-                limit: limitNum,
-                offset,
-                order: [["firstName", "ASC"]],
-            });
-            (0, errorMessage_1.createSuccess)(res, "My sale persons", {
-                page: pageNum,
-                limit: limitNum,
-                total: count,
-                rows,
-            });
+        // FIX: was getAllChildUserIds (pure who-created-whom, no notion of
+        // company) on some callers and a single-level createdUsers include with
+        // NO company scoping at all on others (the /admin/mysaleperson route
+        // this same handler now also serves) — either way, a manager/admin
+        // assigned to more than one company kept seeing every person they ever
+        // created, including the other company's employees, after switching
+        // company. Scope the FULL recursive team to the company this token is
+        // currently acting in, for every caller uniformly.
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(targetUserId, callerCompanyId);
+        if (childIds.length === 0) {
+            (0, errorMessage_1.createSuccess)(res, "My sale persons", { page: pageNum, limit: limitNum, total: 0, rows: [] });
             return;
         }
-        /** ✅ Fetch created users (original behavior, unchanged) */
-        const result = yield dbConnection_2.User.findByPk(userData.userId, {
+        where.id = { [sequelize_1.Op.in]: childIds };
+        const { count, rows } = yield dbConnection_2.User.findAndCountAll({
+            where,
+            attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "shiftId", "branchId"],
             include: [
-                {
-                    model: dbConnection_2.User,
-                    as: "createdUsers",
-                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-                    through: { attributes: [] },
-                    where, // ✅ apply search
-                    required: false, // ✅ so user must exist even if none found
-                },
+                { model: dbConnection_2.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+                { model: dbConnection_2.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
             ],
+            limit: limitNum,
+            offset,
+            order: [["firstName", "ASC"]],
         });
-        if (!result) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-        }
-        /** ✅ Extract created users */
-        // let createdUsers = result?.createdUsers || [];
-        let createdUsers = (result === null || result === void 0 ? void 0 : result.createdUsers) || [];
-        /** ✅ Pagination manually */
-        const total = createdUsers.length;
-        createdUsers = createdUsers.slice(offset, offset + limitNum);
         (0, errorMessage_1.createSuccess)(res, "My sale persons", {
             page: pageNum,
             limit: limitNum,
-            total,
-            rows: createdUsers,
+            total: count,
+            rows,
         });
     }
     catch (error) {
@@ -509,7 +495,13 @@ const getLastMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const pageNumber = Number(page);
         const pageLimit = Number(limit);
         const offset = (pageNumber - 1) * pageLimit;
-        const allUserIds = yield Middleware.getAllSubordinateIds(Number(finalUserId));
+        // FIX: was Middleware.getAllSubordinateIds — climbs to the company root
+        // and walks every descendant back down with NO company filtering at all,
+        // so an admin/manager assigned to more than one company saw the other
+        // company's clients/meetings mixed in here. getCompanyScopedOrgWideUserIds
+        // does the same "whole company" walk but filters by the company this
+        // token is currently acting in.
+        const allUserIds = yield (0, userHierarchy_1.getCompanyScopedOrgWideUserIds)(Number(finalUserId), (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null);
         // ✅ Root filter (ONLY this controls main records)
         const whereCondition = {
             userId: { [sequelize_1.Op.in]: allUserIds },

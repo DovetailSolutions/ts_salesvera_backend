@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const router = (0, express_1.Router)();
 const AdminController = __importStar(require("../controller/admin"));
+const UserController = __importStar(require("../controller/user"));
 const NotificationController = __importStar(require("../controller/notification"));
 const jwtVerify_1 = require("../../config/jwtVerify");
 const checkPermission_1 = require("../../config/checkPermission");
@@ -50,7 +51,11 @@ const csv = (0, fileUploads_1.default)("csv");
 // Auth routes (register/login/logout/getProfile/updateProfile/
 // updatepassword/forgot-password/verify-otp/reset-password) now live in
 // src/modules/auth/, mounted in server.ts — same URL paths as before.
-router.get("/mysaleperson", jwtVerify_1.tokenCheck, AdminController.MySalePerson);
+// Both /admin/mysaleperson (web) and /api/mysaleperson (mobile, user.ts
+// router) now serve the exact same handler — they used to be two
+// independently-maintained copies that drifted apart (this one had no
+// company scoping and no ownership check on an arbitrary managerId).
+router.get("/mysaleperson", jwtVerify_1.tokenCheck, UserController.MySalePerson);
 router.post('/assign-salesman', jwtVerify_1.tokenCheck, AdminController.assignSalesman);
 router.post("/addcategory", jwtVerify_1.tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", jwtVerify_1.tokenCheck, AdminController.getcategory);

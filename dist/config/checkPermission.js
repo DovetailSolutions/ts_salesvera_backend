@@ -82,7 +82,7 @@ const checkPermission = (module, action) => {
             if (!permissionSet.has(required)) {
                 return res.status(403).json({
                     success: false,
-                    message: `You don’t have  '${module}" "${action}'permission`,
+                    message: `You don’t have '${module}:${action}' permission`,
                 });
             }
             return next();
@@ -108,7 +108,7 @@ exports.checkPermission = checkPermission;
 // ============================================================
 const checkInvoiceCreatePermission = () => {
     return (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-        var _a, _b, _c, _d, _e, _f, _g;
+        var _a;
         try {
             const userData = req.userData;
             if (!userData || !userData.userId) {
@@ -118,7 +118,12 @@ const checkInvoiceCreatePermission = () => {
                 });
             }
             const { role, userId } = userData;
-            const companyId = (_e = (_c = (_a = userData.companyId) !== null && _a !== void 0 ? _a : (_b = req.body) === null || _b === void 0 ? void 0 : _b.companyId) !== null && _c !== void 0 ? _c : (_d = req.params) === null || _d === void 0 ? void 0 : _d.companyId) !== null && _e !== void 0 ? _e : (_f = req.query) === null || _f === void 0 ? void 0 : _f.companyId;
+            // FIX: was falling back to req.body/params/query companyId — a client
+            // with no valid company context in their token could supply an
+            // arbitrary ?companyId= to satisfy this gate. companyId must come
+            // exclusively from the server-resolved token, matching checkPermission's
+            // already-documented convention.
+            const companyId = userData.companyId;
             // ── Super Admin: bypass all permission checks ──────────────────
             if (role === "super_admin") {
                 return next();
@@ -131,12 +136,11 @@ const checkInvoiceCreatePermission = () => {
             }
             // No status sent → Invoices.create() defaults it to "draft" too, so treat
             // a missing status the same as an explicit "draft" here.
-            const isDraft = !((_g = req.body) === null || _g === void 0 ? void 0 : _g.status) || req.body.status === "draft";
+            const isDraft = !((_a = req.body) === null || _a === void 0 ? void 0 : _a.status) || req.body.status === "draft";
             const module = isDraft ? "proformainvoice" : "invoice";
             const action = "create";
             const required = `${module}:${action}`;
             const permissionSet = yield (0, permissionCache_1.getUserPermissionsFromCache)(userId, () => loadUserPermissionsFromDB(userId));
-            console.log(`checkInvoiceCreatePermission: userId=${userId}, role=${role}, required=${required}`);
             if (!permissionSet.has(required)) {
                 return res.status(403).json({
                     success: false,
@@ -169,7 +173,6 @@ exports.checkInvoiceCreatePermission = checkInvoiceCreatePermission;
 // ============================================================
 const checkInvoiceViewPermission = () => {
     return (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-        var _a, _b, _c, _d, _e, _f;
         try {
             const userData = req.userData;
             if (!userData || !userData.userId) {
@@ -179,7 +182,9 @@ const checkInvoiceViewPermission = () => {
                 });
             }
             const { role, userId } = userData;
-            const companyId = (_e = (_c = (_a = userData.companyId) !== null && _a !== void 0 ? _a : (_b = req.body) === null || _b === void 0 ? void 0 : _b.companyId) !== null && _c !== void 0 ? _c : (_d = req.params) === null || _d === void 0 ? void 0 : _d.companyId) !== null && _e !== void 0 ? _e : (_f = req.query) === null || _f === void 0 ? void 0 : _f.companyId;
+            // FIX: was falling back to req.body/params/query companyId — see the
+            // identical fix in checkInvoiceCreatePermission above.
+            const companyId = userData.companyId;
             // ── Super Admin: bypass all permission checks ──────────────────
             if (role === "super_admin") {
                 return next();
@@ -191,7 +196,6 @@ const checkInvoiceViewPermission = () => {
                 });
             }
             const permissionSet = yield (0, permissionCache_1.getUserPermissionsFromCache)(userId, () => loadUserPermissionsFromDB(userId));
-            console.log(`checkInvoiceViewPermission: userId=${userId}, role=${role}, has invoice:view=${permissionSet.has("invoice:view")}, has proformainvoice:view=${permissionSet.has("proformainvoice:view")}`);
             if (!permissionSet.has("invoice:view") && !permissionSet.has("proformainvoice:view")) {
                 return res.status(403).json({
                     success: false,
@@ -221,7 +225,6 @@ exports.checkInvoiceViewPermission = checkInvoiceViewPermission;
 // ============================================================
 const checkInvoiceUpdatePermission = () => {
     return (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
-        var _a, _b, _c, _d, _e, _f;
         try {
             const userData = req.userData;
             if (!userData || !userData.userId) {
@@ -231,7 +234,9 @@ const checkInvoiceUpdatePermission = () => {
                 });
             }
             const { role, userId } = userData;
-            const companyId = (_e = (_c = (_a = userData.companyId) !== null && _a !== void 0 ? _a : (_b = req.body) === null || _b === void 0 ? void 0 : _b.companyId) !== null && _c !== void 0 ? _c : (_d = req.params) === null || _d === void 0 ? void 0 : _d.companyId) !== null && _e !== void 0 ? _e : (_f = req.query) === null || _f === void 0 ? void 0 : _f.companyId;
+            // FIX: was falling back to req.body/params/query companyId — see the
+            // identical fix in checkInvoiceCreatePermission above.
+            const companyId = userData.companyId;
             // ── Super Admin: bypass all permission checks ──────────────────
             if (role === "super_admin") {
                 return next();
@@ -255,7 +260,6 @@ const checkInvoiceUpdatePermission = () => {
             const action = "update";
             const required = `${module}:${action}`;
             const permissionSet = yield (0, permissionCache_1.getUserPermissionsFromCache)(userId, () => loadUserPermissionsFromDB(userId));
-            console.log(`checkInvoiceUpdatePermission: userId=${userId}, role=${role}, required=${required}`);
             if (!permissionSet.has(required)) {
                 return res.status(403).json({
                     success: false,

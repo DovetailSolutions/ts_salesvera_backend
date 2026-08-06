@@ -16,28 +16,8 @@ const userPermission_1 = require("../model/userPermission");
 const dbConnection_1 = require("../../config/dbConnection");
 const permissionCache_1 = require("../../config/permissionCache");
 const permissionTemplates_1 = require("../../config/permissionTemplates");
-// BFS traversal of the creator hierarchy below rootUserId (does NOT include root itself).
-const getAllChildIds = (rootUserId) => __awaiter(void 0, void 0, void 0, function* () {
-    const result = [];
-    const queue = [rootUserId];
-    const visited = new Set([rootUserId]);
-    while (queue.length > 0) {
-        const pid = queue.shift();
-        const user = yield dbConnection_1.User.findByPk(pid, {
-            include: [{ model: dbConnection_1.User, as: "createdUsers", attributes: ["id", "role"], through: { attributes: [] } }],
-        });
-        if (user === null || user === void 0 ? void 0 : user.createdUsers) {
-            for (const child of user.createdUsers) {
-                if (!visited.has(child.id)) {
-                    visited.add(child.id);
-                    result.push(child.id);
-                    queue.push(child.id);
-                }
-            }
-        }
-    }
-    return result;
-});
+const companyAccess_1 = require("../../modules/shared/companyAccess");
+const userHierarchy_1 = require("../../modules/shared/userHierarchy");
 // Returns all subordinate userIds below a given user (does NOT include the user itself).
 // Only traverses downward — never climbs up to the company root.
 const getSubordinateIdsDown = (userId) => __awaiter(void 0, void 0, void 0, function* () {
@@ -155,11 +135,29 @@ const resolveRoleTargetUserIds = (targetRole, effectiveCompanyId) => __awaiter(v
         });
         return { userIds: activeAdmins.map((u) => u.id) };
     }
-    // manager / sale_person — walk down from this company's admin, correctly
-    // scoped to only the managers/sale_persons created under that admin.
-    if (!company.adminId)
+    // manager / sale_person — walk down from EVERY one of this company's
+    // admins (the legacy single Company.adminId plus any additional admins
+    // via the CompanyAdmin junction — mirrors the "admin" branch above, which
+    // already merges both), scoped to only people who actually belong to this
+    // company.
+    // FIX: was getAllChildIds(company.adminId) — company-blind, and only ever
+    // walked from the single primary admin. An admin administering more than
+    // one company had bulk role actions (grant/revoke/list-by-role) silently
+    // apply to ALL of their companies' staff, not just the one the caller was
+    // actually verified against via hasCompanyAccess above — and a company's
+    // OTHER (junction-linked) admins' teams were skipped entirely.
+    const roleAdminIds = new Set();
+    if (company.adminId)
+        roleAdminIds.add(company.adminId);
+    const roleJunctionAdmins = yield dbConnection_1.CompanyAdmin.findAll({
+        where: { companyId: effectiveCompanyId },
+        attributes: ["adminId"],
+    });
+    roleJunctionAdmins.forEach((a) => roleAdminIds.add(a.adminId));
+    if (roleAdminIds.size === 0)
         return { userIds: [] };
-    const allChildIds = yield getAllChildIds(company.adminId);
+    const scopedIdSets = yield Promise.all(Array.from(roleAdminIds).map((rootId) => (0, userHierarchy_1.getCompanyScopedChildUserIds)(rootId, effectiveCompanyId)));
+    const allChildIds = Array.from(new Set(scopedIdSets.flat()));
     const roleUsers = yield dbConnection_1.User.findAll({
         where: { id: { [sequelize_1.Op.in]: allChildIds }, role: targetRole, status: "active" },
         attributes: ["id"],
@@ -245,10 +243,23 @@ exports.getPermissionTemplate = getPermissionTemplate;
 const getUserPermissions = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        console.log(">>>>>>>>>>>>>", userData);
         const { role, userId: callerId, companyId } = userData;
         const targetUserId = Number(req.params.userId);
-        console.log(">>>>targetUserId>", targetUserId);
+        // FIX: this endpoint had NO authorization check at all — any
+        // authenticated caller (down to a sale_person) could view ANY other
+        // user's permission list, including a super_admin's, just by supplying
+        // their id in the URL. Allow: viewing your own permissions, or a target
+        // inside the caller's own company-scoped org (super_admin exempt, same
+        // as every other permission-management action in this file).
+        if (role !== "super_admin" && targetUserId !== Number(callerId)) {
+            const orgIds = yield (0, userHierarchy_1.getCompanyScopedOrgWideUserIds)(Number(callerId), companyId ? Number(companyId) : null);
+            if (!orgIds.includes(targetUserId)) {
+                return res.status(403).json({
+                    success: false,
+                    message: "You are not authorized to view this user's permissions",
+                });
+            }
+        }
         // Individual permissions are stored without companyId (see assignPermissions).
         // Access is controlled by role hierarchy — no companyId filter needed here.
         const whereClause = { userId: targetUserId };
@@ -301,7 +312,6 @@ exports.getUserPermissions = getUserPermissions;
 const assignPermissions = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        console.log(">>>>>>>>>>>>>>>>>>>>>assignPermissions>>>", userData);
         const { role, userId: callerId, companyId: callerCompanyId } = userData;
         // companyId: bodyCompanyId
         const { targetUserId, permissionIds } = req.body;
@@ -563,6 +573,18 @@ const assignPermissionsToRole = (req, res) => __awaiter(void 0, void 0, void 0, 
         const effectiveCompanyId = bodyCompanyId
             ? Number(bodyCompanyId)
             : callerCompanyId ? Number(callerCompanyId) : null;
+        // FIX: effectiveCompanyId was taken straight from the request body with
+        // no check that the caller actually has any relationship to that
+        // company — an admin could pass an arbitrary companyId and bulk-grant
+        // permissions to a totally unrelated company's managers/sale_persons.
+        // "user" targetRole is exempt (platform-wide by design, see
+        // resolveRoleTargetUserIds); super_admin is exempt (legitimately
+        // platform-wide).
+        if (targetRole !== "user" && role !== "super_admin") {
+            if (!effectiveCompanyId || !(yield (0, companyAccess_1.hasCompanyAccess)(effectiveCompanyId, Number(callerId), role))) {
+                return res.status(403).json({ success: false, message: "You do not have access to this company" });
+            }
+        }
         // Hierarchy check
         const allowedRoles = ROLE_ASSIGNABLE_ROLES[role] || [];
         if (!allowedRoles.includes(targetRole)) {
@@ -662,6 +684,16 @@ const getUsersByRole = (req, res) => __awaiter(void 0, void 0, void 0, function*
         if (!effectiveCompanyId && targetRole !== "user") {
             return res.status(400).json({ success: false, message: "companyId is required" });
         }
+        // FIX: effectiveCompanyId was taken straight from the query string with
+        // no check that the caller actually has any relationship to that
+        // company — an admin could pass an arbitrary companyId and list every
+        // user (plus their full permission breakdown) for a totally unrelated
+        // company.
+        if (effectiveCompanyId && callerRole !== "super_admin") {
+            if (!(yield (0, companyAccess_1.hasCompanyAccess)(effectiveCompanyId, Number(userData.userId), callerRole))) {
+                return res.status(403).json({ success: false, message: "You do not have access to this company" });
+            }
+        }
         // Delegates to the same resolver assignPermissionsToRole/
         // revokePermissionsFromRole use, so all three stay in lockstep.
         const { userIds, error: resolveError } = yield resolveRoleTargetUserIds(targetRole, effectiveCompanyId);
@@ -721,7 +753,6 @@ exports.getUsersByRole = getUsersByRole;
 const getMyPermissions = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        console.log(">>>>>>>>>>>>>>>>>>>>>getMyPermissions>>>", userData);
         const { role, userId, companyId } = userData;
         // Super admin has everything
         if (role === "super_admin") {
@@ -792,6 +823,15 @@ const revokePermissionsFromRole = (req, res) => __awaiter(void 0, void 0, void 0
             : callerCompanyId ? Number(callerCompanyId) : null;
         if (!effectiveCompanyId && targetRole !== "user") {
             return res.status(400).json({ success: false, message: "companyId is required" });
+        }
+        // FIX: effectiveCompanyId was taken straight from the request body with
+        // no check that the caller actually has any relationship to that
+        // company — an admin could pass an arbitrary companyId and bulk-revoke
+        // permissions from a totally unrelated company's managers/sale_persons.
+        if (effectiveCompanyId && role !== "super_admin") {
+            if (!(yield (0, companyAccess_1.hasCompanyAccess)(effectiveCompanyId, Number(userData.userId), role))) {
+                return res.status(403).json({ success: false, message: "You do not have access to this company" });
+            }
         }
         // Hierarchy check
         const allowedRoles = ROLE_ASSIGNABLE_ROLES[role] || [];

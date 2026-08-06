@@ -49,7 +49,7 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
     function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTodayAttendance = exports.attendancePunchOut = exports.getDayTypeFromWorkingHours = exports.attendancePunchIn = exports.bulkMarkAttendance = exports.exportAttendanceReportExcel = exports.attendanceBook = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
+exports.getTodayAttendance = exports.attendancePunchOut = exports.getDayTypeFromWorkingHours = exports.resolveHalfDayThresholdHours = exports.attendancePunchIn = exports.computeShiftOverlapHours = exports.bulkMarkAttendance = exports.exportAttendanceReportExcel = exports.attendanceBook = exports.attendanceSummary = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
 const sequelize_1 = require("sequelize");
 const spaces_1 = require("../../config/spaces");
 const XLSX = __importStar(require("xlsx"));
@@ -79,7 +79,10 @@ const getAttendance = (loggedInId, callerCompanyId, query) => __awaiter(void 0, 
     // company's employees in today's list after switching. Scoped to the
     // company they're currently acting in; callers with no resolvable company
     // context get the unfiltered hierarchy exactly as before.
-    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
+    // PERF: fast (level-batched) variant — same output, fewer DB round-trips.
+    // Only this call site was switched; every other caller of
+    // getCompanyScopedChildUserIds is untouched.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
     const allUserIds = [loggedInId, ...childIds];
     // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
     // to UTC first, which rolls the calendar day backward for any real-world
@@ -109,7 +112,14 @@ const getAttendance = (loggedInId, callerCompanyId, query) => __awaiter(void 0, 
     };
 });
 exports.getAttendance = getAttendance;
-const LEAVE_STATUSES = ["leave", "leaveApproved", "leaveReject"];
+// FIX: "leaveReject" used to be in this set, which meant a REJECTED leave
+// request blocked correcting that day's attendance with the exact same
+// "reject/cancel the leave first" message — nonsensical, since a rejected
+// leave has nothing active left to cancel. Only a currently-active leave
+// commitment ("leave" = pending, "leaveApproved" = approved) should require
+// going through leave-cancellation first; a rejected one is just a normal
+// day again and should be freely correctable like any other.
+const LEAVE_STATUSES = ["leave", "leaveApproved"];
 // The single "Mark Attendance" action's outcome vocabulary — deliberately a
 // small fixed set of machine-friendly values (not bulk's free-text CSV
 // words) since this is driven by a UI dropdown, not a spreadsheet cell.
@@ -337,12 +347,43 @@ const buildSearchFilter = (search) => search
         ],
     }
     : {};
+// Team attendance summary (admin/manager view of their own child hierarchy):
+// total child count, present today, on-leave today, and absent today. Built
+// entirely from two batched COUNT queries (no row fetching, no per-user
+// loops) so it stays fast regardless of team size:
+//   - childIds resolved via the fast, level-batched hierarchy walk (same one
+//     attendanceBook uses).
+//   - presentToday / onLeaveToday are plain Attendance/Leave COUNT queries,
+//     run in parallel.
+//   - absentToday is derived (totalChild - present - onLeave), not a third
+//     query — anyone not present and not on an approved leave today counts
+//     as absent, including team members who haven't punched in/been marked
+//     yet, which is what "Absent Today" means on a live dashboard.
+const attendanceSummary = (userId, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(userId, callerCompanyId);
+    const totalChildCount = childIds.length;
+    if (totalChildCount === 0) {
+        return { totalChildCount: 0, presentTodayCount: 0, absentTodayCount: 0, onLeaveTodayCount: 0 };
+    }
+    const todayDateOnly = (0, dateUtils_1.getISTDateString)();
+    const [presentTodayCount, onLeaveTodayCount] = yield Promise.all([
+        AttendanceRepo.countPresentToday(childIds, todayDateOnly),
+        AttendanceRepo.countOnLeaveToday(childIds, todayDateOnly),
+    ]);
+    const absentTodayCount = Math.max(totalChildCount - presentTodayCount - onLeaveTodayCount, 0);
+    return { totalChildCount, presentTodayCount, absentTodayCount, onLeaveTodayCount };
+});
+exports.attendanceSummary = attendanceSummary;
 const attendanceBook = (userId, callerCompanyId, query) => __awaiter(void 0, void 0, void 0, function* () {
     // FIX: was getAllChildUserIds — the unscoped hierarchy put the OTHER
     // company's employees into this month's register for an admin/manager
     // assigned to more than one company. Scoped to the company they're
     // currently acting in; no resolvable company context behaves as before.
-    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(userId, callerCompanyId);
+    // PERF: uses the fast (level-batched) variant — same output as
+    // getCompanyScopedChildUserIds, just fewer DB round-trips. Only this call
+    // site was switched; every other caller of getCompanyScopedChildUserIds
+    // is untouched.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(userId, callerCompanyId);
     if (!childIds.length) {
         throw new serviceError_1.ServiceError("No child users found");
     }
@@ -742,6 +783,12 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
     const skippedUnknownStatus = [];
     const skippedWrongShift = [];
     const skippedTooEarly = [];
+    // FIX: the "present" branch below used to overwrite ANY existing status
+    // unconditionally — including an active leave/leaveApproved day, which a
+    // blank cell (defaulting to "present") or a routine re-upload could
+    // silently clobber with no record of it happening. Same protection the
+    // single "Mark Attendance" action already has, applied here too.
+    const skippedActiveLeave = [];
     // "Employee ID" column holds each employee's human-facing code
     // (EMP00001, from the template's own "Employee ID" column) — resolved
     // against this caller's team up front, once, rather than per row. A bare
@@ -859,6 +906,7 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
             skippedUnknownStatus,
             skippedWrongShift,
             skippedTooEarly,
+            skippedActiveLeave,
         };
     }
     const dates = [...new Set(assignments.map((a) => a.date))];
@@ -884,6 +932,14 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
         const existing = existingMap.get(key);
         const empShiftForRow = resolveEmployeeShift(assignment.employee_id);
         if (assignment.status === "present") {
+            if (existing && LEAVE_STATUSES.includes(existing.status)) {
+                skippedActiveLeave.push({
+                    employeeId: assignment.employee_id,
+                    date: assignment.date,
+                    reason: `Marked "${existing.status}" — reject/cancel the leave first before marking present.`,
+                });
+                continue;
+            }
             // Punch-in/out are derived from the employee's assigned shift, same
             // as the single "Mark Present" action — a typed punch-in time (e.g.
             // "09:15") overrides the shift's own start, but punch_out (and the
@@ -921,6 +977,14 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
             }
         }
         else if (existing) {
+            if (LEAVE_STATUSES.includes(existing.status) && assignment.status !== "leave") {
+                skippedActiveLeave.push({
+                    employeeId: assignment.employee_id,
+                    date: assignment.date,
+                    reason: `Marked "${existing.status}" — reject/cancel the leave first before marking ${String(assignment.status).replace("_", " ")}.`,
+                });
+                continue;
+            }
             // Bulk-marking overwrites the day's status directly; punch-derived
             // fields from any prior real punch no longer apply and must be
             // cleared, or they end up contradicting the new status (e.g.
@@ -941,7 +1005,11 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
     // All rows for this upload commit or roll back together (transaction).
     yield AttendanceRepo.saveBulkAttendance(toUpdate, toCreate);
     return {
-        applied: assignments.length,
+        // FIX: was assignments.length — that counted every row that reached this
+        // stage, but a row can now be skipped here too (skippedActiveLeave)
+        // without ending up in toCreate/toUpdate, so it stopped meaning "actually
+        // applied" the moment that skip path was added.
+        applied: toCreate.length + toUpdate.length,
         created: toCreate.length,
         updated: toUpdate.length,
         skippedNonNumericEmployeeId,
@@ -949,6 +1017,7 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
         skippedUnknownStatus,
         skippedWrongShift,
         skippedTooEarly,
+        skippedActiveLeave,
     };
 });
 exports.bulkMarkAttendance = bulkMarkAttendance;
@@ -1022,6 +1091,27 @@ const deriveShiftPunchFields = (shift, company, dateStr, explicitPunchIn) => {
     const dayType = (0, exports.getDayTypeFromWorkingHours)(workingHours, shift, company);
     return { punchIn, punchOut, workingHours, dayType, overtime };
 };
+// How much of [punchIn, punchOut] actually falls within the employee's
+// assigned shift window on `dateStr` — punching in well before the shift
+// starts, or staying logged in well past it, no longer pads out "hours
+// worked" for a window that was never actually the shift. Used only for the
+// half-day/absent status decision and dayType classification below; the
+// STORED working_hours (session length, overtime baseline) stays the raw
+// punch duration exactly as before — this is a separate, internal number.
+// Falls back to the raw duration when there's no assigned shift to compare
+// against (nothing to be "aware" of, same as isBeforeShiftWindow's own
+// no-op-without-a-shift behaviour).
+const computeShiftOverlapHours = (shift, dateStr, punchIn, punchOut, rawWorkingHours) => {
+    const shiftStart = shiftStartInstant(shift, dateStr);
+    const shiftEnd = shiftEndInstant(shift, dateStr);
+    if (!shiftStart || !shiftEnd)
+        return rawWorkingHours;
+    const effectiveStart = punchIn > shiftStart ? punchIn : shiftStart;
+    const effectiveEnd = punchOut < shiftEnd ? punchOut : shiftEnd;
+    const overlapMs = effectiveEnd.getTime() - effectiveStart.getTime();
+    return overlapMs > 0 ? Number((overlapMs / (1000 * 60 * 60)).toFixed(2)) : 0;
+};
+exports.computeShiftOverlapHours = computeShiftOverlapHours;
 // True when `atInstant` is still more than EARLY_MARK_LEAD_MINUTES before
 // the shift's start on `dateStr` — i.e. too early to mark present yet.
 // No assigned shift (shift is null) never gates — there's nothing to wait
@@ -1179,14 +1269,23 @@ exports.attendancePunchIn = attendancePunchIn;
 // precedence used throughout this file (geofencing, lateMarkAfter, etc.).
 // Previously this used a hardcoded <3h / <9h split regardless of shift —
 // which, e.g., misclassified a full 8h day as "half_day" since 8 < 9.
-const getDayTypeFromWorkingHours = (workingHours, shift, company) => {
+// Extracted so both getDayTypeFromWorkingHours' classification and
+// attendancePunchOut/the auto-punch-out cron's "did they even reach half a
+// day" status rule below use the exact same threshold, instead of each
+// resolving it separately and risking the two drifting apart.
+const resolveHalfDayThresholdHours = (shift, company) => {
     const fullDayThreshold = (shift === null || shift === void 0 ? void 0 : shift.fullDayHours) && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
     const companyHalfDayHours = (company === null || company === void 0 ? void 0 : company.autoHalfDayAfter) && company.autoHalfDayAfter > 0
         ? company.autoHalfDayAfter / 60
         : null;
-    const halfDayThreshold = (shift === null || shift === void 0 ? void 0 : shift.halfDayAfter) && shift.halfDayAfter > 0
+    return (shift === null || shift === void 0 ? void 0 : shift.halfDayAfter) && shift.halfDayAfter > 0
         ? shift.halfDayAfter
         : companyHalfDayHours !== null && companyHalfDayHours !== void 0 ? companyHalfDayHours : fullDayThreshold / 2;
+};
+exports.resolveHalfDayThresholdHours = resolveHalfDayThresholdHours;
+const getDayTypeFromWorkingHours = (workingHours, shift, company) => {
+    const fullDayThreshold = (shift === null || shift === void 0 ? void 0 : shift.fullDayHours) && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
+    const halfDayThreshold = (0, exports.resolveHalfDayThresholdHours)(shift, company);
     if (workingHours < Math.min(3, halfDayThreshold))
         return "short_leave";
     if (workingHours < fullDayThreshold)
@@ -1224,12 +1323,34 @@ const attendancePunchOut = (finalUserId, callerCompanyId, body) => __awaiter(voi
         ? Number((workingHoursRounded - officeHours).toFixed(2))
         : 0;
     attendance.punch_out = punchOutTime;
+    // Session length (overtime baseline, "Session Hours" display) stays the
+    // raw clocked duration, unchanged.
     attendance.working_hours = workingHoursRounded;
     attendance.overtime = overtime;
     attendance.latitude_out = latitude_out;
     attendance.longitude_out = longitude_out;
-    attendance.status = "out";
-    attendance.dayType = (0, exports.getDayTypeFromWorkingHours)(workingHoursRounded, shift, company);
+    // FIX: dayType/status were both derived from raw punch duration alone —
+    // not "shift aware" in any real sense, since punching in well before the
+    // shift starts (or staying logged in well after it ends) padded out
+    // "hours worked" for time that was never actually the shift. Login/logout
+    // time now matter: only the portion of [punch_in, punch_out] that
+    // actually overlaps the employee's assigned shift window counts toward
+    // the half-day/absent decision.
+    const shiftAwareHours = (0, exports.computeShiftOverlapHours)(shift, today, punchInTime, punchOutTime, workingHoursRounded);
+    attendance.dayType = (0, exports.getDayTypeFromWorkingHours)(shiftAwareHours, shift, company);
+    // FIX: status was unconditionally "out" (the same "showed up" bucket as a
+    // full day) no matter how few (shift-relevant) hours were actually
+    // worked — punching in and back out again a few minutes later still
+    // counted as a normal present day everywhere the app reads `status`
+    // (attendance rate, the register/calendar colour, etc.); only the
+    // separate dayType field silently recorded the shortfall, and nothing in
+    // the app actually read dayType for that. Below the half-day threshold,
+    // this now reflects in status itself — "absent", the same as any other
+    // day that needs a manual correction — while still keeping the real
+    // punch_in/punch_out/working_hours on the record so whoever corrects it
+    // sees exactly what happened instead of a bare "absent" with no context.
+    const halfDayThresholdHours = (0, exports.resolveHalfDayThresholdHours)(shift, company);
+    attendance.status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
     yield attendance.save();
     return attendance;
 });

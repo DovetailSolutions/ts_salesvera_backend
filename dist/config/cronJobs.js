@@ -114,14 +114,27 @@ const startCronJobs = () => {
                     const overtime = overtimeAllowed && workingHours > officeHours
                         ? Number((workingHours - officeHours).toFixed(2))
                         : 0;
-                    const dayType = (0, attendance_service_1.getDayTypeFromWorkingHours)(workingHours, shift, company);
+                    // Shift-aware, same as the interactive punch-out endpoint
+                    // (attendancePunchOut): someone who punched in but never punched
+                    // out gets auto-closed at 23:59, which — measured as raw
+                    // duration — could read as a huge multi-hour "session" even
+                    // though almost none of it was during their actual shift.
+                    // Capping to the shift's own window before classifying means
+                    // dayType/status reflect what actually happened during the
+                    // shift, not an artifact of the cron's fixed 23:59 close time.
+                    // working_hours (stored below) stays the raw duration, same as
+                    // punch-out — only the classification uses the shift-aware figure.
+                    const shiftAwareHours = (0, attendance_service_1.computeShiftOverlapHours)(shift, dateStr, punchIn, autoPunchOut, workingHours);
+                    const dayType = (0, attendance_service_1.getDayTypeFromWorkingHours)(shiftAwareHours, shift, company);
+                    const halfDayThresholdHours = (0, attendance_service_1.resolveHalfDayThresholdHours)(shift, company);
+                    const status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
                     // ── Update the record ──
                     yield record.update({
                         punch_out: autoPunchOut,
                         working_hours: workingHours,
                         overtime,
                         dayType,
-                        status: "out",
+                        status,
                     });
                     successCount++;
                 }

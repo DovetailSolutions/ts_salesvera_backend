@@ -9,9 +9,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.collectUserCompanyIds = void 0;
 exports.getAllChildUserIds = getAllChildUserIds;
 exports.getCompanyScopedChildUserIds = getCompanyScopedChildUserIds;
 exports.getCompanyScopedChildUserIdsFast = getCompanyScopedChildUserIdsFast;
+exports.getCompanyScopedOrgWideUserIds = getCompanyScopedOrgWideUserIds;
 exports.getDirectCreator = getDirectCreator;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
@@ -177,7 +179,7 @@ visited = new Set(), depth = 0) {
         if (creatorIds.length > 0) {
             // Recurse so a chain of unresolved accounts (sale_person -> manager
             // -> admin) still terminates at the first ancestor that resolves.
-            const creatorCompanies = yield collectUserCompanyIds(creatorIds, visited, depth + 1);
+            const creatorCompanies = yield (0, exports.collectUserCompanyIds)(creatorIds, visited, depth + 1);
             creatorIdByUser.forEach((creatorId, userId) => {
                 const companies = creatorCompanies.get(creatorId);
                 if (companies && companies.size === 1) {
@@ -188,6 +190,7 @@ visited = new Set(), depth = 0) {
     }
     return map;
 });
+exports.collectUserCompanyIds = collectUserCompanyIds;
 // The company-scoped counterpart to getAllChildUserIds: the caller's
 // recursive team, minus anyone positively belonging to a different company.
 // Passing a null/undefined companyId (no company context resolvable —
@@ -199,7 +202,7 @@ function getCompanyScopedChildUserIds(userId, companyId) {
         if (companyId == null || childIds.length === 0)
             return childIds;
         const target = Number(companyId);
-        const companyIdsByUser = yield collectUserCompanyIds(childIds);
+        const companyIdsByUser = yield (0, exports.collectUserCompanyIds)(childIds);
         return childIds.filter((id) => {
             const companies = companyIdsByUser.get(id);
             // Indeterminate membership (no branch, no junction row, owns nothing) —
@@ -251,13 +254,62 @@ function getCompanyScopedChildUserIdsFast(userId, companyId) {
         if (companyId == null || childIds.length === 0)
             return childIds;
         const target = Number(companyId);
-        const companyIdsByUser = yield collectUserCompanyIds(childIds);
+        const companyIdsByUser = yield (0, exports.collectUserCompanyIds)(childIds);
         return childIds.filter((id) => {
             const companies = companyIdsByUser.get(id);
             if (!companies || companies.size === 0)
                 return true;
             return companies.has(target);
         });
+    });
+}
+// Some listing endpoints (mobile category/quotation/invoice/report lists,
+// an admin's meeting dashboard) intentionally show the WHOLE company's
+// data, not just the caller's own subtree — e.g. every manager under the
+// same admin is meant to see the same shared category list, and an admin's
+// dashboard should reflect the whole company's activity. They used to
+// resolve this via getAllSubordinateIds (app/middlewear/comman.ts): climb
+// up to a single company root, then walk every descendant back down — with
+// NO company filtering on the way down at all, so an admin/manager assigned
+// to more than one company bled the OTHER company's data into whichever one
+// they're currently acting in. Same root cause getAllChildUserIds had, just
+// a separate, independently-written function that never got the same fix.
+//
+// This is that fix, generalized to "whole company" breadth instead of "just
+// my own subtree" — and walked from EVERY admin the company actually has
+// (the legacy single Company.adminId plus any additional admins via the
+// CompanyAdmin junction — the same multi-admin support already relied on
+// elsewhere, e.g. permission.ts's resolveRoleTargetUserIds), not just the
+// primary one. A company's additional admins are often independently
+// existing accounts assigned in later, not necessarily the primary admin's
+// own creator-descendants — anchoring on only Company.adminId would still
+// silently miss a second admin's own separately-created managers/
+// sale_persons, the same class of gap this function exists to close.
+function getCompanyScopedOrgWideUserIds(callerId, callerCompanyId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (callerCompanyId == null) {
+            // No company context resolvable (e.g. super_admin with no active
+            // company) — fall back to the caller's own tree, same as before.
+            const own = yield getCompanyScopedChildUserIds(callerId, null);
+            return [callerId, ...own];
+        }
+        const rootIds = new Set();
+        const company = yield dbConnection_1.Company.findByPk(Number(callerCompanyId), { attributes: ["adminId"] });
+        if (company === null || company === void 0 ? void 0 : company.adminId)
+            rootIds.add(company.adminId);
+        const junctionAdmins = yield dbConnection_1.CompanyAdmin.findAll({
+            where: { companyId: Number(callerCompanyId) },
+            attributes: ["adminId"],
+        });
+        junctionAdmins.forEach((a) => rootIds.add(a.adminId));
+        // No admin on record at all for this company — fall back to the caller's
+        // own tree rather than returning nothing.
+        if (rootIds.size === 0)
+            rootIds.add(callerId);
+        const idSets = yield Promise.all(Array.from(rootIds).map((rootId) => getCompanyScopedChildUserIds(rootId, callerCompanyId)));
+        const merged = new Set(rootIds);
+        idSets.flat().forEach((id) => merged.add(id));
+        return Array.from(merged);
     });
 }
 // Returns the given user's immediate creator (one level up the createdBy

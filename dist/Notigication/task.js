@@ -17,7 +17,6 @@ const notificationService_1 = require("../config/notificationService");
 const Notification_1 = require("../app/model/Notification");
 const userHierarchy_1 = require("../modules/shared/userHierarchy");
 const dateUtils_1 = require("../modules/shared/dateUtils");
-const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
 const loadUserPermissionsFromDB = (userId) => __awaiter(void 0, void 0, void 0, function* () {
     const userPerms = yield dbConnection_1.UserPermission.findAll({
         where: { userId },
@@ -75,7 +74,15 @@ const initTaskSocket = (io) => {
         const uid = Number(userId);
         // Join task rooms — prefixed so they never clash with chat room IDs
         socket.join(`task:user:${uid}`);
-        if (ADMIN_MANAGER.includes(role)) {
+        // Company-wide room mirrors buildTaskVisibilityWhere/getAllTasks: every
+        // role except sale_person sees the whole company board, so every role
+        // except sale_person must also receive its live broadcasts. Previously
+        // this only checked ADMIN_MANAGER ("admin"/"super_admin"/"manager"),
+        // silently excluding the "user" role — those accounts loaded the full
+        // board on connect but then received zero live taskCreated/taskUpdated/
+        // taskDeleted events, so drag-and-drop and other edits from teammates
+        // never appeared until the page was refreshed.
+        if (role !== "sale_person") {
             socket.join(`task:company:${companyId}`);
         }
         // Emit a task event to the company room AND to the assignee's personal room

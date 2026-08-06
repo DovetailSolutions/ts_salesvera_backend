@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.findEmployeesByIds = exports.countNewClients = exports.findMeetingsInRange = exports.updateMeetingSchedule = exports.findMeetingById = exports.findConflictingMeeting = exports.createMeetingForEmployee = exports.findOrCreateMeetingCompany = exports.findLatestMeetingForUser = exports.findMeetingUserById = void 0;
+exports.findEmployeesByIds = exports.countAllMeetings = exports.countNewClients = exports.findMeetingsInRange = exports.updateMeetingSchedule = exports.findMeetingById = exports.findConflictingMeeting = exports.createMeetingForEmployee = exports.findOrCreateMeetingCompany = exports.findLatestMeetingForUser = exports.findMeetingUserById = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 // ============================================================
@@ -69,6 +69,12 @@ const countNewClients = (employeeIds, fromDate, toDate) => dbConnection_1.Meetin
     where: { userId: { [sequelize_1.Op.in]: employeeIds }, createdAt: { [sequelize_1.Op.between]: [fromDate, toDate] } },
 });
 exports.countNewClients = countNewClients;
+// All-time count, not windowed to any date range — the dashboard's other
+// numbers are all today/week/month, so there was previously no single
+// figure that just answered "how many meetings total" for the caller's
+// resolved scope (a manager's own team, or the whole company for admin).
+const countAllMeetings = (employeeIds) => dbConnection_1.Meeting.count({ where: { userId: { [sequelize_1.Op.in]: employeeIds } } });
+exports.countAllMeetings = countAllMeetings;
 const findEmployeesByIds = (employeeIds) => dbConnection_1.User.findAll({
     where: { id: { [sequelize_1.Op.in]: employeeIds } },
     attributes: ["id", "firstName", "lastName", "email"],

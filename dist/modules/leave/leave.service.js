@@ -440,7 +440,10 @@ exports.getTeamLeaveBalances = getTeamLeaveBalances;
 const leaveList = (loggedInId, status, page, limit, offset, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
     // Company-scoped team — otherwise a multi-company admin/manager sees the
     // other company's leave requests in this list after switching companies.
-    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
+    // PERF: Fast variant (see userHierarchy.ts) — this list is called from the
+    // dashboard alongside several other team-scoped calls, so the old one-DB-
+    // round-trip-per-user walk compounded directly into dashboard load time.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
     const allUserIds = [loggedInId, ...childIds];
     const { rows, count } = yield LeaveRepo.findLeavesForUsersPaginated({
         allUserIds,
@@ -464,7 +467,8 @@ const getTodayLeaveRequests = (loggedInId, callerCompanyId) => __awaiter(void 0,
     // Company-scoped team — this feeds the dashboard's "on leave today" widget,
     // which otherwise counts the other company's employees for a caller
     // assigned to more than one company.
-    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
+    // PERF: Fast variant (see userHierarchy.ts) — same reasoning as leaveList above.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
     const [appliedToday, onLeaveToday] = yield LeaveRepo.findTodayLeaveActivity(childIds);
     return {
         appliedToday,
