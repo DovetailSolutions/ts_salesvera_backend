@@ -11,7 +11,7 @@ import path from "path";
 import http from "http";
 
 import { connectDB, sequelize } from "./config/dbConnection";
-import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences } from "./config/schemaExtensions";
+import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences, ensureChatRoomOwnership } from "./config/schemaExtensions";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
@@ -123,6 +123,7 @@ server.listen(PORT, async () => {
   await ensureLeaveTypeSchema(sequelize);
   await ensureEmployeeCode(sequelize);
   await ensureNotificationPreferences(sequelize);
+  await ensureChatRoomOwnership(sequelize);
   startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   console.log(`Server is running on http://localhost:${PORT}`);
 });

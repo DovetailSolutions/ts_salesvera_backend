@@ -66,6 +66,22 @@ export const findCompaniesPaginated = (params: {
 export const findCompanyOwnedBy = (id: number | string, userId: number) =>
   Company.findOne({ where: { id, userId } });
 
+// Used by deleteCompany to block a destructive delete while real records
+// still reference this company — Branch/Shift/Department have no
+// cascade-on-delete relationship to Company, so removing the company row
+// would otherwise either silently orphan every branch/shift/department (and
+// every User whose branchId points into one of them, which is the primary
+// signal the company-scoping logic elsewhere relies on) or fail with a raw,
+// unhelpful DB constraint error if one happens to exist.
+export const countCompanyDependents = async (companyId: number) => {
+  const [branchCount, shiftCount, departmentCount] = await Promise.all([
+    Branch.count({ where: { companyId } }),
+    Shift.count({ where: { companyId } }),
+    Department.count({ where: { companyId } }),
+  ]);
+  return { branchCount, shiftCount, departmentCount };
+};
+
 // Plain lookup with no ownership filter — used once the caller's access has
 // already been verified via shared/companyAccess.ts's hasCompanyAccess,
 // which (unlike this repo's userId-only checks) also accounts for admins

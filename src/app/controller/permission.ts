@@ -6,6 +6,8 @@ import { UserPermission } from "../model/userPermission";
 import { User, Company, CompanyAdmin } from "../../config/dbConnection";
 import { invalidatePermissionCache, invalidateCompanyPermissionCache } from "../../config/permissionCache";
 import { PERMISSION_TEMPLATES } from "../../config/permissionTemplates";
+import { hasCompanyAccess } from "../../modules/shared/companyAccess";
+import { getCompanyScopedOrgWideUserIds, getCompanyScopedChildUserIds } from "../../modules/shared/userHierarchy";
 
 // ============================================================
 // Permission Controller
@@ -23,32 +25,6 @@ import { PERMISSION_TEMPLATES } from "../../config/permissionTemplates";
 interface AuthRequest extends Request {
   userData?: string | JwtPayload;
 }
-
-// BFS traversal of the creator hierarchy below rootUserId (does NOT include root itself).
-const getAllChildIds = async (rootUserId: number): Promise<number[]> => {
-  const result: number[] = [];
-  const queue: number[] = [rootUserId];
-  const visited = new Set<number>([rootUserId]);
-
-  while (queue.length > 0) {
-    const pid = queue.shift()!;
-    const user = await (User as any).findByPk(pid, {
-      include: [{ model: User, as: "createdUsers", attributes: ["id", "role"], through: { attributes: [] } }],
-    });
-
-    if (user?.createdUsers) {
-      for (const child of user.createdUsers) {
-        if (!visited.has(child.id)) {
-          visited.add(child.id);
-          result.push(child.id);
-          queue.push(child.id);
-        }
-      }
-    }
-  }
-
-  return result;
-};
 
 // Returns all subordinate userIds below a given user (does NOT include the user itself).
 // Only traverses downward — never climbs up to the company root.
@@ -189,10 +165,32 @@ const resolveRoleTargetUserIds = async (
     return { userIds: activeAdmins.map((u: any) => u.id) };
   }
 
-  // manager / sale_person — walk down from this company's admin, correctly
-  // scoped to only the managers/sale_persons created under that admin.
-  if (!company.adminId) return { userIds: [] };
-  const allChildIds = await getAllChildIds(company.adminId);
+  // manager / sale_person — walk down from EVERY one of this company's
+  // admins (the legacy single Company.adminId plus any additional admins
+  // via the CompanyAdmin junction — mirrors the "admin" branch above, which
+  // already merges both), scoped to only people who actually belong to this
+  // company.
+  // FIX: was getAllChildIds(company.adminId) — company-blind, and only ever
+  // walked from the single primary admin. An admin administering more than
+  // one company had bulk role actions (grant/revoke/list-by-role) silently
+  // apply to ALL of their companies' staff, not just the one the caller was
+  // actually verified against via hasCompanyAccess above — and a company's
+  // OTHER (junction-linked) admins' teams were skipped entirely.
+  const roleAdminIds = new Set<number>();
+  if (company.adminId) roleAdminIds.add(company.adminId);
+  const roleJunctionAdmins = await (CompanyAdmin as any).findAll({
+    where: { companyId: effectiveCompanyId },
+    attributes: ["adminId"],
+  });
+  roleJunctionAdmins.forEach((a: any) => roleAdminIds.add(a.adminId));
+
+  if (roleAdminIds.size === 0) return { userIds: [] };
+
+  const scopedIdSets = await Promise.all(
+    Array.from(roleAdminIds).map((rootId) => getCompanyScopedChildUserIds(rootId, effectiveCompanyId))
+  );
+  const allChildIds = Array.from(new Set(scopedIdSets.flat()));
+
   const roleUsers = await (User as any).findAll({
     where: { id: { [Op.in]: allChildIds }, role: targetRole, status: "active" },
     attributes: ["id"],
@@ -283,12 +281,27 @@ export const getPermissionTemplate = async (req: AuthRequest, res: Response): Pr
 export const getUserPermissions = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userData = req.userData as any;
-
-    console.log(">>>>>>>>>>>>>",userData)
     const { role, userId: callerId, companyId } = userData;
     const targetUserId = Number(req.params.userId);
 
-    console.log(">>>>targetUserId>",targetUserId)
+    // FIX: this endpoint had NO authorization check at all — any
+    // authenticated caller (down to a sale_person) could view ANY other
+    // user's permission list, including a super_admin's, just by supplying
+    // their id in the URL. Allow: viewing your own permissions, or a target
+    // inside the caller's own company-scoped org (super_admin exempt, same
+    // as every other permission-management action in this file).
+    if (role !== "super_admin" && targetUserId !== Number(callerId)) {
+      const orgIds = await getCompanyScopedOrgWideUserIds(
+        Number(callerId),
+        companyId ? Number(companyId) : null
+      );
+      if (!orgIds.includes(targetUserId)) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to view this user's permissions",
+        });
+      }
+    }
 
     // Individual permissions are stored without companyId (see assignPermissions).
     // Access is controlled by role hierarchy — no companyId filter needed here.
@@ -344,8 +357,6 @@ export const getUserPermissions = async (req: AuthRequest, res: Response): Promi
 export const assignPermissions = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userData = req.userData as any;
-
-    console.log(">>>>>>>>>>>>>>>>>>>>>assignPermissions>>>",userData)
     const { role, userId: callerId, companyId: callerCompanyId } = userData;
 // companyId: bodyCompanyId
     const { targetUserId, permissionIds } = req.body;
@@ -657,6 +668,19 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
       ? Number(bodyCompanyId)
       : callerCompanyId ? Number(callerCompanyId) : null;
 
+    // FIX: effectiveCompanyId was taken straight from the request body with
+    // no check that the caller actually has any relationship to that
+    // company — an admin could pass an arbitrary companyId and bulk-grant
+    // permissions to a totally unrelated company's managers/sale_persons.
+    // "user" targetRole is exempt (platform-wide by design, see
+    // resolveRoleTargetUserIds); super_admin is exempt (legitimately
+    // platform-wide).
+    if (targetRole !== "user" && role !== "super_admin") {
+      if (!effectiveCompanyId || !(await hasCompanyAccess(effectiveCompanyId, Number(callerId), role))) {
+        return res.status(403).json({ success: false, message: "You do not have access to this company" });
+      }
+    }
+
     // Hierarchy check
     const allowedRoles = ROLE_ASSIGNABLE_ROLES[role] || [];
     if (!allowedRoles.includes(targetRole)) {
@@ -765,6 +789,17 @@ export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<a
       return res.status(400).json({ success: false, message: "companyId is required" });
     }
 
+    // FIX: effectiveCompanyId was taken straight from the query string with
+    // no check that the caller actually has any relationship to that
+    // company — an admin could pass an arbitrary companyId and list every
+    // user (plus their full permission breakdown) for a totally unrelated
+    // company.
+    if (effectiveCompanyId && callerRole !== "super_admin") {
+      if (!(await hasCompanyAccess(effectiveCompanyId, Number(userData.userId), callerRole))) {
+        return res.status(403).json({ success: false, message: "You do not have access to this company" });
+      }
+    }
+
     // Delegates to the same resolver assignPermissionsToRole/
     // revokePermissionsFromRole use, so all three stay in lockstep.
     const { userIds, error: resolveError } = await resolveRoleTargetUserIds(targetRole as string, effectiveCompanyId);
@@ -834,7 +869,6 @@ export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<a
 export const getMyPermissions = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userData = req.userData as any;
-        console.log(">>>>>>>>>>>>>>>>>>>>>getMyPermissions>>>",userData)
     const { role, userId, companyId } = userData;
 
     // Super admin has everything
@@ -911,6 +945,16 @@ export const revokePermissionsFromRole = async (req: AuthRequest, res: Response)
 
     if (!effectiveCompanyId && targetRole !== "user") {
       return res.status(400).json({ success: false, message: "companyId is required" });
+    }
+
+    // FIX: effectiveCompanyId was taken straight from the request body with
+    // no check that the caller actually has any relationship to that
+    // company — an admin could pass an arbitrary companyId and bulk-revoke
+    // permissions from a totally unrelated company's managers/sale_persons.
+    if (effectiveCompanyId && role !== "super_admin") {
+      if (!(await hasCompanyAccess(effectiveCompanyId, Number(userData.userId), role))) {
+        return res.status(403).json({ success: false, message: "You do not have access to this company" });
+      }
     }
 
     // Hierarchy check

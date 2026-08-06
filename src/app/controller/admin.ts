@@ -98,78 +98,11 @@ const findUser = async (userId: number) => {
 // to src/modules/auth/ — see auth.controller.ts/service.ts/repository.ts.
 // Routes are mounted from server.ts, same URL paths as before.
 
-export const MySalePerson = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const { page = 1, limit = 10, search = "", managerId } = req.query;
-
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
-
-    const userData = req.userData as JwtPayload;
-    const managerID = managerId ? Number(managerId) : userData.userId;
-
-    /** ✅ Search condition */
-    const where: any = {};
-
-    if (search) {
-      where[Op.or] = [
-        { firstName: { [Op.iLike]: `%${search}%` } },
-        { lastName: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
-        { phone: { [Op.iLike]: `%${search}%` } },
-      ];
-    }
-
-    /** ✅ Fetch created users */
-    const result = await User.findByPk(managerID, {
-      include: [
-        {
-          model: User,
-          as: "createdUsers",
-          // FIX: branchId/shiftId (and the joined branch/shift names) were
-          // never selected here, so the manager's team table had no way to
-          // show — or even know — where each salesperson was currently
-          // posted.
-          attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "branchId", "shiftId"],
-          through: { attributes: [] },
-          where, // ✅ apply search
-          required: false, // ✅ so user must exist even if none found
-          include: [
-            { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
-            { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
-          ],
-        },
-      ],
-    });
-
-    if (!result) {
-      badRequest(res, "User not found");
-    }
-
-    /** ✅ Extract created users */
-    // let createdUsers = result?.createdUsers || [];
-    let createdUsers = (result as any)?.createdUsers || [];
-
-    /** ✅ Pagination manually */
-    const total = createdUsers.length;
-    createdUsers = createdUsers.slice(offset, offset + limitNum);
-
-    createSuccess(res, "My sale persons", {
-      page: pageNum,
-      limit: limitNum,
-      total,
-      rows: createdUsers,
-    });
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
-  }
-};
+// MySalePerson used to live here too — a second, independently-maintained
+// copy of the same "get my sales team" logic with no company scoping and no
+// ownership check on an arbitrary managerId (a real cross-tenant data leak).
+// /admin/mysaleperson now routes to the single, correctly-scoped
+// implementation in controller/user.ts (see app/router/admin.ts).
 
 export const assignSalesman = async (
   req: Request,
@@ -658,19 +591,33 @@ export const getMeeting = async (
     const childIds = await getCompanyScopedChildUserIds(ll, callerCompanyId);
     const allowedIds = [ll, ...childIds];
 
+    // `allowedIds` above is anchored to the parent admin for a manager
+    // (deliberate — see the "shared client pool" comment on `ll`), which is
+    // correct for `empty==="true"` but was ALSO being used to authorize/scope
+    // everything else: a manager could pass any OTHER manager's salesperson
+    // as `userId` and it would pass the `allowedIds.includes(...)` check
+    // (whole org, not just their own team), and the no-userId default listing
+    // branch handed back the whole org's meetings the same way. Neither is
+    // the "shared client pool" case, so both need the manager's OWN team,
+    // never widened to siblings.
+    const ownAllowedIds =
+      role === "manager"
+        ? [loggedInId, ...(await getCompanyScopedChildUserIds(loggedInId, callerCompanyId))]
+        : allowedIds;
+
     const where: any = {};
 
     if (empty === "true") {
       where.userId = ll;
     } else if (userId) {
       const requestedId = Number(userId);
-      if (!allowedIds.includes(requestedId)) {
+      if (!ownAllowedIds.includes(requestedId)) {
         forbidden(res, "You can only view meetings of your own team members");
         return;
       }
       where.userId = requestedId;
     } else {
-      where.userId = { [Op.in]: allowedIds };
+      where.userId = { [Op.in]: ownAllowedIds };
     }
 
     // FIX: was `personName` — MeetingUser has no such column (that field
@@ -720,8 +667,12 @@ export const getMeeting = async (
     }
 
     if (meetingTimeWindow) {
+      // Reuse the exact same userId scope already resolved into `where`
+      // above (a single requested salesperson, or the caller's whole team)
+      // rather than re-deriving it, so this prefilter can never end up
+      // broader than the visibility the caller was actually granted.
       const matches = (await Meeting.findAll({
-        where: { meetingTimeIn: meetingTimeWindow, userId: { [Op.in]: allowedIds } },
+        where: { meetingTimeIn: meetingTimeWindow, userId: where.userId },
         attributes: ["meetingUserId"],
         group: ["meetingUserId"],
         raw: true,
@@ -1121,15 +1072,26 @@ export const BulkUploads = async (
         try {
           const uniqueRows: any[] = [];
           for (const r of results) {
-            const exists = await MeetingUser.findOne({
-              where: {
-                [Op.or]: [{ adminId: loginUser }, { managerId: loginUser }],
-                companyName: { [Op.in]: results.map((r) => r.companyName) },
-                personName: { [Op.in]: results.map((r) => r.personName) },
-                mobileNumber: { [Op.in]: results.map((r) => r.mobileNumber) },
-                companyEmail: { [Op.in]: results.map((r) => r.companyEmail) },
-              },
-            });
+            // FIX: was querying adminId/managerId/personName/mobileNumber/
+            // companyEmail — none of those columns exist on MeetingUser at
+            // all (real fields are userId/name/mobile/email), so every call
+            // threw a DB error before a single row was ever inserted; this
+            // upload flow has never actually worked. It also compared
+            // against results.map(...) — the WHOLE uploaded batch — instead
+            // of just this row's own values, which would have falsely
+            // flagged unrelated rows as duplicates of each other even with
+            // correct column names. Now: same uploader (userId) plus a
+            // matching email or mobile: a row with neither can't collide
+            // with anything, so it's always treated as new.
+            const matchConditions: any[] = [];
+            if (r.email) matchConditions.push({ email: r.email });
+            if (r.mobile) matchConditions.push({ mobile: r.mobile });
+
+            const exists = matchConditions.length > 0
+              ? await MeetingUser.findOne({
+                  where: { userId: loginUser, [Op.or]: matchConditions },
+                })
+              : null;
             // If NOT found → add to insert list
             if (!exists) {
               uniqueRows.push(r);
@@ -1494,8 +1456,6 @@ export const  GetExpense = async (
     const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
 
     const allUserIds = [ ...childIds];
-    console.log("userData",userData)
-    console.log("<<>>>>>>>>>>>>>",allUserIds)
 
     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
 
@@ -1712,6 +1672,16 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
     // Scope the team to the company in the caller's active token.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
     const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    // A manager is often personally operational too (holding their own
+    // meetings, closing their own quotations/invoices, carrying their own
+    // tasks/leave balance) — counting only childIds for those specific
+    // fields silently dropped the caller's own contribution, making the
+    // dashboard look like it was undercounting. Kept separate from childIds
+    // (not merged into it) because several OTHER fields below are genuinely
+    // team-only by definition — e.g. you don't approve your own leave/expense,
+    // and you're not a member of your own team headcount — see each field
+    // below for which id list it uses.
+    const allUserIds = [Number(loggedInId), ...childIds];
 
     // FIX: was `new Date().toISOString().slice(0, 10)` — toISOString()
     // converts to UTC first, which rolls the calendar day backward for any
@@ -1812,7 +1782,7 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
       Expense.count({ where: pendingExpenseWhere }),
       Meeting.count({
         where: {
-          userId: { [Op.in]: childIds },
+          userId: { [Op.in]: allUserIds },
           scheduledTime: { [Op.between]: [weekStart, weekEnd] },
           // A cancelled meeting isn't a real meeting from the caller's point
           // of view — counting it made "Meetings (Week)" show a number the
@@ -1822,13 +1792,13 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
       }),
       Quotations.count({
         where: {
-          userId: { [Op.in]: childIds },
+          userId: { [Op.in]: allUserIds },
           status: "accepted",
         },
       }),
       Invoices.count({
         where: {
-          userId: { [Op.in]: childIds },
+          userId: { [Op.in]: allUserIds },
           status: "accepted",
         },
       }),
@@ -1858,18 +1828,18 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
         },
       }),
       // Task velocity
-      Task.count({ where: { assignedTo: { [Op.in]: childIds } } }),
-      Task.count({ where: { assignedTo: { [Op.in]: childIds }, status: { [Op.in]: ["completed", "done"] } } }),
+      Task.count({ where: { assignedTo: { [Op.in]: allUserIds } } }),
+      Task.count({ where: { assignedTo: { [Op.in]: allUserIds }, status: { [Op.in]: ["completed", "done"] } } }),
       Task.count({
         where: {
-          assignedTo: { [Op.in]: childIds },
+          assignedTo: { [Op.in]: allUserIds },
           status: { [Op.notIn]: ["completed", "done", "cancelled"] },
           dueDate: { [Op.lt]: now },
         },
       }),
       // Leave utilization (current year)
       EmployeeLeaveBalance.findAll({
-        where: { employeeId: { [Op.in]: childIds }, year: currentYear },
+        where: { employeeId: { [Op.in]: allUserIds }, year: currentYear },
         raw: true,
       }),
       // Headcount by branch

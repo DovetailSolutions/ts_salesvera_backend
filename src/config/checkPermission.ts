@@ -121,7 +121,7 @@ export const checkPermission = (module: string, action: string) => {
       if (!permissionSet.has(required)) {
         return res.status(403).json({
           success: false,
-          message: `You don’t have  '${module}" "${action}'permission`,
+          message: `You don’t have '${module}:${action}' permission`,
         });
       }
 
@@ -162,11 +162,12 @@ export const checkInvoiceCreatePermission = () => {
       }
 
       const { role, userId } = userData as any;
-      const companyId =
-        (userData as any).companyId ??
-        req.body?.companyId ??
-        req.params?.companyId ??
-        req.query?.companyId;
+      // FIX: was falling back to req.body/params/query companyId — a client
+      // with no valid company context in their token could supply an
+      // arbitrary ?companyId= to satisfy this gate. companyId must come
+      // exclusively from the server-resolved token, matching checkPermission's
+      // already-documented convention.
+      const companyId = (userData as any).companyId;
 
       // ── Super Admin: bypass all permission checks ──────────────────
       if (role === "super_admin") {
@@ -191,8 +192,6 @@ export const checkInvoiceCreatePermission = () => {
         userId,
         () => loadUserPermissionsFromDB(userId)
       );
-
-      console.log(`checkInvoiceCreatePermission: userId=${userId}, role=${role}, required=${required}`);
 
       if (!permissionSet.has(required)) {
         return res.status(403).json({
@@ -241,11 +240,9 @@ export const checkInvoiceViewPermission = () => {
       }
 
       const { role, userId } = userData as any;
-      const companyId =
-        (userData as any).companyId ??
-        req.body?.companyId ??
-        req.params?.companyId ??
-        req.query?.companyId;
+      // FIX: was falling back to req.body/params/query companyId — see the
+      // identical fix in checkInvoiceCreatePermission above.
+      const companyId = (userData as any).companyId;
 
       // ── Super Admin: bypass all permission checks ──────────────────
       if (role === "super_admin") {
@@ -263,8 +260,6 @@ export const checkInvoiceViewPermission = () => {
         userId,
         () => loadUserPermissionsFromDB(userId)
       );
-
-      console.log(`checkInvoiceViewPermission: userId=${userId}, role=${role}, has invoice:view=${permissionSet.has("invoice:view")}, has proformainvoice:view=${permissionSet.has("proformainvoice:view")}`);
 
       if (!permissionSet.has("invoice:view") && !permissionSet.has("proformainvoice:view")) {
         return res.status(403).json({
@@ -310,11 +305,9 @@ export const checkInvoiceUpdatePermission = () => {
       }
 
       const { role, userId } = userData as any;
-      const companyId =
-        (userData as any).companyId ??
-        req.body?.companyId ??
-        req.params?.companyId ??
-        req.query?.companyId;
+      // FIX: was falling back to req.body/params/query companyId — see the
+      // identical fix in checkInvoiceCreatePermission above.
+      const companyId = (userData as any).companyId;
 
       // ── Super Admin: bypass all permission checks ──────────────────
       if (role === "super_admin") {
@@ -347,8 +340,6 @@ export const checkInvoiceUpdatePermission = () => {
         userId,
         () => loadUserPermissionsFromDB(userId)
       );
-
-      console.log(`checkInvoiceUpdatePermission: userId=${userId}, role=${role}, required=${required}`);
 
       if (!permissionSet.has(required)) {
         return res.status(403).json({

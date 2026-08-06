@@ -6,6 +6,7 @@ interface ChatRoomAttributes {
   roomId: string;                  // ← REQUIRED
   type: "private" | "group";
   groupName?: string;              // ← OPTIONAL GROUP NAME
+  createdBy?: number | null;       // ← group creator, null for private rooms and pre-existing groups
 }
 
 interface ChatRoomCreation extends Optional<ChatRoomAttributes, "id"> {}
@@ -18,6 +19,7 @@ export class ChatRoom
   public roomId!: string;          // ← FIXED
   public type!: "private" | "group";
   public groupName?: string;       // ← ADDED
+  public createdBy?: number | null;
 
   static initModel(sequelize: Sequelize) {
     ChatRoom.init(
@@ -40,6 +42,10 @@ export class ChatRoom
         },
         groupName: {
           type: DataTypes.STRING,
+          allowNull: true,
+        },
+        createdBy: {
+          type: DataTypes.INTEGER,
           allowNull: true,
         },
       },

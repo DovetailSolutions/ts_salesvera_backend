@@ -68,7 +68,7 @@ export async function getAllChildUserIds(userId: number): Promise<number[]> {
 // Company.adminId/Company.userId ownership. A user legitimately linked to
 // several companies (e.g. a manager assigned to two) stays visible in each
 // of them.
-const collectUserCompanyIds = async (
+export const collectUserCompanyIds = async (
   userIds: number[],
   // Cycle/runaway guard for the creator-chain fallback below. A malformed
   // creator loop in the data (A created B, B created A) would otherwise
@@ -213,6 +213,32 @@ export async function getCompanyScopedChildUserIds(
     if (!companies || companies.size === 0) return true;
     return companies.has(target);
   });
+}
+
+// Some listing endpoints (mobile category/quotation/invoice/report lists)
+// intentionally show the WHOLE company's data, not just the caller's own
+// subtree — e.g. every manager under the same admin is meant to see the same
+// shared category list. They used to resolve this via getAllSubordinateIds
+// (app/middlewear/comman.ts): climb up to the company root, then walk every
+// descendant back down — with NO company filtering on the way down at all,
+// so an admin/manager assigned to more than one company bled the OTHER
+// company's categories/quotations/invoices into whichever one they're
+// currently acting in. Same root cause getAllChildUserIds had, just a
+// separate, independently-written function that never got the same fix.
+// This is that fix, generalized to "whole company" breadth instead of "just
+// my own subtree": resolve the company's admin as the root, then reuse the
+// already-correct company-scoped recursive walk from there.
+export async function getCompanyScopedOrgWideUserIds(
+  callerId: number,
+  callerCompanyId: number | null | undefined
+): Promise<number[]> {
+  let rootId = callerId;
+  if (callerCompanyId != null) {
+    const company = await Company.findByPk(Number(callerCompanyId), { attributes: ["adminId"] });
+    if (company?.adminId) rootId = company.adminId;
+  }
+  const childIds = await getCompanyScopedChildUserIds(rootId, callerCompanyId);
+  return [rootId, ...childIds];
 }
 
 // Returns the given user's immediate creator (one level up the createdBy

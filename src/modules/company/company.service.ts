@@ -297,6 +297,16 @@ export const deleteCompany = async (id: string, userId: number) => {
   const company = await CompanyRepo.findCompanyOwnedBy(id, userId);
   if (!company) throw new ServiceError("Company not found");
 
+  // FIX: this used to destroy the company unconditionally. Block instead,
+  // with a clear message, until the company is actually empty — see
+  // countCompanyDependents' comment for why this matters.
+  const { branchCount, shiftCount, departmentCount } = await CompanyRepo.countCompanyDependents(Number(id));
+  if (branchCount > 0 || shiftCount > 0 || departmentCount > 0) {
+    throw new ServiceError(
+      `Cannot delete this company while it still has ${branchCount} branch(es), ${shiftCount} shift(s), and ${departmentCount} department(s). Remove those first.`
+    );
+  }
+
   await company.destroy();
 };
 

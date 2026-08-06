@@ -64,7 +64,14 @@ export const getAttendance = async (loggedInId: number, callerCompanyId: number 
   };
 };
 
-const LEAVE_STATUSES = ["leave", "leaveApproved", "leaveReject"];
+// FIX: "leaveReject" used to be in this set, which meant a REJECTED leave
+// request blocked correcting that day's attendance with the exact same
+// "reject/cancel the leave first" message — nonsensical, since a rejected
+// leave has nothing active left to cancel. Only a currently-active leave
+// commitment ("leave" = pending, "leaveApproved" = approved) should require
+// going through leave-cancellation first; a rejected one is just a normal
+// day again and should be freely correctable like any other.
+const LEAVE_STATUSES = ["leave", "leaveApproved"];
 
 // The single "Mark Attendance" action's outcome vocabulary — deliberately a
 // small fixed set of machine-friendly values (not bulk's free-text CSV
@@ -769,6 +776,12 @@ export const bulkMarkAttendance = async (
   const skippedUnknownStatus: { employeeId: number; date: string; status: any }[] = [];
   const skippedWrongShift: number[] = [];
   const skippedTooEarly: { employeeId: number; date: string; reason: string }[] = [];
+  // FIX: the "present" branch below used to overwrite ANY existing status
+  // unconditionally — including an active leave/leaveApproved day, which a
+  // blank cell (defaulting to "present") or a routine re-upload could
+  // silently clobber with no record of it happening. Same protection the
+  // single "Mark Attendance" action already has, applied here too.
+  const skippedActiveLeave: { employeeId: number; date: string; reason: string }[] = [];
 
   // "Employee ID" column holds each employee's human-facing code
   // (EMP00001, from the template's own "Employee ID" column) — resolved
@@ -906,6 +919,7 @@ export const bulkMarkAttendance = async (
       skippedUnknownStatus,
       skippedWrongShift,
       skippedTooEarly,
+      skippedActiveLeave,
     };
   }
 
@@ -937,6 +951,14 @@ export const bulkMarkAttendance = async (
     const empShiftForRow = resolveEmployeeShift(assignment.employee_id);
 
     if (assignment.status === "present") {
+      if (existing && LEAVE_STATUSES.includes(existing.status)) {
+        skippedActiveLeave.push({
+          employeeId: assignment.employee_id,
+          date: assignment.date,
+          reason: `Marked "${existing.status}" — reject/cancel the leave first before marking present.`,
+        });
+        continue;
+      }
       // Punch-in/out are derived from the employee's assigned shift, same
       // as the single "Mark Present" action — a typed punch-in time (e.g.
       // "09:15") overrides the shift's own start, but punch_out (and the
@@ -981,6 +1003,14 @@ export const bulkMarkAttendance = async (
         } as any);
       }
     } else if (existing) {
+      if (LEAVE_STATUSES.includes(existing.status) && assignment.status !== "leave") {
+        skippedActiveLeave.push({
+          employeeId: assignment.employee_id,
+          date: assignment.date,
+          reason: `Marked "${existing.status}" — reject/cancel the leave first before marking ${String(assignment.status).replace("_", " ")}.`,
+        });
+        continue;
+      }
       // Bulk-marking overwrites the day's status directly; punch-derived
       // fields from any prior real punch no longer apply and must be
       // cleared, or they end up contradicting the new status (e.g.
@@ -1002,7 +1032,11 @@ export const bulkMarkAttendance = async (
   await AttendanceRepo.saveBulkAttendance(toUpdate, toCreate);
 
   return {
-    applied: assignments.length,
+    // FIX: was assignments.length — that counted every row that reached this
+    // stage, but a row can now be skipped here too (skippedActiveLeave)
+    // without ending up in toCreate/toUpdate, so it stopped meaning "actually
+    // applied" the moment that skip path was added.
+    applied: toCreate.length + toUpdate.length,
     created: toCreate.length,
     updated: toUpdate.length,
     skippedNonNumericEmployeeId,
@@ -1010,6 +1044,7 @@ export const bulkMarkAttendance = async (
     skippedUnknownStatus,
     skippedWrongShift,
     skippedTooEarly,
+    skippedActiveLeave,
   };
 };
 

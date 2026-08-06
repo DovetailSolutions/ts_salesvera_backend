@@ -1,6 +1,7 @@
 import { Router } from "express";
 const router = Router();
 import * as AdminController from "../controller/admin";
+import * as UserController from "../controller/user";
 import * as NotificationController from "../controller/notification";
 import { tokenCheck } from "../../config/jwtVerify";
 import { checkPermission, checkInvoiceCreatePermission, checkInvoiceUpdatePermission, checkInvoiceViewPermission } from "../../config/checkPermission";
@@ -13,7 +14,11 @@ const csv = getUploadMiddleware("csv")
 // Auth routes (register/login/logout/getProfile/updateProfile/
 // updatepassword/forgot-password/verify-otp/reset-password) now live in
 // src/modules/auth/, mounted in server.ts — same URL paths as before.
-router.get("/mysaleperson", tokenCheck, AdminController.MySalePerson);
+// Both /admin/mysaleperson (web) and /api/mysaleperson (mobile, user.ts
+// router) now serve the exact same handler — they used to be two
+// independently-maintained copies that drifted apart (this one had no
+// company scoping and no ownership check on an arbitrary managerId).
+router.get("/mysaleperson", tokenCheck, UserController.MySalePerson);
 router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", tokenCheck, AdminController.getcategory);
