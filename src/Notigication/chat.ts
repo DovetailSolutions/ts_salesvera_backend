@@ -421,8 +421,17 @@ export const initChatSocket = (io: Server) => {
           });
         }
 
+        // FIX: the raw Message row only carries `chatRoomId` (the numeric
+        // DB FK), never the string `roomId` the frontend joined/tracks the
+        // conversation by. formatMessage() on the client falls back to
+        // "whatever room is currently open" whenever `roomId` is missing,
+        // so a message for a chat the recipient doesn't have open right
+        // now was silently misattributed (or dropped from the unread/
+        // notification path) instead of showing up live. Attaching the
+        // real roomId here removes the need for that fallback entirely.
         io.to(roomId).emit("receiveMessage", {
           ...newMessage.toJSON(),
+          roomId,
           replyToMessage: replyToMessage ? replyToMessage.toJSON() : null,
         });
 
@@ -544,6 +553,7 @@ export const initChatSocket = (io: Server) => {
 
         io.to(roomId).emit("receiveFileMessage", {
           ...newMessage.toJSON(),
+          roomId,
           replyToMessage: replyToMessage ? replyToMessage.toJSON() : null,
         });
 
@@ -630,7 +640,7 @@ export const initChatSocket = (io: Server) => {
           replyTo: null,
         });
 
-        io.to(toRoomId).emit("receiveFileMessage", { ...forwarded.toJSON(), forwarded: true });
+        io.to(toRoomId).emit("receiveFileMessage", { ...forwarded.toJSON(), roomId: toRoomId, forwarded: true });
 
         socket.emit("forwardMessage", { success: true, messageId: forwarded.id });
       } catch (error) {

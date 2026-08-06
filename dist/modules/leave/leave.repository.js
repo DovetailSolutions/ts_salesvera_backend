@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.findTeamLeaveTypeBalances = exports.findOrCreateLeaveTypeBalance = exports.findLatestPriorYearBalance = exports.findEmployeeLeaveTypeBalances = exports.findCompanyLeaveTypesForCompany = exports.findCompanyLeaveByIdOnly = exports.findCompanyLeaveOwnedBy = exports.findCompanyLeavesPaginated = exports.bulkCreateCompanyLeaves = exports.findTeamLeaveBalances = exports.findLeaveBalance = exports.findOrCreateLeaveBalance = exports.findOwnLeavesPaginated = exports.findEmployeeLeavesPaginated = exports.bulkCreateLeaveAttendance = exports.createLeaveRequest = exports.findOverlappingLeave = exports.createPresentAttendance = exports.findOrCreateAttendanceForDate = exports.findTodayLeaveActivity = exports.findLeavesForUsersPaginated = exports.markAttendanceForLeaveRange = exports.setLeaveStatus = exports.findLeaveForEmployee = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
+const dateUtils_1 = require("../shared/dateUtils");
 // ============================================================
 // Leave repository — wraps all direct Sequelize access for this domain.
 // Covers three sub-models: Leave (requests), EmployeeLeaveBalance
@@ -57,11 +58,25 @@ const findLeavesForUsersPaginated = (params) => dbConnection_1.User.findAndCount
 });
 exports.findLeavesForUsersPaginated = findLeavesForUsersPaginated;
 const findTodayLeaveActivity = (childIds) => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
-    const todayDateOnly = new Date().toISOString().slice(0, 10);
+    // FIX: todayStart/todayEnd were computed via setHours(0, 0, 0, 0) on a
+    // fresh local Date, which only lands on IST midnight if the server
+    // process's OS timezone happens to be set to Asia/Kolkata — true on this
+    // dev machine but not guaranteed on the production droplet (cloud Linux
+    // images commonly default to UTC). Deriving the IST calendar day via
+    // getISTDateString() first, then parsing its midnight boundaries with an
+    // explicit +05:30 offset, yields the correct UTC instants regardless of
+    // the server's local timezone configuration.
+    const todayIST = (0, dateUtils_1.getISTDateString)();
+    const todayStart = new Date(`${todayIST}T00:00:00.000+05:30`);
+    const todayEnd = new Date(`${todayIST}T23:59:59.999+05:30`);
+    // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
+    // to UTC first, which rolls the calendar day backward for any real-world
+    // IST time before ~05:30 AM (e.g. 2:30 AM IST still reports yesterday's
+    // date). This from_date/to_date range check decides "who is on leave
+    // today" for the dashboard's On Leave Today widget, so a wrong "today"
+    // here silently shows the wrong day's leave data. Use getISTDateString()
+    // (explicit +5:30 offset arithmetic) instead.
+    const todayDateOnly = (0, dateUtils_1.getISTDateString)();
     const userAttributes = ["id", "firstName", "lastName", "email", "phone", "role"];
     return Promise.all([
         dbConnection_1.Leave.findAll({

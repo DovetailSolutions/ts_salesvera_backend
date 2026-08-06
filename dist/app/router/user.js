@@ -41,12 +41,18 @@ const router = (0, express_1.Router)();
 const Controller = __importStar(require("../controller/user"));
 const NotificationController = __importStar(require("../controller/notification"));
 const PermissionController = __importStar(require("../controller/permission"));
+const AdminController = __importStar(require("../controller/admin"));
+const LeaveController = __importStar(require("../../modules/leave/leave.controller"));
+const AttendanceController = __importStar(require("../../modules/attendance/attendance.controller"));
+const MeetingController = __importStar(require("../../modules/meeting/meeting.controller"));
 const jwtVerify2_1 = require("../../config/jwtVerify2");
 const checkPermission_1 = require("../../config/checkPermission");
+const rbac_1 = require("../middlewear/rbac");
 const fileUploads_1 = __importDefault(require("../../config/fileUploads"));
 const profile = (0, fileUploads_1.default)("image");
 const meeting = (0, fileUploads_1.default)("image");
 const expense = (0, fileUploads_1.default)("expense");
+const attendanceBulk = (0, fileUploads_1.default)("attendance-bulk");
 router.post("/register", Controller.Register);
 router.post("/login", Controller.Login);
 router.get("/getprofile", jwtVerify2_1.tokenCheck, Controller.GetProfile);
@@ -114,4 +120,51 @@ router.post("/reset-password", Controller.changePassword);
 router.get("/dashboardmobile", jwtVerify2_1.tokenCheck, Controller.getDashboardMobile);
 router.get("/getsalesPerformance", jwtVerify2_1.tokenCheck, Controller.getSalesPerformance);
 router.get("/getbranch", jwtVerify2_1.tokenCheck, Controller.getBranchall);
+// ============================================================
+// Manager mobile — team oversight, mounted flat on this SAME /api
+// surface sale_person's mobile app already uses (jwtVerify2 already
+// allows role "manager" here) — no separate route family/prefix, no
+// new namespace for the mobile team to integrate against. Two kinds
+// of addition:
+//
+//  1. Existing self-service routes above (mysaleperson, getexpense,
+//     leave-list, dashboardmobile) were made role-aware in-place —
+//     see the role branch inside their controller functions in
+//     src/app/controller/user.ts. A sale_person calling them gets the
+//     EXACT same behavior as before; a manager gets the team-scoped
+//     version of the same endpoint. No new routes needed for those.
+//
+//  2. The routes below are genuinely new — sale_person has no
+//     equivalent capability at all (approve/assign/mark-for-someone-
+//     else/schedule-for-someone-else) — so there's nothing existing to
+//     extend. Named to match their /admin/* counterparts exactly
+//     (same controller functions, same scoping, same checkPermission
+//     gates) so behavior is predictable and consistent with the rest
+//     of this file's naming. Every one is additionally restricted to
+//     role:"manager" (authorizeRoles) — a sale_person token gets a
+//     clean 403, not a confusing empty result.
+// ============================================================
+router.get("/top-performers", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), AdminController.getTopPerformers);
+// ── Attendance (team) ────────────────────────────────────────────────────────
+router.get("/get-attendance", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getAttendance);
+router.get("/user-attendance", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.userAttendance);
+router.get("/attendance-book", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.AttendanceBook);
+router.post("/mark-attendance-present", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("attendance", "update"), AttendanceController.markAttendancePresent);
+router.post("/bulk-mark-attendance", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("attendance", "update"), attendanceBulk.single("file"), AttendanceController.bulkMarkAttendance);
+// ── Leave (team) ──────────────────────────────────────────────────────────────
+router.patch("/approved-leave", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "approve"), LeaveController.approveLeave);
+router.get("/user-leave", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "view"), LeaveController.userLeave);
+router.get("/leave-request-today", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "view"), LeaveController.getTodayLeaveRequests);
+router.get("/leave-balance-list", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "view"), LeaveController.getTeamLeaveBalances);
+router.get("/leave-balance/:employeeId", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "view"), LeaveController.getEmployeeLeaveBalance);
+router.post("/request-leave", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "apply"), LeaveController.createLeaveRequest);
+router.post("/cancel-leave-and-mark-present", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "approve"), (0, checkPermission_1.checkPermission)("attendance", "update"), LeaveController.cancelLeaveAndMarkPresent);
+router.post("/assign-leave-balance", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("leave", "manage"), LeaveController.assignLeaveBalance);
+// ── Expense (team) ────────────────────────────────────────────────────────────
+router.get("/user-expense", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("expense", "view"), AdminController.userExpense);
+router.patch("/approved-expense", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("expense", "approve"), AdminController.UpdateExpense);
+// ── Meetings (team) ───────────────────────────────────────────────────────────
+router.post("/meetings/schedule", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("meeting", "schedule"), MeetingController.scheduleMeeting);
+router.patch("/meetings/:id/reschedule", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("meeting", "update"), MeetingController.rescheduleMeeting);
+router.get("/meetings/dashboard", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("meeting", "view"), MeetingController.getMeetingDashboard);
 exports.default = router;

@@ -31,6 +31,7 @@ const bulkSync_1 = __importDefault(require("./app/router/bulkSync"));
 const holiday_routes_1 = __importDefault(require("./modules/holiday/holiday.routes"));
 const branch_routes_1 = __importDefault(require("./modules/branch/branch.routes"));
 const shift_routes_1 = __importDefault(require("./modules/shift/shift.routes"));
+const allocation_routes_1 = __importDefault(require("./modules/allocation/allocation.routes"));
 const department_routes_1 = __importDefault(require("./modules/department/department.routes"));
 const leave_routes_1 = __importDefault(require("./modules/leave/leave.routes"));
 const attendance_routes_1 = __importDefault(require("./modules/attendance/attendance.routes"));
@@ -40,6 +41,7 @@ const auth_routes_1 = __importDefault(require("./modules/auth/auth.routes"));
 const preferences_routes_1 = __importDefault(require("./modules/preferences/preferences.routes"));
 const reports_routes_1 = __importDefault(require("./modules/reports/reports.routes"));
 const meeting_routes_1 = __importDefault(require("./modules/meeting/meeting.routes"));
+const contact_routes_1 = require("./modules/contact/contact.routes");
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const chat_1 = require("./Notigication/chat");
 const task_2 = require("./Notigication/task");
@@ -75,6 +77,7 @@ app.use("/admin/bulk", bulkSync_1.default);
 app.use("/admin", holiday_routes_1.default);
 app.use("/admin", branch_routes_1.default);
 app.use("/admin", shift_routes_1.default);
+app.use("/admin", allocation_routes_1.default);
 app.use("/admin", department_routes_1.default);
 app.use("/admin", leave_routes_1.default);
 app.use("/admin", attendance_routes_1.default);
@@ -84,6 +87,8 @@ app.use("/admin", auth_routes_1.default);
 app.use("/admin", preferences_routes_1.default);
 app.use("/admin", reports_routes_1.default);
 app.use("/admin", meeting_routes_1.default);
+app.use("/api", contact_routes_1.contactPublicRoutes);
+app.use("/admin", contact_routes_1.contactAdminRoutes);
 app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile, {
     swaggerOptions: {
         requestInterceptor: (req) => {
@@ -115,6 +120,7 @@ server.listen(PORT, () => __awaiter(void 0, void 0, void 0, function* () {
     yield (0, schemaExtensions_1.ensureLeaveTypeSchema)(dbConnection_1.sequelize);
     yield (0, schemaExtensions_1.ensureEmployeeCode)(dbConnection_1.sequelize);
     yield (0, schemaExtensions_1.ensureNotificationPreferences)(dbConnection_1.sequelize);
+    yield (0, schemaExtensions_1.ensureChatRoomOwnership)(dbConnection_1.sequelize);
     (0, cronJobs_1.startCronJobs)(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
     console.log(`Server is running on http://localhost:${PORT}`);
 }));

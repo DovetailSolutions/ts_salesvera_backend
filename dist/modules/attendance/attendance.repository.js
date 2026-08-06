@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.findLatestAttendanceForDate = exports.findActivePunchSessionById = exports.findActivePunchSession = exports.findShiftsByIds = exports.findUsersShiftInfo = exports.findTeamEmployeeCodes = exports.findBranchById = exports.findShiftById = exports.findEmployeeById = exports.findUsersWithAttendanceForMonth = exports.saveBulkAttendance = exports.findAttendanceRowsForBulk = exports.findCompanyLeaveById = exports.findCompanyLeaveTypesForBulk = exports.findCompanyById = exports.findTeamAttendanceForReport = exports.findEmployeeAttendancePaginated = exports.createAttendanceRecord = exports.findAttendanceForDate = exports.findTeamAttendanceToday = void 0;
+exports.findLatestAttendanceForDate = exports.findActivePunchSessionById = exports.findActivePunchSession = exports.findShiftsByIds = exports.findUsersShiftInfo = exports.findTeamEmployeeCodes = exports.findBranchById = exports.findShiftById = exports.findEmployeeById = exports.findUsersWithAttendanceForMonth = exports.saveBulkAttendance = exports.findAttendanceRowsForBulk = exports.findCompanyLeaveById = exports.findCompanyLeaveTypesForBulk = exports.findCompanyById = exports.findTeamAttendanceForReport = exports.findEmployeeAttendancePaginated = exports.createAttendanceRecord = exports.findAttendanceForDate = exports.countOnLeaveToday = exports.countPresentToday = exports.findTeamAttendanceToday = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const dbConnection_2 = require("../../config/dbConnection");
@@ -21,9 +21,7 @@ const dbConnection_2 = require("../../config/dbConnection");
 // AttendanceList).
 // ============================================================
 const findTeamAttendanceToday = (params) => dbConnection_2.User.findAndCountAll({
-    where: {
-        id: { [sequelize_1.Op.in]: params.allUserIds, [sequelize_1.Op.ne]: params.excludeUserId },
-    },
+    where: Object.assign({ id: { [sequelize_1.Op.in]: params.allUserIds, [sequelize_1.Op.ne]: params.excludeUserId } }, params.search),
     attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "shiftId", "createdAt"],
     include: [
         {
@@ -37,8 +35,32 @@ const findTeamAttendanceToday = (params) => dbConnection_2.User.findAndCountAll(
     offset: params.offset,
     limit: params.limit,
     order: [["createdAt", "DESC"]],
+    distinct: true,
 });
 exports.findTeamAttendanceToday = findTeamAttendanceToday;
+// Team attendance summary counts (present/on-leave today) — the two counts
+// this endpoint needs, run in parallel as plain COUNT queries (no rows
+// fetched) so the whole thing is two round-trips regardless of team size.
+const countPresentToday = (childIds, todayDateOnly) => dbConnection_2.Attendance.count({
+    where: {
+        employee_id: { [sequelize_1.Op.in]: childIds },
+        // "out" = already punched out today (self-service or the nightly
+        // auto-punch-out cron) — still present today, just no longer
+        // mid-shift. Matches buildDashboardSummary's presentCount definition.
+        status: { [sequelize_1.Op.in]: ["present", "out"] },
+        date: todayDateOnly,
+    },
+});
+exports.countPresentToday = countPresentToday;
+const countOnLeaveToday = (childIds, todayDateOnly) => dbConnection_2.Leave.count({
+    where: {
+        employee_id: { [sequelize_1.Op.in]: childIds },
+        status: "approved",
+        from_date: { [sequelize_1.Op.lte]: todayDateOnly },
+        to_date: { [sequelize_1.Op.gte]: todayDateOnly },
+    },
+});
+exports.countOnLeaveToday = countOnLeaveToday;
 const findAttendanceForDate = (employeeId, date) => dbConnection_2.Attendance.findOne({ where: { employee_id: employeeId, date } });
 exports.findAttendanceForDate = findAttendanceForDate;
 const createAttendanceRecord = (row) => dbConnection_2.Attendance.create(row);

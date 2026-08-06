@@ -521,7 +521,20 @@ const getCategory = (Model_1, data_1, ...args_1) => __awaiter(void 0, [Model_1, 
 exports.getCategory = getCategory;
 const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, id_1, ...args_1], void 0, function* (model, id, data = {}, searchFields = [], include = []) {
     try {
-        const { page = 1, limit = 10, month, year, search } = data, filters = __rest(data, ["page", "limit", "month", "year", "search"]);
+        // FIX: `limit` defaulted to 10 unconditionally. The only caller of this
+        // helper is the attendance list, which the mobile app drives as a MONTH
+        // CALENDAR (?month=&year=) — so a normal employee with ~22-26 attendance
+        // days silently got only the 10 most recent, and the rest of their
+        // calendar rendered blank. When a specific month is requested and the
+        // caller didn't ask for an explicit page size, return the whole month
+        // (31 covers the longest month). An explicit ?limit= is still honoured.
+        const { page = 1, limit: rawLimit, month, year, search } = data, filters = __rest(data, ["page", "limit", "month", "year", "search"]);
+        const requestedLimit = rawLimit === undefined || rawLimit === null || rawLimit === "" ? null : Number(rawLimit);
+        const limit = requestedLimit !== null && Number.isFinite(requestedLimit) && requestedLimit > 0
+            ? requestedLimit
+            : month && year
+                ? 31
+                : 10;
         const whereConditions = {};
         if (id) {
             whereConditions.employee_id = id;
@@ -532,12 +545,31 @@ const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, 
                 whereConditions[key] = filters[key];
             }
         });
-        // Month filter
+        // Month filter — `date` here is Attendance.date, a DATEONLY column.
+        // FIX (round 1, incomplete): was `new Date(year, month-1, 1)` /
+        // `new Date(year, month, 0, ...)` — the multi-arg constructor interprets
+        // day-1/day-0 midnight as the server's OS-local time, not IST.
+        // FIX (round 2, this pass): the round-1 fix built the boundaries via
+        // parseISTTime() into real Date *instants* and compared those directly
+        // against the DATEONLY column — but Sequelize stringifies a Date value
+        // for a DATEONLY column via `moment(date).format("YYYY-MM-DD")`
+        // (dialects/abstract/data-types.js DATEONLY#_stringify), and plain
+        // `moment(aDate)` reads that Date's wall-clock fields in the server
+        // PROCESS's OS-local timezone — not IST — reintroducing the exact same
+        // OS-timezone bug one layer down inside the ORM (verified: on a server
+        // with TZ=UTC, the IST-midnight instant for the 1st of the month
+        // stringifies to the *previous* day). A DATEONLY column has no time
+        // component at all, so there's no instant to build in the first place —
+        // compare it directly against plain "YYYY-MM-DD" strings instead, same
+        // convention already used correctly for this same column in
+        // reports.repository.ts's findScopedAttendance.
         if (month && year) {
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0, 23, 59, 59);
+            const mm = String(month).padStart(2, "0");
+            const startDateStr = `${year}-${mm}-01`;
+            const lastDay = new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
+            const endDateStr = `${year}-${mm}-${String(lastDay).padStart(2, "0")}`;
             whereConditions.date = {
-                [sequelize_1.Op.between]: [startDate, endDate],
+                [sequelize_1.Op.between]: [startDateStr, endDateStr],
             };
         }
         // Search
@@ -547,14 +579,21 @@ const withuserlogin = (model_1, id_1, ...args_1) => __awaiter(void 0, [model_1, 
             }));
         }
         const offset = (Number(page) - 1) * Number(limit);
-        const rows = yield model.findAll({
+        // FIX: was findAll + `count = rows.length` — that counts only the rows on
+        // the CURRENT page, so totalRecords could never exceed `limit` and
+        // totalPages was always 1. A client paginating on that metadata could
+        // never discover, let alone reach, page 2. findAndCountAll returns the
+        // true total for the same where-clause. `distinct: true` keeps the count
+        // correct if a caller ever passes a hasMany include (would otherwise
+        // count one row per joined child).
+        const { rows, count } = yield model.findAndCountAll({
             where: whereConditions,
             include,
             limit: Number(limit),
             offset,
             order: [["createdAt", "DESC"]],
+            distinct: true,
         });
-        const count = rows.length;
         return {
             success: true,
             data: rows,

@@ -24,6 +24,10 @@ class ChatRoom extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
             },
+            createdBy: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+            },
         }, {
             sequelize,
             tableName: "chat_rooms",

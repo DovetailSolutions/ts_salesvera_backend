@@ -51,7 +51,7 @@ import * as Middleware from "../middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
-import { getCompanyScopedChildUserIds } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../../modules/shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
 
@@ -587,8 +587,12 @@ export const getMeeting = async (
     // caller is currently acting in. The anchor stays the parent admin — the
     // shared client pool is deliberate — but the pool is now limited to the
     // company in the caller's active token.
+    // PERF: Fast variant — see getDashboardSummary. This endpoint backs both
+    // /client-management (Client List) and the Meeting Management page, so
+    // the old one-DB-round-trip-per-user walk hit every team member on
+    // every page load/search keystroke of either page.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(ll, callerCompanyId);
+    const childIds = await getCompanyScopedChildUserIdsFast(ll, callerCompanyId);
     const allowedIds = [ll, ...childIds];
 
     // `allowedIds` above is anchored to the parent admin for a manager
@@ -685,17 +689,23 @@ export const getMeeting = async (
     }
 
     const { rows, count } = await MeetingUser.findAndCountAll({
-      // attributes: [
-      //   "id",
-      //   "companyName",
-      //   "personName",
-      //   "mobileNumber",
-      //   "companyEmail",
-      //   "meetingTimeIn",
-      //   "meetingTimeOut",
-      //   "meetingPurpose",
-      //   "userId",
-      // ],
+      // PERF: was pulling every MeetingUser column (attributes previously
+      // commented out, presumably abandoned after the columns above were
+      // guessed wrong — MeetingUser has no personName/mobileNumber/
+      // companyEmail/meetingTimeIn/meetingTimeOut/meetingPurpose; those live
+      // on the child Meeting model, already included separately below).
+      // This list is every column actually consumed client-side, verified
+      // against both consumers of this endpoint: the Client Management page
+      // (id/name/mobile/email/createdAt) and the Meeting Management page's
+      // list + detail drawer (+customerType/companyName/status/gstNumber/
+      // panNumber/address/city/state/pincode/country/userId). Only
+      // tallyGuid (internal Tally-sync id) and updatedAt are excluded —
+      // neither is rendered anywhere.
+      attributes: [
+        "id", "name", "email", "mobile", "userId", "customerType",
+        "companyName", "status", "gstNumber", "panNumber",
+        "address", "city", "state", "pincode", "country", "createdAt",
+      ],
       where,
       include: [
         {
@@ -706,6 +716,16 @@ export const getMeeting = async (
           // (a hasMany include with a `where` and a JOIN can silently drop or
           // duplicate parent rows once paginated).
           separate: true,
+          // PERF: every Meeting column the Meeting Management list + detail
+          // drawer + "Visits" count actually reads — userId/companyId/
+          // categoryId/subCategoryId/pincode are never rendered (categoryId
+          // is only echoed back on the *request* when scheduling, not read
+          // off these response rows).
+          attributes: [
+            "id", "status", "scheduledTime", "meetingTimeIn", "meetingTimeOut",
+            "meetingPurpose", "latitude_in", "longitude_in", "latitude_out",
+            "longitude_out", "totalDistance", "legDistance",
+          ],
           ...(meetingTimeWindow ? { where: { meetingTimeIn: meetingTimeWindow } } : {}),
           order: [["meetingTimeIn", "DESC"]],
         },
@@ -1671,7 +1691,12 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
     // attendance, leaves, expenses and meetings after switching company.
     // Scope the team to the company in the caller's active token.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    // PERF: getCompanyScopedChildUserIdsFast does the identical team walk as
+    // getCompanyScopedChildUserIds but batches each hierarchy level into one
+    // query instead of one query per user — this endpoint was the slowest
+    // consumer of the hierarchy walk, so it gets the fast path while every
+    // other caller keeps using the original, unmodified function.
+    const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
     // A manager is often personally operational too (holding their own
     // meetings, closing their own quotations/invoices, carrying their own
     // tasks/leave balance) — counting only childIds for those specific
@@ -1837,9 +1862,14 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
           dueDate: { [Op.lt]: now },
         },
       }),
-      // Leave utilization (current year)
+      // Leave utilization (current year) — only the 6 allocated/used columns
+      // actually get summed below; the rest of the row is dead weight.
       EmployeeLeaveBalance.findAll({
         where: { employeeId: { [Op.in]: allUserIds }, year: currentYear },
+        attributes: [
+          "casualLeaveAllocated", "sickLeaveAllocated", "paidLeaveAllocated",
+          "casualLeaveUsed", "sickLeaveUsed", "paidLeaveUsed",
+        ],
         raw: true,
       }),
       // Headcount by branch
@@ -1926,8 +1956,12 @@ export const getTopPerformers = async (
 
     // Company-scoped team — the leaderboard otherwise mixed in employees of
     // another company the caller also administers.
+    // PERF: Fast variant — see getDashboardSummary for why (batches each
+    // hierarchy level into one query instead of one round trip per user).
+    // This endpoint is called from the dashboard alongside 4-5 others, so
+    // its per-user latency compounds directly into perceived dashboard load time.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
 
     if (childIds.length === 0) {
       res.status(200).json({
@@ -4993,8 +5027,11 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
     // under their own userId (matches the scoping used for quotations/invoices).
     // ...and company-scoped, so an admin/manager assigned to more than one
     // company stops seeing the other company's reports after switching.
+    // PERF: Fast variant — see getDashboardSummary; this endpoint is also
+    // called from the dashboard, so its per-user latency compounds directly
+    // into perceived dashboard load time.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(Number(userData.userId), callerCompanyId);
+    const childIds = await getCompanyScopedChildUserIdsFast(Number(userData.userId), callerCompanyId);
     const teamUserIds = [Number(userData.userId), ...childIds];
 
     // ✅ Use AND conditions (important)
@@ -5051,9 +5088,15 @@ export const getReport = async (req: Request, res: Response): Promise<void> => {
       [Op.and]: andConditions,
     };
 
-    // ✅ Fetch data
+    // ✅ Fetch data — tallyGuid/userId/companyId are internal sync/scoping
+    // fields never rendered by either the dashboard widget or the full
+    // Current Outstanding page; everything else here is displayed.
     const { count, rows } = await Report.findAndCountAll({
       where: whereCondition,
+      attributes: [
+        "id", "date", "referenceNo", "customerName",
+        "openingAmount", "pendingAmount", "dueOn", "overdueDays", "status",
+      ],
       order: [["createdAt", "DESC"]],
       limit: pageSize,
       offset,

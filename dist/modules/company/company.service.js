@@ -247,9 +247,28 @@ const getCompanyManagers = (companyIdParam, userId) => __awaiter(void 0, void 0,
 });
 exports.getCompanyManagers = getCompanyManagers;
 const getMyCompanies = (userId, role) => __awaiter(void 0, void 0, void 0, function* () {
-    const assignments = role === "admin"
-        ? yield CompanyRepo.findAdminCompanyAssignments(userId)
-        : yield CompanyRepo.findManagerCompanyAssignments(userId);
+    if (role === "admin") {
+        // FIX: the CompanyAdmin junction only holds companies an admin was
+        // explicitly ASSIGNED to — it has no row for the company an admin
+        // created and owns outright (Company.userId/adminId, stamped directly
+        // at creation), so an owning admin with no extra assignments got an
+        // empty array here even though getowncompany/profile correctly showed
+        // their company. Merge both sources, deduped by company id, same
+        // response shape (array of company objects) as before.
+        const [assignments, owned] = yield Promise.all([
+            CompanyRepo.findAdminCompanyAssignments(userId),
+            CompanyRepo.findOwnedCompaniesByAdminId(userId),
+        ]);
+        const companies = [...assignments.map((a) => a.company), ...owned];
+        const seen = new Set();
+        return companies.filter((c) => {
+            if (seen.has(c.id))
+                return false;
+            seen.add(c.id);
+            return true;
+        });
+    }
+    const assignments = yield CompanyRepo.findManagerCompanyAssignments(userId);
     return assignments.map((a) => a.company);
 });
 exports.getMyCompanies = getMyCompanies;
@@ -333,6 +352,13 @@ const deleteCompany = (id, userId) => __awaiter(void 0, void 0, void 0, function
     const company = yield CompanyRepo.findCompanyOwnedBy(id, userId);
     if (!company)
         throw new serviceError_1.ServiceError("Company not found");
+    // FIX: this used to destroy the company unconditionally. Block instead,
+    // with a clear message, until the company is actually empty — see
+    // countCompanyDependents' comment for why this matters.
+    const { branchCount, shiftCount, departmentCount } = yield CompanyRepo.countCompanyDependents(Number(id));
+    if (branchCount > 0 || shiftCount > 0 || departmentCount > 0) {
+        throw new serviceError_1.ServiceError(`Cannot delete this company while it still has ${branchCount} branch(es), ${shiftCount} shift(s), and ${departmentCount} department(s). Remove those first.`);
+    }
     yield company.destroy();
 });
 exports.deleteCompany = deleteCompany;

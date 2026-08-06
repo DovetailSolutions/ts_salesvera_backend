@@ -67,6 +67,21 @@ export const userAttendance = async (req: Request, res: Response): Promise<void>
   }
 };
 
+export const attendanceSummary = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const result = await AttendanceService.attendanceSummary(Number(userData.userId), callerCompanyId);
+    res.status(200).json({
+      success: true,
+      message: "Attendance summary fetched successfully",
+      data: result,
+    });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 export const AttendanceBook = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;

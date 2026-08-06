@@ -49,12 +49,13 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
     function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTodayAttendance = exports.attendancePunchOut = exports.getDayTypeFromWorkingHours = exports.attendancePunchIn = exports.bulkMarkAttendance = exports.exportAttendanceReportExcel = exports.attendanceBook = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
+exports.getTodayAttendance = exports.attendancePunchOut = exports.getDayTypeFromWorkingHours = exports.resolveHalfDayThresholdHours = exports.attendancePunchIn = exports.computeShiftOverlapHours = exports.bulkMarkAttendance = exports.exportAttendanceReportExcel = exports.attendanceBook = exports.attendanceSummary = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
 const sequelize_1 = require("sequelize");
 const spaces_1 = require("../../config/spaces");
 const XLSX = __importStar(require("xlsx"));
 const serviceError_1 = require("../shared/serviceError");
 const userHierarchy_1 = require("../shared/userHierarchy");
+const dateUtils_1 = require("../shared/dateUtils");
 const AttendanceRepo = __importStar(require("./attendance.repository"));
 // ============================================================
 // Attendance service — validation + orchestration. Byte-for-byte port of the
@@ -70,17 +71,35 @@ const getPagination = (query) => {
     return { page, limit, offset };
 };
 // ---- Admin/team-scoped ----
-const getAttendance = (loggedInId, query) => __awaiter(void 0, void 0, void 0, function* () {
+const getAttendance = (loggedInId, callerCompanyId, query) => __awaiter(void 0, void 0, void 0, function* () {
     const { page, limit, offset } = getPagination(query);
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // FIX: was getAllChildUserIds — a pure who-created-whom walk with no notion
+    // of company, so an admin/manager assigned to more than one company (via
+    // CompanyAdmin/CompanyManager + switch-company) kept seeing the OTHER
+    // company's employees in today's list after switching. Scoped to the
+    // company they're currently acting in; callers with no resolvable company
+    // context get the unfiltered hierarchy exactly as before.
+    // PERF: fast (level-batched) variant — same output, fewer DB round-trips.
+    // Only this call site was switched; every other caller of
+    // getCompanyScopedChildUserIds is untouched.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
     const allUserIds = [loggedInId, ...childIds];
-    const todayDateOnly = new Date().toISOString().slice(0, 10);
+    // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
+    // to UTC first, which rolls the calendar day backward for any real-world
+    // IST time before ~05:30 (e.g. 2:30 AM IST still reports yesterday's
+    // date), so this "today" attendance list would silently show yesterday's
+    // completed data as "today" in the early morning. getISTDateString()
+    // computes the IST calendar date via explicit +5:30 offset arithmetic
+    // instead, so it's correct regardless of the server's OS timezone.
+    const todayDateOnly = (0, dateUtils_1.getISTDateString)();
+    const search = String((query === null || query === void 0 ? void 0 : query.search) || "").trim();
     const { rows, count } = yield AttendanceRepo.findTeamAttendanceToday({
         allUserIds,
         excludeUserId: loggedInId,
         todayDateOnly,
         limit,
         offset,
+        search: buildSearchFilter(search),
     });
     return {
         data: rows,
@@ -93,7 +112,14 @@ const getAttendance = (loggedInId, query) => __awaiter(void 0, void 0, void 0, f
     };
 });
 exports.getAttendance = getAttendance;
-const LEAVE_STATUSES = ["leave", "leaveApproved", "leaveReject"];
+// FIX: "leaveReject" used to be in this set, which meant a REJECTED leave
+// request blocked correcting that day's attendance with the exact same
+// "reject/cancel the leave first" message — nonsensical, since a rejected
+// leave has nothing active left to cancel. Only a currently-active leave
+// commitment ("leave" = pending, "leaveApproved" = approved) should require
+// going through leave-cancellation first; a rejected one is just a normal
+// day again and should be freely correctable like any other.
+const LEAVE_STATUSES = ["leave", "leaveApproved"];
 // The single "Mark Attendance" action's outcome vocabulary — deliberately a
 // small fixed set of machine-friendly values (not bulk's free-text CSV
 // words) since this is driven by a UI dropdown, not a spreadsheet cell.
@@ -111,7 +137,12 @@ const markAttendancePresent = (loggedInId, callerCompanyId, body) => __awaiter(v
         throw new serviceError_1.ServiceError("companyLeaveId is required when marking a specific leave type");
     }
     // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // FIX: was getAllChildUserIds — the unscoped hierarchy let an admin/manager
+    // assigned to two companies mark attendance for the OTHER company's staff
+    // while acting in this one. Scoped to the company they're currently acting
+    // in (callerCompanyId, the same one already used for leave types below);
+    // no resolvable company context falls back to the previous behavior.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     if (!childIds.includes(Number(employeeId))) {
         throw new serviceError_1.ServiceError("You can only mark attendance for your own team members");
     }
@@ -123,7 +154,13 @@ const markAttendancePresent = (loggedInId, callerCompanyId, body) => __awaiter(v
         if (!leaveTypeRow)
             throw new serviceError_1.ServiceError("companyLeaveId is not a leave type configured for your company");
     }
-    const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    // FIX: fallback was new Date().toISOString().slice(0, 10) — toISOString()
+    // converts to UTC first, rolling the calendar day backward for any
+    // real-world IST time before ~05:30, so an admin marking "today's"
+    // attendance in the early morning would silently record it against
+    // yesterday. getISTDateString() computes the IST calendar date via
+    // explicit +5:30 offset arithmetic instead, correct regardless of OS tz.
+    const attendanceDate = date ? String(date).slice(0, 10) : (0, dateUtils_1.getISTDateString)();
     const employee = (yield AttendanceRepo.findEmployeeById(Number(employeeId)));
     const shift = (employee === null || employee === void 0 ? void 0 : employee.shiftId) ? yield AttendanceRepo.findShiftById(employee.shiftId) : null;
     const company = (shift === null || shift === void 0 ? void 0 : shift.companyId) ? yield AttendanceRepo.findCompanyById(shift.companyId) : null;
@@ -132,7 +169,11 @@ const markAttendancePresent = (loggedInId, callerCompanyId, body) => __awaiter(v
     // correction, not a real-time attendance event, and absent/leave never
     // involve showing up at all. Skipped entirely if the employee has no
     // assigned shift.
-    const todayDateOnly = new Date().toISOString().slice(0, 10);
+    // FIX: was new Date().toISOString().slice(0, 10) — same UTC-first rollback
+    // bug as above; a wrong "today" here would let the shift-start gate be
+    // silently skipped (or wrongly applied) for a genuinely-today mark made
+    // in the early IST morning. getISTDateString() is deployment-proof.
+    const todayDateOnly = (0, dateUtils_1.getISTDateString)();
     if (SHOWED_UP_STATUSES.includes(status) && attendanceDate === todayDateOnly && isBeforeShiftWindow(shift, attendanceDate)) {
         throw new serviceError_1.ServiceError(formatShiftWindowMessage(shift, attendanceDate, employee === null || employee === void 0 ? void 0 : employee.firstName));
     }
@@ -210,14 +251,19 @@ const buildMarkAttendanceFields = (status, shift, company, attendanceDate, punch
         : { punchIn: punchIn ? new Date(punchIn) : new Date(), punchOut: null, workingHours: null, dayType: null, overtime: null };
     return Object.assign({ status: "present", companyLeaveId: null }, derived);
 };
-const userAttendance = (loggedInId, userId, query) => __awaiter(void 0, void 0, void 0, function* () {
+const userAttendance = (loggedInId, callerCompanyId, userId, query) => __awaiter(void 0, void 0, void 0, function* () {
     const employeeId = Number(userId);
     if (!Number.isInteger(employeeId) || employeeId < 0) {
         throw new serviceError_1.ServiceError("Invalid userId");
     }
     // FIX: this previously had no ownership check at all — any caller with
     // attendance:view could pass any userId and read another team's data.
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // FIX (part 2): the ownership check used getAllChildUserIds — the unscoped
+    // hierarchy — so an admin/manager assigned to more than one company could
+    // still read the OTHER company's employees' history while acting in this
+    // one. Scoped to the company they're currently acting in; no resolvable
+    // company context keeps the previous behavior.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     if (employeeId !== loggedInId && !childIds.includes(employeeId)) {
         throw new serviceError_1.ServiceError("You can only view attendance of your own team members", 403);
     }
@@ -238,27 +284,55 @@ exports.userAttendance = userAttendance;
 const getDateFilter = (query) => {
     const { startDate, endDate, lastDays, today } = query;
     const filter = {};
+    // NOTE (applies to every branch below): `date` (the column this filter is
+    // applied to, in both callers) is a Sequelize DATEONLY attribute — a
+    // plain Postgres DATE with no time/timezone component. Sequelize's own
+    // where-clause escaping for a DATEONLY value runs it through
+    // `moment(value).format("YYYY-MM-DD")`, and plain `moment()` (no
+    // explicit .tz()) resolves using the *server process's OS-local
+    // timezone* — verified against this repo's installed sequelize@6.37.7
+    // (DATEONLY inherits ABSTRACT.escape -> stringify -> moment().format()).
+    // So passing a `Date` *instant* here — even one built correctly via an
+    // explicit "+05:30" offset — gets silently reformatted back through the
+    // server's own OS timezone one step later when Sequelize turns it into
+    // SQL: on a UTC-OS production host, an IST-midnight instant sits at
+    // 18:30 UTC the *previous* day, so the filter would silently shift onto
+    // the wrong day. A plain "YYYY-MM-DD" string is immune — moment's format
+    // of a date-only string is an identity operation, no timezone
+    // conversion at all. Every branch below therefore builds/emits plain
+    // date strings, never Date instants.
     if (startDate && endDate) {
-        filter[sequelize_1.Op.between] = [new Date(startDate), new Date(endDate)];
+        filter[sequelize_1.Op.between] = [String(startDate).slice(0, 10), String(endDate).slice(0, 10)];
     }
     else if (startDate) {
-        filter[sequelize_1.Op.gte] = new Date(startDate);
+        filter[sequelize_1.Op.gte] = String(startDate).slice(0, 10);
     }
     else if (endDate) {
-        filter[sequelize_1.Op.lte] = new Date(endDate);
+        filter[sequelize_1.Op.lte] = String(endDate).slice(0, 10);
     }
-    if (lastDays) {
-        const now = new Date();
-        const past = new Date();
-        past.setDate(now.getDate() - Number(lastDays));
-        filter[sequelize_1.Op.between] = [past, now];
+    if (lastDays && Number.isFinite(Number(lastDays))) {
+        // FIX: was new Date() + getDate()/setDate() — OS-local calendar
+        // getters/setters compute "N days ago" in the server's own timezone,
+        // not India's. Deriving today's IST date string first, then stepping
+        // back N days via Date.UTC (never OS-local setDate), keeps the
+        // boundary correct regardless of server OS timezone. (Number.isFinite
+        // guard preserves the original's "garbage input quietly does nothing
+        // useful" behavior instead of throwing out of toISOString() here.)
+        const istTodayStr = (0, dateUtils_1.getISTDateString)();
+        const [ty, tm, td] = istTodayStr.split("-").map(Number);
+        const pastDateStr = new Date(Date.UTC(ty, tm - 1, td - Number(lastDays))).toISOString().slice(0, 10);
+        filter[sequelize_1.Op.between] = [pastDateStr, istTodayStr];
     }
     if (today === "true") {
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        const end = new Date();
-        end.setHours(23, 59, 59, 999);
-        filter[sequelize_1.Op.between] = [start, end];
+        // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
+        // operates in the server process's OS-local timezone. getISTDateString()
+        // resolves the IST calendar date correctly regardless of OS tz, and
+        // (per the NOTE above) is used directly as the DATEONLY comparison
+        // value instead of being turned into a Date instant, which would
+        // reintroduce the same OS-timezone dependency one step later via
+        // Sequelize's own DATEONLY-to-SQL formatting.
+        const istToday = (0, dateUtils_1.getISTDateString)();
+        filter[sequelize_1.Op.between] = [istToday, istToday];
     }
     return filter;
 };
@@ -268,28 +342,85 @@ const buildSearchFilter = (search) => search
         [sequelize_1.Op.or]: [
             { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
             { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
         ],
     }
     : {};
-const attendanceBook = (userId, query) => __awaiter(void 0, void 0, void 0, function* () {
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(userId);
+// Team attendance summary (admin/manager view of their own child hierarchy):
+// total child count, present today, on-leave today, and absent today. Built
+// entirely from two batched COUNT queries (no row fetching, no per-user
+// loops) so it stays fast regardless of team size:
+//   - childIds resolved via the fast, level-batched hierarchy walk (same one
+//     attendanceBook uses).
+//   - presentToday / onLeaveToday are plain Attendance/Leave COUNT queries,
+//     run in parallel.
+//   - absentToday is derived (totalChild - present - onLeave), not a third
+//     query — anyone not present and not on an approved leave today counts
+//     as absent, including team members who haven't punched in/been marked
+//     yet, which is what "Absent Today" means on a live dashboard.
+const attendanceSummary = (userId, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(userId, callerCompanyId);
+    const totalChildCount = childIds.length;
+    if (totalChildCount === 0) {
+        return { totalChildCount: 0, presentTodayCount: 0, absentTodayCount: 0, onLeaveTodayCount: 0 };
+    }
+    const todayDateOnly = (0, dateUtils_1.getISTDateString)();
+    const [presentTodayCount, onLeaveTodayCount] = yield Promise.all([
+        AttendanceRepo.countPresentToday(childIds, todayDateOnly),
+        AttendanceRepo.countOnLeaveToday(childIds, todayDateOnly),
+    ]);
+    const absentTodayCount = Math.max(totalChildCount - presentTodayCount - onLeaveTodayCount, 0);
+    return { totalChildCount, presentTodayCount, absentTodayCount, onLeaveTodayCount };
+});
+exports.attendanceSummary = attendanceSummary;
+const attendanceBook = (userId, callerCompanyId, query) => __awaiter(void 0, void 0, void 0, function* () {
+    // FIX: was getAllChildUserIds — the unscoped hierarchy put the OTHER
+    // company's employees into this month's register for an admin/manager
+    // assigned to more than one company. Scoped to the company they're
+    // currently acting in; no resolvable company context behaves as before.
+    // PERF: uses the fast (level-batched) variant — same output as
+    // getCompanyScopedChildUserIds, just fewer DB round-trips. Only this call
+    // site was switched; every other caller of getCompanyScopedChildUserIds
+    // is untouched.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(userId, callerCompanyId);
     if (!childIds.length) {
         throw new serviceError_1.ServiceError("No child users found");
     }
-    const month = Number(query.month) || new Date().getMonth() + 1;
-    const year = Number(query.year) || new Date().getFullYear();
+    // FIX: month/year defaults were new Date().getMonth()/getFullYear() (OS-
+    // local getters), and startDate/endDate were built via the multi-arg
+    // Date constructor (also OS-local-interpreted) — only correct here
+    // because this dev machine's OS timezone happens to be IST, not
+    // guaranteed on the production host. Deriving "now" in IST first via
+    // explicit offset arithmetic, then building month boundaries with
+    // Date.UTC (shifted back by the same offset), is deployment-proof.
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+    const month = Number(query.month) || nowIST.getUTCMonth() + 1;
+    const year = Number(query.year) || nowIST.getUTCFullYear();
     const search = String(query.search || "");
     const pageNum = Number(query.page) || 1;
     const limitNum = Number(query.limit) || 10;
     const offset = (pageNum - 1) * limitNum;
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0);
-    const totalDays = endDate.getDate();
+    const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    // FIX (part 2): startDate/endDate are compared against the `date`
+    // column, a DATEONLY attribute — Sequelize's DATEONLY where-clause
+    // escaping reformats whatever Date *instant* it's given via
+    // `moment(value).format("YYYY-MM-DD")` using the server's OS-local
+    // timezone (see the matching NOTE in getDateFilter above), so even
+    // these correctly-computed IST month-boundary instants would get
+    // silently shifted back a day on a UTC-OS production host. Plain
+    // "YYYY-MM-DD" strings sidestep that Date-instant round-trip entirely.
+    // (findUsersWithAttendanceForMonth's params still type these as `Date`
+    // — cast below; it only ever forwards them into Sequelize's Op.between
+    // array and never calls a Date method on them.)
+    const startDateStr = `${year}-${String(month).padStart(2, "0")}-01`;
+    const endDateStr = `${year}-${String(month).padStart(2, "0")}-${String(totalDays).padStart(2, "0")}`;
     const { rows: users, count: totalCount } = yield AttendanceRepo.findUsersWithAttendanceForMonth({
         childIds,
         search: buildSearchFilter(search),
-        startDate,
-        endDate,
+        startDate: startDateStr,
+        endDate: endDateStr,
         limit: limitNum,
         offset,
     });
@@ -309,7 +440,16 @@ const attendanceBook = (userId, query) => __awaiter(void 0, void 0, void 0, func
         if ((_a = u.Attendances) === null || _a === void 0 ? void 0 : _a.length) {
             u.Attendances.forEach((attendance) => {
                 var _a;
-                const day = new Date(attendance.date).getDate();
+                // FIX: was new Date(attendance.date).getDate() — attendance.date is
+                // a DATEONLY value already read back as a plain "YYYY-MM-DD" string
+                // (Sequelize registers a raw passthrough parser for Postgres DATE
+                // columns). Round-tripping that through `new Date(...)`
+                // (UTC-midnight-anchored for a date-only string) and then reading
+                // the day via local getDate() only lands on the right day for
+                // server OS timezones at/ahead of UTC. Slicing the day straight out
+                // of the string never touches a Date object, so it can't be
+                // OS-timezone-dependent.
+                const day = Number(String(attendance.date).slice(8, 10));
                 days[String(day)] = (_a = attendance.status) !== null && _a !== void 0 ? _a : "-";
                 if (attendance.dayType)
                     dayTypes[String(day)] = attendance.dayType;
@@ -345,8 +485,12 @@ exports.attendanceBook = attendanceBook;
 // row per attendance record so it can be opened directly as a payroll-style
 // register. Scoped to childIds only (never includes the caller's own
 // attendance), same ownership rule as attendanceBook/markAttendancePresent.
-const exportAttendanceReportExcel = (loggedInId, query) => __awaiter(void 0, void 0, void 0, function* () {
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+const exportAttendanceReportExcel = (loggedInId, callerCompanyId, query) => __awaiter(void 0, void 0, void 0, function* () {
+    // FIX: was getAllChildUserIds — the unscoped hierarchy exported the OTHER
+    // company's employees (and let ?userId= target them) for an admin/manager
+    // assigned to more than one company. Scoped to the company they're
+    // currently acting in; no resolvable company context behaves as before.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     if (!childIds.length) {
         throw new serviceError_1.ServiceError("No child users found");
     }
@@ -362,9 +506,25 @@ const exportAttendanceReportExcel = (loggedInId, query) => __awaiter(void 0, voi
     if (Reflect.ownKeys(dateFilter).length === 0) {
         // No range given — default to the current calendar month (same default
         // attendanceBook uses) instead of dumping an employee's entire history.
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-        const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        // FIX: was now.getFullYear()/getMonth() (OS-local getters) — only
+        // correct here because this dev machine's OS timezone happens to be
+        // IST, not guaranteed on the production host. Deriving IST year/month
+        // via explicit offset arithmetic first is deployment-proof.
+        // FIX (part 2): the resulting start/end used to be built as Date
+        // instants — but `date` is a DATEONLY column, and Sequelize's
+        // DATEONLY where-clause escaping reformats whatever Date instant it's
+        // given via the server's OS-local timezone (see getDateFilter's NOTE
+        // above), silently shifting the range on a non-IST host even though
+        // the instants themselves were computed correctly. Plain "YYYY-MM-DD"
+        // strings avoid that round-trip entirely.
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+        const istYear = nowIST.getUTCFullYear();
+        const istMonth = nowIST.getUTCMonth(); // 0-based
+        const lastDay = new Date(Date.UTC(istYear, istMonth + 1, 0)).getUTCDate();
+        const mm = String(istMonth + 1).padStart(2, "0");
+        const start = `${istYear}-${mm}-01`;
+        const end = `${istYear}-${mm}-${String(lastDay).padStart(2, "0")}`;
         dateFilter[sequelize_1.Op.between] = [start, end];
     }
     const rows = yield AttendanceRepo.findTeamAttendanceForReport({ employeeIds, dateFilter });
@@ -374,7 +534,12 @@ const exportAttendanceReportExcel = (loggedInId, query) => __awaiter(void 0, voi
         const d = new Date(value);
         if (isNaN(d.getTime()))
             return "";
-        return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        // FIX: was d.getHours()/getMinutes() (OS-local getters) — would print
+        // the wrong wall-clock time on a server whose OS timezone isn't IST,
+        // even though punch_in/punch_out are correctly-computed instants.
+        // formatISTTime shifts into IST before reading hour/minute, regardless
+        // of the server's OS timezone.
+        return (0, dateUtils_1.formatISTTime)(d);
     };
     const sheetRows = rows.map((row) => {
         var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s;
@@ -400,7 +565,13 @@ const exportAttendanceReportExcel = (loggedInId, query) => __awaiter(void 0, voi
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
     return {
         buffer,
-        filename: `attendance-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        // FIX: was new Date().toISOString().slice(0, 10) — toISOString()
+        // converts to UTC first, rolling the calendar day backward for any
+        // real-world IST time before ~05:30, so a report exported in the early
+        // IST morning would silently get yesterday's date baked into its
+        // filename. getISTDateString() is deployment-proof regardless of the
+        // server's OS timezone.
+        filename: `attendance-report-${(0, dateUtils_1.getISTDateString)()}.xlsx`,
     };
 });
 exports.exportAttendanceReportExcel = exportAttendanceReportExcel;
@@ -489,8 +660,15 @@ const parseTimeOfDayOnDate = (dateStr, value) => {
         else
             hours = hours === 12 ? 12 : hours + 12;
     }
-    const [y, m, d] = dateStr.split("-").map(Number);
-    const result = new Date(y, m - 1, d, hours, minutes, seconds);
+    // FIX: was `new Date(y, m-1, d, hours, minutes, seconds)` — the multi-arg
+    // constructor interprets the time as the server's OS-local time, not
+    // IST, same bug class as shiftStartInstant below. A bulk-uploaded
+    // "09:15" punch-in is meant as 9:15 AM India time regardless of the
+    // server's own timezone configuration.
+    const hh = String(hours).padStart(2, "0");
+    const mm = String(minutes).padStart(2, "0");
+    const ss = String(seconds).padStart(2, "0");
+    const result = new Date(`${dateStr}T${hh}:${mm}:${ss}.000+05:30`);
     return isNaN(result.getTime()) ? null : result;
 };
 const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void 0, void 0, void 0, function* () {
@@ -576,20 +754,41 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
         const spanDays = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
         if (spanDays > MAX_RANGE_DAYS)
             throw new serviceError_1.ServiceError(`Date range too large (max ${MAX_RANGE_DAYS} days)`);
+        // FIX: was formatLocalDate(cursor) + cursor.setDate(cursor.getDate()+1)
+        // — normalizedFrom/normalizedTo are plain "YYYY-MM-DD" strings, which
+        // the native Date parser anchors at UTC midnight, but formatLocalDate
+        // reads the day back via *local* (OS) getters — a UTC-encode/
+        // local-decode mismatch that only round-trips correctly on server OS
+        // timezones at/ahead of UTC. Walking (and reading back) the cursor
+        // with the UTC equivalents keeps encode and decode consistently
+        // anchored to the same UTC-midnight instant throughout, regardless of
+        // the server's OS timezone.
         rangeDates = [];
         const cursor = new Date(start);
         while (cursor <= end) {
-            rangeDates.push(formatLocalDate(cursor));
-            cursor.setDate(cursor.getDate() + 1);
+            rangeDates.push(cursor.toISOString().slice(0, 10));
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
         }
     }
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // FIX: was getAllChildUserIds — the unscoped hierarchy meant a sheet row
+    // naming an employee of the OTHER company (for an admin/manager assigned to
+    // more than one) was accepted and written instead of being reported under
+    // skippedNotInTeam. Scoped to the company this upload is being made in —
+    // the same companyId already used above to resolve the leave types and
+    // overtime policy; no resolvable company context behaves as before.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, companyId ? Number(companyId) : null);
     const allowedIds = new Set([loggedInId, ...childIds]);
     const skippedNonNumericEmployeeId = [];
     const skippedNotInTeam = [];
     const skippedUnknownStatus = [];
     const skippedWrongShift = [];
     const skippedTooEarly = [];
+    // FIX: the "present" branch below used to overwrite ANY existing status
+    // unconditionally — including an active leave/leaveApproved day, which a
+    // blank cell (defaulting to "present") or a routine re-upload could
+    // silently clobber with no record of it happening. Same protection the
+    // single "Mark Attendance" action already has, applied here too.
+    const skippedActiveLeave = [];
     // "Employee ID" column holds each employee's human-facing code
     // (EMP00001, from the template's own "Employee ID" column) — resolved
     // against this caller's team up front, once, rather than per row. A bare
@@ -627,7 +826,12 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
     const shiftsById = involvedShiftIds.length
         ? new Map((yield AttendanceRepo.findShiftsByIds(involvedShiftIds)).map((s) => [s.id, s]))
         : new Map();
-    const todayDateOnly = new Date().toISOString().slice(0, 10);
+    // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
+    // to UTC first, rolling the calendar day backward for any real-world IST
+    // time before ~05:30, so a bulk "present" row for a genuinely-today date
+    // could be wrongly gated (or wrongly let through) by the shift-start
+    // window check below. getISTDateString() is deployment-proof.
+    const todayDateOnly = (0, dateUtils_1.getISTDateString)();
     const assignments = [];
     const employeeIds = new Set();
     for (const row of dataRows) {
@@ -702,6 +906,7 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
             skippedUnknownStatus,
             skippedWrongShift,
             skippedTooEarly,
+            skippedActiveLeave,
         };
     }
     const dates = [...new Set(assignments.map((a) => a.date))];
@@ -727,6 +932,14 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
         const existing = existingMap.get(key);
         const empShiftForRow = resolveEmployeeShift(assignment.employee_id);
         if (assignment.status === "present") {
+            if (existing && LEAVE_STATUSES.includes(existing.status)) {
+                skippedActiveLeave.push({
+                    employeeId: assignment.employee_id,
+                    date: assignment.date,
+                    reason: `Marked "${existing.status}" — reject/cancel the leave first before marking present.`,
+                });
+                continue;
+            }
             // Punch-in/out are derived from the employee's assigned shift, same
             // as the single "Mark Present" action — a typed punch-in time (e.g.
             // "09:15") overrides the shift's own start, but punch_out (and the
@@ -764,6 +977,14 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
             }
         }
         else if (existing) {
+            if (LEAVE_STATUSES.includes(existing.status) && assignment.status !== "leave") {
+                skippedActiveLeave.push({
+                    employeeId: assignment.employee_id,
+                    date: assignment.date,
+                    reason: `Marked "${existing.status}" — reject/cancel the leave first before marking ${String(assignment.status).replace("_", " ")}.`,
+                });
+                continue;
+            }
             // Bulk-marking overwrites the day's status directly; punch-derived
             // fields from any prior real punch no longer apply and must be
             // cleared, or they end up contradicting the new status (e.g.
@@ -784,7 +1005,11 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
     // All rows for this upload commit or roll back together (transaction).
     yield AttendanceRepo.saveBulkAttendance(toUpdate, toCreate);
     return {
-        applied: assignments.length,
+        // FIX: was assignments.length — that counted every row that reached this
+        // stage, but a row can now be skipped here too (skippedActiveLeave)
+        // without ending up in toCreate/toUpdate, so it stopped meaning "actually
+        // applied" the moment that skip path was added.
+        applied: toCreate.length + toUpdate.length,
         created: toCreate.length,
         updated: toUpdate.length,
         skippedNonNumericEmployeeId,
@@ -792,6 +1017,7 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
         skippedUnknownStatus,
         skippedWrongShift,
         skippedTooEarly,
+        skippedActiveLeave,
     };
 });
 exports.bulkMarkAttendance = bulkMarkAttendance;
@@ -813,12 +1039,18 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => {
 const EARLY_MARK_LEAD_MINUTES = 30;
 // dateStr: "YYYY-MM-DD". Builds the actual Date instant the shift starts on
 // that day from its "HH:mm[:ss]" startTime string.
+// FIX: was `new Date(y, m-1, d, h, min, 0)` — the multi-arg constructor
+// interprets h/min as the server's OS-local time, not IST, so a shift
+// configured as "09:30" (meant as 9:30 AM India time) silently meant a
+// different real-world moment on any server whose OS timezone isn't IST
+// (e.g. 09:30 UTC = 3:00 PM IST on a UTC-configured host) — this is what
+// was blocking real punch-ins with a shift-window error at the wrong time.
+// parseISTTime parses an explicit "+05:30" offset, which is not
+// OS-timezone-dependent.
 const shiftStartInstant = (shift, dateStr) => {
     if (!(shift === null || shift === void 0 ? void 0 : shift.startTime))
         return null;
-    const [y, m, d] = dateStr.split("-").map(Number);
-    const [h, min] = String(shift.startTime).split(":").map(Number);
-    return new Date(y, (m || 1) - 1, d, h || 0, min || 0, 0);
+    return (0, dateUtils_1.parseISTTime)(dateStr, shift.startTime);
 };
 // Builds the shift's end instant on `dateStr`, rolling to the next calendar
 // day when endTime <= startTime (a night shift crossing midnight, e.g.
@@ -828,11 +1060,14 @@ const shiftEndInstant = (shift, dateStr) => {
     if (!(shift === null || shift === void 0 ? void 0 : shift.endTime))
         return null;
     const start = shiftStartInstant(shift, dateStr);
-    const [y, m, d] = dateStr.split("-").map(Number);
-    const [h, min] = String(shift.endTime).split(":").map(Number);
-    const end = new Date(y, (m || 1) - 1, d, h || 0, min || 0, 0);
+    const end = (0, dateUtils_1.parseISTTime)(dateStr, shift.endTime);
+    // FIX: was end.setDate(end.getDate() + 1) — OS-local getDate/setDate.
+    // India has no DST so this happened to still land on the correct instant
+    // on any fixed-offset server OS timezone, but pure ms arithmetic (+24h)
+    // is unconditionally correct and removes any dependency on the server's
+    // OS timezone (or its DST rules) at all.
     if (start && end <= start)
-        end.setDate(end.getDate() + 1);
+        return new Date(end.getTime() + 24 * 60 * 60 * 1000);
     return end;
 };
 // Derives punch_in/punch_out/working_hours/dayType/overtime for a day being
@@ -856,6 +1091,27 @@ const deriveShiftPunchFields = (shift, company, dateStr, explicitPunchIn) => {
     const dayType = (0, exports.getDayTypeFromWorkingHours)(workingHours, shift, company);
     return { punchIn, punchOut, workingHours, dayType, overtime };
 };
+// How much of [punchIn, punchOut] actually falls within the employee's
+// assigned shift window on `dateStr` — punching in well before the shift
+// starts, or staying logged in well past it, no longer pads out "hours
+// worked" for a window that was never actually the shift. Used only for the
+// half-day/absent status decision and dayType classification below; the
+// STORED working_hours (session length, overtime baseline) stays the raw
+// punch duration exactly as before — this is a separate, internal number.
+// Falls back to the raw duration when there's no assigned shift to compare
+// against (nothing to be "aware" of, same as isBeforeShiftWindow's own
+// no-op-without-a-shift behaviour).
+const computeShiftOverlapHours = (shift, dateStr, punchIn, punchOut, rawWorkingHours) => {
+    const shiftStart = shiftStartInstant(shift, dateStr);
+    const shiftEnd = shiftEndInstant(shift, dateStr);
+    if (!shiftStart || !shiftEnd)
+        return rawWorkingHours;
+    const effectiveStart = punchIn > shiftStart ? punchIn : shiftStart;
+    const effectiveEnd = punchOut < shiftEnd ? punchOut : shiftEnd;
+    const overlapMs = effectiveEnd.getTime() - effectiveStart.getTime();
+    return overlapMs > 0 ? Number((overlapMs / (1000 * 60 * 60)).toFixed(2)) : 0;
+};
+exports.computeShiftOverlapHours = computeShiftOverlapHours;
 // True when `atInstant` is still more than EARLY_MARK_LEAD_MINUTES before
 // the shift's start on `dateStr` — i.e. too early to mark present yet.
 // No assigned shift (shift is null) never gates — there's nothing to wait
@@ -870,7 +1126,11 @@ const isBeforeShiftWindow = (shift, dateStr, atInstant = new Date()) => {
 const formatShiftWindowMessage = (shift, dateStr, employeeName) => {
     const start = shiftStartInstant(shift, dateStr);
     const earliestAllowed = new Date(start.getTime() - EARLY_MARK_LEAD_MINUTES * 60000);
-    const fmt = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    // FIX: was d.getHours()/getMinutes() (OS-local getters) — would display
+    // the wrong wall-clock time on a server whose OS timezone isn't IST, even
+    // after the instant itself was computed correctly. formatISTTime shifts
+    // into IST before reading the hour/minute, regardless of server OS tz.
+    const fmt = dateUtils_1.formatISTTime;
     const who = employeeName ? `${employeeName}'s` : "This employee's";
     const shiftLabel = shift.shiftName ? `${shift.shiftName} shift` : "shift";
     return `${who} ${shiftLabel} starts at ${fmt(start)} — attendance can only be marked from ${fmt(earliestAllowed)} onward.`;
@@ -907,12 +1167,15 @@ const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void
     const { punch_in, latitude_in, longitude_in } = body || {};
     if (!punch_in)
         throw new serviceError_1.ServiceError("Punch-in time is required");
-    // FIX: was new Date().toISOString().slice(0,10) — toISOString() converts
-    // to UTC first, which rolls the calendar day backward for any local time
-    // before ~05:30 IST, silently recording an early-morning punch against
-    // yesterday instead of today. formatLocalDate uses local getters instead,
-    // matching the fix already applied to bulk attendance in this same file.
-    const today = formatLocalDate(new Date());
+    // FIX: was formatLocalDate(new Date()) — formatLocalDate reads local
+    // getFullYear()/getMonth()/getDate(), which only resolve to the IST
+    // calendar day because this dev machine's OS timezone happens to be set
+    // to Asia/Kolkata; on the DigitalOcean production host (OS timezone not
+    // guaranteed to be IST) this would silently record an early-morning punch
+    // against the wrong day. getISTDateString() computes the IST calendar
+    // date via explicit +5:30 offset arithmetic instead, so it's correct
+    // regardless of the server's OS timezone.
+    const today = (0, dateUtils_1.getISTDateString)();
     const activeSession = yield AttendanceRepo.findActivePunchSession(finalUserId, today);
     if (activeSession)
         throw new serviceError_1.ServiceError("You have already punched-in. Please punch-out first.");
@@ -948,9 +1211,17 @@ const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void
     if (!existingRecordsForToday) {
         const officeStartTime = (shift === null || shift === void 0 ? void 0 : shift.startTime) || "09:30:00";
         const graceMinutes = (_c = company === null || company === void 0 ? void 0 : company.lateMarkAfter) !== null && _c !== void 0 ? _c : 0;
-        const [y, m, d] = today.split("-").map(Number);
-        const [startHour, startMin] = String(officeStartTime).split(":").map(Number);
-        const officeTime = new Date(y, (m || 1) - 1, d, startHour || 0, (startMin || 0) + graceMinutes, 0);
+        // FIX: was new Date(y, m-1, d, startHour, startMin+grace, 0) — the
+        // multi-arg constructor interprets these numbers as the server's
+        // OS-local time, not IST — the exact same bug class that broke
+        // shift-window punch-in gating in production. A shift/company-
+        // configured start time (e.g. "09:30") is always meant as India
+        // wall-clock time, regardless of the server's own OS timezone.
+        // parseISTTime resolves the base instant via an explicit "+05:30"
+        // offset; grace minutes are then pure ms arithmetic on that
+        // already-correct instant.
+        const officeTimeBase = (0, dateUtils_1.parseISTTime)(today, String(officeStartTime));
+        const officeTime = new Date(officeTimeBase.getTime() + graceMinutes * 60000);
         const punchInTime = new Date(punch_in);
         if (punchInTime > officeTime)
             late = true;
@@ -998,14 +1269,23 @@ exports.attendancePunchIn = attendancePunchIn;
 // precedence used throughout this file (geofencing, lateMarkAfter, etc.).
 // Previously this used a hardcoded <3h / <9h split regardless of shift —
 // which, e.g., misclassified a full 8h day as "half_day" since 8 < 9.
-const getDayTypeFromWorkingHours = (workingHours, shift, company) => {
+// Extracted so both getDayTypeFromWorkingHours' classification and
+// attendancePunchOut/the auto-punch-out cron's "did they even reach half a
+// day" status rule below use the exact same threshold, instead of each
+// resolving it separately and risking the two drifting apart.
+const resolveHalfDayThresholdHours = (shift, company) => {
     const fullDayThreshold = (shift === null || shift === void 0 ? void 0 : shift.fullDayHours) && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
     const companyHalfDayHours = (company === null || company === void 0 ? void 0 : company.autoHalfDayAfter) && company.autoHalfDayAfter > 0
         ? company.autoHalfDayAfter / 60
         : null;
-    const halfDayThreshold = (shift === null || shift === void 0 ? void 0 : shift.halfDayAfter) && shift.halfDayAfter > 0
+    return (shift === null || shift === void 0 ? void 0 : shift.halfDayAfter) && shift.halfDayAfter > 0
         ? shift.halfDayAfter
         : companyHalfDayHours !== null && companyHalfDayHours !== void 0 ? companyHalfDayHours : fullDayThreshold / 2;
+};
+exports.resolveHalfDayThresholdHours = resolveHalfDayThresholdHours;
+const getDayTypeFromWorkingHours = (workingHours, shift, company) => {
+    const fullDayThreshold = (shift === null || shift === void 0 ? void 0 : shift.fullDayHours) && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
+    const halfDayThreshold = (0, exports.resolveHalfDayThresholdHours)(shift, company);
     if (workingHours < Math.min(3, halfDayThreshold))
         return "short_leave";
     if (workingHours < fullDayThreshold)
@@ -1018,7 +1298,12 @@ const attendancePunchOut = (finalUserId, callerCompanyId, body) => __awaiter(voi
     const { punch_out, AttendanceId, latitude_out, longitude_out } = body || {};
     if (!punch_out)
         throw new serviceError_1.ServiceError("Punch-out time is required");
-    const today = formatLocalDate(new Date());
+    // FIX: was formatLocalDate(new Date()) — OS-timezone-dependent (only
+    // correct here because this dev machine's OS tz happens to be IST); not
+    // guaranteed on the production host. getISTDateString() resolves "today"
+    // via explicit +5:30 offset arithmetic, deployment-proof regardless of
+    // the server's OS timezone.
+    const today = (0, dateUtils_1.getISTDateString)();
     const attendance = yield AttendanceRepo.findActivePunchSessionById(finalUserId, today, AttendanceId);
     if (!attendance)
         throw new serviceError_1.ServiceError("No active punch-in record found. Please punch-in first.");
@@ -1038,18 +1323,45 @@ const attendancePunchOut = (finalUserId, callerCompanyId, body) => __awaiter(voi
         ? Number((workingHoursRounded - officeHours).toFixed(2))
         : 0;
     attendance.punch_out = punchOutTime;
+    // Session length (overtime baseline, "Session Hours" display) stays the
+    // raw clocked duration, unchanged.
     attendance.working_hours = workingHoursRounded;
     attendance.overtime = overtime;
     attendance.latitude_out = latitude_out;
     attendance.longitude_out = longitude_out;
-    attendance.status = "out";
-    attendance.dayType = (0, exports.getDayTypeFromWorkingHours)(workingHoursRounded, shift, company);
+    // FIX: dayType/status were both derived from raw punch duration alone —
+    // not "shift aware" in any real sense, since punching in well before the
+    // shift starts (or staying logged in well after it ends) padded out
+    // "hours worked" for time that was never actually the shift. Login/logout
+    // time now matter: only the portion of [punch_in, punch_out] that
+    // actually overlaps the employee's assigned shift window counts toward
+    // the half-day/absent decision.
+    const shiftAwareHours = (0, exports.computeShiftOverlapHours)(shift, today, punchInTime, punchOutTime, workingHoursRounded);
+    attendance.dayType = (0, exports.getDayTypeFromWorkingHours)(shiftAwareHours, shift, company);
+    // FIX: status was unconditionally "out" (the same "showed up" bucket as a
+    // full day) no matter how few (shift-relevant) hours were actually
+    // worked — punching in and back out again a few minutes later still
+    // counted as a normal present day everywhere the app reads `status`
+    // (attendance rate, the register/calendar colour, etc.); only the
+    // separate dayType field silently recorded the shortfall, and nothing in
+    // the app actually read dayType for that. Below the half-day threshold,
+    // this now reflects in status itself — "absent", the same as any other
+    // day that needs a manual correction — while still keeping the real
+    // punch_in/punch_out/working_hours on the record so whoever corrects it
+    // sees exactly what happened instead of a bare "absent" with no context.
+    const halfDayThresholdHours = (0, exports.resolveHalfDayThresholdHours)(shift, company);
+    attendance.status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
     yield attendance.save();
     return attendance;
 });
 exports.attendancePunchOut = attendancePunchOut;
 const getTodayAttendance = (finalUserId) => __awaiter(void 0, void 0, void 0, function* () {
-    const today = formatLocalDate(new Date());
+    // FIX: was formatLocalDate(new Date()) — OS-timezone-dependent (only
+    // correct here because this dev machine's OS tz happens to be IST); not
+    // guaranteed on the production host. getISTDateString() resolves "today"
+    // via explicit +5:30 offset arithmetic, deployment-proof regardless of
+    // the server's OS timezone.
+    const today = (0, dateUtils_1.getISTDateString)();
     const record = yield AttendanceRepo.findLatestAttendanceForDate(finalUserId, today);
     if (!record)
         throw new serviceError_1.ServiceError("No attendance found for today");

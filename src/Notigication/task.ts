@@ -7,8 +7,6 @@ import { NotificationType } from "../app/model/Notification";
 import { getDirectCreator } from "../modules/shared/userHierarchy";
 import { getISTDateString } from "../modules/shared/dateUtils";
 
-const ADMIN_MANAGER = ["admin", "super_admin", "manager"];
-
 const loadUserPermissionsFromDB = async (userId: number): Promise<string[]> => {
   const userPerms = await UserPermission.findAll({
     where: { userId },
@@ -71,7 +69,15 @@ export const initTaskSocket = (io: Server): void => {
 
     // Join task rooms — prefixed so they never clash with chat room IDs
     socket.join(`task:user:${uid}`);
-    if (ADMIN_MANAGER.includes(role)) {
+    // Company-wide room mirrors buildTaskVisibilityWhere/getAllTasks: every
+    // role except sale_person sees the whole company board, so every role
+    // except sale_person must also receive its live broadcasts. Previously
+    // this only checked ADMIN_MANAGER ("admin"/"super_admin"/"manager"),
+    // silently excluding the "user" role — those accounts loaded the full
+    // board on connect but then received zero live taskCreated/taskUpdated/
+    // taskDeleted events, so drag-and-drop and other edits from teammates
+    // never appeared until the page was refreshed.
+    if (role !== "sale_person") {
       socket.join(`task:company:${companyId}`);
     }
 

@@ -31,6 +31,7 @@ const permissionCache_1 = require("../config/permissionCache");
 const uuid_1 = require("uuid");
 const notificationService_1 = require("../config/notificationService");
 const spaces_1 = require("../config/spaces");
+const userHierarchy_1 = require("../modules/shared/userHierarchy");
 const uploadToS3 = (base64Data, fileName, mimeType) => __awaiter(void 0, void 0, void 0, function* () {
     // Strip data URL prefix if Flutter sends "data:image/jpeg;base64,..."
     const raw = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
@@ -354,7 +355,15 @@ const initChatSocket = (io) => {
                         attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
                     });
                 }
-                io.to(roomId).emit("receiveMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
+                // FIX: the raw Message row only carries `chatRoomId` (the numeric
+                // DB FK), never the string `roomId` the frontend joined/tracks the
+                // conversation by. formatMessage() on the client falls back to
+                // "whatever room is currently open" whenever `roomId` is missing,
+                // so a message for a chat the recipient doesn't have open right
+                // now was silently misattributed (or dropped from the unread/
+                // notification path) instead of showing up live. Attaching the
+                // real roomId here removes the need for that fallback entirely.
+                io.to(roomId).emit("receiveMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { roomId, replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
                 // 🔔 Notify all OTHER participants in real-time
                 const participants = yield dbConnection_1.ChatParticipant.findAll({
                     where: { chatRoomId: room.id },
@@ -459,7 +468,7 @@ const initChatSocket = (io) => {
                         attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
                     });
                 }
-                io.to(roomId).emit("receiveFileMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
+                io.to(roomId).emit("receiveFileMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { roomId, replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
                 // 🔔 Notify other participants
                 const participants = yield dbConnection_1.ChatParticipant.findAll({
                     where: { chatRoomId: room.id },
@@ -536,7 +545,7 @@ const initChatSocket = (io) => {
                     fileName: (_e = originalMsg.fileName) !== null && _e !== void 0 ? _e : null,
                     replyTo: null,
                 });
-                io.to(toRoomId).emit("receiveFileMessage", Object.assign(Object.assign({}, forwarded.toJSON()), { forwarded: true }));
+                io.to(toRoomId).emit("receiveFileMessage", Object.assign(Object.assign({}, forwarded.toJSON()), { roomId: toRoomId, forwarded: true }));
                 socket.emit("forwardMessage", { success: true, messageId: forwarded.id });
             }
             catch (error) {
@@ -677,6 +686,7 @@ const initChatSocket = (io) => {
             }
         }));
         socket.on("UserList", (_a) => __awaiter(void 0, [_a], void 0, function* ({ page = 1, limit = 10, search = "" }) {
+            var _b;
             try {
                 const offset = (page - 1) * limit;
                 const cleanedSearch = typeof search === "string" ? search.trim() : "";
@@ -684,7 +694,24 @@ const initChatSocket = (io) => {
                 const childIds = userRole === "sale_person"
                     ? yield getSalePersonChatUserIds(userId)
                     : yield getAllRelatedUserIds(userId);
-                const validUserIds = [...childIds];
+                // FIX: both helpers above walk the creator hierarchy with no notion
+                // of company — an admin/manager assigned to more than one company
+                // saw the OTHER company's staff in their chat contact list too.
+                // Filter using the same company-membership resolution
+                // getCompanyScopedChildUserIds uses elsewhere, failing open (keep)
+                // for anyone whose company membership is indeterminate rather than
+                // risk hiding a legitimate contact.
+                const socketCompanyId = ((_b = socket.data.user) === null || _b === void 0 ? void 0 : _b.companyId) ? Number(socket.data.user.companyId) : null;
+                let validUserIds = childIds;
+                if (socketCompanyId != null && childIds.length > 0) {
+                    const companyIdsByUser = yield (0, userHierarchy_1.collectUserCompanyIds)(childIds);
+                    validUserIds = childIds.filter((id) => {
+                        const companies = companyIdsByUser.get(id);
+                        if (!companies || companies.size === 0)
+                            return true;
+                        return companies.has(socketCompanyId);
+                    });
+                }
                 // 🟢 Get all rooms I am part of to filter unread messages correctly
                 const myParticipations = yield dbConnection_1.ChatParticipant.findAll({
                     where: { userId },
@@ -782,6 +809,7 @@ const initChatSocket = (io) => {
                     roomId: newRoomId,
                     type: "group",
                     groupName: name, // ← Save the group name
+                    createdBy: userId, // so deleteGroup can restrict deletion to the creator
                 });
                 const dbRoomId = room.id;
                 // Add the creator
@@ -803,6 +831,7 @@ const initChatSocket = (io) => {
                     roomId: room.roomId,
                     type: "group",
                     groupName: room.groupName,
+                    createdBy: room.createdBy,
                     members: [userId, ...members],
                 });
             }
@@ -1066,6 +1095,15 @@ const initChatSocket = (io) => {
                 });
                 if (!isParticipant) {
                     return socket.emit("deleteGroup", { error: "You are not a member of this group." });
+                }
+                // FIX: previously any participant could delete the whole group for
+                // everyone, not just its creator. Restrict to the creator — but only
+                // for groups that actually have one on record: createdBy didn't
+                // exist before this, so every group created before it shipped has
+                // createdBy === null and keeps the original "any member" behavior
+                // rather than becoming permanently undeletable by anyone.
+                if (room.createdBy != null && Number(room.createdBy) !== userId) {
+                    return socket.emit("deleteGroup", { error: "Only the group creator can delete this group." });
                 }
                 // Delete messages
                 yield dbConnection_1.Message.destroy({ where: { chatRoomId: room.id } });

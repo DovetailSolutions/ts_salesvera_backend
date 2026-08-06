@@ -56,7 +56,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.assignAdmin = exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.updateClient = exports.getClient = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.assignEmployeeShift = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.assignMeeting = exports.createClient = exports.userExpense = exports.getTopPerformers = exports.getDashboardSummary = exports.GetExpense = exports.UpdateExpense = exports.test = exports.BulkUploads = exports.BulkAddSalePerson = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getCategoryWithSubCategories = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = exports.MySalePerson = void 0;
+exports.assignAdmin = exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.updateClient = exports.getClient = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.assignEmployeeShift = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.assignMeeting = exports.createClient = exports.userExpense = exports.getTopPerformers = exports.getDashboardSummary = exports.buildDashboardSummary = exports.GetExpense = exports.UpdateExpense = exports.test = exports.BulkUploads = exports.BulkAddSalePerson = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getCategoryWithSubCategories = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const spaces_1 = require("../../config/spaces");
@@ -73,11 +73,31 @@ const email_1 = require("../../config/email");
 const checkPermission_1 = require("../../config/checkPermission");
 const userHierarchy_1 = require("../../modules/shared/userHierarchy");
 const companyAccess_1 = require("../../modules/shared/companyAccess");
+const dateUtils_1 = require("../../modules/shared/dateUtils");
 const getPagination = (req) => {
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 10);
     const offset = (page - 1) * limit;
     return { page, limit, offset };
+};
+// Shared IST day-boundary helper for admin report/list date-range filters.
+// Callers here pass plain "YYYY-MM-DD" strings from a date-range picker.
+// Resolves which real IST calendar day that string represents, then returns
+// the actual UTC instant for the start (00:00:00.000) or end (23:59:59.999)
+// of that day. This fixes two compounding bugs seen throughout this file:
+//   1. `new Date(dateStr)` alone lands on that day's UTC midnight, not IST
+//      midnight — a plain calendar date is ~5.5h off from the real IST day
+//      boundary the admin UI's date picker means.
+//   2. Using the SAME instant for both the start and end bound of a range
+//      (i.e. never adding a day / end-of-day time) silently truncates the
+//      end date to its first instant, excluding virtually the entire last
+//      day of the range.
+// Building both edges from the explicit-offset IST helpers avoids both,
+// regardless of the server's OS timezone.
+const getISTDayBoundary = (dateLike, edge) => {
+    const istDateStr = (0, dateUtils_1.getISTDateString)(new Date(String(dateLike)));
+    const start = (0, dateUtils_1.parseISTTime)(istDateStr, "00:00:00");
+    return edge === "start" ? start : new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
 };
 const generateTempPassword = () => {
     return crypto_1.default.randomBytes(6).toString("base64").replace(/[+/=]/g, "x");
@@ -91,59 +111,11 @@ const findUser = (userId) => __awaiter(void 0, void 0, void 0, function* () {
 // Register/Login/Logout/GetProfile/UpdateProfile/UpdatePassword have moved
 // to src/modules/auth/ — see auth.controller.ts/service.ts/repository.ts.
 // Routes are mounted from server.ts, same URL paths as before.
-const MySalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const { page = 1, limit = 10, search = "", managerId } = req.query;
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        const userData = req.userData;
-        const managerID = managerId ? Number(managerId) : userData.userId;
-        /** ✅ Search condition */
-        const where = {};
-        if (search) {
-            where[sequelize_1.Op.or] = [
-                { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
-            ];
-        }
-        /** ✅ Fetch created users */
-        const result = yield dbConnection_2.User.findByPk(managerID, {
-            include: [
-                {
-                    model: dbConnection_2.User,
-                    as: "createdUsers",
-                    attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role"],
-                    through: { attributes: [] },
-                    where, // ✅ apply search
-                    required: false, // ✅ so user must exist even if none found
-                },
-            ],
-        });
-        if (!result) {
-            (0, errorMessage_1.badRequest)(res, "User not found");
-        }
-        /** ✅ Extract created users */
-        // let createdUsers = result?.createdUsers || [];
-        let createdUsers = (result === null || result === void 0 ? void 0 : result.createdUsers) || [];
-        /** ✅ Pagination manually */
-        const total = createdUsers.length;
-        createdUsers = createdUsers.slice(offset, offset + limitNum);
-        (0, errorMessage_1.createSuccess)(res, "My sale persons", {
-            page: pageNum,
-            limit: limitNum,
-            total,
-            rows: createdUsers,
-        });
-    }
-    catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-        (0, errorMessage_1.badRequest)(res, errorMessage);
-    }
-});
-exports.MySalePerson = MySalePerson;
+// MySalePerson used to live here too — a second, independently-maintained
+// copy of the same "get my sales team" logic with no company scoping and no
+// ownership check on an arbitrary managerId (a real cross-tenant data leak).
+// /admin/mysaleperson now routes to the single, correctly-scoped
+// implementation in controller/user.ts (see app/router/admin.ts).
 const assignSalesman = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { managerId, saleId } = req.body || {};
@@ -187,7 +159,13 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             idFilter = { [sequelize_1.Op.ne]: loggedInId };
         }
         else {
-            const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+            // FIX: the who-created-whom hierarchy alone leaks across companies for
+            // an admin/manager assigned to more than one — after switching company
+            // they still saw every user they ever created, including the other
+            // company's staff. Scope the team to the company the caller is acting
+            // in (null companyId keeps the previous, unfiltered behavior).
+            const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
             if (childIds.length === 0) {
                 (0, errorMessage_1.createSuccess)(res, "Users fetched successfully", {
                     page: pageNum,
@@ -252,6 +230,12 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                     attributes: ["id", "companyName"],
                     required: false,
                 },
+                // FIX: branchId/shiftId were already selected but never joined to
+                // their names, so this list could show a raw id at best. Adds the
+                // names alongside the existing ids without changing what's returned
+                // for anyone who reads branchId/shiftId directly.
+                { model: dbConnection_2.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+                { model: dbConnection_2.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
             ],
         });
         const finalRows = rows.map((user) => {
@@ -500,7 +484,7 @@ exports.DeleteCategory = DeleteCategory;
 const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
-        const { page = 1, limit = 10, search = "", userId, date, empty, } = req.query;
+        const { page = 1, limit = 10, search = "", userId, date, startDate, endDate, empty, } = req.query;
         const userData = req.userData;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
         const role = userData === null || userData === void 0 ? void 0 : userData.role;
@@ -530,67 +514,155 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         // caller explicitly passed `empty=true` or `userId` — a plain GET with no
         // query params returned every company's meeting records. Always scope to
         // the caller's own team.
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(ll);
+        // FIX: the team walk itself has no notion of company, so an admin (or the
+        // parent admin `ll` re-anchored to above) who is assigned to more than one
+        // company exposed the OTHER company's meetings to whichever company the
+        // caller is currently acting in. The anchor stays the parent admin — the
+        // shared client pool is deliberate — but the pool is now limited to the
+        // company in the caller's active token.
+        // PERF: Fast variant — see getDashboardSummary. This endpoint backs both
+        // /client-management (Client List) and the Meeting Management page, so
+        // the old one-DB-round-trip-per-user walk hit every team member on
+        // every page load/search keystroke of either page.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(ll, callerCompanyId);
         const allowedIds = [ll, ...childIds];
+        // `allowedIds` above is anchored to the parent admin for a manager
+        // (deliberate — see the "shared client pool" comment on `ll`), which is
+        // correct for `empty==="true"` but was ALSO being used to authorize/scope
+        // everything else: a manager could pass any OTHER manager's salesperson
+        // as `userId` and it would pass the `allowedIds.includes(...)` check
+        // (whole org, not just their own team), and the no-userId default listing
+        // branch handed back the whole org's meetings the same way. Neither is
+        // the "shared client pool" case, so both need the manager's OWN team,
+        // never widened to siblings.
+        const ownAllowedIds = role === "manager"
+            ? [loggedInId, ...(yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId))]
+            : allowedIds;
         const where = {};
         if (empty === "true") {
             where.userId = ll;
         }
         else if (userId) {
             const requestedId = Number(userId);
-            if (!allowedIds.includes(requestedId)) {
+            if (!ownAllowedIds.includes(requestedId)) {
                 (0, errorMessage_1.forbidden)(res, "You can only view meetings of your own team members");
                 return;
             }
             where.userId = requestedId;
         }
         else {
-            where.userId = { [sequelize_1.Op.in]: allowedIds };
+            where.userId = { [sequelize_1.Op.in]: ownAllowedIds };
         }
+        // FIX: was `personName` — MeetingUser has no such column (that field
+        // only exists on the separate MeetingCompany model), so this crashed
+        // every search with a 400 "column MeetingUser.personName does not
+        // exist" the moment the team search box's text was also sent through
+        // as the meetings search param. MeetingUser's actual client-name column
+        // is `name`.
         if (search) {
             where[sequelize_1.Op.or] = [
                 { companyName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { personName: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { name: { [sequelize_1.Op.iLike]: `%${search}%` } },
             ];
         }
-        /** ✅ Filter by Date (UTC) */
+        // FIX: `meetingTimeIn`/`meetingTimeOut` live on the child Meeting model
+        // (one client can have many visits), not on MeetingUser itself — filtering
+        // `where.meetingTimeIn` directly on the MeetingUser query crashed every
+        // "Today"/"Yesterday" tab with a 400 "column MeetingUser.meetingTimeIn
+        // does not exist", and the "Range" (startDate/endDate) filter was never
+        // read at all, so it silently had no effect. Both are resolved into a
+        // single IST-aware window, then applied two ways below: (1) to select
+        // which clients qualify — a client matches if ANY of their visits falls
+        // in the window — and (2) to scope which of that client's visits are
+        // actually returned, so "Visits" count / "Last Check-in" / "Last
+        // Check-out" reflect the selected filter instead of always showing the
+        // client's all-time history regardless of which date tab is active.
+        let meetingTimeWindow = null;
         if (date) {
-            const inputDate = new Date(String(date));
-            const start = new Date(inputDate);
-            start.setUTCHours(0, 0, 0, 0);
-            const end = new Date(inputDate);
-            end.setUTCHours(23, 59, 59, 999);
-            where.meetingTimeIn = {
-                [sequelize_1.Op.between]: [start, end],
+            // FIX: was setUTCHours(0/23,...) — a UTC calendar day is offset 5:30h
+            // from the real IST business day this business operates in, so a
+            // "date=2026-08-01" filter silently excluded that morning's meetings
+            // before 5:30 AM IST (they fell in the previous UTC day) and instead
+            // pulled in meetings from the following IST morning. Resolve which IST
+            // calendar day the input represents, then build the boundary from that
+            // via the explicit-offset helpers so this is correct regardless of
+            // server timezone too.
+            meetingTimeWindow = {
+                [sequelize_1.Op.between]: [
+                    getISTDayBoundary(String(date), "start"),
+                    getISTDayBoundary(String(date), "end"),
+                ],
             };
         }
+        else if (startDate || endDate) {
+            const filter = getDateFilter({ startDate, endDate });
+            if (Object.keys(filter).length > 0)
+                meetingTimeWindow = filter;
+        }
+        if (meetingTimeWindow) {
+            // Reuse the exact same userId scope already resolved into `where`
+            // above (a single requested salesperson, or the caller's whole team)
+            // rather than re-deriving it, so this prefilter can never end up
+            // broader than the visibility the caller was actually granted.
+            const matches = (yield dbConnection_2.Meeting.findAll({
+                where: { meetingTimeIn: meetingTimeWindow, userId: where.userId },
+                attributes: ["meetingUserId"],
+                group: ["meetingUserId"],
+                raw: true,
+            }));
+            const matchingIds = matches.map((m) => m.meetingUserId).filter((id) => id != null);
+            // No matches is a legitimate "nothing in this window" result, not
+            // "ignore the filter" — Op.in: [] would do the latter in some dialects,
+            // so force an always-false condition instead.
+            where.id = { [sequelize_1.Op.in]: matchingIds.length > 0 ? matchingIds : [-1] };
+        }
         const { rows, count } = yield dbConnection_2.MeetingUser.findAndCountAll({
-            // attributes: [
-            //   "id",
-            //   "companyName",
-            //   "personName",
-            //   "mobileNumber",
-            //   "companyEmail",
-            //   "meetingTimeIn",
-            //   "meetingTimeOut",
-            //   "meetingPurpose",
-            //   "userId",
-            // ],
+            // PERF: was pulling every MeetingUser column (attributes previously
+            // commented out, presumably abandoned after the columns above were
+            // guessed wrong — MeetingUser has no personName/mobileNumber/
+            // companyEmail/meetingTimeIn/meetingTimeOut/meetingPurpose; those live
+            // on the child Meeting model, already included separately below).
+            // This list is every column actually consumed client-side, verified
+            // against both consumers of this endpoint: the Client Management page
+            // (id/name/mobile/email/createdAt) and the Meeting Management page's
+            // list + detail drawer (+customerType/companyName/status/gstNumber/
+            // panNumber/address/city/state/pincode/country/userId). Only
+            // tallyGuid (internal Tally-sync id) and updatedAt are excluded —
+            // neither is rendered anywhere.
+            attributes: [
+                "id", "name", "email", "mobile", "userId", "customerType",
+                "companyName", "status", "gstNumber", "panNumber",
+                "address", "city", "state", "pincode", "country", "createdAt",
+            ],
             where,
             include: [
-                {
-                    model: dbConnection_2.Meeting, // joined via Meeting.meetingUserId -> MeetingUser.id
-                },
+                Object.assign(Object.assign({ model: dbConnection_2.Meeting, 
+                    // `separate: true` runs this as its own query per returned client
+                    // rather than a JOIN — needed so its own `where` here narrows which
+                    // visits come back without ALSO corrupting the outer LIMIT/OFFSET
+                    // (a hasMany include with a `where` and a JOIN can silently drop or
+                    // duplicate parent rows once paginated).
+                    separate: true, 
+                    // PERF: every Meeting column the Meeting Management list + detail
+                    // drawer + "Visits" count actually reads — userId/companyId/
+                    // categoryId/subCategoryId/pincode are never rendered (categoryId
+                    // is only echoed back on the *request* when scheduling, not read
+                    // off these response rows).
+                    attributes: [
+                        "id", "status", "scheduledTime", "meetingTimeIn", "meetingTimeOut",
+                        "meetingPurpose", "latitude_in", "longitude_in", "latitude_out",
+                        "longitude_out", "totalDistance", "legDistance",
+                    ] }, (meetingTimeWindow ? { where: { meetingTimeIn: meetingTimeWindow } } : {})), { order: [["meetingTimeIn", "DESC"]] }),
             ],
             distinct: true, // avoid inflated count from the hasMany join
             offset,
             limit: limitNum,
             order: [["createdAt", "DESC"]],
         });
-        if (rows.length == 0) {
-            (0, errorMessage_1.badRequest)(res, "Not meeting found");
-            return;
-        }
+        // FIX: an empty result is a legitimate state (no meetings/clients yet),
+        // not an error — was previously a 400, which made every caller treat
+        // "nothing to show" as a failed request instead of an empty list.
         (0, errorMessage_1.createSuccess)(res, "User Meeting fetched successfully", {
             page: pageNum,
             limit: limitNum,
@@ -669,8 +741,15 @@ const BulkAddSalePerson = (req, res) => __awaiter(void 0, void 0, void 0, functi
             // own subordinates — an admin could attribute the bulk-created
             // sale-persons to a user in a completely different tenant, linking new
             // accounts into that other tenant's hierarchy.
+            // Scoped to the caller's ACTIVE company for the same reason branchId/
+            // shiftId above are: every row in this batch is stamped with this
+            // company's branch/shift, so attributing them to a subordinate who
+            // provably belongs to a different company would file company-X accounts
+            // under a company-Y manager. Membership-indeterminate subordinates are
+            // still accepted (the helper fails open), so legacy accounts with no
+            // branch/junction row keep working exactly as before.
             if (creatorId !== Number(loginUser)) {
-                const callerChildIds = yield (0, userHierarchy_1.getAllChildUserIds)(Number(loginUser));
+                const callerChildIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(Number(loginUser), callerCompanyId);
                 if (!callerChildIds.includes(creatorId)) {
                     (0, errorMessage_1.forbidden)(res, "createdBy must be yourself or one of your own team members");
                     return;
@@ -869,15 +948,27 @@ const BulkUploads = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
             try {
                 const uniqueRows = [];
                 for (const r of results) {
-                    const exists = yield dbConnection_2.MeetingUser.findOne({
-                        where: {
-                            [sequelize_1.Op.or]: [{ adminId: loginUser }, { managerId: loginUser }],
-                            companyName: { [sequelize_1.Op.in]: results.map((r) => r.companyName) },
-                            personName: { [sequelize_1.Op.in]: results.map((r) => r.personName) },
-                            mobileNumber: { [sequelize_1.Op.in]: results.map((r) => r.mobileNumber) },
-                            companyEmail: { [sequelize_1.Op.in]: results.map((r) => r.companyEmail) },
-                        },
-                    });
+                    // FIX: was querying adminId/managerId/personName/mobileNumber/
+                    // companyEmail — none of those columns exist on MeetingUser at
+                    // all (real fields are userId/name/mobile/email), so every call
+                    // threw a DB error before a single row was ever inserted; this
+                    // upload flow has never actually worked. It also compared
+                    // against results.map(...) — the WHOLE uploaded batch — instead
+                    // of just this row's own values, which would have falsely
+                    // flagged unrelated rows as duplicates of each other even with
+                    // correct column names. Now: same uploader (userId) plus a
+                    // matching email or mobile: a row with neither can't collide
+                    // with anything, so it's always treated as new.
+                    const matchConditions = [];
+                    if (r.email)
+                        matchConditions.push({ email: r.email });
+                    if (r.mobile)
+                        matchConditions.push({ mobile: r.mobile });
+                    const exists = matchConditions.length > 0
+                        ? yield dbConnection_2.MeetingUser.findOne({
+                            where: { userId: loginUser, [sequelize_1.Op.or]: matchConditions },
+                        })
+                        : null;
                     // If NOT found → add to insert list
                     if (!exists) {
                         uniqueRows.push(r);
@@ -950,6 +1041,11 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                 {
                     model: dbConnection_2.User,
                     as: "createdUsers",
+                    // FIX: branchId/shiftId (and the joined branch/shift names) were
+                    // never selected here at all, so an admin's team table had no way
+                    // to show — or even know — where each manager/salesperson was
+                    // currently posted. Added at both nesting levels (manager row,
+                    // and the sale_persons nested under each manager).
                     attributes: [
                         "id",
                         "employeeCode",
@@ -959,12 +1055,16 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                         "phone",
                         "role",
                         "createdAt",
+                        "branchId",
+                        "shiftId",
                     ],
                     through: { attributes: [] },
                     where: createdWhere,
                     required: false,
                     order: [["createdAt", "DESC"]],
                     include: [
+                        { model: dbConnection_2.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+                        { model: dbConnection_2.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
                         {
                             model: dbConnection_2.User,
                             as: "createdUsers",
@@ -977,9 +1077,15 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                                 "phone",
                                 "role",
                                 "createdAt",
+                                "branchId",
+                                "shiftId",
                             ],
                             through: { attributes: [] },
                             required: false,
+                            include: [
+                                { model: dbConnection_2.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+                                { model: dbConnection_2.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+                            ],
                         },
                     ],
                 },
@@ -1034,7 +1140,11 @@ const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* 
         // FIX: previously trusted userId straight from the request body with no
         // check that the employee is on the caller's own team, letting any
         // admin/manager approve another company's expense by ID.
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // Team membership is resolved for the company the caller is currently
+        // acting in — the plain hierarchy walk let a multi-company admin/manager
+        // keep approving the other company's expenses after switching company.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
         if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
             (0, errorMessage_1.forbidden)(res, "You can only manage expenses of your own team members");
             return;
@@ -1179,10 +1289,11 @@ const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         const loggedInId = userData.userId;
         const search = req.query.search;
         const { page, limit, offset } = getPagination(req);
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // Company-scoped team: an admin/manager assigned to several companies
+        // otherwise kept seeing the other company's expense rows here.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
         const allUserIds = [...childIds];
-        console.log("userData", userData);
-        console.log("<<>>>>>>>>>>>>>", allUserIds);
         const { approvedByAdmin, approvedBySuperAdmin } = req.query;
         // 🔥 Build dynamic where condition
         const expenseWhere = {
@@ -1315,15 +1426,21 @@ const getDateFilter = (query) => {
     const { startDate, endDate, lastDays, today } = query;
     const filter = {};
     //  between
+    // FIX: was `new Date(startDate)` / `new Date(endDate)` directly — a
+    // plain "YYYY-MM-DD" string parses to UTC midnight (not real IST
+    // midnight), and using that same instant as the END bound truncated the
+    // range to the very start of the end date instead of covering it, so a
+    // "last day" of any requested range was almost entirely excluded. See
+    // getISTDayBoundary above.
     if (startDate && endDate) {
-        filter[sequelize_1.Op.between] = [new Date(startDate), new Date(endDate)];
+        filter[sequelize_1.Op.between] = [getISTDayBoundary(startDate, "start"), getISTDayBoundary(endDate, "end")];
     }
     // only start date
     if (startDate) {
-        filter[sequelize_1.Op.gte] = new Date(startDate);
+        filter[sequelize_1.Op.gte] = getISTDayBoundary(startDate, "start");
     }
     if (endDate) {
-        filter[sequelize_1.Op.lte] = new Date(endDate);
+        filter[sequelize_1.Op.lte] = getISTDayBoundary(endDate, "end");
     }
     if (lastDays) {
         const now = new Date();
@@ -1332,44 +1449,121 @@ const getDateFilter = (query) => {
         filter[sequelize_1.Op.between] = [past, now];
     }
     if (today === "true") {
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        const end = new Date();
-        end.setHours(23, 59, 59, 999);
+        // FIX: was `new Date(); start.setHours(0,0,0,0)` / `end.setHours(23,59,59,999)`
+        // — setHours reads/writes the server process's OWN local timezone, so
+        // "today" only meant the real IST calendar day because this dev box's OS
+        // timezone happens to be Asia/Kolkata. On a server whose OS timezone is
+        // UTC, this would silently window from IST 5:30 AM to the next day's
+        // IST 5:29:59 AM instead of real IST midnight-to-midnight. Build the
+        // boundaries from the real IST date string via the explicit-offset
+        // helper instead so this is correct regardless of server timezone.
+        const todayIST = (0, dateUtils_1.getISTDateString)();
+        const start = (0, dateUtils_1.parseISTTime)(todayIST, "00:00:00");
+        // IST has no DST, so the calendar day is always exactly 24h long — end
+        // of day is midnight + 24h - 1ms, no separate parse/getters needed.
+        const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
         filter[sequelize_1.Op.between] = [start, end];
     }
     return filter;
 };
-const getDashboardSummary = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    try {
-        const userData = req.userData;
+// Computes the team HR-ops summary and RETURNS it, rather than writing the
+// response. Extracted so other endpoints can embed the same numbers instead
+// of duplicating the computation — notably /api/dashboardmobile, which
+// merges these team KPIs with the caller's own personal fields for a
+// manager. getDashboardSummary below is unchanged in behaviour: it calls
+// this and serialises the result exactly as before.
+const buildDashboardSummary = (userData) => __awaiter(void 0, void 0, void 0, function* () {
+    {
         const loggedInId = userData.userId;
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
-        const todayDateOnly = new Date().toISOString().slice(0, 10);
+        const callerRole = userData === null || userData === void 0 ? void 0 : userData.role;
+        // FIX: every KPI below is derived from this id list, and the plain
+        // hierarchy walk has no notion of company — an admin/manager assigned to
+        // more than one company kept counting the OTHER company's headcount,
+        // attendance, leaves, expenses and meetings after switching company.
+        // Scope the team to the company in the caller's active token.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        // PERF: getCompanyScopedChildUserIdsFast does the identical team walk as
+        // getCompanyScopedChildUserIds but batches each hierarchy level into one
+        // query instead of one query per user — this endpoint was the slowest
+        // consumer of the hierarchy walk, so it gets the fast path while every
+        // other caller keeps using the original, unmodified function.
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
+        // A manager is often personally operational too (holding their own
+        // meetings, closing their own quotations/invoices, carrying their own
+        // tasks/leave balance) — counting only childIds for those specific
+        // fields silently dropped the caller's own contribution, making the
+        // dashboard look like it was undercounting. Kept separate from childIds
+        // (not merged into it) because several OTHER fields below are genuinely
+        // team-only by definition — e.g. you don't approve your own leave/expense,
+        // and you're not a member of your own team headcount — see each field
+        // below for which id list it uses.
+        const allUserIds = [Number(loggedInId), ...childIds];
+        // FIX: was `new Date().toISOString().slice(0, 10)` — toISOString()
+        // converts to UTC first, which rolls the calendar day backward for any
+        // real-world IST time before ~05:30 AM (e.g. at 2:30 AM IST it still
+        // reported yesterday's date), so "Present Today" was silently counting
+        // yesterday's already-finished attendance instead of today's. This is
+        // also NOT safe to fix with local getFullYear()/getMonth()/getDate() —
+        // those only resolve to IST because this dev machine's OS timezone
+        // happens to be Asia/Kolkata, which isn't guaranteed on the production
+        // droplet (cloud Linux images commonly default to UTC). Use the
+        // explicit-offset IST helper instead so this is correct everywhere.
+        const todayDateOnly = (0, dateUtils_1.getISTDateString)();
         const now = new Date();
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        weekStart.setHours(0, 0, 0, 0);
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        weekEnd.setHours(23, 59, 59, 999);
+        // FIX: weekStart/weekEnd were derived from now.getDay()/now.getDate(),
+        // which read the OS process's LOCAL timezone — same risk as
+        // todayDateOnly above (correct only because this dev box happens to be
+        // set to Asia/Kolkata). Shift `now` by the fixed +5:30 IST offset first
+        // so the UTC-getters below read as IST wall-clock time regardless of
+        // server timezone, compute the week boundary in that shifted space, then
+        // shift back to get the real UTC instants for the Op.between query.
+        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+        const nowIST = new Date(now.getTime() + IST_OFFSET_MS);
+        const weekStartIST = new Date(nowIST);
+        weekStartIST.setUTCDate(nowIST.getUTCDate() - nowIST.getUTCDay());
+        weekStartIST.setUTCHours(0, 0, 0, 0);
+        const weekStart = new Date(weekStartIST.getTime() - IST_OFFSET_MS);
+        const weekEndIST = new Date(weekStartIST);
+        weekEndIST.setUTCDate(weekStartIST.getUTCDate() + 6);
+        weekEndIST.setUTCHours(23, 59, 59, 999);
+        const weekEnd = new Date(weekEndIST.getTime() - IST_OFFSET_MS);
         // ── KPI windows ──────────────────────────────────────────────────────
-        const sevenDaysAgo = new Date(now);
-        sevenDaysAgo.setDate(now.getDate() - 6);
-        const sevenDaysAgoDateOnly = sevenDaysAgo.toISOString().slice(0, 10);
-        const thirtyDaysAgo = new Date(now);
-        thirtyDaysAgo.setDate(now.getDate() - 29);
-        const thirtyDaysAgoDateOnly = thirtyDaysAgo.toISOString().slice(0, 10);
-        const currentYear = now.getFullYear();
+        // FIX: same UTC-slice bug as todayDateOnly, compounded with a local
+        // setDate() call — the old code first shifted `now` by N days using
+        // local-timezone getters, then converted that result to UTC and sliced,
+        // double-dipping on timezone risk. Subtracting a fixed millisecond
+        // offset is timezone-invariant (IST has no DST), so feeding that instant
+        // through the same IST-aware helper gives the correct "N calendar days
+        // ago" boundary regardless of server timezone.
+        const sevenDaysAgoDateOnly = (0, dateUtils_1.getISTDateString)(new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000));
+        const thirtyDaysAgoDateOnly = (0, dateUtils_1.getISTDateString)(new Date(now.getTime() - 29 * 24 * 60 * 60 * 1000));
+        // FIX: was now.getFullYear() (OS-local-timezone getter, same risk
+        // class as above). Derive it from the already-IST-correct
+        // todayDateOnly string instead so a leave-balance lookup near
+        // midnight IST on Dec 31/Jan 1 can't land on the wrong year.
+        const currentYear = Number(todayDateOnly.slice(0, 4));
         // Valid Attendance.status enum values that count as "marked" (present in
         // some form) for rate calculations — "late" is a separate boolean
         // column, not a status value, and isn't included here.
         const MARKED_STATUSES = ["in", "present", "out", "leaveApproved"];
+        // Two-stage expense approval: approvedByAdmin is actually the MANAGER's
+        // sign-off, approvedBySuperAdmin is the admin/super_admin's final
+        // sign-off (see UpdateExpense's own enforcement). "Pending" therefore
+        // means a different where-clause depending on which stage the caller
+        // sits at — a manager still waits on approvedByAdmin, but an admin only
+        // has something to do once the manager has already accepted it.
+        const pendingExpenseWhere = callerRole === "admin" || callerRole === "super_admin"
+            ? { userId: { [sequelize_1.Op.in]: childIds }, approvedByAdmin: "accepted", approvedBySuperAdmin: "pending" }
+            : { userId: { [sequelize_1.Op.in]: childIds }, approvedByAdmin: "pending" };
         const [presentCount, pendingLeaveApprovalCount, pendingExpenseCount, meetingsThisWeekCount, completedQuotationCount, completedInvoiceCount, attendanceMarkedLast7DaysCount, attendanceMarkedLast30DaysCount, lateMarkedLast30DaysCount, taskTotalCount, taskCompletedCount, taskOverdueCount, leaveBalances, headcountByBranchRaw,] = yield Promise.all([
             dbConnection_2.Attendance.count({
                 where: {
                     employee_id: { [sequelize_1.Op.in]: childIds },
-                    status: "present",
+                    // "out" = already punched out (self-service or the nightly
+                    // auto-punch-out cron) — still counts as present today, just no
+                    // longer mid-shift. Only literal "present" undercounts as the day
+                    // progresses.
+                    status: { [sequelize_1.Op.in]: ["present", "out"] },
                     date: todayDateOnly,
                 },
             }),
@@ -1379,27 +1573,26 @@ const getDashboardSummary = (req, res) => __awaiter(void 0, void 0, void 0, func
                     status: "pending",
                 },
             }),
-            dbConnection_2.Expense.count({
-                where: {
-                    userId: { [sequelize_1.Op.in]: childIds },
-                    approvedByAdmin: "pending",
-                },
-            }),
+            dbConnection_2.Expense.count({ where: pendingExpenseWhere }),
             dbConnection_2.Meeting.count({
                 where: {
-                    userId: { [sequelize_1.Op.in]: childIds },
+                    userId: { [sequelize_1.Op.in]: allUserIds },
                     scheduledTime: { [sequelize_1.Op.between]: [weekStart, weekEnd] },
+                    // A cancelled meeting isn't a real meeting from the caller's point
+                    // of view — counting it made "Meetings (Week)" show a number the
+                    // Meetings module itself wouldn't reasonably back up.
+                    status: { [sequelize_1.Op.ne]: "cancelled" },
                 },
             }),
             dbConnection_2.Quotations.count({
                 where: {
-                    userId: { [sequelize_1.Op.in]: childIds },
+                    userId: { [sequelize_1.Op.in]: allUserIds },
                     status: "accepted",
                 },
             }),
             dbConnection_2.Invoices.count({
                 where: {
-                    userId: { [sequelize_1.Op.in]: childIds },
+                    userId: { [sequelize_1.Op.in]: allUserIds },
                     status: "accepted",
                 },
             }),
@@ -1429,18 +1622,23 @@ const getDashboardSummary = (req, res) => __awaiter(void 0, void 0, void 0, func
                 },
             }),
             // Task velocity
-            dbConnection_2.Task.count({ where: { assignedTo: { [sequelize_1.Op.in]: childIds } } }),
-            dbConnection_2.Task.count({ where: { assignedTo: { [sequelize_1.Op.in]: childIds }, status: { [sequelize_1.Op.in]: ["completed", "done"] } } }),
+            dbConnection_2.Task.count({ where: { assignedTo: { [sequelize_1.Op.in]: allUserIds } } }),
+            dbConnection_2.Task.count({ where: { assignedTo: { [sequelize_1.Op.in]: allUserIds }, status: { [sequelize_1.Op.in]: ["completed", "done"] } } }),
             dbConnection_2.Task.count({
                 where: {
-                    assignedTo: { [sequelize_1.Op.in]: childIds },
+                    assignedTo: { [sequelize_1.Op.in]: allUserIds },
                     status: { [sequelize_1.Op.notIn]: ["completed", "done", "cancelled"] },
                     dueDate: { [sequelize_1.Op.lt]: now },
                 },
             }),
-            // Leave utilization (current year)
+            // Leave utilization (current year) — only the 6 allocated/used columns
+            // actually get summed below; the rest of the row is dead weight.
             dbConnection_2.EmployeeLeaveBalance.findAll({
-                where: { employeeId: { [sequelize_1.Op.in]: childIds }, year: currentYear },
+                where: { employeeId: { [sequelize_1.Op.in]: allUserIds }, year: currentYear },
+                attributes: [
+                    "casualLeaveAllocated", "sickLeaveAllocated", "paidLeaveAllocated",
+                    "casualLeaveUsed", "sickLeaveUsed", "paidLeaveUsed",
+                ],
                 raw: true,
             }),
             // Headcount by branch
@@ -1463,30 +1661,37 @@ const getDashboardSummary = (req, res) => __awaiter(void 0, void 0, void 0, func
             branchId: r.branchId,
             count: Number(r.count),
         }));
+        return {
+            teamMemberCount: childIds.length,
+            presentCount,
+            pendingLeaveApprovalCount,
+            pendingExpenseCount,
+            meetingsThisWeekCount,
+            completedQuotationCount,
+            completedInvoiceCount,
+            kpis: {
+                attendanceRateLast7Days,
+                punctualityRateLast30Days,
+                taskStats: {
+                    total: taskTotalCount,
+                    completed: taskCompletedCount,
+                    overdue: taskOverdueCount,
+                    completionRate: taskTotalCount > 0 ? Math.round((taskCompletedCount / taskTotalCount) * 1000) / 10 : null,
+                },
+                leaveUtilizationRate,
+                headcountByBranch,
+            },
+        };
+    }
+});
+exports.buildDashboardSummary = buildDashboardSummary;
+const getDashboardSummary = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const data = yield (0, exports.buildDashboardSummary)(req.userData);
         res.status(200).json({
             success: true,
             message: "Dashboard summary fetched successfully",
-            data: {
-                teamMemberCount: childIds.length,
-                presentCount,
-                pendingLeaveApprovalCount,
-                pendingExpenseCount,
-                meetingsThisWeekCount,
-                completedQuotationCount,
-                completedInvoiceCount,
-                kpis: {
-                    attendanceRateLast7Days,
-                    punctualityRateLast30Days,
-                    taskStats: {
-                        total: taskTotalCount,
-                        completed: taskCompletedCount,
-                        overdue: taskOverdueCount,
-                        completionRate: taskTotalCount > 0 ? Math.round((taskCompletedCount / taskTotalCount) * 1000) / 10 : null,
-                    },
-                    leaveUtilizationRate,
-                    headcountByBranch,
-                },
-            },
+            data,
         });
     }
     catch (error) {
@@ -1500,7 +1705,14 @@ const getTopPerformers = (req, res) => __awaiter(void 0, void 0, void 0, functio
         const userData = req.userData;
         const loggedInId = userData.userId;
         const limit = Number(req.query.limit) || 5;
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // Company-scoped team — the leaderboard otherwise mixed in employees of
+        // another company the caller also administers.
+        // PERF: Fast variant — see getDashboardSummary for why (batches each
+        // hierarchy level into one query instead of one round trip per user).
+        // This endpoint is called from the dashboard alongside 4-5 others, so
+        // its per-user latency compounds directly into perceived dashboard load time.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
         if (childIds.length === 0) {
             res.status(200).json({
                 success: true,
@@ -1598,7 +1810,10 @@ const userExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
         // and read another team's/company's expense history.
         const userData = req.userData;
         const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // Resolved for the caller's active company so a multi-company admin can't
+        // read the other company's expense history after switching company.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
         const requestedUserId = Number(userId);
         if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
             return (0, errorMessage_1.forbidden)(res, "You can only view expenses of your own team members");
@@ -1706,7 +1921,11 @@ const assignMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.forbidden)(res, "You can only assign meetings within your own company");
             return;
         }
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // ...and the team itself is resolved for the caller's active company, so a
+        // multi-company admin/manager can't assign this company's meeting to an
+        // employee who belongs to the other company they also administer.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
         if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
             (0, errorMessage_1.forbidden)(res, "You can only assign meetings to your own team members");
             return;
@@ -2282,7 +2501,10 @@ const getMeetingDistance = (req, res) => __awaiter(void 0, void 0, void 0, funct
         // ownership check — any caller could pass any userId and read another
         // team's/company's meeting-distance data.
         const loggedInId = Number(userData.userId);
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // Team resolved for the caller's active company — the plain hierarchy walk
+        // still matched employees of another company the caller also administers.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
         if (userId !== loggedInId && !childIds.includes(userId)) {
             (0, errorMessage_1.forbidden)(res, "You can only view meeting distances of your own team members");
             return;
@@ -2293,11 +2515,14 @@ const getMeetingDistance = (req, res) => __awaiter(void 0, void 0, void 0, funct
             userId: userId,
         };
         // Apply date filter if provided
+        // FIX: was `new Date(startDate)`/`new Date(endDate)` — see
+        // getISTDayBoundary; UTC-midnight start plus an un-widened end date
+        // silently truncated the range's last day.
         if (startDate && endDate) {
             whereCondition.createdAt = {
                 [sequelize_1.Op.between]: [
-                    new Date(startDate),
-                    new Date(endDate),
+                    getISTDayBoundary(startDate, "start"),
+                    getISTDayBoundary(endDate, "end"),
                 ],
             };
         }
@@ -2332,7 +2557,9 @@ const getFuelExpense = (req, res) => __awaiter(void 0, void 0, void 0, function*
         // ownership check — any caller could pass any userId and read another
         // team's/company's fuel-expense data.
         const loggedInId = Number(userData.userId);
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // Team resolved for the caller's active company — see getMeetingDistance.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
         if (userId !== loggedInId && !childIds.includes(userId)) {
             (0, errorMessage_1.forbidden)(res, "You can only view fuel expenses of your own team members");
             return;
@@ -2341,11 +2568,14 @@ const getFuelExpense = (req, res) => __awaiter(void 0, void 0, void 0, function*
         const whereCondition = {
             userId: userId,
         };
+        // FIX: was `new Date(startDate)`/`new Date(endDate)` — see
+        // getISTDayBoundary; UTC-midnight start plus an un-widened end date
+        // silently truncated the range's last day.
         if (startDate && endDate) {
             whereCondition.createdAt = {
                 [sequelize_1.Op.between]: [
-                    new Date(startDate),
-                    new Date(endDate),
+                    getISTDayBoundary(startDate, "start"),
+                    getISTDayBoundary(endDate, "end"),
                 ],
             };
         }
@@ -2403,7 +2633,12 @@ const assignEmployeeShift = (req, res) => __awaiter(void 0, void 0, void 0, func
             (0, errorMessage_1.badRequest)(res, "Valid employeeId is required");
             return;
         }
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(Number(loggedInId));
+        // Resolved once here (also reused by the shift/department/branch company
+        // checks further down) so the team membership gate below is answered for
+        // the company the caller is CURRENTLY acting in — the plain hierarchy walk
+        // let a multi-company admin/manager reassign the other company's employees.
+        const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(Number(loggedInId), callerCompanyId);
         if (Number(employeeId) !== Number(loggedInId) && !childIds.includes(Number(employeeId))) {
             (0, errorMessage_1.forbidden)(res, "You can only assign shifts to your own team members");
             return;
@@ -2418,8 +2653,8 @@ const assignEmployeeShift = (req, res) => __awaiter(void 0, void 0, void 0, func
         // caller could assign an employee a shift/branch/department belonging
         // to a completely different company, silently applying that other
         // company's geofence/working-hours config to this employee's attendance.
-        // Every reference must belong to the caller's own resolved company.
-        const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
+        // Every reference must belong to the caller's own resolved company
+        // (callerCompanyId is resolved above, before the team membership check).
         if (shiftId !== undefined && shiftId !== null) {
             const shift = yield dbConnection_2.Shift.findByPk(Number(shiftId));
             if (!shift || (callerCompanyId && Number(shift.companyId) !== callerCompanyId)) {
@@ -2601,6 +2836,20 @@ const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, fun
                 [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
             }
         };
+        // Company isolation — an admin/manager assigned to more than one company
+        // must not keep seeing another company's quotations after switching.
+        // The hierarchy walk above is company-blind (it only knows who created
+        // whom), so scope by the quotation's own companyId, which is the
+        // authoritative owner.
+        //
+        // Deliberately fails OPEN on NULL: legacy/Tally-synced rows may predate
+        // companyId being stamped, and hiding every such row would be far worse
+        // than showing it. Only rows that positively belong to a DIFFERENT
+        // company are excluded — same convention as getCompanyScopedChildUserIds.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        if (callerCompanyId) {
+            whereCondition.companyId = { [sequelize_1.Op.or]: [callerCompanyId, null] };
+        }
         // ✅ Status filter
         if (status) {
             whereCondition.status = status;
@@ -3184,6 +3433,15 @@ const getInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 [sequelize_1.Op.notIn]: canViewDraft ? ["cancelled", "deleted"] : ["cancelled", "deleted", "draft"]
             }
         };
+        // Company isolation — see the matching comment in getQuotationPdfList2.
+        // The hierarchy walk above is company-blind, so also scope by the
+        // invoice's own companyId. Fails OPEN on NULL so legacy/Tally-synced
+        // rows that predate companyId being stamped are never hidden; only
+        // rows positively belonging to a DIFFERENT company are excluded.
+        const callerCompanyIdForInvoice = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        if (callerCompanyIdForInvoice) {
+            whereCondition.companyId = { [sequelize_1.Op.or]: [callerCompanyIdForInvoice, null] };
+        }
         // 🔍 Global search
         if (search) {
             whereCondition[sequelize_1.Op.or] = [
@@ -3475,22 +3733,28 @@ const getRecordSale = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             whereCondition.paymentReceived = status;
         }
         // ✅ Date filter (createdAt)
+        // FIX: was `new Date(startDate + "T00:00:00.000Z")` /
+        // `new Date(endDate + "T23:59:59.999Z")` — an explicit UTC day boundary,
+        // ~5.5h off from the real IST business day this app's date pickers
+        // mean (see getISTDayBoundary). Records created before 5:30 AM IST on
+        // startDate were excluded, and records created after 5:30 AM IST on
+        // endDate leaked into the following day's UTC bucket.
         if (startDate && endDate) {
             whereCondition.createdAt = {
                 [sequelize_1.Op.between]: [
-                    new Date(startDate + "T00:00:00.000Z"),
-                    new Date(endDate + "T23:59:59.999Z"),
+                    getISTDayBoundary(startDate, "start"),
+                    getISTDayBoundary(endDate, "end"),
                 ],
             };
         }
         else if (startDate) {
             whereCondition.createdAt = {
-                [sequelize_1.Op.gte]: new Date(startDate + "T00:00:00.000Z"),
+                [sequelize_1.Op.gte]: getISTDayBoundary(startDate, "start"),
             };
         }
         else if (endDate) {
             whereCondition.createdAt = {
-                [sequelize_1.Op.lte]: new Date(endDate + "T23:59:59.999Z"),
+                [sequelize_1.Op.lte]: getISTDayBoundary(endDate, "end"),
             };
         }
         /** --------------------------
@@ -3863,9 +4127,20 @@ const getReport = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         const pageNumber = Math.max(Number(page) || 1, 1);
         const pageSize = Math.min(Number(limit) || 10, 50);
         const offset = (pageNumber - 1) * pageSize;
+        // Team-scoped, not just the caller's own rows — a manager/admin needs to
+        // see their whole team's outstanding balances, not only reports created
+        // under their own userId (matches the scoping used for quotations/invoices).
+        // ...and company-scoped, so an admin/manager assigned to more than one
+        // company stops seeing the other company's reports after switching.
+        // PERF: Fast variant — see getDashboardSummary; this endpoint is also
+        // called from the dashboard, so its per-user latency compounds directly
+        // into perceived dashboard load time.
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(Number(userData.userId), callerCompanyId);
+        const teamUserIds = [Number(userData.userId), ...childIds];
         // ✅ Use AND conditions (important)
         const andConditions = [
-            { userId: userData.userId },
+            { userId: { [sequelize_1.Op.in]: teamUserIds } },
         ];
         // 🔍 Global search
         if (search) {
@@ -3883,12 +4158,16 @@ const getReport = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             });
         }
         // 📅 Date range filter (using createdAt)
+        // FIX: was `new Date(startDate)`/`new Date(endDate)` — see
+        // getISTDayBoundary; UTC-midnight start plus an un-widened end date
+        // silently truncated the range's last day (this list's team-scoping was
+        // already fixed separately and is untouched here).
         if (startDate && endDate) {
             andConditions.push({
                 createdAt: {
                     [sequelize_1.Op.between]: [
-                        new Date(startDate),
-                        new Date(endDate),
+                        getISTDayBoundary(startDate, "start"),
+                        getISTDayBoundary(endDate, "end"),
                     ],
                 },
             });
@@ -3896,23 +4175,29 @@ const getReport = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
         else if (startDate) {
             andConditions.push({
                 createdAt: {
-                    [sequelize_1.Op.gte]: new Date(startDate),
+                    [sequelize_1.Op.gte]: getISTDayBoundary(startDate, "start"),
                 },
             });
         }
         else if (endDate) {
             andConditions.push({
                 createdAt: {
-                    [sequelize_1.Op.lte]: new Date(endDate),
+                    [sequelize_1.Op.lte]: getISTDayBoundary(endDate, "end"),
                 },
             });
         }
         const whereCondition = {
             [sequelize_1.Op.and]: andConditions,
         };
-        // ✅ Fetch data
+        // ✅ Fetch data — tallyGuid/userId/companyId are internal sync/scoping
+        // fields never rendered by either the dashboard widget or the full
+        // Current Outstanding page; everything else here is displayed.
         const { count, rows } = yield dbConnection_2.Report.findAndCountAll({
             where: whereCondition,
+            attributes: [
+                "id", "date", "referenceNo", "customerName",
+                "openingAmount", "pendingAmount", "dueOn", "overdueDays", "status",
+            ],
             order: [["createdAt", "DESC"]],
             limit: pageSize,
             offset,

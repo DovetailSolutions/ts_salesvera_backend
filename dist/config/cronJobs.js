@@ -17,6 +17,7 @@ const node_cron_1 = __importDefault(require("node-cron"));
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("./dbConnection");
 const attendance_service_1 = require("../modules/attendance/attendance.service");
+const dateUtils_1 = require("../modules/shared/dateUtils");
 /**
  * ─────────────────────────────────────────────
  *  AUTO PUNCH-OUT CRON JOB
@@ -37,8 +38,16 @@ const startCronJobs = () => {
     node_cron_1.default.schedule("59 23 * * *", () => __awaiter(void 0, void 0, void 0, function* () {
         var _a;
         try {
-            // Today's date string (yyyy-mm-dd)
-            const todayStr = new Date().toISOString().slice(0, 10);
+            // FIX: was new Date().toISOString().slice(0,10) — toISOString()
+            // converts to UTC first, which rolls the calendar day backward for
+            // any real-world IST time before ~05:30. This job is only ever
+            // scheduled to fire at 23:59 IST (18:29 UTC same day) so the two
+            // dates happen to coincide right now, but that made the Op.lte
+            // upper-bound fragile against any future manual trigger or
+            // reschedule. getISTDateString() computes the IST calendar date via
+            // explicit +5:30 offset arithmetic, so it's correct regardless of
+            // when this job runs or the server's OS timezone.
+            const todayStr = (0, dateUtils_1.getISTDateString)();
             // ── Step 1: Find all un-punched-out records up to today ──
             const missed = yield dbConnection_1.Attendance.findAll({
                 where: {
@@ -105,14 +114,27 @@ const startCronJobs = () => {
                     const overtime = overtimeAllowed && workingHours > officeHours
                         ? Number((workingHours - officeHours).toFixed(2))
                         : 0;
-                    const dayType = (0, attendance_service_1.getDayTypeFromWorkingHours)(workingHours, shift, company);
+                    // Shift-aware, same as the interactive punch-out endpoint
+                    // (attendancePunchOut): someone who punched in but never punched
+                    // out gets auto-closed at 23:59, which — measured as raw
+                    // duration — could read as a huge multi-hour "session" even
+                    // though almost none of it was during their actual shift.
+                    // Capping to the shift's own window before classifying means
+                    // dayType/status reflect what actually happened during the
+                    // shift, not an artifact of the cron's fixed 23:59 close time.
+                    // working_hours (stored below) stays the raw duration, same as
+                    // punch-out — only the classification uses the shift-aware figure.
+                    const shiftAwareHours = (0, attendance_service_1.computeShiftOverlapHours)(shift, dateStr, punchIn, autoPunchOut, workingHours);
+                    const dayType = (0, attendance_service_1.getDayTypeFromWorkingHours)(shiftAwareHours, shift, company);
+                    const halfDayThresholdHours = (0, attendance_service_1.resolveHalfDayThresholdHours)(shift, company);
+                    const status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
                     // ── Update the record ──
                     yield record.update({
                         punch_out: autoPunchOut,
                         working_hours: workingHours,
                         overtime,
                         dayType,
-                        status: "out",
+                        status,
                     });
                     successCount++;
                 }

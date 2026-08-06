@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import { sequelize } from "../../config/dbConnection";
-import { User, Attendance, Company, Shift, Branch, CompanyLeave } from "../../config/dbConnection";
+import { User, Attendance, Leave, Company, Shift, Branch, CompanyLeave } from "../../config/dbConnection";
 
 // ============================================================
 // Attendance repository — wraps all direct Sequelize access for this domain.
@@ -37,6 +37,31 @@ export const findTeamAttendanceToday = (params: {
     limit: params.limit,
     order: [["createdAt", "DESC"]],
     distinct: true,
+  });
+
+// Team attendance summary counts (present/on-leave today) — the two counts
+// this endpoint needs, run in parallel as plain COUNT queries (no rows
+// fetched) so the whole thing is two round-trips regardless of team size.
+export const countPresentToday = (childIds: number[], todayDateOnly: string) =>
+  Attendance.count({
+    where: {
+      employee_id: { [Op.in]: childIds },
+      // "out" = already punched out today (self-service or the nightly
+      // auto-punch-out cron) — still present today, just no longer
+      // mid-shift. Matches buildDashboardSummary's presentCount definition.
+      status: { [Op.in]: ["present", "out"] },
+      date: todayDateOnly,
+    },
+  });
+
+export const countOnLeaveToday = (childIds: number[], todayDateOnly: string) =>
+  Leave.count({
+    where: {
+      employee_id: { [Op.in]: childIds },
+      status: "approved",
+      from_date: { [Op.lte]: todayDateOnly },
+      to_date: { [Op.gte]: todayDateOnly },
+    } as any,
   });
 
 export const findAttendanceForDate = (employeeId: number | string, date: string) =>

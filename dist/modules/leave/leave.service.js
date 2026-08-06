@@ -47,6 +47,7 @@ const sequelize_1 = require("sequelize");
 const serviceError_1 = require("../shared/serviceError");
 const userHierarchy_1 = require("../shared/userHierarchy");
 const companyAccess_1 = require("../shared/companyAccess");
+const dateUtils_1 = require("../shared/dateUtils");
 const LeaveRepo = __importStar(require("./leave.repository"));
 // ============================================================
 // Leave service — validation + orchestration. Byte-for-byte port of the
@@ -72,7 +73,15 @@ exports.countLeaveDays = countLeaveDays;
 const rejectLeaveAndRestoreBalance = (leave) => __awaiter(void 0, void 0, void 0, function* () {
     if (leave.status !== "rejected") {
         const days = (0, exports.countLeaveDays)(leave.from_date, leave.to_date);
-        const year = new Date(leave.from_date).getFullYear();
+        // FIX: was `new Date(leave.from_date).getFullYear()` — from_date is a
+        // DATEONLY column (a plain "YYYY-MM-DD" string), so `new Date(...)`
+        // parses it as UTC midnight, and the local `.getFullYear()` getter then
+        // only reads back the intended calendar year if the server's OS
+        // timezone happens to line up (the exact double-bug pattern: an
+        // OS-timezone-dependent getter reintroduced one step after the value
+        // looked "safe"). getISTDateString() reads the year via explicit +5:30
+        // offset arithmetic instead, correct regardless of server OS timezone.
+        const year = Number((0, dateUtils_1.getISTDateString)(new Date(leave.from_date)).slice(0, 4));
         if (leave.companyLeaveId) {
             // Dynamic per-type balance — this request was deducted against a
             // specific company-configured leave type.
@@ -134,7 +143,12 @@ const createLeaveRequest = (loggedInId, callerCompanyId, body) => __awaiter(void
     const { employeeId, from_date, to_date, reason, companyLeaveId } = body || {};
     const targetEmployeeId = employeeId ? Number(employeeId) : loggedInId;
     if (targetEmployeeId !== loggedInId) {
-        const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+        // FIX: was getAllChildUserIds — a pure who-created-whom walk with no
+        // notion of company, so an admin/manager assigned to two companies kept
+        // authority over everyone they ever created even after switching into
+        // the other company. Scoped to the caller's ACTIVE company now; the
+        // helper still keeps anyone whose company membership is indeterminate.
+        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
         if (!childIds.includes(targetEmployeeId)) {
             throw new serviceError_1.ServiceError("You can only request leave on behalf of your own team members", 403);
         }
@@ -167,7 +181,13 @@ const createLeaveRequest = (loggedInId, callerCompanyId, body) => __awaiter(void
         throw new serviceError_1.ServiceError("This employee already has a leave request overlapping this date range");
     }
     const days = (0, exports.countLeaveDays)(from, to);
-    const year = from.getFullYear();
+    // FIX: was `from.getFullYear()` — same double-bug pattern as
+    // rejectLeaveAndRestoreBalance above: `from` is a UTC-midnight instant
+    // parsed from a caller-supplied "YYYY-MM-DD" date, and the local getter
+    // only recovers the right calendar year if the server's OS timezone
+    // happens to cooperate. getISTDateString() reads it via explicit +5:30
+    // offset arithmetic instead.
+    const year = Number((0, dateUtils_1.getISTDateString)(from).slice(0, 4));
     const typeBalance = yield (0, exports.resolveLeaveTypeBalance)(targetEmployeeId, leaveTypeRow, year, loggedInId);
     const allocated = typeBalance.allocated || 0;
     const carriedForward = typeBalance.carriedForward || 0;
@@ -188,8 +208,16 @@ const createLeaveRequest = (loggedInId, callerCompanyId, body) => __awaiter(void
     typeBalance.used = used + days;
     yield typeBalance.save();
     if (leave_type !== "half_day" && leave_type !== "short_leave") {
+        // FIX: was `cursor.setDate(cursor.getDate() + 1)` — local getter/setter
+        // pair stepping a UTC-midnight instant one calendar day at a time only
+        // stays aligned to real day boundaries if the server's OS timezone has
+        // a non-negative offset (true for IST and UTC, the two realistic
+        // deployment configs here, but still an OS-timezone-dependent local
+        // getter in principle). Stepping by a fixed 24h in milliseconds instead
+        // is not OS-timezone-dependent at all — IST has no DST, so a real day is
+        // always exactly 86,400,000 ms.
         const leaveDates = [];
-        for (const cursor = new Date(from); cursor <= to; cursor.setDate(cursor.getDate() + 1)) {
+        for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += 86400000) {
             leaveDates.push(new Date(cursor));
         }
         yield LeaveRepo.bulkCreateLeaveAttendance(leaveDates.map((date) => ({
@@ -202,7 +230,7 @@ const createLeaveRequest = (loggedInId, callerCompanyId, body) => __awaiter(void
     return leave;
 });
 exports.createLeaveRequest = createLeaveRequest;
-const approveLeave = (loggedInId, body) => __awaiter(void 0, void 0, void 0, function* () {
+const approveLeave = (loggedInId, callerCompanyId, body) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     const { employee_id, leaveID, status } = body;
     if (!employee_id)
@@ -212,7 +240,10 @@ const approveLeave = (loggedInId, body) => __awaiter(void 0, void 0, void 0, fun
     // FIX: previously trusted employee_id straight from the request body with
     // no check that the employee is on the caller's own team, letting any
     // admin approve/reject another company's leave requests by ID.
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // FIX: the team check itself was getAllChildUserIds (company-blind), so a
+    // multi-company admin/manager could still approve/reject the OTHER
+    // company's leave after switching. Scoped to the active company now.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     if (Number(employee_id) !== loggedInId && !childIds.includes(Number(employee_id))) {
         throw new serviceError_1.ServiceError("You can only manage leave requests of your own team members", 403);
     }
@@ -303,12 +334,19 @@ const assignLeaveBalance = (loggedInId, callerCompanyId, body) => __awaiter(void
     const employeeIds = Array.isArray(employeeId)
         ? employeeId.map((id) => Number(id))
         : [Number(employeeId)];
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // Company-scoped team: allocating balance is a write against another
+    // user's record, so it must not reach staff of a company the caller
+    // merely also belongs to (see getCompanyScopedChildUserIds).
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     const unauthorizedIds = employeeIds.filter((id) => id !== loggedInId && !childIds.includes(id));
     if (unauthorizedIds.length > 0) {
         throw new serviceError_1.ServiceError(`You can only assign leave balance to your own sale_persons. Unauthorized employeeId(s): ${unauthorizedIds.join(", ")}`);
     }
-    const targetYear = Number(year) || new Date().getFullYear();
+    // FIX: was new Date().getFullYear() (OS-local getter) — not guaranteed
+    // to equal the IST calendar year on the production host. Derived from
+    // getISTDateString() instead so a request in the Dec 31/Jan 1 IST-vs-UTC
+    // gap can't default to the wrong year's leave balance allocation.
+    const targetYear = Number(year) || Number((0, dateUtils_1.getISTDateString)().slice(0, 4));
     // Validate every requested companyLeaveId belongs to this company and cap
     // each allocation at that type's own configured leavesPerYear.
     const leaveTypes = yield LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId);
@@ -345,7 +383,10 @@ const assignLeaveBalance = (loggedInId, callerCompanyId, body) => __awaiter(void
 });
 exports.assignLeaveBalance = assignLeaveBalance;
 const getEmployeeLeaveBalance = (loggedInId, employeeId, year, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // Company-scoped team — the balances below are read against this company's
+    // leave types, so the "is this my team member" gate must use the same
+    // company context rather than the company-blind hierarchy.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
         throw new serviceError_1.ServiceError("You can only view leave balance of your own sale_persons");
     }
@@ -369,7 +410,10 @@ const getEmployeeLeaveBalance = (loggedInId, employeeId, year, callerCompanyId) 
 });
 exports.getEmployeeLeaveBalance = getEmployeeLeaveBalance;
 const getTeamLeaveBalances = (loggedInId, year, page, limit, offset, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // Company-scoped team — this list is rendered against the ACTIVE company's
+    // leave types, so it must not include employees of another company the
+    // caller happens to also be assigned to.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     const leaveTypes = callerCompanyId ? yield LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId) : [];
     const { rows, count } = yield LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset });
     // Materialize this page's employees × configured types so a carried-
@@ -393,8 +437,13 @@ const getTeamLeaveBalances = (loggedInId, year, page, limit, offset, callerCompa
     };
 });
 exports.getTeamLeaveBalances = getTeamLeaveBalances;
-const leaveList = (loggedInId, status, page, limit, offset) => __awaiter(void 0, void 0, void 0, function* () {
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+const leaveList = (loggedInId, status, page, limit, offset, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
+    // Company-scoped team — otherwise a multi-company admin/manager sees the
+    // other company's leave requests in this list after switching companies.
+    // PERF: Fast variant (see userHierarchy.ts) — this list is called from the
+    // dashboard alongside several other team-scoped calls, so the old one-DB-
+    // round-trip-per-user walk compounded directly into dashboard load time.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
     const allUserIds = [loggedInId, ...childIds];
     const { rows, count } = yield LeaveRepo.findLeavesForUsersPaginated({
         allUserIds,
@@ -414,8 +463,12 @@ const leaveList = (loggedInId, status, page, limit, offset) => __awaiter(void 0,
     };
 });
 exports.leaveList = leaveList;
-const getTodayLeaveRequests = (loggedInId) => __awaiter(void 0, void 0, void 0, function* () {
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+const getTodayLeaveRequests = (loggedInId, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
+    // Company-scoped team — this feeds the dashboard's "on leave today" widget,
+    // which otherwise counts the other company's employees for a caller
+    // assigned to more than one company.
+    // PERF: Fast variant (see userHierarchy.ts) — same reasoning as leaveList above.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
     const [appliedToday, onLeaveToday] = yield LeaveRepo.findTodayLeaveActivity(childIds);
     return {
         appliedToday,
@@ -425,14 +478,17 @@ const getTodayLeaveRequests = (loggedInId) => __awaiter(void 0, void 0, void 0, 
     };
 });
 exports.getTodayLeaveRequests = getTodayLeaveRequests;
-const cancelLeaveAndMarkPresent = (loggedInId, body) => __awaiter(void 0, void 0, void 0, function* () {
+const cancelLeaveAndMarkPresent = (loggedInId, callerCompanyId, body) => __awaiter(void 0, void 0, void 0, function* () {
     const { employeeId, leaveID, date, punchIn } = body || {};
     if (!employeeId)
         throw new serviceError_1.ServiceError("employeeId is required");
     if (!leaveID)
         throw new serviceError_1.ServiceError("leaveID is required");
     // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+    // Company-scoped: this cancels a leave and writes an attendance row for
+    // someone else, so it must not reach staff of another company the caller
+    // is also assigned to (the company-blind hierarchy used to allow that).
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     if (!childIds.includes(Number(employeeId))) {
         throw new serviceError_1.ServiceError("You can only manage attendance/leave for your own team members");
     }
@@ -444,7 +500,15 @@ const cancelLeaveAndMarkPresent = (loggedInId, body) => __awaiter(void 0, void 0
     yield rejectLeaveAndRestoreBalance(leave);
     // Then mark the requested day present, overwriting whatever the
     // leave-cancellation step just set it to.
-    const attendanceDate = date ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    // FIX: the no-`date` fallback used to be new Date().toISOString().slice(0,10),
+    // which converts to UTC first and rolls the calendar day backward for any
+    // real-world IST time before ~05:30 AM — e.g. cancelling a leave at 2 AM IST
+    // with no explicit date would mark yesterday present instead of today.
+    // getISTDateString() computes the IST calendar date via explicit +5:30
+    // offset arithmetic, correct regardless of the server's OS timezone. (The
+    // explicit-`date` branch above just reformats a caller-supplied date, not
+    // "now", so it's left as-is.)
+    const attendanceDate = date ? String(date).slice(0, 10) : (0, dateUtils_1.getISTDateString)();
     const punchInTime = punchIn ? new Date(punchIn) : new Date();
     const existing = yield LeaveRepo.findOrCreateAttendanceForDate(employeeId, attendanceDate);
     let record;
@@ -460,8 +524,10 @@ const cancelLeaveAndMarkPresent = (loggedInId, body) => __awaiter(void 0, void 0
     return { leave, attendance: record };
 });
 exports.cancelLeaveAndMarkPresent = cancelLeaveAndMarkPresent;
-const userLeave = (loggedInId, userId, page, limit, offset) => __awaiter(void 0, void 0, void 0, function* () {
-    const childIds = yield (0, userHierarchy_1.getAllChildUserIds)(loggedInId);
+const userLeave = (loggedInId, userId, page, limit, offset, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
+    // Company-scoped team — gates reading another user's full leave history,
+    // which the company-blind hierarchy exposed across companies.
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
     const requestedUserId = Number(userId);
     if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
         throw new serviceError_1.ServiceError("You can only view leave records of your own team members", 403);

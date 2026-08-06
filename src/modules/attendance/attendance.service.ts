@@ -3,7 +3,7 @@ import { getObjectFromSpaces, SpacesFile } from "../../config/spaces";
 import { Readable } from "stream";
 import * as XLSX from "xlsx";
 import { ServiceError } from "../shared/serviceError";
-import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
 import * as AttendanceRepo from "./attendance.repository";
 
@@ -32,7 +32,10 @@ export const getAttendance = async (loggedInId: number, callerCompanyId: number 
   // company's employees in today's list after switching. Scoped to the
   // company they're currently acting in; callers with no resolvable company
   // context get the unfiltered hierarchy exactly as before.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  // PERF: fast (level-batched) variant — same output, fewer DB round-trips.
+  // Only this call site was switched; every other caller of
+  // getCompanyScopedChildUserIds is untouched.
+  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   const allUserIds = [loggedInId, ...childIds];
   // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
   // to UTC first, which rolls the calendar day backward for any real-world
@@ -343,12 +346,48 @@ const buildSearchFilter = (search: string) =>
       }
     : {};
 
+// Team attendance summary (admin/manager view of their own child hierarchy):
+// total child count, present today, on-leave today, and absent today. Built
+// entirely from two batched COUNT queries (no row fetching, no per-user
+// loops) so it stays fast regardless of team size:
+//   - childIds resolved via the fast, level-batched hierarchy walk (same one
+//     attendanceBook uses).
+//   - presentToday / onLeaveToday are plain Attendance/Leave COUNT queries,
+//     run in parallel.
+//   - absentToday is derived (totalChild - present - onLeave), not a third
+//     query — anyone not present and not on an approved leave today counts
+//     as absent, including team members who haven't punched in/been marked
+//     yet, which is what "Absent Today" means on a live dashboard.
+export const attendanceSummary = async (userId: number, callerCompanyId: number | null) => {
+  const childIds = await getCompanyScopedChildUserIdsFast(userId, callerCompanyId);
+  const totalChildCount = childIds.length;
+
+  if (totalChildCount === 0) {
+    return { totalChildCount: 0, presentTodayCount: 0, absentTodayCount: 0, onLeaveTodayCount: 0 };
+  }
+
+  const todayDateOnly = getISTDateString();
+
+  const [presentTodayCount, onLeaveTodayCount] = await Promise.all([
+    AttendanceRepo.countPresentToday(childIds, todayDateOnly),
+    AttendanceRepo.countOnLeaveToday(childIds, todayDateOnly),
+  ]);
+
+  const absentTodayCount = Math.max(totalChildCount - presentTodayCount - onLeaveTodayCount, 0);
+
+  return { totalChildCount, presentTodayCount, absentTodayCount, onLeaveTodayCount };
+};
+
 export const attendanceBook = async (userId: number, callerCompanyId: number | null, query: any) => {
   // FIX: was getAllChildUserIds — the unscoped hierarchy put the OTHER
   // company's employees into this month's register for an admin/manager
   // assigned to more than one company. Scoped to the company they're
   // currently acting in; no resolvable company context behaves as before.
-  const childIds = await getCompanyScopedChildUserIds(userId, callerCompanyId);
+  // PERF: uses the fast (level-batched) variant — same output as
+  // getCompanyScopedChildUserIds, just fewer DB round-trips. Only this call
+  // site was switched; every other caller of getCompanyScopedChildUserIds
+  // is untouched.
+  const childIds = await getCompanyScopedChildUserIdsFast(userId, callerCompanyId);
 
   if (!childIds.length) {
     throw new ServiceError("No child users found");
