@@ -1,5 +1,5 @@
 import { ServiceError } from "../shared/serviceError";
-import { getAllChildUserIds, getCompanyScopedChildUserIds, getDirectCreator } from "../shared/userHierarchy";
+import { getAllChildUserIds, getCompanyScopedChildUserIds, getCompanyScopedOrgWideUserIds, getDirectCreator } from "../shared/userHierarchy";
 import { getISTDateString } from "../shared/dateUtils";
 import * as MeetingRepo from "./meeting.repository";
 
@@ -193,10 +193,24 @@ export const getMeetingDashboard = async (
   role: string | undefined,
   callerCompanyId: number | null
 ) => {
-  // Team scope (not client scope) — a manager's dashboard reflects their
-  // own team's activity, not their whole admin's org, and only the team of
-  // the company this token is currently acting in.
-  const allowedIds = await resolveTeamScope(loggedInId, callerCompanyId);
+  // FIX: this dashboard's visibility scope was reusing resolveTeamScope,
+  // which answers a DIFFERENT question — "who can I act on behalf of"
+  // (scheduleMeeting/rescheduleMeeting's authorization check) — and only
+  // ever returns the caller's OWN creator-subtree. That's correct for a
+  // manager's dashboard (their own team's activity, nothing more), but
+  // wrong for admin: an admin's dashboard should reflect the WHOLE
+  // company's meetings regardless of which manager a salesperson happens
+  // to report to, including managers/salespersons the admin didn't
+  // personally create (a second admin added via the CompanyAdmin junction,
+  // staff created by the tenant owner, anyone reassigned after creation) —
+  // resolveTeamScope silently dropped all of those from the admin's own
+  // dashboard. Manager keeps the narrow, correct team scope; every other
+  // role that can reach this endpoint (admin, super_admin, "user") gets the
+  // whole company instead.
+  const allowedIds =
+    role === "manager"
+      ? await resolveTeamScope(loggedInId, callerCompanyId)
+      : await getCompanyScopedOrgWideUserIds(loggedInId, callerCompanyId);
 
   const now = new Date();
   const today0 = startOfDay(now);

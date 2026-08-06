@@ -1324,19 +1324,30 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
 // precedence used throughout this file (geofencing, lateMarkAfter, etc.).
 // Previously this used a hardcoded <3h / <9h split regardless of shift —
 // which, e.g., misclassified a full 8h day as "half_day" since 8 < 9.
+// Extracted so both getDayTypeFromWorkingHours' classification and
+// attendancePunchOut/the auto-punch-out cron's "did they even reach half a
+// day" status rule below use the exact same threshold, instead of each
+// resolving it separately and risking the two drifting apart.
+export const resolveHalfDayThresholdHours = (
+  shift?: { fullDayHours?: number | null; halfDayAfter?: number | null } | null,
+  company?: { autoHalfDayAfter?: number | null } | null
+): number => {
+  const fullDayThreshold = shift?.fullDayHours && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
+  const companyHalfDayHours = company?.autoHalfDayAfter && company.autoHalfDayAfter > 0
+    ? company.autoHalfDayAfter / 60
+    : null;
+  return shift?.halfDayAfter && shift.halfDayAfter > 0
+    ? shift.halfDayAfter
+    : companyHalfDayHours ?? fullDayThreshold / 2;
+};
+
 export const getDayTypeFromWorkingHours = (
   workingHours: number,
   shift?: { fullDayHours?: number | null; halfDayAfter?: number | null } | null,
   company?: { autoHalfDayAfter?: number | null } | null
 ): "full_day" | "half_day" | "short_leave" => {
   const fullDayThreshold = shift?.fullDayHours && shift.fullDayHours > 0 ? shift.fullDayHours : 8;
-  const companyHalfDayHours = company?.autoHalfDayAfter && company.autoHalfDayAfter > 0
-    ? company.autoHalfDayAfter / 60
-    : null;
-  const halfDayThreshold =
-    shift?.halfDayAfter && shift.halfDayAfter > 0
-      ? shift.halfDayAfter
-      : companyHalfDayHours ?? fullDayThreshold / 2;
+  const halfDayThreshold = resolveHalfDayThresholdHours(shift, company);
   if (workingHours < Math.min(3, halfDayThreshold)) return "short_leave";
   if (workingHours < fullDayThreshold) return "half_day";
   return "full_day";
@@ -1381,8 +1392,20 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   attendance.overtime = overtime;
   attendance.latitude_out = latitude_out;
   attendance.longitude_out = longitude_out;
-  attendance.status = "out";
   attendance.dayType = getDayTypeFromWorkingHours(workingHoursRounded, shift, company);
+  // FIX: status was unconditionally "out" (the same "showed up" bucket as a
+  // full day) no matter how few hours were actually worked — punching in
+  // and back out again a few minutes later still counted as a normal
+  // present day everywhere the app reads `status` (attendance rate, the
+  // register/calendar colour, etc.); only the separate dayType field
+  // silently recorded the shortfall, and nothing in the app actually read
+  // dayType for that. Below the half-day threshold, this now reflects in
+  // status itself — "absent", the same as any other day that needs a
+  // manual correction — while still keeping the real punch_in/punch_out/
+  // working_hours on the record so whoever corrects it sees exactly what
+  // happened instead of a bare "absent" with no context.
+  const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
+  attendance.status = workingHoursRounded < halfDayThresholdHours ? "absent" : "out";
   await attendance.save();
 
   return attendance;

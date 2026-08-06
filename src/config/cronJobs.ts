@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { Op } from "sequelize";
 import { Attendance, User, Shift, Company } from "./dbConnection";
-import { getDayTypeFromWorkingHours } from "../modules/attendance/attendance.service";
+import { getDayTypeFromWorkingHours, resolveHalfDayThresholdHours } from "../modules/attendance/attendance.service";
 import { getISTDateString } from "../modules/shared/dateUtils";
 
 /**
@@ -121,6 +121,13 @@ export const startCronJobs = () => {
                 ? Number((workingHours - officeHours).toFixed(2))
                 : 0;
             const dayType = getDayTypeFromWorkingHours(workingHours, shift, company);
+            // Same "below half a day counts as absent" rule as the
+            // interactive punch-out endpoint (attendancePunchOut) — someone
+            // who punched in but never punched out, then got auto-closed at
+            // 23:59 with only a handful of minutes on the clock, was still
+            // silently counted as a normal present day otherwise.
+            const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
+            const status = workingHours < halfDayThresholdHours ? "absent" : "out";
 
             // ── Update the record ──
             await record.update({
@@ -128,7 +135,7 @@ export const startCronJobs = () => {
               working_hours: workingHours,
               overtime,
               dayType,
-              status: "out",
+              status,
             });
 
 
