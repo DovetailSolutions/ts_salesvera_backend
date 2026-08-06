@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { Op } from "sequelize";
 import { Attendance, User, Shift, Company } from "./dbConnection";
-import { getDayTypeFromWorkingHours, resolveHalfDayThresholdHours } from "../modules/attendance/attendance.service";
+import { getDayTypeFromWorkingHours, resolveHalfDayThresholdHours, computeShiftOverlapHours } from "../modules/attendance/attendance.service";
 import { getISTDateString } from "../modules/shared/dateUtils";
 
 /**
@@ -120,14 +120,20 @@ export const startCronJobs = () => {
               overtimeAllowed && workingHours > officeHours
                 ? Number((workingHours - officeHours).toFixed(2))
                 : 0;
-            const dayType = getDayTypeFromWorkingHours(workingHours, shift, company);
-            // Same "below half a day counts as absent" rule as the
-            // interactive punch-out endpoint (attendancePunchOut) — someone
-            // who punched in but never punched out, then got auto-closed at
-            // 23:59 with only a handful of minutes on the clock, was still
-            // silently counted as a normal present day otherwise.
+            // Shift-aware, same as the interactive punch-out endpoint
+            // (attendancePunchOut): someone who punched in but never punched
+            // out gets auto-closed at 23:59, which — measured as raw
+            // duration — could read as a huge multi-hour "session" even
+            // though almost none of it was during their actual shift.
+            // Capping to the shift's own window before classifying means
+            // dayType/status reflect what actually happened during the
+            // shift, not an artifact of the cron's fixed 23:59 close time.
+            // working_hours (stored below) stays the raw duration, same as
+            // punch-out — only the classification uses the shift-aware figure.
+            const shiftAwareHours = computeShiftOverlapHours(shift, dateStr, punchIn, autoPunchOut, workingHours);
+            const dayType = getDayTypeFromWorkingHours(shiftAwareHours, shift, company);
             const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
-            const status = workingHours < halfDayThresholdHours ? "absent" : "out";
+            const status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
 
             // ── Update the record ──
             await record.update({

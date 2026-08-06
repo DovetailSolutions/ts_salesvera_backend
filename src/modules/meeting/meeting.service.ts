@@ -296,8 +296,13 @@ export const getMeetingDashboard = async (
   }
 
   const newClientsThisMonth = await MeetingRepo.countNewClients(allowedIds, monthStart, monthEnd);
+  // The plain "how many meetings does my scope actually have" figure — every
+  // other number here is windowed (today/week/month), so this was the one
+  // thing missing that a manager or admin would look for first.
+  const totalMeetings = await MeetingRepo.countAllMeetings(allowedIds);
 
   return {
+    totalMeetings,
     scheduledToday,
     scheduledThisWeek,
     scheduledThisMonth,

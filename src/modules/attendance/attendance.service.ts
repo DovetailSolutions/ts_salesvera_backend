@@ -1139,6 +1139,33 @@ const deriveShiftPunchFields = (
   return { punchIn, punchOut, workingHours, dayType, overtime };
 };
 
+// How much of [punchIn, punchOut] actually falls within the employee's
+// assigned shift window on `dateStr` — punching in well before the shift
+// starts, or staying logged in well past it, no longer pads out "hours
+// worked" for a window that was never actually the shift. Used only for the
+// half-day/absent status decision and dayType classification below; the
+// STORED working_hours (session length, overtime baseline) stays the raw
+// punch duration exactly as before — this is a separate, internal number.
+// Falls back to the raw duration when there's no assigned shift to compare
+// against (nothing to be "aware" of, same as isBeforeShiftWindow's own
+// no-op-without-a-shift behaviour).
+export const computeShiftOverlapHours = (
+  shift: { startTime?: string; endTime?: string } | null | undefined,
+  dateStr: string,
+  punchIn: Date,
+  punchOut: Date,
+  rawWorkingHours: number
+): number => {
+  const shiftStart = shiftStartInstant(shift, dateStr);
+  const shiftEnd = shiftEndInstant(shift, dateStr);
+  if (!shiftStart || !shiftEnd) return rawWorkingHours;
+
+  const effectiveStart = punchIn > shiftStart ? punchIn : shiftStart;
+  const effectiveEnd = punchOut < shiftEnd ? punchOut : shiftEnd;
+  const overlapMs = effectiveEnd.getTime() - effectiveStart.getTime();
+  return overlapMs > 0 ? Number((overlapMs / (1000 * 60 * 60)).toFixed(2)) : 0;
+};
+
 // True when `atInstant` is still more than EARLY_MARK_LEAD_MINUTES before
 // the shift's start on `dateStr` — i.e. too early to mark present yet.
 // No assigned shift (shift is null) never gates — there's nothing to wait
@@ -1388,24 +1415,35 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
       : 0;
 
   attendance.punch_out = punchOutTime;
+  // Session length (overtime baseline, "Session Hours" display) stays the
+  // raw clocked duration, unchanged.
   attendance.working_hours = workingHoursRounded;
   attendance.overtime = overtime;
   attendance.latitude_out = latitude_out;
   attendance.longitude_out = longitude_out;
-  attendance.dayType = getDayTypeFromWorkingHours(workingHoursRounded, shift, company);
+
+  // FIX: dayType/status were both derived from raw punch duration alone —
+  // not "shift aware" in any real sense, since punching in well before the
+  // shift starts (or staying logged in well after it ends) padded out
+  // "hours worked" for time that was never actually the shift. Login/logout
+  // time now matter: only the portion of [punch_in, punch_out] that
+  // actually overlaps the employee's assigned shift window counts toward
+  // the half-day/absent decision.
+  const shiftAwareHours = computeShiftOverlapHours(shift, today, punchInTime, punchOutTime, workingHoursRounded);
+  attendance.dayType = getDayTypeFromWorkingHours(shiftAwareHours, shift, company);
   // FIX: status was unconditionally "out" (the same "showed up" bucket as a
-  // full day) no matter how few hours were actually worked — punching in
-  // and back out again a few minutes later still counted as a normal
-  // present day everywhere the app reads `status` (attendance rate, the
-  // register/calendar colour, etc.); only the separate dayType field
-  // silently recorded the shortfall, and nothing in the app actually read
-  // dayType for that. Below the half-day threshold, this now reflects in
-  // status itself — "absent", the same as any other day that needs a
-  // manual correction — while still keeping the real punch_in/punch_out/
-  // working_hours on the record so whoever corrects it sees exactly what
-  // happened instead of a bare "absent" with no context.
+  // full day) no matter how few (shift-relevant) hours were actually
+  // worked — punching in and back out again a few minutes later still
+  // counted as a normal present day everywhere the app reads `status`
+  // (attendance rate, the register/calendar colour, etc.); only the
+  // separate dayType field silently recorded the shortfall, and nothing in
+  // the app actually read dayType for that. Below the half-day threshold,
+  // this now reflects in status itself — "absent", the same as any other
+  // day that needs a manual correction — while still keeping the real
+  // punch_in/punch_out/working_hours on the record so whoever corrects it
+  // sees exactly what happened instead of a bare "absent" with no context.
   const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
-  attendance.status = workingHoursRounded < halfDayThresholdHours ? "absent" : "out";
+  attendance.status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
   await attendance.save();
 
   return attendance;
