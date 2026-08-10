@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.findEmployeesByIds = exports.countAllMeetings = exports.countNewClients = exports.findMeetingsInRange = exports.updateMeetingSchedule = exports.findMeetingById = exports.findConflictingMeeting = exports.createMeetingForEmployee = exports.findOrCreateMeetingCompany = exports.findLatestMeetingForUser = exports.findMeetingUserById = void 0;
+exports.findMeetingsByScopePaginated = exports.findEmployeesByIds = exports.countAllMeetings = exports.countNewClients = exports.findMeetingsInRange = exports.updateMeetingSchedule = exports.findMeetingById = exports.findConflictingMeeting = exports.createMeetingForEmployee = exports.findOrCreateMeetingCompany = exports.findLatestMeetingForUser = exports.findMeetingUserById = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 // ============================================================
@@ -80,3 +80,26 @@ const findEmployeesByIds = (employeeIds) => dbConnection_1.User.findAll({
     attributes: ["id", "firstName", "lastName", "email"],
 });
 exports.findEmployeesByIds = findEmployeesByIds;
+// ── Dashboard drill-down (click a stat tile -> list the meetings behind it) ──
+const findMeetingsByScopePaginated = (employeeIds, range, limit, offset) => {
+    const where = { userId: { [sequelize_1.Op.in]: employeeIds } };
+    if (range) {
+        where.scheduledTime = { [sequelize_1.Op.between]: [range.from, range.to] };
+    }
+    return dbConnection_1.Meeting.findAndCountAll({
+        where,
+        limit,
+        offset,
+        order: [["scheduledTime", "DESC"]],
+        include: [
+            { model: dbConnection_1.User, attributes: ["id", "firstName", "lastName", "email"] },
+            { model: dbConnection_1.MeetingUser, attributes: ["id", "name", "companyName", "mobile", "email", "city", "state"] },
+            {
+                model: dbConnection_1.MeetingCompany,
+                attributes: ["id", "companyName", "personName", "mobileNumber", "companyEmail", "customerType"],
+            },
+        ],
+        distinct: true,
+    });
+};
+exports.findMeetingsByScopePaginated = findMeetingsByScopePaginated;

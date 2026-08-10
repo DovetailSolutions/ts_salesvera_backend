@@ -42,7 +42,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMeetingDashboard = exports.rescheduleMeeting = exports.scheduleMeeting = exports.resolveClientScope = exports.resolveTeamScope = void 0;
+exports.getMeetingDashboardDetails = exports.getMeetingDashboard = exports.rescheduleMeeting = exports.scheduleMeeting = exports.resolveClientScope = exports.resolveTeamScope = void 0;
 const serviceError_1 = require("../shared/serviceError");
 const userHierarchy_1 = require("../shared/userHierarchy");
 const dateUtils_1 = require("../shared/dateUtils");
@@ -317,3 +317,48 @@ const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(voi
     };
 });
 exports.getMeetingDashboard = getMeetingDashboard;
+const DASHBOARD_DETAIL_TYPES = new Set(["total", "today", "week", "month"]);
+// Backs the meeting-management dashboard's stat tiles (Total Meeting /
+// Scheduled Today / Scheduled This Week / Scheduled This Month) — clicking a
+// tile lists the actual meetings (with employee + client info) behind that
+// tile's count. Scope resolution and date-window math are identical to
+// getMeetingDashboard above, so a tile's count and its drill-down list always
+// agree.
+const getMeetingDashboardDetails = (loggedInId, role, callerCompanyId, type, page, limit) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!DASHBOARD_DETAIL_TYPES.has(type)) {
+        throw new serviceError_1.ServiceError("type must be one of: total, today, week, month");
+    }
+    const allowedIds = role === "manager"
+        ? yield (0, exports.resolveTeamScope)(loggedInId, callerCompanyId)
+        : yield (0, userHierarchy_1.getCompanyScopedOrgWideUserIds)(loggedInId, callerCompanyId);
+    const now = new Date();
+    let range = null;
+    if (type === "today") {
+        range = { from: startOfDay(now), to: endOfDay(now) };
+    }
+    else if (type === "week") {
+        range = { from: startOfDay(addDays(now, -6)), to: endOfDay(now) };
+    }
+    else if (type === "month") {
+        const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+        const istYear = istNow.getUTCFullYear();
+        const istMonth = istNow.getUTCMonth();
+        range = {
+            from: new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS),
+            to: new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS),
+        };
+    }
+    // type === "total" -> range stays null (all-time, matches countAllMeetings)
+    const offset = (page - 1) * limit;
+    const { rows, count } = yield MeetingRepo.findMeetingsByScopePaginated(allowedIds, range, limit, offset);
+    return {
+        data: rows,
+        pagination: {
+            totalRecords: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: page,
+            limit,
+        },
+    };
+});
+exports.getMeetingDashboardDetails = getMeetingDashboardDetails;
