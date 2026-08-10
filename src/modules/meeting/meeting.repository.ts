@@ -81,6 +81,26 @@ export const countNewClients = (employeeIds: number[], fromDate: Date, toDate: D
     where: { userId: { [Op.in]: employeeIds }, createdAt: { [Op.between]: [fromDate, toDate] } },
   });
 
+// Dashboard drill-down for the "New Clients This Month" tile — same
+// employeeIds/date-window filter as countNewClients above, so the tile's
+// count and this list always agree.
+export const findNewClientsPaginated = (
+  employeeIds: number[],
+  fromDate: Date,
+  toDate: Date,
+  limit: number,
+  offset: number
+) =>
+  (MeetingUser as any).findAndCountAll({
+    where: { userId: { [Op.in]: employeeIds }, createdAt: { [Op.between]: [fromDate, toDate] } },
+    limit,
+    offset,
+    order: [["createdAt", "DESC"]],
+    attributes: [
+      "id", "name", "companyName", "mobile", "email", "city", "state", "customerType", "userId", "createdAt",
+    ],
+  });
+
 // All-time count, not windowed to any date range — the dashboard's other
 // numbers are all today/week/month, so there was previously no single
 // figure that just answered "how many meetings total" for the caller's
@@ -91,5 +111,40 @@ export const countAllMeetings = (employeeIds: number[]) =>
 export const findEmployeesByIds = (employeeIds: number[]) =>
   User.findAll({
     where: { id: { [Op.in]: employeeIds } },
-    attributes: ["id", "firstName", "lastName", "email"],
+    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
   });
+
+// ── Dashboard drill-down (click a stat tile -> list the meetings behind it) ──
+export const findMeetingsByScopePaginated = (
+  employeeIds: number[],
+  range: { from: Date; to: Date } | null,
+  limit: number,
+  offset: number,
+  // The "Upcoming (7 days)" tile excludes cancelled meetings from its count
+  // (getMeetingDashboard's `upcoming` figure) — mirrored here so the tile's
+  // count and this drill-down list agree.
+  excludeCancelled: boolean = false
+) => {
+  const where: any = { userId: { [Op.in]: employeeIds } };
+  if (range) {
+    where.scheduledTime = { [Op.between]: [range.from, range.to] };
+  }
+  if (excludeCancelled) {
+    where.status = { [Op.ne]: "cancelled" };
+  }
+  return Meeting.findAndCountAll({
+    where,
+    limit,
+    offset,
+    order: [["scheduledTime", "DESC"]],
+    include: [
+      { model: User, attributes: ["id", "firstName", "lastName", "email"] },
+      { model: MeetingUser, attributes: ["id", "name", "companyName", "mobile", "email", "city", "state"] },
+      {
+        model: MeetingCompany,
+        attributes: ["id", "companyName", "personName", "mobileNumber", "companyEmail", "customerType"],
+      },
+    ],
+    distinct: true,
+  });
+};

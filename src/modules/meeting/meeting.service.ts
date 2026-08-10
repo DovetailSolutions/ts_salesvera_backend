@@ -188,6 +188,31 @@ const endOfDay = (d: Date) => {
 };
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
 
+// FIX: "This Week" was `[startOfDay(now - 6 days), endOfDay(now)]` — a
+// trailing "last 7 days" window, not the current calendar week. That made it
+// asymmetric with "This Month" (which already covers the whole calendar
+// month, past AND future): a meeting scheduled a couple of days from now,
+// but still inside the current Mon–Sun week, counted toward "This Month"
+// while silently missing from "This Week" because the window never looked
+// past today. Monday-start calendar week in IST, mirroring the same
+// "Monday-start week containing now" convention already used for the
+// meeting-trend/dashboard-summary range endpoint (user.ts's getSummaryTrend).
+const getISTWeekRange = (now: Date) => {
+  const nowIST = new Date(now.getTime() + IST_OFFSET_MS);
+  const mondayOffset = (nowIST.getUTCDay() + 6) % 7; // Mon=0 ... Sun=6
+  const weekStartIST = new Date(nowIST);
+  weekStartIST.setUTCDate(nowIST.getUTCDate() - mondayOffset);
+  weekStartIST.setUTCHours(0, 0, 0, 0);
+  const from = new Date(weekStartIST.getTime() - IST_OFFSET_MS);
+
+  const weekEndIST = new Date(weekStartIST);
+  weekEndIST.setUTCDate(weekStartIST.getUTCDate() + 6);
+  weekEndIST.setUTCHours(23, 59, 59, 999);
+  const to = new Date(weekEndIST.getTime() - IST_OFFSET_MS);
+
+  return { from, to };
+};
+
 export const getMeetingDashboard = async (
   loggedInId: number,
   role: string | undefined,
@@ -231,16 +256,18 @@ export const getMeetingDashboard = async (
   const monthEnd = new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS);
   const trendStart = startOfDay(addDays(now, -13));
   const upcomingEnd = endOfDay(addDays(now, 7));
+  const { from: weekStart, to: weekEnd } = getISTWeekRange(now);
 
-  // Single wide window covering: this month (past+future), the rolling
-  // week, the 14-day trend, and the next-7-days upcoming list — regardless
-  // of where "today" falls inside the current month.
-  const queryFrom = trendStart < monthStart ? trendStart : monthStart;
-  const queryTo = upcomingEnd > monthEnd ? upcomingEnd : monthEnd;
+  // Single wide window covering: this month (past+future), the current
+  // calendar week (past+future — can spill a few days into the adjacent
+  // month near a month boundary), the 14-day trend, and the next-7-days
+  // upcoming list — regardless of where "today" falls inside the current
+  // month/week.
+  const queryFrom = [trendStart, monthStart, weekStart].reduce((a, b) => (b < a ? b : a));
+  const queryTo = [upcomingEnd, monthEnd, weekEnd].reduce((a, b) => (b > a ? b : a));
 
   const meetings = (await MeetingRepo.findMeetingsInRange(allowedIds, queryFrom, queryTo)) as any[];
 
-  const weekStart = startOfDay(addDays(now, -6));
   const inRange = (t: Date, from: Date, to: Date) => t >= from && t <= to;
 
   let scheduledToday = 0;
@@ -255,7 +282,8 @@ export const getMeetingDashboard = async (
   // one calendar day off from the IST trend-bucket key it's meant to be.
   // getISTDateString() derives the IST y-m-d string directly instead.
   for (let i = 0; i < 14; i++) trendByDay.set(getISTDateString(addDays(now, -13 + i)), 0);
-  const completedByEmployee = new Map<number, number>();
+  const completedByEmployeeMonth = new Map<number, number>();
+  const completedByEmployeeWeek = new Map<number, number>();
 
   for (const m of meetings) {
     const t = new Date(m.scheduledTime);
@@ -265,11 +293,16 @@ export const getMeetingDashboard = async (
       scheduledThisMonth += 1;
       if (m.status in statusBreakdown) statusBreakdown[m.status] += 1;
       if (m.status === "completed") {
-        completedByEmployee.set(m.userId, (completedByEmployee.get(m.userId) || 0) + 1);
+        completedByEmployeeMonth.set(m.userId, (completedByEmployeeMonth.get(m.userId) || 0) + 1);
       }
     }
     if (inRange(t, today0, today1)) scheduledToday += 1;
-    if (inRange(t, weekStart, today1)) scheduledThisWeek += 1;
+    if (inRange(t, weekStart, weekEnd)) {
+      scheduledThisWeek += 1;
+      if (m.status === "completed") {
+        completedByEmployeeWeek.set(m.userId, (completedByEmployeeWeek.get(m.userId) || 0) + 1);
+      }
+    }
     if (inRange(t, now, upcomingEnd) && m.status !== "cancelled") upcoming += 1;
 
     // FIX: was `startOfDay(t).toISOString().slice(0, 10)` — same UTC
@@ -283,17 +316,37 @@ export const getMeetingDashboard = async (
   const completionRate =
     scheduledThisMonth > 0 ? Number(((statusBreakdown.completed / scheduledThisMonth) * 100).toFixed(1)) : null;
 
-  let topPerformer: { userId: number; name: string; completed: number } | null = null;
-  if (completedByEmployee.size > 0) {
-    const [topUserId, topCount] = [...completedByEmployee.entries()].sort((a, b) => b[1] - a[1])[0];
-    const employees = await MeetingRepo.findEmployeesByIds([topUserId]);
-    const emp = employees[0] as any;
-    topPerformer = {
+  type TopPerformer = { userId: number; name: string; email: string | null; phone: string | null; role: string | null; completed: number };
+
+  // Both periods' winners can differ (and often need distinct employee
+  // lookups), so resolve their employee info in a single batched call rather
+  // than one query per period.
+  const topEntryMonth = completedByEmployeeMonth.size > 0
+    ? [...completedByEmployeeMonth.entries()].sort((a, b) => b[1] - a[1])[0]
+    : null;
+  const topEntryWeek = completedByEmployeeWeek.size > 0
+    ? [...completedByEmployeeWeek.entries()].sort((a, b) => b[1] - a[1])[0]
+    : null;
+  const topUserIds = [...new Set([topEntryMonth?.[0], topEntryWeek?.[0]].filter((id): id is number => id != null))];
+  const topEmployees = topUserIds.length > 0 ? await MeetingRepo.findEmployeesByIds(topUserIds) : [];
+  const employeeById = new Map(topEmployees.map((e: any) => [e.id, e]));
+
+  const buildTopPerformer = (entry: [number, number] | null): TopPerformer | null => {
+    if (!entry) return null;
+    const [topUserId, topCount] = entry;
+    const emp = employeeById.get(topUserId) as any;
+    return {
       userId: topUserId,
       name: emp ? `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.email : `#${topUserId}`,
+      email: emp?.email ?? null,
+      phone: emp?.phone ?? null,
+      role: emp?.role ?? null,
       completed: topCount,
     };
-  }
+  };
+
+  const topPerformerMonth = buildTopPerformer(topEntryMonth);
+  const topPerformerWeek = buildTopPerformer(topEntryWeek);
 
   const newClientsThisMonth = await MeetingRepo.countNewClients(allowedIds, monthStart, monthEnd);
   // The plain "how many meetings does my scope actually have" figure — every
@@ -310,7 +363,141 @@ export const getMeetingDashboard = async (
     completionRate,
     statusBreakdown,
     trend: [...trendByDay.entries()].map(([date, count]) => ({ date, count })),
-    topPerformer,
+    // `topPerformer` kept as an alias for the monthly winner — back-compat
+    // for the frontend's existing (pre-week/month-toggle) consumer.
+    topPerformer: topPerformerMonth,
+    topPerformerMonth,
+    topPerformerWeek,
     newClientsThisMonth,
+  };
+};
+
+const DASHBOARD_DETAIL_TYPES = new Set(["total", "today", "week", "month", "upcoming"]);
+
+// Backs the meeting-management dashboard's stat tiles (Total Meeting /
+// Scheduled Today / Scheduled This Week / Scheduled This Month / Upcoming
+// (7 days)) — clicking a tile lists the actual meetings (with employee +
+// client info) behind that tile's count. Scope resolution and date-window
+// math are identical to getMeetingDashboard above, so a tile's count and its
+// drill-down list always agree.
+export const getMeetingDashboardDetails = async (
+  loggedInId: number,
+  role: string | undefined,
+  callerCompanyId: number | null,
+  type: string,
+  page: number,
+  limit: number,
+  // Narrows the list to one specific employee within the caller's scope —
+  // backs the Top Performer tile's click-through ("show me everything this
+  // person did"), reusing the same scoped/paginated list this endpoint
+  // already builds for the today/week/month/total/upcoming tiles.
+  userId?: number
+) => {
+  if (!DASHBOARD_DETAIL_TYPES.has(type)) {
+    throw new ServiceError("type must be one of: total, today, week, month, upcoming");
+  }
+
+  const allowedIds =
+    role === "manager"
+      ? await resolveTeamScope(loggedInId, callerCompanyId)
+      : await getCompanyScopedOrgWideUserIds(loggedInId, callerCompanyId);
+
+  let scopeIds = allowedIds;
+  if (userId != null) {
+    if (!allowedIds.includes(userId)) {
+      throw new ServiceError("You do not have access to this user's meetings", 403);
+    }
+    scopeIds = [userId];
+  }
+
+  const now = new Date();
+  let range: { from: Date; to: Date } | null = null;
+  if (type === "today") {
+    range = { from: startOfDay(now), to: endOfDay(now) };
+  } else if (type === "week") {
+    range = getISTWeekRange(now);
+  } else if (type === "month") {
+    const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+    const istYear = istNow.getUTCFullYear();
+    const istMonth = istNow.getUTCMonth();
+    range = {
+      from: new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS),
+      to: new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS),
+    };
+  } else if (type === "upcoming") {
+    // Matches getMeetingDashboard's `upcoming` figure exactly: from "right
+    // now" (not start-of-day) through 7 days out, cancelled meetings excluded.
+    range = { from: now, to: endOfDay(addDays(now, 7)) };
+  }
+  // type === "total" -> range stays null (all-time, matches countAllMeetings)
+
+  const offset = (page - 1) * limit;
+  const { rows, count } = await MeetingRepo.findMeetingsByScopePaginated(
+    scopeIds,
+    range,
+    limit,
+    offset,
+    type === "upcoming"
+  );
+
+  return {
+    data: rows,
+    pagination: {
+      totalRecords: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      limit,
+    },
+  };
+};
+
+// Backs the "New Clients This Month" dashboard tile's click-through — same
+// scope + this-month window as countNewClients (used by getMeetingDashboard
+// above), so the tile's count and this list always agree.
+export const getNewClientsDetails = async (
+  loggedInId: number,
+  role: string | undefined,
+  callerCompanyId: number | null,
+  page: number,
+  limit: number
+) => {
+  const allowedIds =
+    role === "manager"
+      ? await resolveTeamScope(loggedInId, callerCompanyId)
+      : await getCompanyScopedOrgWideUserIds(loggedInId, callerCompanyId);
+
+  const now = new Date();
+  const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const istYear = istNow.getUTCFullYear();
+  const istMonth = istNow.getUTCMonth();
+  const monthStart = new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS);
+  const monthEnd = new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS);
+
+  const offset = (page - 1) * limit;
+  const { rows, count } = await MeetingRepo.findNewClientsPaginated(allowedIds, monthStart, monthEnd, limit, offset);
+
+  // Client rows only carry the owning salesperson's raw userId — resolve
+  // names for whichever employees actually appear on this page in one
+  // batched call, same approach as the Top Performer lookup above.
+  const ownerIds = [...new Set(rows.map((r: any) => r.userId as number).filter((id: number) => id != null))] as number[];
+  const owners = ownerIds.length > 0 ? await MeetingRepo.findEmployeesByIds(ownerIds) : [];
+  const ownerById = new Map(owners.map((o: any) => [o.id, o]));
+  const data = rows.map((r: any) => {
+    const plain = typeof r.get === "function" ? r.get({ plain: true }) : r;
+    const owner = ownerById.get(plain.userId) as any;
+    return {
+      ...plain,
+      ownerName: owner ? `${owner.firstName || ""} ${owner.lastName || ""}`.trim() || owner.email : null,
+    };
+  });
+
+  return {
+    data,
+    pagination: {
+      totalRecords: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      limit,
+    },
   };
 };

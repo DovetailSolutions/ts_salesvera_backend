@@ -14,5 +14,17 @@ const router = Router();
 router.post("/meetings/schedule", tokenCheck, checkPermission("meeting", "schedule"), MeetingController.scheduleMeeting);
 router.patch("/meetings/:id/reschedule", tokenCheck, checkPermission("meeting", "update"), MeetingController.rescheduleMeeting);
 router.get("/meetings/dashboard", tokenCheck, checkPermission("meeting", "view"), MeetingController.getMeetingDashboard);
+router.get(
+  "/meetings/dashboard/details",
+  tokenCheck,
+  checkPermission("meeting", "view"),
+  MeetingController.getMeetingDashboardDetails
+);
+router.get(
+  "/meetings/dashboard/new-clients",
+  tokenCheck,
+  checkPermission("meeting", "view"),
+  MeetingController.getNewClientsDashboardDetails
+);
 
 export default router;

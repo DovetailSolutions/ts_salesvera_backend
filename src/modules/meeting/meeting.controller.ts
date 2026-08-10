@@ -69,3 +69,55 @@ export const getMeetingDashboard = async (req: Request, res: Response): Promise<
     handleServiceError(res, error);
   }
 };
+
+export const getMeetingDashboardDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const type = String(req.query.type || "total");
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const userId = req.query.userId ? Number(req.query.userId) : undefined;
+    const result = await MeetingService.getMeetingDashboardDetails(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      type,
+      page,
+      limit,
+      userId
+    );
+    res.status(200).json({
+      success: true,
+      message: "Meeting dashboard details fetched successfully",
+      data: result.data,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const getNewClientsDashboardDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 10);
+    const result = await MeetingService.getNewClientsDetails(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      page,
+      limit
+    );
+    res.status(200).json({
+      success: true,
+      message: "New clients fetched successfully",
+      data: result.data,
+      pagination: result.pagination,
+    });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};

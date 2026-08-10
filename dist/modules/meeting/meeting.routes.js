@@ -47,4 +47,5 @@ const router = (0, express_1.Router)();
 router.post("/meetings/schedule", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "schedule"), MeetingController.scheduleMeeting);
 router.patch("/meetings/:id/reschedule", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "update"), MeetingController.rescheduleMeeting);
 router.get("/meetings/dashboard", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "view"), MeetingController.getMeetingDashboard);
+router.get("/meetings/dashboard/details", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "view"), MeetingController.getMeetingDashboardDetails);
 exports.default = router;
