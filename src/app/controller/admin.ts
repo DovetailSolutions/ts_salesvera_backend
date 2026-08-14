@@ -532,14 +532,145 @@ export const DeleteCategory = async (
   }
 };
 
+// export const getMeeting = async (
+//   req: Request,
+//   res: Response
+// ): Promise<void> => {
+//   try {
+//     const {
+//       page = 1,
+//       limit = 10,
+//       search = "",
+//       userId,
+//       date,
+//       startDate,
+//       endDate,
+//       empty,
+//     } = req.query;
+//     const userData = req.userData as JwtPayload;
+//     const loggedInId = userData?.userId;
+//     const role = userData?.role;
+//     let ll = loggedInId;
+//     let manager: any = null;
+//     if (role === "manager") {
+//       manager = await User.findByPk(loggedInId, {
+//         attributes: ["id", "role"],
+//         include: [
+//           {
+//             model: User,
+//             as: "creators",
+//             attributes: ["id", "role"],
+//             through: { attributes: [] },
+//           },
+//         ],
+//       });
+//       const plain = manager?.get({ plain: true }) as any;
+//       if (plain?.creators?.length > 0) {
+//         ll = plain.creators[0].id; // parent admin ID
+//       }
+//     }
+//     const pageNum = Number(page);
+//     const limitNum = Number(limit);
+//     const offset = (pageNum - 1) * limitNum;
+//     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+//     const childIds = await getCompanyScopedChildUserIdsFast(ll, callerCompanyId);
+//     const allowedIds = [ll, ...childIds];
+//     const ownAllowedIds =
+//       role === "manager"
+//         ? [loggedInId, ...(await getCompanyScopedChildUserIds(loggedInId, callerCompanyId))]
+//         : allowedIds;
+//     const where: any = {};
+//     if (empty === "true") {
+//       where.userId = ll;
+//     } else if (userId) {
+//       const requestedId = Number(userId);
+//       if (!ownAllowedIds.includes(requestedId)) {
+//         forbidden(res, "You can only view meetings of your own team members");
+//         return;
+//       }
+//       where.userId = requestedId;
+//     } else {
+//       where.userId = { [Op.in]: ownAllowedIds };
+//     }
+//     if (search) {
+//       where[Op.or] = [
+//         { companyName: { [Op.iLike]: `%${search}%` } },
+//         { name: { [Op.iLike]: `%${search}%` } },
+//       ];
+//     }
+
+  
+//     let meetingTimeWindow: { [key: symbol]: any } | null = null;
+//     if (date) {
+//       meetingTimeWindow = {
+//         [Op.between]: [
+//           getISTDayBoundary(String(date), "start"),
+//           getISTDayBoundary(String(date), "end"),
+//         ],
+//       };
+//     } else if (startDate || endDate) {
+//       const filter = getDateFilter({ startDate, endDate });
+//       if (Object.keys(filter).length > 0) meetingTimeWindow = filter;
+//     }
+
+//     if (meetingTimeWindow) {
+//       const matches = (await Meeting.findAll({
+//         where: { meetingTimeIn: meetingTimeWindow, userId: where.userId },
+//         attributes: ["meetingUserId"],
+//         group: ["meetingUserId"],
+//         raw: true,
+//       })) as any[];
+//       const matchingIds = matches.map((m) => m.meetingUserId).filter((id) => id != null);
+     
+//       where.id = { [Op.in]: matchingIds.length > 0 ? matchingIds : [-1] };
+//     }
+//     const { rows, count } = await MeetingUser.findAndCountAll({
+//       attributes: [
+//         "id", "name", "email", "mobile", "userId", "customerType",
+//         "companyName", "status", "gstNumber", "panNumber",
+//         "address", "city", "state", "pincode", "country", "createdAt",
+//       ],
+//       where,
+//       include: [
+//         {
+//           model: Meeting, // joined via Meeting.meetingUserId -> MeetingUser.id
+//           separate: true,
+          
+//           ...(meetingTimeWindow ? { where: { meetingTimeIn: meetingTimeWindow } } : {}),
+//           order: [["meetingTimeIn", "DESC"]],
+
+//         },
+        
+//       ],
+//       distinct: true, // avoid inflated count from the hasMany join
+//       offset,
+//       limit: limitNum,
+//       order: [["createdAt", "DESC"]],
+//     });
+//     createSuccess(res, "User Meeting fetched successfully", {
+//       page: pageNum,
+//       limit: limitNum,
+//       total: count,
+//       totalPages: Math.ceil(count / limitNum),
+//       rows,
+//     });
+//   } catch (error) {
+//     const errorMessage =
+//       error instanceof Error ? error.message : "Something went wrong";
+//     badRequest(res, errorMessage);
+//     return;
+//   }
+// };
+
+
 export const getMeeting = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     const {
-      page = 1,
-      limit = 10,
+      page = "1",
+      limit = "10",
       search = "",
       userId,
       date,
@@ -547,198 +678,224 @@ export const getMeeting = async (
       endDate,
       empty,
     } = req.query;
+
     const userData = req.userData as JwtPayload;
-    const loggedInId = userData?.userId;
+
+    const loggedInId = Number(userData?.userId);
     const role = userData?.role;
-    let ll = loggedInId;
-    let manager: any = null;
+    const callerCompanyId = userData?.companyId
+      ? Number(userData.companyId)
+      : null;
+
+    if (!loggedInId) {
+      badRequest(res, "UserId not found");
+      return;
+    }
+
+    const pageNum = Math.max(Number(page) || 1, 1);
+    const limitNum = Math.min(Math.max(Number(limit) || 10, 1), 50);
+    const offset = (pageNum - 1) * limitNum;
+
+    /**
+     * ----------------------------------------------------
+     * Find scope user
+     * ----------------------------------------------------
+     */
+    let scopeUserId = loggedInId;
+
     if (role === "manager") {
-      manager = await User.findByPk(loggedInId, {
-        attributes: ["id", "role"],
+      const manager = await User.findByPk(loggedInId, {
+        attributes: ["id"],
         include: [
           {
             model: User,
             as: "creators",
-            attributes: ["id", "role"],
-            through: { attributes: [] },
+            attributes: ["id"],
+            through: {
+              attributes: [],
+            },
           },
         ],
       });
 
-      const plain = manager?.get({ plain: true }) as any;
+      const managerData = manager?.get({
+        plain: true,
+      }) as any;
 
-      if (plain?.creators?.length > 0) {
-        ll = plain.creators[0].id; // parent admin ID
+      if (managerData?.creators?.length) {
+        scopeUserId = Number(managerData.creators[0].id);
       }
     }
 
+    /**
+     * ----------------------------------------------------
+     * Get allowed users
+     * ----------------------------------------------------
+     */
+    let allowedIds: number[];
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const offset = (pageNum - 1) * limitNum;
+    if (role === "manager") {
+      const childIds =
+        await getCompanyScopedChildUserIdsFast(
+          loggedInId,
+          callerCompanyId
+        );
 
-    // FIX: previously `where` stayed `{}` (no userId filter at all) unless the
-    // caller explicitly passed `empty=true` or `userId` — a plain GET with no
-    // query params returned every company's meeting records. Always scope to
-    // the caller's own team.
-    // FIX: the team walk itself has no notion of company, so an admin (or the
-    // parent admin `ll` re-anchored to above) who is assigned to more than one
-    // company exposed the OTHER company's meetings to whichever company the
-    // caller is currently acting in. The anchor stays the parent admin — the
-    // shared client pool is deliberate — but the pool is now limited to the
-    // company in the caller's active token.
-    // PERF: Fast variant — see getDashboardSummary. This endpoint backs both
-    // /client-management (Client List) and the Meeting Management page, so
-    // the old one-DB-round-trip-per-user walk hit every team member on
-    // every page load/search keystroke of either page.
-    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIdsFast(ll, callerCompanyId);
-    const allowedIds = [ll, ...childIds];
+      allowedIds = [loggedInId, ...childIds];
+    } else {
+      const childIds =
+        await getCompanyScopedChildUserIdsFast(
+          scopeUserId,
+          callerCompanyId
+        );
 
-    // `allowedIds` above is anchored to the parent admin for a manager
-    // (deliberate — see the "shared client pool" comment on `ll`), which is
-    // correct for `empty==="true"` but was ALSO being used to authorize/scope
-    // everything else: a manager could pass any OTHER manager's salesperson
-    // as `userId` and it would pass the `allowedIds.includes(...)` check
-    // (whole org, not just their own team), and the no-userId default listing
-    // branch handed back the whole org's meetings the same way. Neither is
-    // the "shared client pool" case, so both need the manager's OWN team,
-    // never widened to siblings.
-    const ownAllowedIds =
-      role === "manager"
-        ? [loggedInId, ...(await getCompanyScopedChildUserIds(loggedInId, callerCompanyId))]
-        : allowedIds;
+      allowedIds = [scopeUserId, ...childIds];
+    }
 
-    const where: any = {};
+    allowedIds = [...new Set(allowedIds)];
+
+    /**
+     * ----------------------------------------------------
+     * MeetingUser filter
+     * ----------------------------------------------------
+     */
+    const meetingUserWhere: any = {};
 
     if (empty === "true") {
-      where.userId = ll;
+      meetingUserWhere.userId = scopeUserId;
     } else if (userId) {
       const requestedId = Number(userId);
-      if (!ownAllowedIds.includes(requestedId)) {
-        forbidden(res, "You can only view meetings of your own team members");
+
+      if (!allowedIds.includes(requestedId)) {
+        forbidden(
+          res,
+          "You can only view meetings of your own team members"
+        );
         return;
       }
-      where.userId = requestedId;
+
+      meetingUserWhere.userId = requestedId;
     } else {
-      where.userId = { [Op.in]: ownAllowedIds };
+      meetingUserWhere.userId = {
+        [Op.in]: allowedIds,
+      };
     }
 
-    // FIX: was `personName` — MeetingUser has no such column (that field
-    // only exists on the separate MeetingCompany model), so this crashed
-    // every search with a 400 "column MeetingUser.personName does not
-    // exist" the moment the team search box's text was also sent through
-    // as the meetings search param. MeetingUser's actual client-name column
-    // is `name`.
+    /**
+     * ----------------------------------------------------
+     * Search MeetingUser
+     * ----------------------------------------------------
+     */
     if (search) {
-      where[Op.or] = [
-        { companyName: { [Op.iLike]: `%${search}%` } },
-        { name: { [Op.iLike]: `%${search}%` } },
+      const searchTerm = `%${String(search).trim()}%`;
+
+      meetingUserWhere[Op.or] = [
+        {
+          companyName: {
+            [Op.iLike]: searchTerm,
+          },
+        },
+        {
+          name: {
+            [Op.iLike]: searchTerm,
+          },
+        },
       ];
     }
 
-    // FIX: `meetingTimeIn`/`meetingTimeOut` live on the child Meeting model
-    // (one client can have many visits), not on MeetingUser itself — filtering
-    // `where.meetingTimeIn` directly on the MeetingUser query crashed every
-    // "Today"/"Yesterday" tab with a 400 "column MeetingUser.meetingTimeIn
-    // does not exist", and the "Range" (startDate/endDate) filter was never
-    // read at all, so it silently had no effect. Both are resolved into a
-    // single IST-aware window, then applied two ways below: (1) to select
-    // which clients qualify — a client matches if ANY of their visits falls
-    // in the window — and (2) to scope which of that client's visits are
-    // actually returned, so "Visits" count / "Last Check-in" / "Last
-    // Check-out" reflect the selected filter instead of always showing the
-    // client's all-time history regardless of which date tab is active.
-    let meetingTimeWindow: { [key: symbol]: any } | null = null;
+    /**
+     * ----------------------------------------------------
+     * Meeting date filter
+     * ----------------------------------------------------
+     */
+    let meetingWhere: any = {};
+
     if (date) {
-      // FIX: was setUTCHours(0/23,...) — a UTC calendar day is offset 5:30h
-      // from the real IST business day this business operates in, so a
-      // "date=2026-08-01" filter silently excluded that morning's meetings
-      // before 5:30 AM IST (they fell in the previous UTC day) and instead
-      // pulled in meetings from the following IST morning. Resolve which IST
-      // calendar day the input represents, then build the boundary from that
-      // via the explicit-offset helpers so this is correct regardless of
-      // server timezone too.
-      meetingTimeWindow = {
+      meetingWhere.meetingTimeIn = {
         [Op.between]: [
           getISTDayBoundary(String(date), "start"),
           getISTDayBoundary(String(date), "end"),
         ],
       };
     } else if (startDate || endDate) {
-      const filter = getDateFilter({ startDate, endDate });
-      if (Object.keys(filter).length > 0) meetingTimeWindow = filter;
+      const filter = getDateFilter({
+        startDate,
+        endDate,
+      });
+
+      if (Object.keys(filter).length > 0) {
+        meetingWhere.meetingTimeIn = filter;
+      }
     }
 
-    if (meetingTimeWindow) {
-      // Reuse the exact same userId scope already resolved into `where`
-      // above (a single requested salesperson, or the caller's whole team)
-      // rather than re-deriving it, so this prefilter can never end up
-      // broader than the visibility the caller was actually granted.
-      const matches = (await Meeting.findAll({
-        where: { meetingTimeIn: meetingTimeWindow, userId: where.userId },
-        attributes: ["meetingUserId"],
-        group: ["meetingUserId"],
-        raw: true,
-      })) as any[];
-      const matchingIds = matches.map((m) => m.meetingUserId).filter((id) => id != null);
-      // No matches is a legitimate "nothing in this window" result, not
-      // "ignore the filter" — Op.in: [] would do the latter in some dialects,
-      // so force an always-false condition instead.
-      where.id = { [Op.in]: matchingIds.length > 0 ? matchingIds : [-1] };
-    }
+    /**
+     * ----------------------------------------------------
+     * Meeting include
+     * ----------------------------------------------------
+     */
+    const meetingInclude: any = {
+      model: Meeting,
+      required: Boolean(Object.keys(meetingWhere).length),
+      separate: true,
 
-    const { rows, count } = await MeetingUser.findAndCountAll({
-      // PERF: was pulling every MeetingUser column (attributes previously
-      // commented out, presumably abandoned after the columns above were
-      // guessed wrong — MeetingUser has no personName/mobileNumber/
-      // companyEmail/meetingTimeIn/meetingTimeOut/meetingPurpose; those live
-      // on the child Meeting model, already included separately below).
-      // This list is every column actually consumed client-side, verified
-      // against both consumers of this endpoint: the Client Management page
-      // (id/name/mobile/email/createdAt) and the Meeting Management page's
-      // list + detail drawer (+customerType/companyName/status/gstNumber/
-      // panNumber/address/city/state/pincode/country/userId). Only
-      // tallyGuid (internal Tally-sync id) and updatedAt are excluded —
-      // neither is rendered anywhere.
-      attributes: [
-        "id", "name", "email", "mobile", "userId", "customerType",
-        "companyName", "status", "gstNumber", "panNumber",
-        "address", "city", "state", "pincode", "country", "createdAt",
-      ],
-      where,
+      order: [["meetingTimeIn", "DESC"]],
+
       include: [
         {
-          model: Meeting, // joined via Meeting.meetingUserId -> MeetingUser.id
-          // `separate: true` runs this as its own query per returned client
-          // rather than a JOIN — needed so its own `where` here narrows which
-          // visits come back without ALSO corrupting the outer LIMIT/OFFSET
-          // (a hasMany include with a `where` and a JOIN can silently drop or
-          // duplicate parent rows once paginated).
-          separate: true,
-          // PERF: every Meeting column the Meeting Management list + detail
-          // drawer + "Visits" count actually reads — userId/companyId/
-          // categoryId/subCategoryId/pincode are never rendered (categoryId
-          // is only echoed back on the *request* when scheduling, not read
-          // off these response rows).
-          attributes: [
-            "id", "status", "scheduledTime", "meetingTimeIn", "meetingTimeOut",
-            "meetingPurpose", "latitude_in", "longitude_in", "latitude_out",
-            "longitude_out", "totalDistance", "legDistance",
-          ],
-          ...(meetingTimeWindow ? { where: { meetingTimeIn: meetingTimeWindow } } : {}),
-          order: [["meetingTimeIn", "DESC"]],
+          model: MeetingUser,
+          required: false,
         },
+        {
+          model: MeetingCompany,
+          required: false,
+        },
+        // {
+        //   model: MeetingImage,
+        //   required: false,
+        // },
       ],
-      distinct: true, // avoid inflated count from the hasMany join
-      offset,
-      limit: limitNum,
-      order: [["createdAt", "DESC"]],
-    });
+    };
 
-    // FIX: an empty result is a legitimate state (no meetings/clients yet),
-    // not an error — was previously a 400, which made every caller treat
-    // "nothing to show" as a failed request instead of an empty list.
+    if (Object.keys(meetingWhere).length) {
+      meetingInclude.where = meetingWhere;
+    }
+
+    /**
+     * ----------------------------------------------------
+     * Query
+     * ----------------------------------------------------
+     */
+    const { rows, count } =
+      await MeetingUser.findAndCountAll({
+        attributes: [
+          "id",
+          "name",
+          "email",
+          "mobile",
+          "userId",
+          "customerType",
+          "companyName",
+          "status",
+          "gstNumber",
+          "panNumber",
+          "address",
+          "city",
+          "state",
+          "pincode",
+          "country",
+          "createdAt",
+        ],
+
+        where: meetingUserWhere,
+
+        include: [meetingInclude],
+
+        limit: limitNum,
+        offset,
+
+        order: [["createdAt", "DESC"]],
+      });
+
     createSuccess(res, "User Meeting fetched successfully", {
       page: pageNum,
       limit: limitNum,
@@ -748,12 +905,13 @@ export const getMeeting = async (
     });
   } catch (error) {
     const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
+      error instanceof Error
+        ? error.message
+        : "Something went wrong";
+
     badRequest(res, errorMessage);
-    return;
   }
 };
-
 export const BulkAddSalePerson = async (
   req: Request,
   res: Response
