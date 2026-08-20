@@ -4,7 +4,7 @@ import { Task, TaskHistory, TaskComment, User, Permission, UserPermission } from
 import { getUserPermissionsFromCache } from "../config/permissionCache";
 import { sendNotification } from "../config/notificationService";
 import { NotificationType } from "../app/model/Notification";
-import { getDirectCreator } from "../modules/shared/userHierarchy";
+import { getDirectCreator, getCompanyScopedChildUserIds } from "../modules/shared/userHierarchy";
 import { getISTDateString } from "../modules/shared/dateUtils";
 
 const loadUserPermissionsFromDB = async (userId: number): Promise<string[]> => {
@@ -23,16 +23,27 @@ const hasPermission = async (userId: number, companyId: number, role: string, ac
 };
 
 // ─── Shared "which tasks can this caller see" where-clause ───────────────────
-// admin/super_admin/manager/user all see the whole company; sale_person only
-// ever sees tasks assigned to them. Centralized so the visibility rule is
-// defined once instead of drifting across getTaskById/updateTask/comments/
-// history like it previously did (manager used to be wrongly restricted to
-// only their own created/assigned tasks here).
-const buildTaskVisibilityWhere = (companyId: number, role: string, uid: number, taskId?: number) => {
+// admin/super_admin/user see the whole company; sale_person only ever sees
+// tasks assigned to them; manager sees only their OWN hierarchy (themself +
+// their recursive team, company-scoped) — NOT the whole company. Centralized
+// so the visibility rule is defined once instead of drifting across
+// getTaskById/updateTask/comments/history.
+//
+// FIX: this previously gave managers unrestricted company-wide visibility
+// (where.companyId only, no assignedTo restriction at all), which let any
+// manager see every other manager's salesperson tasks in the same company —
+// a data-isolation leak, not a business rule. getCompanyScopedChildUserIds
+// is the same helper ~14 other "my team" endpoints already use.
+const buildTaskVisibilityWhere = async (companyId: number, role: string, uid: number, taskId?: number) => {
   const where: any = {};
   if (taskId !== undefined) where.id = taskId;
   if (role !== "super_admin") where.companyId = Number(companyId);
-  if (role === "sale_person") where.assignedTo = uid;
+  if (role === "sale_person") {
+    where.assignedTo = uid;
+  } else if (role === "manager") {
+    const teamIds = await getCompanyScopedChildUserIds(uid, companyId);
+    where.assignedTo = { [Op.in]: [uid, ...teamIds] };
+  }
   return where;
 };
 
@@ -167,16 +178,24 @@ export const initTaskSocket = (io: Server): void => {
     });
 
     // ── GET ALL TASKS ────────────────────────────────────────────────────────
-    // client emits: getAllTasks  { status?, priority?, assignedTo?, assignedBy?, page?, limit?, tags?, dateScope? }
+    // client emits: getAllTasks  { status?, priority?, assignedTo?, assignedBy?, page?, limit?, tags?, dateScope?, overdue?, requestId? }
     // dateScope ("today" | "history") only applies when status is exactly
     // "completed" — lets the board show "done today" vs a separate task
     // history view without changing default (undated) behavior for every
     // other query (the main kanban board still fetches all statuses at once).
+    // overdue (bool) — used by the Task History page's "Overdue" filter:
+    // open tasks (not completed/cancelled) whose dueDate has passed. There is
+    // no "overdue" status column, so this is expressed as a where-clause
+    // instead of a status value.
+    // requestId — opaque token the caller can pass through unchanged so it can
+    // match a "taskList" response back to the request that triggered it (the
+    // Task History page fires one of these per filter/page change and needs
+    // to discard stale responses if a newer request's result arrives first).
     socket.on("getAllTasks", async (data = {}) => {
       if (!await hasPermission(uid, companyId, role, "view")) {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
       }
-      const { status, priority, assignedTo, assignedBy, page = 1, limit: limitQ = 20, tags, dateScope } = data;
+      const { status, priority, assignedTo, assignedBy, page = 1, limit: limitQ = 20, tags, dateScope, overdue, requestId } = data;
       const pageNum  = Math.max(1, Number(page));
       const limitNum = Math.min(50, Number(limitQ));
       const offset   = (pageNum - 1) * limitNum;
@@ -184,15 +203,37 @@ export const initTaskSocket = (io: Server): void => {
       try {
         const where: any = { companyId: Number(companyId) };
 
-        // Manager sees the whole company's tasks now, same as admin/user —
-        // previously restricted to only tasks they personally created or
-        // were assigned, which hid the rest of the team's work from them.
-        if (role === "sale_person") where.assignedTo = uid;
+        // sale_person only ever sees their own tasks; manager is scoped to
+        // their own hierarchy (self + recursive team, company-scoped) — NOT
+        // the whole company. FIX: this previously had no manager restriction
+        // at all (company-wide, same as admin), which let any manager see
+        // every other manager's salesperson tasks in the same company.
+        let managerTeamIds: number[] | null = null;
+        if (role === "sale_person") {
+          where.assignedTo = uid;
+        } else if (role === "manager") {
+          const teamIds = await getCompanyScopedChildUserIds(uid, companyId);
+          managerTeamIds = [uid, ...teamIds];
+          where.assignedTo = { [Op.in]: managerTeamIds };
+        }
 
-        if (status)   where.status   = status;
+        if (overdue) {
+          where.status = { [Op.notIn]: ["completed", "cancelled"] };
+          where.dueDate = { [Op.ne]: null, [Op.lt]: new Date() };
+        } else if (status) {
+          where.status = status;
+        }
         if (priority) where.priority = priority;
         if (tags)     where.tags     = tags;
-        if (assignedTo && role !== "sale_person") where.assignedTo = Number(assignedTo);
+        if (assignedTo && role !== "sale_person") {
+          const requestedId = Number(assignedTo);
+          // A manager can narrow the filter to one of their own team members,
+          // but not to an arbitrary user id — otherwise the assignedTo query
+          // param itself would bypass the hierarchy restriction above.
+          if (!managerTeamIds || managerTeamIds.includes(requestedId)) {
+            where.assignedTo = requestedId;
+          }
+        }
         // admin/super_admin/manager can filter by who created/assigned the task
         if (assignedBy && role !== "sale_person") where.assignedBy = Number(assignedBy);
 
@@ -228,6 +269,7 @@ export const initTaskSocket = (io: Server): void => {
           totalPages: Math.ceil(count / limitNum),
           currentPage: pageNum,
           data: rows,
+          ...(requestId !== undefined ? { requestId } : {}),
         });
       } catch (err) {
         console.error("getAllTasks socket error:", err);
@@ -242,7 +284,7 @@ export const initTaskSocket = (io: Server): void => {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
       }
       try {
-        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(id));
+        const where = await buildTaskVisibilityWhere(companyId, role, uid, Number(id));
 
         const task = await Task.findOne({
           where,
@@ -271,11 +313,9 @@ export const initTaskSocket = (io: Server): void => {
       const { id, title, description, status, priority, dueDate, assignedTo, tags } = data;
 
       try {
-        // Manager now gets the same company-wide visibility as admin/user —
-        // previously restricted to only tasks they personally created or
-        // were assigned, which meant they couldn't manage the rest of the
-        // team's tasks despite having task:update.
-        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(id));
+        // Manager can only update tasks within their own hierarchy — see
+        // buildTaskVisibilityWhere.
+        const where = await buildTaskVisibilityWhere(companyId, role, uid, Number(id));
 
         const task = await Task.findOne({ where });
         if (!task) return socket.emit("taskError", { message: "Task not found" });
@@ -417,7 +457,7 @@ export const initTaskSocket = (io: Server): void => {
       const { id } = data;
       try {
         if (id !== undefined) {
-          const where = buildTaskVisibilityWhere(companyId, role, uid, Number(id));
+          const where = await buildTaskVisibilityWhere(companyId, role, uid, Number(id));
           const task = await Task.findOne({ where, attributes: ["id"] });
           if (!task) return socket.emit("taskError", { message: "Task not found" });
 
@@ -439,7 +479,7 @@ export const initTaskSocket = (io: Server): void => {
         const limitNum = Math.min(50, Number(limitQ));
         const offset   = (pageNum - 1) * limitNum;
 
-        const taskWhere = buildTaskVisibilityWhere(companyId, role, uid);
+        const taskWhere = await buildTaskVisibilityWhere(companyId, role, uid);
 
         const { count, rows } = await TaskHistory.findAndCountAll({
           include: [
@@ -495,7 +535,7 @@ export const initTaskSocket = (io: Server): void => {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:view permission" });
       }
       try {
-        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(taskId));
+        const where = await buildTaskVisibilityWhere(companyId, role, uid, Number(taskId));
         const task = await Task.findOne({ where, attributes: ["id"] });
         if (!task) return socket.emit("taskError", { message: "Task not found" });
 
@@ -526,7 +566,7 @@ export const initTaskSocket = (io: Server): void => {
         return socket.emit("taskError", { message: "taskId and a non-empty body are required" });
       }
       try {
-        const where = buildTaskVisibilityWhere(companyId, role, uid, Number(taskId));
+        const where = await buildTaskVisibilityWhere(companyId, role, uid, Number(taskId));
         const task = await Task.findOne({ where });
         if (!task) return socket.emit("taskError", { message: "Task not found" });
 
