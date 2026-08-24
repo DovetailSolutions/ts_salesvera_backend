@@ -3410,7 +3410,8 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
       status: data.status || "draft",
       isConsumed: false,
       guid: data.guid || null,
-      alterid: data.alterid || null
+      alterid: data.alterid || null,
+      gst: data.gst || null,
     });
 
     res.status(201).json({
@@ -3898,6 +3899,7 @@ export const addInvoice = async (
       date,
       guid,
       alterid,
+      gst,
       ...restData
     } = data;
 
@@ -4030,7 +4032,8 @@ export const addInvoice = async (
       invoice: restData,
       items: data.items,
       guid: guid || null,
-      alterid: alterid || null
+      alterid: alterid || null,
+      gst: gst || null
     };
 
     const invoiceData = await Invoices.create(invoicePayload, {
