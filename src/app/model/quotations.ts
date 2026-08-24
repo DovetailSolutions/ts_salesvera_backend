@@ -16,7 +16,7 @@ interface QuotationAttributes {
   alterid?: string | null;
   TallyAPISync?: boolean
   branchId?: number | null;
-  GST?: string | null;
+  gst ?: string | null;
 }
 
 interface QuotationCreationAttributes
@@ -101,7 +101,7 @@ export class Quotations
           type: DataTypes.INTEGER,
           allowNull: true,
         },
-        GST: {
+        gst : {
           type: DataTypes.STRING,
           allowNull: true,
         }
