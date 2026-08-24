@@ -2291,7 +2291,7 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
       guid: data.guid || null,
       alterid: data.alterid || null,
       status: "draft",
-      gst: data.gst || null
+      gstNumber: data.gstNumber || null
     });
 
     res.status(201).json({
@@ -2973,7 +2973,7 @@ export const addInvoice = async (
       guid,
       alterid,
 
-      gst,
+        gstNumber,
       ...restData
     } = data;
 
@@ -3079,7 +3079,7 @@ export const addInvoice = async (
       items: data.items,
       guid: guid || null,
       alterid: alterid || null,
-      gst: data.gst || null
+      gstNumber: data.gstNumber || null
     };
 
     const invoiceData = await Invoices.create(invoicePayload, {

@@ -16,7 +16,7 @@ interface InvoiceAttributes {
   guid?: string | null;
   alterid?: string | null;
   TallyAPISync?: boolean
-  gst ?: string | null;
+  gstNumber?: string | null;
 }
 
 interface InvoiceCreationAttributes
@@ -113,7 +113,7 @@ export class Invoices
           type: DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected", "cancelled", "deleted"),
           defaultValue: "draft",
         },
-        gst : {
+        gstNumber: {
           type: DataTypes.STRING,
           allowNull: true,
         } ,
