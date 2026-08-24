@@ -16,6 +16,7 @@ interface QuotationAttributes {
   alterid?: string | null;
   TallyAPISync?: boolean
   branchId?: number | null;
+  GST?: string | null;
 }
 
 interface QuotationCreationAttributes
@@ -36,6 +37,7 @@ export class Quotations
   public guid?: string | null;
   public alterid?: string | null;
   public TallyAPISync!: boolean
+
 
   static initModel(sequelize: Sequelize) {
     Quotations.init(
@@ -99,6 +101,10 @@ export class Quotations
           type: DataTypes.INTEGER,
           allowNull: true,
         },
+        GST: {
+          type: DataTypes.STRING,
+          allowNull: true,
+        }
       },
       {
         sequelize,
