@@ -356,6 +356,7 @@ export const GetProfile = async (
             as: "companyBanks",
             required: false,
           },
+           { model: Branch, as: "branches" },
         ],
         // 👈 company where adminId = root admin's ID
       });
