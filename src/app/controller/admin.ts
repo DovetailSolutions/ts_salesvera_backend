@@ -3434,12 +3434,10 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
 export const getQuotationPdfList2 = async (req: Request, res: Response) => {
   try {
     const userData = req.userData as JwtPayload;
-    
-
+    // console.log("User data in getQuotationPdfList2:", userData);
     if (!userData || !userData.userId) {
       return badRequest(res, "Unauthorized request");
     }
-
     // ✅ Pagination
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
@@ -3454,18 +3452,9 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     if (status && !allowedStatus.includes(status)) {
       return badRequest(res, "Invalid status value");
     }
-    // 🟢 HIERARCHY LOGIC 🟢
-    // Admin > Manager > Sales Person
-    // We fetch all sub-users created by the logged-in user, and their sub-users too.
-    
-    // 🟢 DEEP HIERARCHY LOGIC (Recursive Descendants) 🟢
-    // Starts with the logged-in user and recursively finds all children, grandchildren, etc.
-    // This supports chains like: Admin(1) > Manager(15) > Manager(16) > Sales Person(17)
-    
+
     let teamUserIds: any[] = [userData.userId]; 
     let currentParentIds: any[] = [userData.userId];
-
-    // 🔄 Loop until no more children are found at the next level
     while (currentParentIds.length > 0) {
       // Find all users created by the current batch of parents
       const subUsers = await User.findAll({
@@ -3478,7 +3467,6 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
       });
 
       let nextLevelParentIds: any[] = [];
-      
       subUsers.forEach((u: any) => {
         const children = (u as any).createdUsers || [];
         children.forEach((child: any) => {
@@ -3493,36 +3481,20 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
       // Move to the next generation
       currentParentIds = nextLevelParentIds;
     }
-
-
-
     // ✅ Base where condition for Quotations
     // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
+    console.log("Team user IDs for getQuotationPdfList2:", teamUserIds);
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
       status: {
         [Op.notIn]: ["cancelled", "deleted"]
       }
     };
-
-    // Company isolation — an admin/manager assigned to more than one company
-    // must not keep seeing another company's quotations after switching.
-    // The hierarchy walk above is company-blind (it only knows who created
-    // whom), so scope by the quotation's own companyId, which is the
-    // authoritative owner.
-    //
-    // Deliberately fails OPEN on NULL: legacy/Tally-synced rows may predate
-    // companyId being stamped, and hiding every such row would be far worse
-    // than showing it. Only rows that positively belong to a DIFFERENT
-    // company are excluded — same convention as getCompanyScopedChildUserIds.
-    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
-    if (callerCompanyId) {
-      whereCondition.companyId = { [Op.or]: [callerCompanyId, null] };
-    }
-
-
-
-    // ✅ Status filter
+    // const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    // if (callerCompanyId) {
+    //   whereCondition.companyId = { [Op.or]: [callerCompanyId, null] };
+    // }
+    // // ✅ Status filter
     if (status) {
       whereCondition.status = status;
     }
@@ -3535,6 +3507,9 @@ if (companyName) {
     ),
   ];
 }
+
+// console.log("Where condition for getQuotationPdfList2:", JSON.stringify(whereCondition, null, 2));
+
 
     // ✅ Query
     const { count, rows } = await Quotations.findAndCountAll({
