@@ -245,6 +245,27 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
       "leaveApproved",
       (leave as any).companyLeaveId ?? null
     );
+
+    // FIX (ATT-001): half_day/short_leave never had a placeholder "leave"
+    // row created at request time (see inferLegacyLeaveTypeEnum's comment
+    // in createLeaveRequest), so the update above has nothing to flip and
+    // the day was left with NO attendance record at all. Backfill it now —
+    // findOrCreate is a no-op wherever the employee already punched in.
+    const leaveTypeEnum = (leave as any).leave_type;
+    if (leaveTypeEnum === "half_day" || leaveTypeEnum === "short_leave") {
+      const from = new Date(leave.from_date);
+      const to = new Date(leave.to_date);
+      const dates: Date[] = [];
+      for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += 86400000) {
+        dates.push(new Date(cursor));
+      }
+      await LeaveRepo.fillMissingLeaveAttendance(
+        employee_id,
+        dates,
+        (leave as any).companyLeaveId ?? null,
+        leaveTypeEnum
+      );
+    }
   }
 
   return leave;

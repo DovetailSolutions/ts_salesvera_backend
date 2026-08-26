@@ -129,13 +129,13 @@ export const CreateToken = (userId: string, role: string, companyId?: string | n
   if (companyId) payload.companyId = Number(companyId);
 
   const accessToken = jwt.sign(
-    payload,
+    { ...payload, type: "access" },
     JWT_SECRET,
     { expiresIn: "30d" } // short-lived
   );
 
   const refreshToken = jwt.sign(
-    payload,
+    { ...payload, type: "refresh" },
     JWT_SECRET,
     { expiresIn: "60d" } // long-lived
   );

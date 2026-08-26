@@ -136,6 +136,36 @@ export const createLeaveRequest = (data: any) => Leave.create(data);
 
 export const bulkCreateLeaveAttendance = (rows: any[]) => Attendance.bulkCreate(rows);
 
+// FIX (ATT-001): createLeaveRequest deliberately skips creating a placeholder
+// Attendance row for half_day/short_leave (they're partial-day, and a
+// placeholder would collide with a real punch-in/out that day) — but
+// approveLeave's markAttendanceForLeaveRange only ever UPDATES an existing
+// row, so those two leave types ended up with no Attendance row at all once
+// approved: the register/reports showed the day as a plain, unexplained
+// absence, indistinguishable from a no-show. findOrCreate here only fills
+// the gap where NOTHING exists yet (i.e. the employee never punched in) —
+// a real punch for that day is left completely untouched, preserving the
+// original intent.
+export const fillMissingLeaveAttendance = async (
+  employeeId: number | string,
+  dates: Date[],
+  companyLeaveId: number | null,
+  dayType: "half_day" | "short_leave"
+) => {
+  for (const date of dates) {
+    await Attendance.findOrCreate({
+      where: { employee_id: employeeId, date },
+      defaults: {
+        employee_id: employeeId,
+        date,
+        status: "leaveApproved",
+        companyLeaveId,
+        dayType,
+      } as any,
+    });
+  }
+};
+
 export const findEmployeeLeavesPaginated = (employeeId: number, limit: number, offset: number) =>
   Leave.findAndCountAll({
     where: { employee_id: employeeId },

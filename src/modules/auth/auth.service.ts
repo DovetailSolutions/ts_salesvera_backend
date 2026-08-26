@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import { ServiceError } from "../shared/serviceError";
 import * as Middleware from "../../app/middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
-import { User } from "../../config/dbConnection";
+import { User, CompanyManager } from "../../config/dbConnection";
 import { getAllChildUserIds } from "../shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../shared/companyAccess";
 import { resolveCompanyId } from "../../config/tokenCheck";
@@ -130,19 +130,24 @@ export const register = async (body: any, callerData?: { userId?: number | strin
       ? Number(shiftId)
       : null;
 
+  // Resolved once whenever there's a creator — used for the branch/shift
+  // defaulting below AND to link a new manager into the CompanyManager
+  // junction table (see FIX further down), not just when branch/shift
+  // defaulting happens to be needed.
+  const creatorCompanyId: number | null = creator
+    ? await resolveCompanyId(creator.id, creator.role, null)
+    : null;
+
   // No branch/shift explicitly given — default to the company's main branch
   // (its first-ever registered branch) and its first-ever registered shift,
   // resolved via the creator's own company, instead of leaving this employee
   // unassigned. Silently no-ops (stays null) if the company has neither yet
   // (e.g. this is the very first user created, before Step 1/3 have run) or
   // no company context is resolvable at all.
-  if ((resolvedBranchId === null || resolvedShiftId === null) && creator) {
-    const creatorCompanyId = await resolveCompanyId(creator.id, creator.role, null);
-    if (creatorCompanyId) {
-      const defaults = await resolveDefaultBranchAndShift(creatorCompanyId);
-      if (resolvedBranchId === null) resolvedBranchId = defaults.branchId;
-      if (resolvedShiftId === null) resolvedShiftId = defaults.shiftId;
-    }
+  if ((resolvedBranchId === null || resolvedShiftId === null) && creatorCompanyId) {
+    const defaults = await resolveDefaultBranchAndShift(creatorCompanyId);
+    if (resolvedBranchId === null) resolvedBranchId = defaults.branchId;
+    if (resolvedShiftId === null) resolvedShiftId = defaults.shiftId;
   }
 
   const obj: any = {
@@ -228,6 +233,22 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     }
   }
 
+  // FIX (ATT-003 root cause): a newly-registered manager was never linked to
+  // their company via the CompanyManager junction table — admins get linked
+  // via Company.adminId (set when their company is registered), but managers
+  // have no equivalent direct FK and nothing here ever created this row.
+  // Both login()'s companyId resolution and every subsequent request's
+  // resolveCompanyId (config/tokenCheck.ts) only ever check this same
+  // junction table for a manager, so without it a manager's JWT/req.userData
+  // permanently had no companyId — breaking every company-scoped endpoint
+  // for them (e.g. GET /admin/user-leave's "no company context in token").
+  if (role === "manager" && creatorCompanyId) {
+    await (CompanyManager as any).findOrCreate({
+      where: { companyId: creatorCompanyId, managerId: item.getDataValue("id") },
+      defaults: { companyId: creatorCompanyId, managerId: item.getDataValue("id") },
+    });
+  }
+
   const { accessToken, refreshToken } = Middleware.CreateToken(
     String(item.getDataValue("id")),
     String(item.getDataValue("role"))
@@ -239,7 +260,15 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     console.error(`Failed to send credentials email to ${email}:`, err)
   );
 
-  return { item, accessToken, role };
+  // FIX: `item` was returned as the raw Sequelize instance, which serializes
+  // every column straight into the HTTP response — including the bcrypt
+  // password hash and the refreshToken just set above (itself a fully-usable
+  // credential on its own, see CreateToken/tokenCheck), handed to whoever
+  // created this account (not the account itself). Strip before returning.
+  const { password: _pw, refreshToken: _rt, otp: _otp, otpExpiry: _otpExp, ...safeItem } =
+    item.get({ plain: true }) as any;
+
+  return { item: safeItem, accessToken, role };
 };
 
 export const login = async (body: any) => {
@@ -375,6 +404,18 @@ export const getProfile = async (userId: number, role: string, companyId: number
     }
   }
 
+  // FIX: `user` serialized every column of the User model into the response
+  // — including the caller's own bcrypt password hash and their live
+  // refreshToken (a fully-usable credential on its own, see CreateToken/
+  // tokenCheck) — on every single profile fetch (this fires on every page
+  // load via AuthProvider.fetchAndSyncProfile). Strip before returning.
+  if (user) {
+    delete (user as any).dataValues.password;
+    delete (user as any).dataValues.refreshToken;
+    delete (user as any).dataValues.otp;
+    delete (user as any).dataValues.otpExpiry;
+  }
+
   const permissions: string[] = [];
   const matrix: Record<string, Record<string, boolean>> = {};
 
@@ -454,7 +495,12 @@ export const forgotPassword = async (body: any) => {
 
   const loginTenantId = tenantId ? Number(tenantId) : null;
   const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
-  if (!user) throw new ServiceError("User not found");
+  // FIX: throwing "User not found" here let anyone enumerate which emails
+  // are registered (including which Owners/Admins exist) with zero
+  // authentication. The controller always responds "OTP sent to your
+  // email" regardless — silently no-op instead of erroring when there's no
+  // matching account, so the response is identical either way.
+  if (!user) return;
 
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   user.otp = otp;
