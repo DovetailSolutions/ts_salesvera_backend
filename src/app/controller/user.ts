@@ -1399,7 +1399,7 @@ export const getCategory = async (
         {
           model: SubCategory,
           as: "subCategories",
-          required: false,
+          required: true,
         },
       ],
       limit: pageLimit,
