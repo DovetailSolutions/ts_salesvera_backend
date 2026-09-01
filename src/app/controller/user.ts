@@ -286,6 +286,10 @@ export const GetProfile = async (
           model: Branch,
           as: "branch",
         },
+        {
+          model: Department,
+          as: "department",
+        }
       ],
     });
     if (!item) {
