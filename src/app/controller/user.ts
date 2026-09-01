@@ -3780,20 +3780,20 @@ export const getDashboardMobile = async (
     // returned only team numbers and silently dropped the manager's own
     // shift, attendance and leave balance from their mobile home screen.
 
-    // FIX: Middleware.getAllSubordinateIds throws ("column User.createdBy
-    // does not exist" — a pre-existing bug, unrelated to the role-branch
-    // above) for every caller that reaches this line. Same root cause and
-    // same fix already applied to getSalesPerformance below: self + the
-    // correct recursive-descendants helper. For sale_person (no
-    // descendants) this is simply self-only.
-    //
-    // Company-scoped: getAllChildUserIds knows nothing about companies, so a
-    // caller assigned to two companies kept counting the other company's
-    // documents after switching company. getCompanyScopedChildUserIds drops
-    // descendants that positively belong to a different company (and keeps
-    // anyone whose company membership is indeterminate).
+    // Full hierarchy (parents/grandparents AND subordinates), same approach
+    // as getInvoice: anchor at the company admin so ancestors are included,
+    // then walk the whole tree down from there via getAllSubordinateIds.
+    // Deliberately broader than getCompanyScopedChildUserIds (descendants
+    // only), which getSalesPerformance below still uses unchanged.
     const callerCompanyId = companyId ? Number(companyId) : null;
-    const allUserIds = [Number(userId), ...(await getCompanyScopedChildUserIds(Number(userId), callerCompanyId))];
+    let hierarchyRootId = Number(userId);
+    if (callerCompanyId) {
+      const company = await Company.findByPk(callerCompanyId, { attributes: ["adminId"] });
+      if (company?.adminId) {
+        hierarchyRootId = company.adminId;
+      }
+    }
+    const allUserIds = await getAllSubordinateIds(hierarchyRootId);
 
     const commonFilter = {
       userId: { [Op.in]: allUserIds },

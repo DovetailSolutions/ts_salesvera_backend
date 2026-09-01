@@ -382,16 +382,22 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
       return res.status(404).json({ success: false, message: "Target user not found or inactive" });
     }
 
-    // ── Tenant isolation: caller cannot touch users in a different tenant ──
-    if (role !== "super_admin") {
-      const [callerRecord, targetRecord] = await Promise.all([
-        (User as any).findByPk(callerId, { attributes: ["tenantId"] }),
-        (User as any).findByPk(Number(targetUserId), { attributes: ["tenantId"] }),
-      ]);
-      if (callerRecord?.tenantId && callerRecord.tenantId !== targetRecord?.tenantId) {
+    // ── Company isolation: caller cannot touch users outside their own
+    // company-scoped org. FIX: this used to compare tenantId only —
+    // tenantId is shared by every company under the same Owner ("user"),
+    // so an Admin in Company A and a Manager in Company B (same Owner,
+    // different companies) were treated as same-tenant and this check
+    // never fired. Mirrors the already-correct check in getUserPermissions
+    // above.
+    if (role !== "super_admin" && Number(targetUserId) !== Number(callerId)) {
+      const orgIds = await getCompanyScopedOrgWideUserIds(
+        Number(callerId),
+        callerCompanyId ? Number(callerCompanyId) : null
+      );
+      if (!orgIds.includes(Number(targetUserId))) {
         return res.status(403).json({
           success: false,
-          message: "Cannot assign permissions to users outside your tenant",
+          message: "Cannot assign permissions to users outside your company",
         });
       }
     }
@@ -544,16 +550,18 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
       return res.status(404).json({ success: false, message: "Target user not found" });
     }
 
-    // ── Tenant isolation ─────────────────────────────────────────────
-    if (role !== "super_admin") {
-      const [callerRecord, targetRecord] = await Promise.all([
-        (User as any).findByPk(callerId, { attributes: ["tenantId"] }),
-        (User as any).findByPk(Number(targetUserId), { attributes: ["tenantId"] }),
-      ]);
-      if (callerRecord?.tenantId && callerRecord.tenantId !== targetRecord?.tenantId) {
+    // ── Company isolation ─────────────────────────────────────────────
+    // FIX: see identical note in assignPermissions above — tenantId alone
+    // is too coarse (shared across every company under the same Owner).
+    if (role !== "super_admin" && Number(targetUserId) !== Number(callerId)) {
+      const orgIds = await getCompanyScopedOrgWideUserIds(
+        Number(callerId),
+        callerCompanyId ? Number(callerCompanyId) : null
+      );
+      if (!orgIds.includes(Number(targetUserId))) {
         return res.status(403).json({
           success: false,
-          message: "Cannot revoke permissions from users outside your tenant",
+          message: "Cannot revoke permissions from users outside your company",
         });
       }
     }

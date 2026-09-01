@@ -10,8 +10,8 @@ export interface SubCategoryAttributes {
   text?: string;
   hsnCode?: string;
   status: string;
-  gst:string
-  unit?:string
+  gst: string
+  unit?: string
   baseUnit?: string;
   secondaryUnit?: string;
   tallyGuid?: string;
@@ -22,12 +22,11 @@ export interface SubCategoryAttributes {
 }
 
 export interface SubCategoryCreationAttributes
-  extends Optional<SubCategoryAttributes, "id" | "status"> {}
+  extends Optional<SubCategoryAttributes, "id" | "status"> { }
 
 export class SubCategory
   extends Model<SubCategoryAttributes, SubCategoryCreationAttributes>
-  implements SubCategoryAttributes
-{
+  implements SubCategoryAttributes {
   public id!: number;
   public sub_category_name!: string;
   public CategoryId!: number;
@@ -37,14 +36,14 @@ export class SubCategory
   public text!: string;
   public hsnCode!: string;
   public status!: string;
-  public gst!:string;
-  public unit!:string;
+  public gst!: string;
+  public unit!: string;
   public baseUnit?: string;
   public secondaryUnit?: string;
   public tallyGuid?: string;
   public gstedit?: boolean;
-  public totaledit?: boolean;   
-  public discount?: string; 
+  public totaledit?: boolean;
+  public discount?: string;
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
       {
@@ -81,13 +80,13 @@ export class SubCategory
           type: DataTypes.STRING,
           allowNull: true,
         },
-        gst:{
-          type:DataTypes.STRING,
-          allowNull:true
+        gst: {
+          type: DataTypes.STRING,
+          allowNull: true
         },
-        unit:{
-          type:DataTypes.STRING,
-          allowNull:true
+        unit: {
+          type: DataTypes.STRING,
+          allowNull: true
         },
         baseUnit: {
           type: DataTypes.STRING,
@@ -96,34 +95,31 @@ export class SubCategory
         secondaryUnit: {
           type: DataTypes.STRING,
           allowNull: true,
-          field: "secandryUnit",
+          field: "secondaryUnit",
         },
         tallyGuid: {
           type: DataTypes.STRING,
           allowNull: true,
           field: "tally_guid",
         },
-
-        discount:{
+        discount: {
           type: DataTypes.STRING,
           allowNull: true,
         },
-        discountedit:{
+        discountedit: {
           type: DataTypes.BOOLEAN,
           defaultValue: false,
         },
-
-
-       gstedit: {
-  type: DataTypes.BOOLEAN,
-  defaultValue: false,
-},
-totaledit: {
-  type: DataTypes.BOOLEAN,
-  defaultValue: false,
-},
+        gstedit: {
+          type: DataTypes.BOOLEAN,
+          defaultValue: false,
+        },
+        totaledit: {
+          type: DataTypes.BOOLEAN,
+          defaultValue: false,
+        },
         status: {
-          type: DataTypes.ENUM("draft", "sent", "accepted","imported", "rejected"),
+          type: DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),
           defaultValue: "draft",
         },
       },
