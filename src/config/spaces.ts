@@ -43,6 +43,7 @@ export const uploadBufferToSpaces = async (
       Key: key,
       Body: buffer,
       ContentType: contentType,
+      ACL: "public-read",
     })
   );
 
