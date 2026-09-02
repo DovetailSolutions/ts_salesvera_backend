@@ -273,6 +273,8 @@ Quotations.belongsTo(User, { foreignKey: "userId" });
 // User / Company
 User.hasOne(Company, { foreignKey: "adminId", as: "company" });
 Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
+User.hasMany(Company, { foreignKey: "userId", as: "ownedCompanies" });
+Company.belongsTo(User, { foreignKey: "userId", as: "owner" });
 
 // Many-to-many: a manager can manage multiple companies, a company can have multiple managers
 Company.belongsToMany(User, { through: CompanyManager, as: "managers", foreignKey: "companyId", otherKey: "managerId" });

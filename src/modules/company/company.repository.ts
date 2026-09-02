@@ -39,6 +39,7 @@ export const grantPermissionToAdminForCompany = (params: {
 
 export const findCompaniesPaginated = (params: {
   userId: number;
+  role?: string;
   search?: string;
   limit: number;
   offset: number;
