@@ -112,7 +112,7 @@ export const findUserWithProfileIncludes = (id: number, role: string, includeCom
     { model: CompanyBank, as: "companyBanks" },
   ];
 
-  const include: any[] = [{ model: Branch, as: "branch" }];
+  const include: any[] = [{ model: Branch, as: "branch" }, { model: Department, as: "department" }];
   if (includeCompanyRelations) {
     include.push({ model: Company, as: "company", include: companyIncludes });
   }

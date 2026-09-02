@@ -23,8 +23,16 @@ export interface DepartmentCreateRow {
 
 export const createDepartment = (row: DepartmentCreateRow) => Department.create(row as any);
 
-export const findDepartmentOwnedBy = (id: number, userId: number) =>
-  Department.findOne({ where: { id, userId } });
+// Plain lookup by id — access is checked separately in the service layer
+// via hasCompanyAccess (see assertDepartmentAccess), the same
+// company-scoped check listDepartments already uses. The old
+// findDepartmentOwnedBy(id, userId) filtered `WHERE id = ? AND userId = ?`
+// directly in SQL — but Department.userId is only ever stamped with the
+// tenant "user" who originally created the row (never admin/managerId), so
+// any admin/manager updating or fetching-by-id a department they didn't
+// personally create got "Department not found" even though it's their own
+// company's department and shows up fine in their department list.
+export const findDepartmentById = (id: number) => Department.findByPk(id);
 
 export const findDepartments = (params: {
   userId: number;

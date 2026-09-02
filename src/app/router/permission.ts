@@ -1,7 +1,17 @@
 import { Router } from "express";
 import { tokenCheck } from "../../config/jwtVerify";
+import { createTokenCheck } from "../../config/tokenCheck";
 import { authorizeRoles, ADMIN_ONLY, ADMIN_AND_MANAGER } from "../middlewear/rbac";
 import * as PermissionController from "../controller/permission";
+
+// FIX: "/my" (view my own permissions) is called on every login by
+// AuthProvider.jsx (fetchAndSyncProfile) for every role, including
+// sale_person — but this router's `tokenCheck` (jwtVerify.ts) structurally
+// excludes sale_person, the same bug as auth.routes.ts's getProfile. It's
+// non-blocking there (`.catch(() => null)`) so it didn't stop login itself,
+// but it silently left a permanently empty permissions matrix for every
+// sale_person session, which any permission-gated UI reads from.
+const selfServiceTokenCheck = createTokenCheck(["user", "admin", "super_admin", "manager", "sale_person"]);
 // ============================================================
 // Permission Router
 // Base path: /admin/permissions  (mounted in server.ts under /admin)
@@ -21,7 +31,7 @@ router.get("/template/:role", tokenCheck, PermissionController.getPermissionTemp
 router.get("/users-by-role", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.getUsersByRole);
 
 // ── View calling user's own permissions ──────────────────────────────────
-router.get("/my",tokenCheck, PermissionController.getMyPermissions);
+router.get("/my", selfServiceTokenCheck, PermissionController.getMyPermissions);
 
 // ── View a specific user's permissions ───────────────────────────────────
 router.get("/user/:userId", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.getUserPermissions);

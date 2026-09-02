@@ -28,6 +28,13 @@ router.post(
   AllocationController.bulkAssignShift
 );
 
+router.post(
+  "/bulk-assign-department",
+  tokenCheck,
+  authorizeRoles(...ADMIN_AND_MANAGER),
+  AllocationController.bulkAssignDepartment
+);
+
 router.get(
   "/allocations",
   tokenCheck,

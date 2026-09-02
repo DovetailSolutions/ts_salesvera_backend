@@ -146,7 +146,7 @@ export const GetAllUser = async (
 
     console.log("userData in GetAllUser:", userData); // Debugging line
 
-    const { page = 1, limit = 10, search = "", role, shiftId, branchId } = req.query;
+    const { page = 1, limit = 10, search = "", role, shiftId, branchId, departmentId } = req.query;
 
     const pageNum = Number(page);
     const limitNum = Number(limit);
@@ -185,6 +185,7 @@ export const GetAllUser = async (
     if (role) where.role = role;
     if (shiftId) where.shiftId = Number(shiftId);
     if (branchId) where.branchId = Number(branchId);
+    if (departmentId) where.departmentId = Number(departmentId);
 
     if (search) {
       where[Op.or] = [
@@ -206,7 +207,9 @@ export const GetAllUser = async (
         "role",
         "shiftId",
         "branchId",
+        "departmentId",
         "createdAt",
+        "canViewAllBranches",
       ],
       where,
       offset,
@@ -236,9 +239,12 @@ export const GetAllUser = async (
         // FIX: branchId/shiftId were already selected but never joined to
         // their names, so this list could show a raw id at best. Adds the
         // names alongside the existing ids without changing what's returned
-        // for anyone who reads branchId/shiftId directly.
+        // for anyone who reads branchId/shiftId directly. departmentId gets
+        // the same treatment now that User->Department resolves via the
+        // right FK (see dbConnection.ts) instead of being left bare.
         { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
         { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+        { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
       ],
     });
 
@@ -1365,6 +1371,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
             "createdAt",
             "branchId",
             "shiftId",
+            "canViewAllBranches",
           ],
           through: { attributes: [] },
           where: createdWhere,
@@ -1387,6 +1394,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
                 "createdAt",
                 "branchId",
                 "shiftId",
+                "canViewAllBranches",
               ],
               through: { attributes: [] },
               required: false,
@@ -1423,6 +1431,63 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       total,
       pages: Math.ceil(total / limitNum),
       user: userJson,
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// Admin/super_admin-only toggle (User Management page) — controls whether a
+// sale_person's own GET /api/getprofile includes the company's full branch
+// list. See schemaExtensions.ts's ensureBranchVisibilityToggle and
+// app/controller/user.ts's GetProfile for the read side.
+export const UpdateBranchVisibility = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = userData?.userId;
+    const loggedInRole = userData?.role;
+
+    const targetUserId = Number(req.params.userId);
+    if (!targetUserId || isNaN(targetUserId)) {
+      badRequest(res, "Valid userId is required");
+      return;
+    }
+
+    const { canViewAllBranches } = req.body || {};
+    if (typeof canViewAllBranches !== "boolean") {
+      badRequest(res, "canViewAllBranches (boolean) is required");
+      return;
+    }
+
+    const target = await User.findByPk(targetUserId);
+    if (!target) {
+      badRequest(res, "User not found");
+      return;
+    }
+
+    // super_admin may toggle anyone; every other role only their own
+    // company-scoped team — same ownership check GetAllUser/test already
+    // apply to this same "who can I see/manage" surface.
+    if (loggedInRole !== "super_admin") {
+      const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+      const childIds = await getCompanyScopedChildUserIds(Number(loggedInId), callerCompanyId);
+      if (!childIds.includes(targetUserId)) {
+        forbidden(res, "This user is not on your team");
+        return;
+      }
+    }
+
+    (target as any).canViewAllBranches = canViewAllBranches;
+    await target.save();
+
+    createSuccess(res, "Branch visibility updated successfully", {
+      userId: target.id,
+      canViewAllBranches: (target as any).canViewAllBranches,
     });
   } catch (error) {
     const errorMessage =

@@ -37,7 +37,7 @@ export const updateDepartment = async (req: Request, res: Response) => {
       return badRequest(res, "Valid department id is required");
     }
 
-    const updated = await DepartmentService.updateDepartment(Number(id), Number(userData.userId), req.body);
+    const updated = await DepartmentService.updateDepartment(Number(id), Number(userData.userId), userData.role as string | undefined, req.body);
     return createSuccess(res, "Department updated successfully", updated);
   } catch (error) {
     if (error instanceof ServiceError) return badRequest(res, error.message);
@@ -86,7 +86,7 @@ export const getDepartmentById = async (req: Request, res: Response) => {
       return badRequest(res, "Department id must be a number");
     }
 
-    const department = await DepartmentService.getDepartmentById(Number(req.params.id), Number(userData.userId));
+    const department = await DepartmentService.getDepartmentById(Number(req.params.id), Number(userData.userId), userData.role as string | undefined);
     return createSuccess(res, "Department fetched successfully", department);
   } catch (error) {
     if (error instanceof ServiceError) return badRequest(res, error.message);

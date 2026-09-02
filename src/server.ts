@@ -11,7 +11,7 @@ import path from "path";
 import http from "http";
 
 import { connectDB, sequelize } from "./config/dbConnection";
-import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences, ensureChatRoomOwnership } from "./config/schemaExtensions";
+import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences, ensureChatRoomOwnership, ensureBranchVisibilityToggle } from "./config/schemaExtensions";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
@@ -25,6 +25,7 @@ import departmentRoutes from "./modules/department/department.routes";
 import leaveRoutes from "./modules/leave/leave.routes";
 import attendanceRoutes from "./modules/attendance/attendance.routes";
 import attendanceSelfRoutes from "./modules/attendance/attendanceSelf.routes";
+import geoFencingRoutes from "./modules/geoFencing/geoFencing.routes";
 import companyRoutes from "./modules/company/company.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import preferencesRoutes from "./modules/preferences/preferences.routes";
@@ -77,6 +78,7 @@ app.use("/admin", departmentRoutes);
 app.use("/admin", leaveRoutes);
 app.use("/admin", attendanceRoutes);
 app.use("/api", attendanceSelfRoutes);
+app.use("/admin", geoFencingRoutes);
 app.use("/admin", companyRoutes);
 app.use("/admin", authRoutes);
 app.use("/admin", preferencesRoutes);
@@ -124,6 +126,7 @@ server.listen(PORT, async () => {
   await ensureEmployeeCode(sequelize);
   await ensureNotificationPreferences(sequelize);
   await ensureChatRoomOwnership(sequelize);
+  await ensureBranchVisibilityToggle(sequelize);
   startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   console.log(`Server is running on http://localhost:${PORT}`);
 });

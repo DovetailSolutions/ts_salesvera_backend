@@ -39,6 +39,10 @@ router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANA
 // FIX: expense routes now require explicit permissions.
 router.get("/get-expense",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
 router.get("/admin-manager",tokenCheck,AdminController.test);
+// User Management page: admin/super_admin toggle controlling whether a
+// sale_person's own GET /api/getprofile includes the company's full branch
+// list (default off).
+router.patch("/users/:userId/branch-visibility", tokenCheck, authorizeRoles("super_admin", "admin"), AdminController.UpdateBranchVisibility);
 router.patch('/approved-expense', tokenCheck, checkPermission("expense", "approve"), AdminController.UpdateExpense)
 router.get('/user-expense', tokenCheck, checkPermission("expense", "view"), AdminController.userExpense)
 router.post("/create-client", tokenCheck, AdminController.createClient);

@@ -5,6 +5,8 @@ import * as XLSX from "xlsx";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
+import { haversineMeters } from "../shared/geo";
+import { checkUserGeoFencing } from "../geoFencing/geoFencing.service";
 import * as AttendanceRepo from "./attendance.repository";
 
 // ============================================================
@@ -1089,16 +1091,6 @@ export const bulkMarkAttendance = async (
 
 // ---- Self-service (punch in/out, today, list) ----
 
-const haversineMeters = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-};
-
 // ── Shift-start gate ─────────────────────────────────────────────────────
 // An employee's attendance for "today" can only be marked present starting
 // this many minutes before their assigned shift's start time ("about to
@@ -1294,10 +1286,19 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     throw new ServiceError(formatShiftWindowMessage(shift, today));
   }
 
-  // Geofencing — only enforced when the company requires it AND the
-  // employee's branch has geofence data configured; missing config never
-  // blocks a punch (there's nothing to enforce against).
+  // Per-user geo-fencing (super_admin/admin-configured, see modules/geoFencing)
+  // takes precedence over the company-wide branch geofence below when it's
+  // enabled for this specific employee — it's the more specific rule.
+  // Throws ServiceError itself (with the exact user-facing copy) when the
+  // employee is outside their configured radius or location is missing.
+  const userGeoFence = await checkUserGeoFencing(finalUserId, latitude_in, longitude_in);
+
+  // Company-wide branch geofencing — only enforced when the company
+  // requires it, the employee's branch has geofence data configured, AND
+  // no per-user geofence already governed this punch above; missing config
+  // never blocks a punch (there's nothing to enforce against).
   const geofencingActive =
+    !userGeoFence.enforced &&
     (company?.geoFencingRequired ?? true) &&
     (company?.officeLocationRequired ?? true) &&
     branch?.latitude != null &&
@@ -1314,7 +1315,12 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
       Number(branch.latitude),
       Number(branch.longitude)
     );
-    if (distance > Number(branch.git)) {
+    // FIX: compared against branch.git (not a real field — always undefined,
+    // so Number(undefined) is NaN and `distance > NaN` is always false),
+    // which meant this check could never actually reject a punch-in
+    // regardless of how far away it came from. Compare against the branch's
+    // actual configured radius.
+    if (distance > Number(branch.geoRadius)) {
       throw new ServiceError(
         `You are ${Math.round(distance)}m away from ${branch.branchName || "your branch"} — must be within ${branch.geoRadius}m to punch in`
       );
@@ -1365,6 +1371,9 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     existingRecordsForToday.companyLeaveId = null as any;
     existingRecordsForToday.latitude_in = latitude_in;
     existingRecordsForToday.longitude_in = longitude_in;
+    existingRecordsForToday.geoFencingEnabled = userGeoFence.enforced;
+    existingRecordsForToday.geoFencingVerified = userGeoFence.enforced ? !!userGeoFence.verified : null as any;
+    existingRecordsForToday.geoFenceDistance = userGeoFence.enforced ? userGeoFence.distanceMeters ?? null : null as any;
     await existingRecordsForToday.save();
     return existingRecordsForToday;
   }
@@ -1377,6 +1386,9 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     late,
     latitude_in,
     longitude_in,
+    geoFencingEnabled: userGeoFence.enforced,
+    geoFencingVerified: userGeoFence.enforced ? !!userGeoFence.verified : null,
+    geoFenceDistance: userGeoFence.enforced ? userGeoFence.distanceMeters ?? null : null,
   } as any);
 };
 
@@ -1438,6 +1450,11 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
 
   if (punchOutTime < punchInTime) throw new ServiceError("Punch-out must be after punch-in");
 
+  // Per-user geo-fencing applies to punch-out too (spec explicitly covers
+  // both Check In and Check Out) — no company/branch-level equivalent
+  // existed for punch-out before this, so this is purely additive.
+  const userGeoFenceOut = await checkUserGeoFencing(finalUserId, latitude_out, longitude_out);
+
   const diffMs = punchOutTime.getTime() - punchInTime.getTime();
   const workingHours = diffMs / (1000 * 60 * 60);
   const workingHoursRounded = Number(workingHours.toFixed(2));
@@ -1460,6 +1477,11 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   attendance.overtime = overtime;
   attendance.latitude_out = latitude_out;
   attendance.longitude_out = longitude_out;
+  if (userGeoFenceOut.enforced) {
+    attendance.geoFencingEnabled = true;
+    attendance.geoFencingVerified = !!userGeoFenceOut.verified;
+    attendance.geoFenceDistance = userGeoFenceOut.distanceMeters ?? null;
+  }
 
   // FIX: dayType/status were both derived from raw punch duration alone —
   // not "shift aware" in any real sense, since punching in well before the

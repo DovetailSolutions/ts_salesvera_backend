@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import { ServiceError } from "../shared/serviceError";
 import * as Middleware from "../../app/middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
-import { User, CompanyManager } from "../../config/dbConnection";
+import { User, CompanyManager, Branch, Department } from "../../config/dbConnection";
 import { getAllChildUserIds } from "../shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../shared/companyAccess";
 import { resolveCompanyId } from "../../config/tokenCheck";
@@ -28,7 +28,7 @@ const REGISTER_ALLOWED_ROLES: Record<string, string[]> = {
 };
 
 export const register = async (body: any, callerData?: { userId?: number | string; role?: string }) => {
-  const { email, password, firstName, lastName, phone, dob, role, createdBy, permissionIds, branchId, shiftId } = body;
+  const { email, password, firstName, lastName, phone, dob, role, createdBy, permissionIds, branchId, shiftId, departmentId } = body;
 
   const requiredFields: Record<string, any> = { email, password, firstName, lastName, phone, dob, role };
   for (const key in requiredFields) {
@@ -130,13 +130,36 @@ export const register = async (body: any, callerData?: { userId?: number | strin
       ? Number(shiftId)
       : null;
 
-  // Resolved once whenever there's a creator — used for the branch/shift
-  // defaulting below AND to link a new manager into the CompanyManager
-  // junction table (see FIX further down), not just when branch/shift
-  // defaulting happens to be needed.
+  let resolvedDepartmentId =
+    departmentId !== undefined && departmentId !== null && departmentId !== "" && !isNaN(Number(departmentId))
+      ? Number(departmentId)
+      : null;
+
+  // Resolved once whenever there's a creator — used for the branch/shift/
+  // department defaulting and validation below AND to link a new manager
+  // into the CompanyManager junction table (see FIX further down), not just
+  // when branch/shift defaulting happens to be needed.
   const creatorCompanyId: number | null = creator
     ? await resolveCompanyId(creator.id, creator.role, null)
     : null;
+
+  // FIX: an explicitly-supplied branchId/departmentId was never checked
+  // against the caller's own company — the same cross-tenant hole
+  // assignEmployeeShift used to have (see the FIX note there). Reject
+  // outright if either belongs to (or exists in) a different company than
+  // the caller's, instead of silently stamping the new user with it.
+  if (resolvedBranchId !== null) {
+    const branch = await Branch.findByPk(resolvedBranchId);
+    if (!branch || (creatorCompanyId && Number((branch as any).companyId) !== creatorCompanyId)) {
+      throw new ServiceError("Branch not found");
+    }
+  }
+  if (resolvedDepartmentId !== null) {
+    const department = await Department.findByPk(resolvedDepartmentId);
+    if (!department || (creatorCompanyId && Number((department as any).companyId) !== creatorCompanyId)) {
+      throw new ServiceError("Department not found");
+    }
+  }
 
   // No branch/shift explicitly given — default to the company's main branch
   // (its first-ever registered branch) and its first-ever registered shift,
@@ -161,6 +184,7 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     tenantId: resolvedTenantId,
     branchId: resolvedBranchId,
     shiftId: resolvedShiftId,
+    departmentId: resolvedDepartmentId,
     ...(primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}),
   };
   const item = await AuthRepo.createUser(obj);
@@ -280,11 +304,11 @@ export const login = async (body: any) => {
   const user = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
   if (!user) throw new ServiceError("Invalid email or password");
 
-  const allowedRoles = ["admin", "manager", "super_admin", "user"];
+  const allowedRoles = ["admin", "manager", "super_admin", "user", "sale_person", "sales_person"];
   const userRole = user.get("role") as string;
 
   if (!allowedRoles.includes(userRole)) {
-    throw new ServiceError("Access restricted. Only admin, manager & user can login.");
+    throw new ServiceError("Access restricted. Invalid user role.");
   }
 
   // Exe (desktop) login is admin-only; web login is unrestricted (within allowedRoles)
@@ -537,3 +561,5 @@ export const changePassword = async (body: any) => {
   user.set("password", newPassword);
   await user.save();
 };
+
+
