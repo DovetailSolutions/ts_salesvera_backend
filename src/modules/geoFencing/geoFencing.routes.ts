@@ -18,6 +18,7 @@ const tokenCheck = createTokenCheck(["super_admin", "admin", "manager", "sale_pe
 const router = Router();
 
 router.get("/geo-fencing/my", tokenCheck, GeoFencingController.getMy);
+router.get("/geo-fencing/geocode", tokenCheck, GeoFencingController.geocodeAddress);
 router.get(
   "/geo-fencing/:userId",
   tokenCheck,
@@ -32,3 +33,4 @@ router.put(
 );
 
 export default router;
+

@@ -53,3 +53,14 @@ export const saveForUser = async (req: Request, res: Response): Promise<void> =>
     handleServiceError(res, error);
   }
 };
+
+
+export const geocodeAddress = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const address = String(req.query.address || req.body?.address || "");
+    const result = await GeoFencingService.geocodeAddress(address);
+    res.status(200).json({ success: true, message: "Address geocoded successfully", data: result });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
