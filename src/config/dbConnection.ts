@@ -66,6 +66,8 @@ import { TaskComment } from "../app/model/taskComment";
 
 import { ContactQuery } from "../app/model/contactQuery";
 
+import { UserGeoFencing } from "../app/model/userGeoFencing";
+
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
 // this point — env.ts (imported above) exits the process if any are missing,
@@ -114,6 +116,7 @@ const Device = DeviceModel(sequelize);
 // HR
 Attendance.initModel(sequelize);
 Leave.initModel(sequelize);
+UserGeoFencing.initModel(sequelize);
 
 // Expense
 Expense.initModel(sequelize);
@@ -359,6 +362,15 @@ Shift.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 User.belongsTo(Shift, { foreignKey: "shiftId", as: "shift" });
 Shift.hasMany(User, { foreignKey: "shiftId", as: "employees" });
 
+// FIX: this pair was commented out while a different pair further down
+// (User.hasOne(Department, { foreignKey: "userId" }) — see removal note near
+// TaskComment associations) stood in under the SAME "department" alias,
+// joining on Department.userId (an ownership stamp — "which tenant user
+// created this department", mirrors Branch.adminId/managerId/userId) instead
+// of the actual assignment column, User.departmentId. Every caller of
+// GetProfile's `{ model: Department, as: "department" }` include therefore
+// resolved a department this user happens to administratively own — null for
+// almost everyone — instead of the department they belong to.
 User.belongsTo(Department, { foreignKey: "departmentId", as: "department" });
 Department.hasMany(User, { foreignKey: "departmentId", as: "employees" });
 
@@ -417,6 +429,11 @@ TaskComment.belongsTo(Task, { foreignKey: "taskId", constraints: false });
 
 User.hasMany(TaskComment, { foreignKey: "userId", as: "taskComments", constraints: false });
 TaskComment.belongsTo(User, { foreignKey: "userId", as: "author", constraints: false });
+// Removed: User.hasOne(Department, { foreignKey: "userId", as: "department" })
+// and Department.belongsTo(User, { foreignKey: "userId", as: "user" }) — wrong
+// relationship, see the FIX note above User.belongsTo(Department, ...).
+// Department.userId is an ownership stamp (which tenant user created this
+// department), unrelated to which department a user is assigned to.
 
 
 
@@ -531,7 +548,7 @@ const ensureColumns = async (sequelize: Sequelize) => {
       columns: [
         { name: "tally_guid", type: "VARCHAR(255)" },
         { name: "baseUnit", type: "VARCHAR(255)" },
-        { name: "secandryUnit", type: "VARCHAR(255)" },
+        { name: "secondaryUnit", type: "VARCHAR(255)" },
       ],
     },
     {
@@ -1212,4 +1229,5 @@ export {
   TaskHistory,
   TaskComment,
   ContactQuery,
+  UserGeoFencing,
 };

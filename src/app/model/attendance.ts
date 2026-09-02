@@ -23,6 +23,12 @@ interface AttendanceAttributes {
   latitude_out?: string | null;
   longitude_out?: string | null;
 
+  // Per-user geo-fencing audit trail (modules/geoFencing) — null/false when
+  // the punching user had no geo-fencing configured for them at the time.
+  geoFencingEnabled?: boolean | null;
+  geoFencingVerified?: boolean | null;
+  geoFenceDistance?: number | null;
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -39,6 +45,9 @@ type AttendanceCreationAttributes = Optional<
   | "longitude_in"
   | "latitude_out"
   | "longitude_out"
+  | "geoFencingEnabled"
+  | "geoFencingVerified"
+  | "geoFenceDistance"
 >;
 
 export class Attendance
@@ -61,6 +70,10 @@ export class Attendance
   public longitude_in!: string | null;
   public latitude_out!: string | null;
   public longitude_out!: string | null;
+
+  public geoFencingEnabled!: boolean | null;
+  public geoFencingVerified!: boolean | null;
+  public geoFenceDistance!: number | null;
 
   static initModel(sequelize: Sequelize): typeof Attendance {
     Attendance.init(
@@ -125,6 +138,18 @@ export class Attendance
         },
         longitude_out: {
           type: DataTypes.STRING,
+          allowNull: true,
+        },
+        geoFencingEnabled: {
+          type: DataTypes.BOOLEAN,
+          allowNull: true,
+        },
+        geoFencingVerified: {
+          type: DataTypes.BOOLEAN,
+          allowNull: true,
+        },
+        geoFenceDistance: {
+          type: DataTypes.FLOAT,
           allowNull: true,
         },
       },

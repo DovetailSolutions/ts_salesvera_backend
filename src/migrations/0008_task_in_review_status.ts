@@ -7,7 +7,15 @@ import { Sequelize } from "sequelize";
  * would fail with an invalid-enum-value error until this runs.
  */
 export async function up(sequelize: Sequelize): Promise<void> {
+  // tasks.status is a Postgres ENUM only on environments where Sequelize
+  // created the table via sync(); elsewhere (e.g. hand-migrated DBs) it's a
+  // plain VARCHAR, which needs no DDL to accept a new string value.
   await sequelize.query(`
-    ALTER TYPE "enum_tasks_status" ADD VALUE IF NOT EXISTS 'in_review';
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'enum_tasks_status') THEN
+        ALTER TYPE "enum_tasks_status" ADD VALUE IF NOT EXISTS 'in_review';
+      END IF;
+    END $$;
   `);
 }

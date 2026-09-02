@@ -111,3 +111,21 @@ export const ensureChatRoomOwnership = async (sequelize: Sequelize): Promise<voi
 
   console.log("Chat room ownership ensured (chat_rooms.createdBy)");
 };
+
+// ============================================================
+// Per-user branch-list visibility toggle — admin-configurable per sale_person
+// (User Management page), default OFF. When off, that sale_person's own
+// self-service profile (GET /api/getprofile) omits the company's full
+// branch list from profile.company.branches (previously always included
+// for every role with no gating at all); when on, they see it. Every other
+// role's profile is unaffected — this only ever gates the branch list on a
+// sale_person's OWN profile fetch.
+// ============================================================
+export const ensureBranchVisibilityToggle = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    ALTER TABLE "users"
+      ADD COLUMN IF NOT EXISTS "canViewAllBranches" BOOLEAN NOT NULL DEFAULT false;
+  `);
+
+  console.log("Branch visibility toggle ensured (users.canViewAllBranches)");
+};

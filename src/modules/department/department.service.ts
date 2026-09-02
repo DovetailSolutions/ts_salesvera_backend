@@ -1,10 +1,42 @@
 import { ServiceError } from "../shared/serviceError";
 import { hasCompanyAccess } from "../shared/companyAccess";
+import { Branch } from "../../config/dbConnection";
 import {
   createDepartment,
-  findDepartmentOwnedBy,
+  findDepartmentById,
   findDepartments,
 } from "./department.repository";
+
+// A Department must always be attached to a Branch that actually exists —
+// and, when a companyId is supplied, to a Branch that actually belongs to
+// that company. Neither of these was ever checked: addDepartment/
+// updateDepartment accepted any numeric branchId, so a stale/deleted/
+// cross-company branchId (or one belonging to another tenant entirely)
+// still returned "success" and persisted a Department row that could never
+// resolve a real Branch. This looks up the branch once and returns it so
+// the caller can also backfill companyId from it when the request omitted one.
+const requireValidBranch = async (branchId: number, companyId?: number | null) => {
+  const branch = await (Branch as any).findByPk(Number(branchId));
+  if (!branch) throw new ServiceError("Branch not found");
+  if (companyId && Number(branch.companyId) !== Number(companyId)) {
+    throw new ServiceError("Branch does not belong to the specified company", 403);
+  }
+  return branch;
+};
+
+// Same company-scoped check listDepartments already uses (hasCompanyAccess),
+// applied here so updateDepartment/getDepartmentById stop relying on the
+// unreliable per-row userId ownership stamp. Falls back to that legacy
+// stamp only for rows with no companyId at all (created before companyId
+// was reliably backfilled).
+const assertDepartmentAccess = async (department: any, userId: number, role?: string) => {
+  if (department.companyId) {
+    const allowed = await hasCompanyAccess(Number(department.companyId), userId, role);
+    if (!allowed) throw new ServiceError("Department not found");
+    return;
+  }
+  if (Number(department.userId) !== Number(userId)) throw new ServiceError("Department not found");
+};
 
 // ============================================================
 // Department service — validation + orchestration. Byte-for-byte port of
@@ -30,6 +62,14 @@ export const addDepartment = async (userId: number, body: any) => {
   }
   if (!maxHeadcount || isNaN(Number(maxHeadcount))) throw new ServiceError("Valid maxHeadcount is required");
 
+  // Validate the branch exists (and, if a companyId was given, that it's
+  // actually this company's branch) BEFORE persisting — a Department row
+  // must never be created against a dangling/foreign branchId. Backfill
+  // companyId from the branch itself when the caller didn't send one, so
+  // every Department ends up correctly tenant-scoped instead of null.
+  const branch = await requireValidBranch(branchId, companyId ? Number(companyId) : null);
+  const resolvedCompanyId = companyId ? Number(companyId) : (branch.companyId ?? null);
+
   return createDepartment({
     deptName,
     deptCode,
@@ -43,13 +83,14 @@ export const addDepartment = async (userId: number, body: any) => {
     adminId,
     managerId,
     userId,
-    companyId: companyId || null,
+    companyId: resolvedCompanyId,
   });
 };
 
-export const updateDepartment = async (id: number, userId: number, input: any) => {
-  const department = await findDepartmentOwnedBy(id, userId);
+export const updateDepartment = async (id: number, userId: number, role: string | undefined, input: any) => {
+  const department = await findDepartmentById(id);
   if (!department) throw new ServiceError("Department not found");
+  await assertDepartmentAccess(department, userId, role);
 
   const {
     deptName, deptCode, deptHead, branchId, shiftId, maxHeadcount,
@@ -64,7 +105,13 @@ export const updateDepartment = async (id: number, userId: number, input: any) =
   if (deptName !== undefined) d.deptName = deptName;
   if (deptCode !== undefined) d.deptCode = deptCode;
   if (deptHead !== undefined) d.deptHead = deptHead;
-  if (branchId !== undefined) d.branchId = Number(branchId);
+  if (branchId !== undefined) {
+    // Re-validate on every branch change — moving a department to a
+    // different branch is exactly the case that previously let a dangling
+    // or cross-company branchId slip in silently.
+    await requireValidBranch(branchId, d.companyId ?? null);
+    d.branchId = Number(branchId);
+  }
   if (shiftId !== undefined) d.shiftId = shiftId || null;
   if (maxHeadcount !== undefined) d.maxHeadcount = Number(maxHeadcount);
   if (halfSaturday !== undefined) d.halfSaturday = !!halfSaturday;
@@ -111,8 +158,9 @@ export const listDepartments = async (params: {
   };
 };
 
-export const getDepartmentById = async (id: number, userId: number) => {
-  const department = await findDepartmentOwnedBy(id, userId);
+export const getDepartmentById = async (id: number, userId: number, role?: string) => {
+  const department = await findDepartmentById(id);
   if (!department) throw new ServiceError("Department not found");
+  await assertDepartmentAccess(department, userId, role);
   return department;
 };

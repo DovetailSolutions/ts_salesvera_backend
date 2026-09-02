@@ -49,6 +49,11 @@ interface UserAttributes {
   notifyChat?: boolean;
   notifyTask?: boolean;
   notifyMeeting?: boolean;
+  // Admin-configurable per user (User Management page) — default OFF. Only
+  // meaningful for sale_person: gates whether their own GET /api/getprofile
+  // includes the company's full branch list. See schemaExtensions.ts's
+  // ensureBranchVisibilityToggle.
+  canViewAllBranches?: boolean;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -101,6 +106,7 @@ type UserCreationAttributes = Optional<
   | "notifyChat"
   | "notifyTask"
   | "notifyMeeting"
+  | "canViewAllBranches"
 >;
 
 // 3. Define the Model Instance
@@ -234,6 +240,11 @@ export const createUserModel = (sequelize: Sequelize) => {
         type: DataTypes.BOOLEAN,
         allowNull: false,
         defaultValue: true,
+      },
+      canViewAllBranches: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
       },
     },
     {

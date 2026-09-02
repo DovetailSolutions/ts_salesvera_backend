@@ -298,6 +298,17 @@ export const GetProfile = async (
     }
     const profile = item.get({ plain: true }) as any;
 
+    // FIX: serialized every column of the User model into the response,
+    // including the caller's own bcrypt password hash and their live
+    // refreshToken (a fully-usable credential on its own, see CreateToken/
+    // tokenCheck) — on every single mobile profile fetch. The /admin
+    // counterpart (AuthService.getProfile) already strips these; this one
+    // didn't. Strip before any further processing/response.
+    delete profile.password;
+    delete profile.refreshToken;
+    delete profile.otp;
+    delete profile.otpExpiry;
+
     // ✅ Step 2: Walk UP the hierarchy to find the root admin
     // Chain: sale_person → manager → admin
     // We keep going until we find someone with role "admin" or "super_admin"
@@ -375,6 +386,25 @@ export const GetProfile = async (
       } else {
         profile.company = null;
       }
+    }
+
+    // FIX: profile.company.branches (the company's FULL branch list) was
+    // included unconditionally for every role, including sale_person — any
+    // sale_person's own profile fetch always exposed every branch in the
+    // company. Now admin-gated per user (User Management page toggle,
+    // default OFF — see schemaExtensions.ts's ensureBranchVisibilityToggle):
+    // only when canViewAllBranches is explicitly true does a sale_person see
+    // the full list here. Every other role is unaffected.
+    // NOTE: profile.company above is assigned the raw Sequelize instance
+    // (not .get({ plain: true })'d) — deleting a property off it doesn't
+    // actually change what its own toJSON() serializes, so it has to be
+    // flattened to a plain object first for the delete below to take effect
+    // on the response actually sent.
+    if (profile.company && typeof profile.company.get === "function") {
+      profile.company = profile.company.get({ plain: true });
+    }
+    if (userData.role === "sale_person" && profile.company && !profile.canViewAllBranches) {
+      delete profile.company.branches;
     }
 
     // ✅ Step 5: For sale_person — include the admin's granted permissions

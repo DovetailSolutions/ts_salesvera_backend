@@ -50,6 +50,22 @@ export const bulkAssignShift = async (req: Request, res: Response): Promise<void
   }
 };
 
+export const bulkAssignDepartment = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const result = await AllocationService.bulkAssignDepartment(
+      Number(userData?.userId),
+      userData?.role,
+      callerCompanyId,
+      req.body
+    );
+    createSuccess(res, "Department allocated successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 // GET /admin/allocations?userIds=1,2,3 — current branch(es)/shift for one or
 // more users in a single round trip. Accepts either a comma-separated
 // string (the common query-param shape) or repeated userIds[] params.

@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { User, Branch, Shift, UserBranch } from "../../config/dbConnection";
+import { User, Branch, Shift, Department, UserBranch } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
 
@@ -61,7 +61,7 @@ const loadAssignableTargets = async (
 
   const targets: any[] = await (User as any).findAll({
     where: { id: { [Op.in]: userIds } },
-    attributes: ["id", "firstName", "lastName", "role", "branchId", "shiftId"],
+    attributes: ["id", "firstName", "lastName", "role", "branchId", "shiftId", "departmentId"],
   });
 
   const foundIds = targets.map((t) => Number(t.id));
@@ -238,7 +238,45 @@ export const bulkAssignShift = async (
   };
 };
 
-// ── API 3: read current allocation(s) ────────────────────────────────────
+// ── API 3: bulk allocate department ─────────────────────────────────────
+// Exactly one department per person (User.departmentId), same shape as
+// bulkAssignShift — a single departmentId, not an array.
+export const bulkAssignDepartment = async (
+  loggedInId: number,
+  callerRole: string | undefined,
+  callerCompanyId: number | null,
+  body: any
+) => {
+  const userIds = parseIdList(body?.userIds, "userIds");
+
+  const rawDepartmentId = body?.departmentId;
+  if (Array.isArray(rawDepartmentId)) {
+    throw new ServiceError("Only one department can be allocated per person — departmentId must be a single value");
+  }
+  const departmentId = Number(rawDepartmentId);
+  if (!Number.isInteger(departmentId) || departmentId <= 0) {
+    throw new ServiceError("A valid departmentId is required");
+  }
+
+  const targets = await loadAssignableTargets(loggedInId, callerRole, callerCompanyId, userIds);
+  await assertRefsInCallerCompany(Department, [departmentId], callerCompanyId, "Department");
+
+  await (User as any).update({ departmentId }, { where: { id: { [Op.in]: userIds } } });
+
+  return {
+    departmentId,
+    updated: targets.length,
+    users: targets.map((t) => ({
+      userId: Number(t.id),
+      name: `${t.firstName ?? ""} ${t.lastName ?? ""}`.trim(),
+      role: t.role,
+      previousDepartmentId: t.departmentId ?? null,
+      departmentId,
+    })),
+  };
+};
+
+// ── API 4: read current allocation(s) ────────────────────────────────────
 // Powers both the "who's assigned where" table column (bulk, one round
 // trip for the whole page) and the per-person detail popup (single id) —
 // same shape either way, since the popup is just this same data.
@@ -272,10 +310,11 @@ export const getAllocations = async (
   const [users, allocations] = await Promise.all([
     (User as any).findAll({
       where: { id: { [Op.in]: userIds } },
-      attributes: ["id", "branchId", "shiftId"],
+      attributes: ["id", "branchId", "shiftId", "departmentId"],
       include: [
         { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"] },
         { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"] },
+        { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"] },
       ],
     }),
     (UserBranch as any).findAll({
@@ -305,6 +344,9 @@ export const getAllocations = async (
     branches: branchesByUser.get(Number(u.id)) ?? (u.branch ? [{ id: u.branch.id, branchName: u.branch.branchName, branchCode: u.branch.branchCode }] : []),
     shift: u.shift
       ? { id: u.shift.id, shiftName: u.shift.shiftName, startTime: u.shift.startTime, endTime: u.shift.endTime }
+      : null,
+    department: u.department
+      ? { id: u.department.id, deptName: u.department.deptName, deptCode: u.department.deptCode }
       : null,
   }));
 };
