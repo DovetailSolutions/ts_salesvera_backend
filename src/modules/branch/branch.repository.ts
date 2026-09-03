@@ -69,6 +69,7 @@ export const findBranches = (params: { userId: number; companyId?: string | numb
   }
 
   return Branch.findAndCountAll({
+    attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId", "createdAt"],
     where,
     limit: params.limit,
     offset: params.offset,

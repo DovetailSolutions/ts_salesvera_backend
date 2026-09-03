@@ -67,6 +67,7 @@ import { TaskComment } from "../app/model/taskComment";
 import { ContactQuery } from "../app/model/contactQuery";
 
 import { UserGeoFencing } from "../app/model/userGeoFencing";
+import { SalesPersonTravelLog } from "../app/model/salesPersonTravelLog";
 
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
@@ -117,6 +118,7 @@ const Device = DeviceModel(sequelize);
 Attendance.initModel(sequelize);
 Leave.initModel(sequelize);
 UserGeoFencing.initModel(sequelize);
+  SalesPersonTravelLog.initModel(sequelize);
 
 // Expense
 Expense.initModel(sequelize);
@@ -183,7 +185,13 @@ User.belongsToMany(User, {
 });
 
 // Attendance / Leave
-User.hasMany(Attendance, { foreignKey: "employee_id" });
+// SalesPersonTravelLog
+  User.hasMany(SalesPersonTravelLog, { foreignKey: "userId", as: "travelLogs" });
+  SalesPersonTravelLog.belongsTo(User, { foreignKey: "userId", as: "user" });
+  Attendance.hasMany(SalesPersonTravelLog, { foreignKey: "attendanceId", as: "travelLogs" });
+  SalesPersonTravelLog.belongsTo(Attendance, { foreignKey: "attendanceId", as: "attendance" });
+
+  User.hasMany(Attendance, { foreignKey: "employee_id" });
 Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 
 User.hasMany(Leave, { foreignKey: "employee_id" });
@@ -273,6 +281,8 @@ Quotations.belongsTo(User, { foreignKey: "userId" });
 // User / Company
 User.hasOne(Company, { foreignKey: "adminId", as: "company" });
 Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
+User.hasMany(Company, { foreignKey: "userId", as: "ownedCompanies" });
+Company.belongsTo(User, { foreignKey: "userId", as: "owner" });
 
 // Many-to-many: a manager can manage multiple companies, a company can have multiple managers
 Company.belongsToMany(User, { through: CompanyManager, as: "managers", foreignKey: "companyId", otherKey: "managerId" });
@@ -1189,6 +1199,7 @@ export const connectDB = async () => {
 
 // ===== EXPORTS =====
 export {
+  SalesPersonTravelLog,
   sequelize,
   User,
   Category,

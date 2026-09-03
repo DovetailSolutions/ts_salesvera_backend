@@ -53,6 +53,7 @@ import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils"
 import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
+import { isValidCoordinate } from "../../modules/attendance/travelDistance.service";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -611,10 +612,36 @@ export const getLastMeeting = async (
 
     // ✅ Search filter
     if (search) {
+      const searchTerm = `%${search}%`;
       whereCondition[Op.or] = [
         {
           name: {
-            [Op.iLike]: `${search}%`,
+            [Op.iLike]: searchTerm,
+          },
+        },
+        {
+          companyName: {
+            [Op.iLike]: searchTerm,
+          },
+        },
+        {
+          "$MeetingCompanies.company_name$": {
+            [Op.iLike]: searchTerm,
+          },
+        },
+        {
+          "$MeetingCompanies.person_name$": {
+            [Op.iLike]: searchTerm,
+          },
+        },
+        {
+          mobile: {
+            [Op.iLike]: searchTerm,
+          },
+        },
+        {
+          email: {
+            [Op.iLike]: searchTerm,
           },
         },
       ];
@@ -1072,6 +1099,11 @@ export const EndMeeting = async (
       return;
     }
 
+    if (!isValidCoordinate(latitude_out, longitude_out)) {
+      badRequest(res, "Invalid location coordinates");
+      return;
+    }
+
     // ✅ Check meeting exists
     const isExist = await Meeting.findOne({
       where: {
@@ -1359,6 +1391,12 @@ export const scheduled = async (req: Request, res: Response): Promise<void> => {
     if (!latitude_in && longitude_in) {
       badRequest(res, "latitude_in && longitude_in is required");
       return;
+    }
+    if ((latitude_in !== undefined && latitude_in !== null) || (longitude_in !== undefined && longitude_in !== null)) {
+      if (!isValidCoordinate(latitude_in, longitude_in)) {
+        badRequest(res, "Invalid location coordinates");
+        return;
+      }
     }
     /** ✅ Check meeting exist for this user & active */
     const isExist = await Meeting.findOne({
@@ -1695,6 +1733,11 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
       where: {
         employee_id: finalUserId,
       },
+      // MyLeave.jsx reads row.{id,leave_type,from_date,to_date,reason,status,
+      // leaveTypeRef} only — employee_id is redundant here (this list is
+      // always "my own" leaves) and createdAt isn't displayed, just used for
+      // sort order below (ORDER BY doesn't require the column in SELECT).
+      attributes: ["id", "leave_type", "from_date", "to_date", "reason", "status"],
       // Additive — each row also carries its resolved leave type name/code
       // (when the request was made against a company-configured type),
       // same as the web admin's leave list, instead of just the bare

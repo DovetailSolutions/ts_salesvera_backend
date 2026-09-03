@@ -100,19 +100,19 @@ export const addCompany = async (userId: number, role: any, body: any) => {
   return company;
 };
 
-export const getCompany = async (userId: number, query: any) => {
+export const getCompany = async (userId: number, query: any, role?: string) => {
   const page = Number(query.page) || 1;
   const limit = Number(query.limit) || 10;
   const offset = (page - 1) * limit;
   const search = (query.search as string) || "";
 
-  const { count, rows } = await CompanyRepo.findCompaniesPaginated({ userId, search, limit, offset });
+  const { count, rows } = await CompanyRepo.findCompaniesPaginated({ userId, role, search, limit, offset });
 
   return {
     total: count,
     page,
     limit,
-    totalPages: Math.ceil(count / limit),
+    totalPages: Math.ceil(count / limit) || 1,
     data: rows,
   };
 };
@@ -308,7 +308,7 @@ export const getCompanyAdmins = async (companyIdParam: string, userId: number) =
   return CompanyRepo.findCompanyAdmins(Number(companyIdParam));
 };
 
-export const deleteCompany = async (id: string, userId: number) => {
+export const deleteCompany = async (id: string, userId: number, role?: string) => {
   if (!id) throw new ServiceError("Company id is required");
   if (isNaN(Number(id))) throw new ServiceError("Company id must be a number");
 

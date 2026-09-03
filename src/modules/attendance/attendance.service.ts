@@ -1,4 +1,4 @@
-import { Op } from "sequelize";
+import { Op, fn, col } from "sequelize";
 import { getObjectFromSpaces, SpacesFile } from "../../config/spaces";
 import { Readable } from "stream";
 import * as XLSX from "xlsx";
@@ -8,6 +8,9 @@ import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUti
 import { haversineMeters } from "../shared/geo";
 import { checkUserGeoFencing } from "../geoFencing/geoFencing.service";
 import * as AttendanceRepo from "./attendance.repository";
+import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary } from "./travelDistance.service";
+import { resolveAttendanceLocationName } from "./locationName.service";
+import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User } from "../../config/dbConnection";
 
 // ============================================================
 // Attendance service — validation + orchestration. Byte-for-byte port of the
@@ -1264,6 +1267,16 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
 
   if (!punch_in) throw new ServiceError("Punch-in time is required");
 
+  // Backend must not trust frontend-side lat/lng validation alone — reject
+  // garbage coordinates outright rather than silently storing them (location
+  // itself stays optional here; geofencing below is what actually requires
+  // it for companies that need it).
+  if ((latitude_in !== undefined && latitude_in !== null) || (longitude_in !== undefined && longitude_in !== null)) {
+    if (!isValidCoordinate(latitude_in, longitude_in)) {
+      throw new ServiceError("Invalid location coordinates");
+    }
+  }
+
   // FIX: was formatLocalDate(new Date()) — formatLocalDate reads local
   // getFullYear()/getMonth()/getDate(), which only resolve to the IST
   // calendar day because this dev machine's OS timezone happens to be set
@@ -1299,6 +1312,7 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
   // never blocks a punch (there's nothing to enforce against).
   const geofencingActive =
     !userGeoFence.enforced &&
+    !(userGeoFence as any).bypassed &&
     (company?.geoFencingRequired ?? true) &&
     (company?.officeLocationRequired ?? true) &&
     branch?.latitude != null &&
@@ -1361,6 +1375,13 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
   // is the most authoritative record of what actually happened that day, so
   // it overrides whatever the row previously said. "late" reflects the
   // day's first arrival only — preserved as-is on a re-punch, not recomputed.
+  // Resolved once here (branch-match first, then reverse geocode) and
+  // persisted on the row — the travel timeline then just reads it back
+  // instead of re-geocoding on every GET /travel/:date.
+  const locationNameIn = isValidCoordinate(latitude_in, longitude_in)
+    ? await resolveAttendanceLocationName(latitude_in, longitude_in, company?.id ?? null)
+    : null;
+
   if (existingRecordsForToday) {
     existingRecordsForToday.punch_in = punchInTime;
     existingRecordsForToday.punch_out = null as any;
@@ -1371,9 +1392,19 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     existingRecordsForToday.companyLeaveId = null as any;
     existingRecordsForToday.latitude_in = latitude_in;
     existingRecordsForToday.longitude_in = longitude_in;
+    existingRecordsForToday.locationNameIn = locationNameIn;
+    existingRecordsForToday.locationNameOut = null as any;
     existingRecordsForToday.geoFencingEnabled = userGeoFence.enforced;
     existingRecordsForToday.geoFencingVerified = userGeoFence.enforced ? !!userGeoFence.verified : null as any;
     existingRecordsForToday.geoFenceDistance = userGeoFence.enforced ? userGeoFence.distanceMeters ?? null : null as any;
+    // A fresh punch-in starts a new day-session — any travel totals computed
+    // against the previous session's punch-out are no longer valid.
+    existingRecordsForToday.lastMeetingId = null as any;
+    existingRecordsForToday.finalLegDistanceKm = null as any;
+    existingRecordsForToday.totalTravelDistanceKm = null as any;
+    existingRecordsForToday.vehicleAllowanceRateApplied = null as any;
+    existingRecordsForToday.vehicleAllowance = null as any;
+    existingRecordsForToday.distanceCalculationStatus = null as any;
     await existingRecordsForToday.save();
     return existingRecordsForToday;
   }
@@ -1386,6 +1417,7 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     late,
     latitude_in,
     longitude_in,
+    locationNameIn,
     geoFencingEnabled: userGeoFence.enforced,
     geoFencingVerified: userGeoFence.enforced ? !!userGeoFence.verified : null,
     geoFenceDistance: userGeoFence.enforced ? userGeoFence.distanceMeters ?? null : null,
@@ -1436,6 +1468,12 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
 
   if (!punch_out) throw new ServiceError("Punch-out time is required");
 
+  if ((latitude_out !== undefined && latitude_out !== null) || (longitude_out !== undefined && longitude_out !== null)) {
+    if (!isValidCoordinate(latitude_out, longitude_out)) {
+      throw new ServiceError("Invalid location coordinates");
+    }
+  }
+
   // FIX: was formatLocalDate(new Date()) — OS-timezone-dependent (only
   // correct here because this dev machine's OS tz happens to be IST); not
   // guaranteed on the production host. getISTDateString() resolves "today"
@@ -1453,7 +1491,11 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   // Per-user geo-fencing applies to punch-out too (spec explicitly covers
   // both Check In and Check Out) — no company/branch-level equivalent
   // existed for punch-out before this, so this is purely additive.
-  const userGeoFenceOut = await checkUserGeoFencing(finalUserId, latitude_out, longitude_out);
+  const targetUserObjOut = await User.findByPk(finalUserId, { attributes: ["id", "isGeofenceRequired"] });
+  const isUserGeofenceRequiredOut = (targetUserObjOut as any)?.isGeofenceRequired ?? true;
+  const userGeoFenceOut = isUserGeofenceRequiredOut
+    ? await checkUserGeoFencing(finalUserId, latitude_out, longitude_out)
+    : { enforced: false };
 
   const diffMs = punchOutTime.getTime() - punchInTime.getTime();
   const workingHours = diffMs / (1000 * 60 * 60);
@@ -1477,6 +1519,9 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   attendance.overtime = overtime;
   attendance.latitude_out = latitude_out;
   attendance.longitude_out = longitude_out;
+  attendance.locationNameOut = isValidCoordinate(latitude_out, longitude_out)
+    ? await resolveAttendanceLocationName(latitude_out, longitude_out, company?.id ?? null)
+    : null;
   if (userGeoFenceOut.enforced) {
     attendance.geoFencingEnabled = true;
     attendance.geoFencingVerified = !!userGeoFenceOut.verified;
@@ -1505,9 +1550,171 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   // sees exactly what happened instead of a bare "absent" with no context.
   const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
   attendance.status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
+
+  // ── Sale Person daily travel: close out the day's journey ────────────────
+  // Attendance-In -> Meeting-1 and Meeting -> Meeting legs are already
+  // computed and stored on each Meeting row as they happen (see
+  // app/controller/user.ts's EndMeeting). The only leg still missing at
+  // punch-out time is the closing one — last completed meeting (or, with no
+  // meetings today, nowhere) -> Attendance Out.
+  await applyTravelSummaryOnPunchOut(attendance, finalUserId, today, company);
+
   await attendance.save();
 
   return attendance;
+};
+
+// Exported for reuse by the travel summary read path (see
+// getSalesPersonTravelSummary below) so a summary requested before punch-out
+// can show the same "no_meetings" / "failed" / "calculated" semantics
+// without duplicating this logic.
+export const applyTravelSummaryOnPunchOut = async (
+  attendance: any,
+  finalUserId: number,
+  today: string,
+  company: { vehicleAllowanceRatePerKm?: number | null } | null | undefined
+) => {
+  if (!isValidCoordinate(attendance.latitude_out, attendance.longitude_out)) {
+    // No usable Attendance-Out location — nothing to measure the closing leg
+    // against. Leave distance/allowance null rather than guessing at 0.
+    attendance.distanceCalculationStatus = "failed";
+    return;
+  }
+
+  const startOfDay = new Date(`${today}T00:00:00.000+05:30`);
+  const endOfDay = new Date(`${today}T23:59:59.999+05:30`);
+
+  const lastMeeting: any = await Meeting.findOne({
+    where: {
+      userId: finalUserId,
+      status: "out",
+      meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
+    },
+    attributes: ["id", "latitude_out", "longitude_out", "totalDistance"],
+    order: [["meetingTimeOut", "DESC"]],
+  });
+
+  if (!lastMeeting) {
+    // No meetings today — the defined journey (Attendance In -> meetings ->
+    // Attendance Out) never left the starting point in any measurable way.
+    attendance.lastMeetingId = null;
+    attendance.finalLegDistanceKm = null;
+    attendance.totalTravelDistanceKm = 0;
+    attendance.distanceCalculationStatus = "no_meetings";
+  } else {
+    attendance.lastMeetingId = lastMeeting.id;
+
+    if (!isValidCoordinate(lastMeeting.latitude_out, lastMeeting.longitude_out)) {
+      attendance.distanceCalculationStatus = "failed";
+    } else {
+      const result = await calculateDrivingDistanceKm(
+        lastMeeting.latitude_out,
+        lastMeeting.longitude_out,
+        attendance.latitude_out,
+        attendance.longitude_out
+      );
+
+      if (result.success && result.km != null) {
+        const previousTotalKm = parseDistanceStringToKm(lastMeeting.totalDistance);
+        attendance.finalLegDistanceKm = result.km;
+        attendance.totalTravelDistanceKm = Number((previousTotalKm + result.km).toFixed(3));
+        attendance.distanceCalculationStatus = "calculated";
+      } else {
+        // Per spec: a Google API failure must never silently become a fake
+        // 0km — leave the distance fields untouched (null) and mark it
+        // failed so the admin/self travel view can show "unavailable" and a
+        // retry, rather than a number nobody can trust.
+        attendance.distanceCalculationStatus = "failed";
+      }
+    }
+  }
+
+  const rate = company?.vehicleAllowanceRatePerKm;
+  if (rate != null && attendance.totalTravelDistanceKm != null) {
+    attendance.vehicleAllowanceRateApplied = rate;
+    attendance.vehicleAllowance = Number((attendance.totalTravelDistanceKm * rate).toFixed(2));
+  }
+};
+
+// ---- Sale Person daily travel summary ----
+
+export const getMyTravelSummary = async (finalUserId: number, date: string) => {
+  return getSalesPersonTravelSummary(finalUserId, date);
+};
+
+// Admin/manager view — company-scoped: the target must actually be a member
+// of the caller's team (same rule getAttendance/getCompanyScopedChildUserIds
+// already enforce everywhere else), so an admin can never pull another
+// company's Sale Person's GPS trail by guessing a userId.
+export const getSalesPersonTravelForAdmin = async (
+  loggedInId: number,
+  callerCompanyId: number | null,
+  targetUserId: number,
+  date: string
+) => {
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  if (targetUserId !== loggedInId && !childIds.includes(targetUserId)) {
+    throw new ServiceError("You do not have access to this user's travel data", 403);
+  }
+  return getSalesPersonTravelSummary(targetUserId, date);
+};
+
+// Manager/admin "My Team" travel overview (spec item 52) — one row per
+// direct-report sale_person for the given date, so a manager can scan
+// everyone's meetings/distance/allowance before drilling into one person's
+// full journey. Company-scoped via the same getCompanyScopedChildUserIds
+// used by getSalesPersonTravelForAdmin, so it can never leak another
+// manager's/tenant's team.
+export const getTeamTravelSummary = async (
+  loggedInId: number,
+  callerCompanyId: number | null,
+  date: string
+) => {
+  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  if (childIds.length === 0) return [];
+
+  const salesPersons = await User.findAll({
+    where: { id: { [Op.in]: childIds }, role: "sale_person", status: { [Op.ne]: "delete" } },
+    attributes: ["id", "firstName", "lastName", "email"],
+  });
+  if (salesPersons.length === 0) return [];
+
+  const salesPersonIds = salesPersons.map((u) => u.id as number);
+
+  const attendanceRows = await Attendance.findAll({
+    where: { employee_id: { [Op.in]: salesPersonIds }, date },
+    attributes: ["employee_id", "punch_in", "punch_out", "totalTravelDistanceKm", "vehicleAllowance", "distanceCalculationStatus"],
+  });
+  const attendanceByUser = new Map(attendanceRows.map((a: any) => [a.employee_id, a]));
+
+  const startOfDay = new Date(`${date}T00:00:00.000+05:30`);
+  const endOfDay = new Date(`${date}T23:59:59.999+05:30`);
+  const meetingCounts = await Meeting.findAll({
+    where: {
+      userId: { [Op.in]: salesPersonIds },
+      meetingTimeIn: { [Op.between]: [startOfDay, endOfDay] },
+    },
+    attributes: ["userId", [fn("COUNT", col("id")), "count"]],
+    group: ["userId"],
+    raw: true,
+  });
+  const meetingCountByUser = new Map(meetingCounts.map((r: any) => [Number(r.userId), Number(r.count)]));
+
+  return salesPersons.map((u: any) => {
+    const att: any = attendanceByUser.get(u.id);
+    return {
+      userId: u.id,
+      name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
+      email: u.email,
+      punchIn: att?.punch_in ?? null,
+      punchOut: att?.punch_out ?? null,
+      meetingsCount: meetingCountByUser.get(u.id) || 0,
+      totalDistanceKm: att?.totalTravelDistanceKm ?? null,
+      vehicleAllowance: att?.vehicleAllowance ?? null,
+      distanceCalculationStatus: att?.distanceCalculationStatus ?? null,
+      hasAttendance: !!att,
+    };
+  });
 };
 
 export const getTodayAttendance = async (finalUserId: number) => {

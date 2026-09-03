@@ -32,6 +32,7 @@ import preferencesRoutes from "./modules/preferences/preferences.routes";
 import reportsRoutes from "./modules/reports/reports.routes";
 import meetingRoutes from "./modules/meeting/meeting.routes";
 import { contactPublicRoutes, contactAdminRoutes } from "./modules/contact/contact.routes";
+import superAdminRoutes from "./modules/superAdmin/superAdmin.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -86,6 +87,7 @@ app.use("/admin", reportsRoutes);
 app.use("/admin", meetingRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
+app.use("/admin", superAdminRoutes);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
   swaggerOptions: {
@@ -130,3 +132,4 @@ server.listen(PORT, async () => {
   startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   console.log(`Server is running on http://localhost:${PORT}`);
 });
+

@@ -54,6 +54,7 @@ interface UserAttributes {
   // includes the company's full branch list. See schemaExtensions.ts's
   // ensureBranchVisibilityToggle.
   canViewAllBranches?: boolean;
+  isGeofenceRequired?: boolean;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -241,7 +242,12 @@ export const createUserModel = (sequelize: Sequelize) => {
         allowNull: false,
         defaultValue: true,
       },
-      canViewAllBranches: {
+      isGeofenceRequired: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: true,
+        },
+        canViewAllBranches: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
         defaultValue: false,

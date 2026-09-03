@@ -1,3 +1,5 @@
+import { User } from "../../config/dbConnection";
+import axios from "axios"
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
 import { haversineMeters } from "../shared/geo";
@@ -85,6 +87,10 @@ export const saveConfigForUser = async (
 
   await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: true });
 
+  if (body?.isGeofenceRequired !== undefined) {
+    targetUser.isGeofenceRequired = Boolean(body.isGeofenceRequired);
+    await targetUser.save();
+  }
   const enabled = !!body?.enabled;
   let latitude: number | null = null;
   let longitude: number | null = null;
@@ -211,7 +217,13 @@ export const checkUserGeoFencing = async (
   userId: number,
   latitude: number | string | null | undefined,
   longitude: number | string | null | undefined
-): Promise<{ enforced: boolean; verified?: boolean; distanceMeters?: number; radiusMeters?: number }> => {
+): Promise<{ enforced: boolean; verified?: boolean; distanceMeters?: number; radiusMeters?: number; bypassed?: boolean }> => {
+  // Check if Admin set isGeofenceRequired = false for this user
+  const user = await (User as any).findByPk(userId, { attributes: ["id", "isGeofenceRequired"] });
+  if (user && user.isGeofenceRequired === false) {
+    return { enforced: false, bypassed: true };
+  }
+
   const config = (await GeoFencingRepo.findConfigByUserId(userId)) as any;
 
   if (!config?.enabled) return { enforced: false };
@@ -246,3 +258,48 @@ export const checkUserGeoFencing = async (
   return { enforced: true, verified: true, distanceMeters, radiusMeters };
 };
 
+
+
+export const geocodeAddress = async (address: string) => {
+  if (!address || !address.trim()) throw new ServiceError("Address is required");
+
+  const apiKey = process.env.GOOGLE_MAP_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || "";
+
+  if (apiKey) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address.trim())}&key=${apiKey}`;
+      const response = await axios.get(url);
+      if (response.data?.status === "OK" && response.data?.results?.length > 0) {
+        const result = response.data.results[0];
+        return {
+          latitude: Number(result.geometry.location.lat).toFixed(6),
+          longitude: Number(result.geometry.location.lng).toFixed(6),
+          formattedAddress: result.formatted_address,
+          source: "google",
+        };
+      }
+    } catch (err) {
+      console.warn("Backend Google geocoding error:", err);
+    }
+  }
+
+  try {
+    const osmUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address.trim())}`;
+    const response = await axios.get(osmUrl, {
+      headers: { "User-Agent": "SalesVera-Backend/1.0" },
+    });
+    if (Array.isArray(response.data) && response.data.length > 0) {
+      const item = response.data[0];
+      return {
+        latitude: Number(item.lat).toFixed(6),
+        longitude: Number(item.lon).toFixed(6),
+        formattedAddress: item.display_name,
+        source: "osm",
+      };
+    }
+  } catch (err) {
+    console.warn("Backend OSM geocoding error:", err);
+  }
+
+  throw new ServiceError("Could not find coordinates for that address. Please try a different location.");
+};

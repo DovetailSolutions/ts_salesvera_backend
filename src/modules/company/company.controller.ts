@@ -38,7 +38,7 @@ export const getCompany = async (req: Request, res: Response): Promise<void> => 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const result = await CompanyService.getCompany(Number(userData.userId), req.query);
+    const result = await CompanyService.getCompany(Number(userData.userId), req.query, userData.role as string | undefined);
     createSuccess(res, "Company fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);
@@ -207,8 +207,8 @@ export const deleteCompany = async (req: Request, res: Response): Promise<void> 
       badRequest(res, "Unauthorized request");
       return;
     }
-    await CompanyService.deleteCompany(req.params.id, Number(userData.userId));
-    createSuccess(res, "Company deleted successfully");
+    await CompanyService.deleteCompany(req.params.id, Number(userData.userId), userData.role as string | undefined);
+    createSuccess(res, "Company deleted successfully", null);
   } catch (error) {
     handleServiceError(res, error);
   }
