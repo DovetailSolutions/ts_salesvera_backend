@@ -1,3 +1,4 @@
+import { User } from "../../config/dbConnection";
 import axios from "axios"
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
@@ -86,6 +87,10 @@ export const saveConfigForUser = async (
 
   await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: true });
 
+  if (body?.isGeofenceRequired !== undefined) {
+    targetUser.isGeofenceRequired = Boolean(body.isGeofenceRequired);
+    await targetUser.save();
+  }
   const enabled = !!body?.enabled;
   let latitude: number | null = null;
   let longitude: number | null = null;
@@ -212,7 +217,13 @@ export const checkUserGeoFencing = async (
   userId: number,
   latitude: number | string | null | undefined,
   longitude: number | string | null | undefined
-): Promise<{ enforced: boolean; verified?: boolean; distanceMeters?: number; radiusMeters?: number }> => {
+): Promise<{ enforced: boolean; verified?: boolean; distanceMeters?: number; radiusMeters?: number; bypassed?: boolean }> => {
+  // Check if Admin set isGeofenceRequired = false for this user
+  const user = await (User as any).findByPk(userId, { attributes: ["id", "isGeofenceRequired"] });
+  if (user && user.isGeofenceRequired === false) {
+    return { enforced: false, bypassed: true };
+  }
+
   const config = (await GeoFencingRepo.findConfigByUserId(userId)) as any;
 
   if (!config?.enabled) return { enforced: false };

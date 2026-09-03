@@ -64,3 +64,22 @@ export const geocodeAddress = async (req: Request, res: Response): Promise<void>
     handleServiceError(res, error);
   }
 };
+
+export const toggleRequirementForUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const { isGeofenceRequired } = req.body || {};
+
+    const result = await GeoFencingService.saveConfigForUser(
+      Number(userData.userId),
+      (userData as any).role,
+      callerCompanyId,
+      Number(req.params.userId),
+      { isGeofenceRequired, enabled: isGeofenceRequired }
+    );
+    res.status(200).json({ success: true, message: `Geofence requirement updated to ${isGeofenceRequired ? "Required" : "Not Required (Exempted)"}`, data: result });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};

@@ -176,4 +176,11 @@ router.post("/meetings/schedule", tokenCheck, authorizeRoles("manager"), checkPe
 router.patch("/meetings/:id/reschedule", tokenCheck, authorizeRoles("manager"), checkPermission("meeting", "update"), MeetingController.rescheduleMeeting);
 router.get("/meetings/dashboard", tokenCheck, authorizeRoles("manager"), checkPermission("meeting", "view"), MeetingController.getMeetingDashboard);
 
+
+// Route aliases for Meetings (supports both /createmeeting, /scheduledupdate, /endmeeting AND /meeting/add, /meeting/start, /meeting/end)
+router.post("/meeting/add", tokenCheck, meeting.array("image"), Controller.CreateMeeting);
+router.post("/meeting/start", tokenCheck, Controller.scheduled);
+router.post("/meeting/end", tokenCheck, Controller.EndMeeting);
 export default router;
+
+

@@ -57,6 +57,11 @@ export const findCompaniesPaginated = (params: {
     };
   }
   return Company.findAndCountAll({
+    // CompanyManagement.jsx's table only reads these 6 columns + userId
+    // (owner lookup — read directly off this row by CompanyDetailEditor's
+    // Team tab, not refetched, so it must stay here even though the rest of
+    // that editor's fields come from a separate getCompanyById call).
+    attributes: ["id", "companyName", "legalName", "industry", "companySize", "companyEmail", "companyPhone", "userId"],
     where,
     limit: params.limit,
     offset: params.offset,
@@ -106,6 +111,7 @@ export const findCompanyPolicyFields = (id: number | string) =>
       "casualHolidayApprovalRequired", "casualHolidayCarryForward",
       "casualCarryForwardLimit", "casualCarryForwardExpiry",
       "compOffMinHours", "compOffExpiryDays", "compOffApprovalRequired",
+      "vehicleAllowanceRatePerKm",
     ],
   });
 

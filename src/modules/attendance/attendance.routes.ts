@@ -41,4 +41,22 @@ router.get(
   AttendanceController.exportAttendanceReport
 );
 
+// Admin/manager view of one Sale Person's daily travel (their own
+// company-scoped team only — see getSalesPersonTravelForAdmin).
+router.get(
+  "/sales-person/:userId/travel/:date",
+  tokenCheck,
+  checkPermission("attendance", "view"),
+  AttendanceController.getSalesPersonTravel
+);
+
+// "My Team" travel overview — one row per direct-report sale_person for the
+// date, so a manager/admin can scan everyone before drilling into one.
+router.get(
+  "/sales-team/travel-summary/:date",
+  tokenCheck,
+  checkPermission("attendance", "view"),
+  AttendanceController.getTeamTravelSummary
+);
+
 export default router;

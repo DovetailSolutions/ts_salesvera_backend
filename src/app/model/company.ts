@@ -52,6 +52,11 @@ interface CompanyAttributes {
   adminId: number;
   managerId: number;
 
+  // Sale Person travel module (see modules/attendance/travelDistance.service.ts)
+  // — per-company ₹/km rate applied to a day's total driving distance to
+  // compute vehicleAllowance. Null until an admin configures it.
+  vehicleAllowanceRatePerKm?: number | null;
+
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -113,6 +118,8 @@ export class Company
   public userId!: number;
   public adminId!: number;
   public managerId!: number;
+
+  public vehicleAllowanceRatePerKm!: number | null;
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -178,6 +185,7 @@ export const CompanyModell = (sequelize: Sequelize) => {
       state: { type: DataTypes.STRING, allowNull: true },
       country: { type: DataTypes.STRING, allowNull: true },
       zipcode: { type: DataTypes.STRING, allowNull: true },
+      vehicleAllowanceRatePerKm: { type: DataTypes.FLOAT, allowNull: true },
     },
     {
       tableName: "companies",

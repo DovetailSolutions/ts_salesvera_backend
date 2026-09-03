@@ -844,15 +844,34 @@ export const getMeeting = async (
       required: Boolean(Object.keys(meetingWhere).length),
       separate: true,
 
+      // Meeting.jsx reads row.Meetings[].{id,status,meetingPurpose,
+      // scheduledTime,meetingTimeIn,meetingTimeOut,latitude_in,longitude_in,
+      // latitude_out,longitude_out,legDistance,totalDistance} plus
+      // ManagerDashboard.jsx's createdAt fallback when scheduledTime is
+      // null — nothing else off this row is read anywhere in the frontend.
+      attributes: [
+        "id", "status", "meetingPurpose", "scheduledTime",
+        "meetingTimeIn", "meetingTimeOut",
+        "latitude_in", "longitude_in", "latitude_out", "longitude_out",
+        "legDistance", "totalDistance", "createdAt",
+      ],
+
       order: [["meetingTimeIn", "DESC"]],
 
       include: [
         {
+          // MeetingUser is the frozen "Client" entity (see meeting.repository.ts)
+          // — left fully unrestricted here, unlike the two models below.
           model: MeetingUser,
           required: false,
         },
         {
+          // Meeting.jsx's `mc?.x` chains only ever resolve real columns via
+          // mobileNumber/companyEmail/address/city/state/pincode/country —
+          // every other alternative in those chains (mc.phone, mc.mobile,
+          // mc.postalCode, ...) doesn't exist on this model at all.
           model: MeetingCompany,
+          attributes: ["id", "mobileNumber", "companyEmail", "address", "city", "state", "pincode", "country"],
           required: false,
         },
         // {
@@ -1684,87 +1703,97 @@ export const UpdateExpense = async (
 // leaveList/getTodayLeaveRequests have moved to src/modules/leave/ — see
 // leave.controller.ts/service.ts/repository.ts.
 
-export const  GetExpense = async (
+export const GetExpense = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
-    const loggedInId = userData.userId;
-    const search = req.query.search
+    const loggedInId = Number(userData?.userId) || 0;
+    const role = userData?.role;
+    const search = req.query.search as string;
     const { page, limit, offset } = getPagination(req);
-    // Company-scoped team: an admin/manager assigned to several companies
-    // otherwise kept seeing the other company's expense rows here.
-    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
 
-    const allUserIds = [ ...childIds];
+    let childIds: number[] = [];
+    if (role === "super_admin" && !callerCompanyId) {
+      const allUsers = await User.findAll({
+        where: { id: { [Op.ne]: loggedInId }, status: { [Op.ne]: "delete" } },
+        attributes: ["id"],
+      });
+      childIds = allUsers.map((u: any) => u.id);
+    } else {
+      childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+    }
 
+    const allUserIds: number[] = [loggedInId, ...childIds];
     const { approvedByAdmin, approvedBySuperAdmin } = req.query;
 
-    // 🔥 Build dynamic where condition
     const expenseWhere: any = {
       userId: { [Op.in]: allUserIds },
     };
     let userWhere: any = {};
 
-    if (approvedByAdmin !== undefined) {
+    if (approvedByAdmin !== undefined && approvedByAdmin !== "") {
       expenseWhere.approvedByAdmin = approvedByAdmin;
     }
 
-    if (approvedBySuperAdmin !== undefined) {
+    if (approvedBySuperAdmin !== undefined && approvedBySuperAdmin !== "") {
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
     }
 
-    if (search) {
+    if (search && String(search).trim() !== "") {
+      const searchStr = String(search).trim();
       userWhere[Op.or] = [
-        { firstName: { [Op.iLike]: `%${search}%` } },
-        { lastName: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
-        { phone: { [Op.iLike]: `%${search}%` } },
-      ]
+        { firstName: { [Op.iLike]: `%${searchStr}%` } },
+        { lastName: { [Op.iLike]: `%${searchStr}%` } },
+        { email: { [Op.iLike]: `%${searchStr}%` } },
+        { phone: { [Op.iLike]: `%${searchStr}%` } },
+      ];
     }
 
-   
+    const hasUserFilter = Object.keys(userWhere).length > 0;
 
     const { rows, count } = await Expense.findAndCountAll({
-      where: expenseWhere, // 👈 final merged condition
+      attributes: [
+        "id", "userId", "title", "total_amount", "approvedByAdmin", "approvedBySuperAdmin",
+        "date", "category", "amount", "description", "location", "createdAt", "updatedAt"
+      ],
+      where: expenseWhere,
+      limit,
+      offset,
+      order: [["createdAt", "DESC"]],
+      distinct: true,
       include: [
         {
-                  model: ExpenseImage,
-                  as: "images",
-                },
+          model: ExpenseImage,
+          as: "images",
+          attributes: ["id", "expenseId", "imageUrl", "createdAt"],
+          required: false,
+        },
         {
           model: User,
           as: "user",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-          required: false,
-          where: userWhere,
+          required: hasUserFilter,
+          where: hasUserFilter ? userWhere : undefined,
         },
       ],
-      order: [["createdAt", "DESC"]],
     });
 
-    // FIX: previously called badRequest() here without returning, then fell
-    // through to the 200 response below anyway — an empty list was never
-    // actually an error case, it just tried to send two responses on the
-    // same request (crashing with "headers already sent" server-side),
-    // which is why this page failed for any company/user with zero expense
-    // records instead of just showing an empty list.
     res.status(200).json({
       success: true,
       message: "Expense fetched successfully",
       data: rows,
       pagination: {
         totalRecords: count,
-        totalPages: Math.ceil(count / limit),
+        totalPages: Math.ceil(count / limit) || 1,
         currentPage: page,
         limit,
       },
     });
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };

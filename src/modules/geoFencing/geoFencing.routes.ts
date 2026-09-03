@@ -32,5 +32,7 @@ router.put(
   GeoFencingController.saveForUser
 );
 
+router.patch("/users/:userId/geofence-toggle", tokenCheck, GeoFencingController.toggleRequirementForUser);
+
 export default router;
 

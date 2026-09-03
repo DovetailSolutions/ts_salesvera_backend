@@ -61,6 +61,7 @@ export const findDepartments = (params: {
   if (params.branchId) where.branchId = params.branchId;
 
   return Department.findAndCountAll({
+    attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId", "createdAt"],
     where,
     limit: params.limit,
     offset: params.offset,

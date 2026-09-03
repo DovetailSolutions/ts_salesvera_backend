@@ -291,6 +291,12 @@ export const findOrCreateLeaveTypeBalance = (params: {
     },
   });
 
+export const findBalancesForUserIds = (userIds: number[], year: number) =>
+  EmployeeLeaveTypeBalance.findAll({
+    where: { employeeId: { [Op.in]: userIds }, year },
+    include: [{ model: CompanyLeave, as: "leaveType", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear"] }],
+  });
+
 export const findTeamLeaveTypeBalances = (params: { childIds: number[]; year: number; limit: number; offset: number }) =>
   User.findAndCountAll({
     where: { id: { [Op.in]: params.childIds } },

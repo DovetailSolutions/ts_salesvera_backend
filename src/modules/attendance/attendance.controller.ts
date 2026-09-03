@@ -5,6 +5,7 @@ import { ServiceError } from "../shared/serviceError";
 import * as Middleware from "../../app/middlewear/comman";
 import { Attendance } from "../../config/dbConnection";
 import * as AttendanceService from "./attendance.service";
+import { getISTDateString } from "../shared/dateUtils";
 
 // ============================================================
 // Attendance controller — thin HTTP layer, extracted verbatim from
@@ -160,6 +161,55 @@ export const getTodayAttendance = async (req: Request, res: Response): Promise<v
     const userData = req.userData as JwtPayload;
     const record = await AttendanceService.getTodayAttendance(Number(userData?.userId));
     createSuccess(res, "Today attendance fetched successfully", record);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// Sale Person's own daily travel summary — attendance in/out, every
+// meeting's leg, the closing leg, total distance and allowance for one date.
+export const getMyTravelSummary = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const date = (req.params.date as string) || getISTDateString();
+    const result = await AttendanceService.getMyTravelSummary(Number(userData?.userId), date);
+    createSuccess(res, "Travel summary fetched successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// ---- Admin/team-scoped travel view ----
+
+export const getTeamTravelSummary = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const date = (req.params.date as string) || getISTDateString();
+    const result = await AttendanceService.getTeamTravelSummary(Number(userData?.userId), callerCompanyId, date);
+    createSuccess(res, "Team travel summary fetched successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const getSalesPersonTravel = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const targetUserId = Number(req.params.userId);
+    if (Number.isNaN(targetUserId)) {
+      badRequest(res, "Invalid userId");
+      return;
+    }
+    const date = (req.params.date as string) || getISTDateString();
+    const result = await AttendanceService.getSalesPersonTravelForAdmin(
+      Number(userData?.userId),
+      callerCompanyId,
+      targetUserId,
+      date
+    );
+    createSuccess(res, "Travel summary fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);
   }

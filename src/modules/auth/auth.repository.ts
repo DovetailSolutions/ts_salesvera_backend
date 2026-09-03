@@ -104,29 +104,51 @@ export const findUserPermissionsWithPermission = (userId: number) =>
 export const updateUserFields = (id: number, fields: any) => User.update(fields, { where: { id } });
 
 export const findUserWithProfileIncludes = (id: number, role: string, includeCompanyRelations: boolean) => {
-  const companyIncludes = [
-    { model: Branch, as: "branches" },
-    { model: Shift, as: "shifts" },
-    { model: Department, as: "departments" },
-    { model: CompanyLeave, as: "companyLeaves" },
-    { model: CompanyBank, as: "companyBanks" },
+  const userAttributes = [
+    "id", "employeeCode", "firstName", "lastName", "email", "phone", "dob", "profile",
+    "role", "status", "branchId", "departmentId", "shiftId", "tenantId", "createdBy",
+    "canViewAllBranches", "tallyGuid", "tallyName", "tallyStartDate", "createdAt", "updatedAt"
   ];
 
-  const include: any[] = [{ model: Branch, as: "branch" }, { model: Department, as: "department" }];
-  if (includeCompanyRelations) {
-    include.push({ model: Company, as: "company", include: companyIncludes });
+  if (role === "super_admin") {
+    return User.findByPk(id, { attributes: userAttributes });
   }
 
-  return User.findByPk(id, { include });
+  const companyIncludes = [
+    { model: Branch, as: "branches", attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "addressLine2", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId"] },
+    { model: Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
+    { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
+    { model: CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
+    { model: CompanyBank, as: "companyBanks", attributes: ["id", "bankName", "bankAccountNumber", "bankIfsc", "bankBranchName", "bankAccountHolder", "companyId"] },
+  ];
+
+  const include: any[] = [
+    { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode", "latitude", "longitude", "geoRadius"] },
+    { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"] }
+  ];
+
+  if (includeCompanyRelations) {
+    include.push({
+      model: Company,
+      as: "company",
+      attributes: ["id", "companyName", "legalName", "registrationNo", "companyEmail", "companyPhone", "industry", "companySize", "userId", "adminId"],
+      include: companyIncludes
+    });
+  }
+
+  return User.findByPk(id, { attributes: userAttributes, include });
 };
 
 export const findCompanyWithFullDetail = (companyId: number) => {
   const companyIncludes = [
-    { model: Branch, as: "branches" },
-    { model: Shift, as: "shifts" },
-    { model: Department, as: "departments" },
-    { model: CompanyLeave, as: "companyLeaves" },
-    { model: CompanyBank, as: "companyBanks" },
+    { model: Branch, as: "branches", attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "addressLine2", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId"] },
+    { model: Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
+    { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
+    { model: CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
+    { model: CompanyBank, as: "companyBanks", attributes: ["id", "bankName", "bankAccountNumber", "bankIfsc", "bankBranchName", "bankAccountHolder", "companyId"] },
   ];
-  return Company.findByPk(companyId, { include: companyIncludes });
+  return Company.findByPk(companyId, {
+    attributes: ["id", "companyName", "legalName", "registrationNo", "companyEmail", "companyPhone", "industry", "companySize", "userId", "adminId"],
+    include: companyIncludes
+  });
 };

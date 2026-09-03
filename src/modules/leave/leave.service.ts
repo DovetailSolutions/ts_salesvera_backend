@@ -1,3 +1,4 @@
+import { User, CompanyLeave } from "../../config/dbConnection";
 import { Op } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
@@ -450,42 +451,74 @@ export const getTeamLeaveBalances = async (
   page: number,
   limit: number,
   offset: number,
-  callerCompanyId: number | null
+  callerCompanyId: number | null,
+  role?: string
 ) => {
-  // Company-scoped team — this list is rendered against the ACTIVE company's
-  // leave types, so it must not include employees of another company the
-  // caller happens to also be assigned to.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
-
-  const leaveTypes = callerCompanyId ? await LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId) : [];
-  const { rows, count } = await LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset });
-
-  // Materialize this page's employees × configured types so a carried-
-  // forward amount is visible the moment the list is viewed, not only after
-  // someone explicitly re-assigns an allocation for the new year.
-  if (leaveTypes.length > 0 && rows.length > 0) {
-    await Promise.all(
-      rows.flatMap((user: any) => leaveTypes.map((lt: any) => resolveLeaveTypeBalance(user.id, lt, year, loggedInId)))
-    );
+  let childIds: number[] = [];
+  if (role === "super_admin" && !callerCompanyId) {
+    const allUsers = await User.findAll({
+      where: { id: { [Op.ne]: loggedInId }, status: { [Op.ne]: "delete" } },
+      attributes: ["id"],
+    });
+    childIds = allUsers.map((u: any) => u.id);
+  } else {
+    childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   }
 
-  const data = await Promise.all(
-    rows.map(async (user: any) => {
-      const userJson = user.toJSON();
-      const balanceRows =
-        leaveTypes.length > 0
-          ? await LeaveRepo.findEmployeeLeaveTypeBalances(user.id, year)
-          : userJson.leaveTypeBalances || [];
-      return {
-        ...userJson,
-        leaveBalances: formatDynamicBalances(leaveTypes, balanceRows),
-      };
-    })
-  );
+  let leaveTypes = callerCompanyId ? await LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId) : [];
+  if (leaveTypes.length === 0 && role === "super_admin") {
+    // For super_admin without companyId filter, fetch all configured company leave types
+    leaveTypes = await CompanyLeave.findAll({
+      attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "companyId"],
+    }) as any[];
+  }
+
+  const { rows, count } = await LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset });
+
+  if (rows.length === 0) {
+    return {
+      totalRecords: count,
+      totalPages: Math.ceil(count / limit) || 1,
+      currentPage: page,
+      data: [],
+    };
+  }
+
+  const userIds = rows.map((u: any) => u.id);
+  const existingBalances = leaveTypes.length > 0 ? await LeaveRepo.findBalancesForUserIds(userIds, year) : [];
+  const balanceMap = new Map<string, any>();
+  existingBalances.forEach((b: any) => {
+    balanceMap.set(`${b.employeeId}_${b.companyLeaveId}`, b);
+  });
+
+  const missingResolutions: Promise<any>[] = [];
+  rows.forEach((user: any) => {
+    leaveTypes.forEach((lt: any) => {
+      const key = `${user.id}_${lt.id}`;
+      if (!balanceMap.has(key)) {
+        missingResolutions.push(
+          resolveLeaveTypeBalance(user.id, lt, year, loggedInId).then((b) => balanceMap.set(key, b))
+        );
+      }
+    });
+  });
+
+  if (missingResolutions.length > 0) {
+    await Promise.all(missingResolutions);
+  }
+
+  const data = rows.map((user: any) => {
+    const userJson = user.toJSON();
+    const userBalanceRows = leaveTypes.map((lt: any) => balanceMap.get(`${user.id}_${lt.id}`)).filter(Boolean);
+    return {
+      ...userJson,
+      leaveBalances: formatDynamicBalances(leaveTypes, userBalanceRows),
+    };
+  });
 
   return {
     totalRecords: count,
-    totalPages: Math.ceil(count / limit),
+    totalPages: Math.ceil(count / limit) || 1,
     currentPage: page,
     data,
   };
