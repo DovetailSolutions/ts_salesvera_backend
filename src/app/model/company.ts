@@ -56,7 +56,9 @@ interface CompanyAttributes {
   // — per-company ₹/km rate applied to a day's total driving distance to
   // compute vehicleAllowance. Null until an admin configures it.
   vehicleAllowanceRatePerKm?: number | null;
-
+  companyProfileImg?: string;
+  companyStampImg?: string;
+  companySignatureImg?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -120,6 +122,9 @@ export class Company
   public managerId!: number;
 
   public vehicleAllowanceRatePerKm!: number | null;
+  public companyProfileImg!: string;
+  public companyStampImg!: string;
+  public companySignatureImg!: string;
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -186,6 +191,9 @@ export const CompanyModell = (sequelize: Sequelize) => {
       country: { type: DataTypes.STRING, allowNull: true },
       zipcode: { type: DataTypes.STRING, allowNull: true },
       vehicleAllowanceRatePerKm: { type: DataTypes.FLOAT, allowNull: true },
+      companyProfileImg: { type: DataTypes.STRING, allowNull: true },
+      companyStampImg: { type: DataTypes.STRING, allowNull: true },
+      companySignatureImg: { type: DataTypes.STRING, allowNull: true },
     },
     {
       tableName: "companies",

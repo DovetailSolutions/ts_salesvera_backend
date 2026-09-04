@@ -448,6 +448,16 @@ export const initChatSocket = (io: Server) => {
           ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
           : "Someone";
 
+        // FIX: group notifications previously read "New message from X" with
+        // no mention of which group — indistinguishable from a private
+        // message. Lead with the group name and prefix the body with the
+        // sender's name so a group notification is self-explanatory.
+        const isGroupChat = room.type === "group";
+        const notifTitle = isGroupChat ? (room.groupName || "Group") : `New message from ${senderName}`;
+        const notifBody = isGroupChat
+          ? `${senderName}: ${message ?? "📎 Media message"}`
+          : (message ?? "📎 Media message");
+
         for (const participant of participants) {
           if (participant.userId === userId) continue; // skip sender
 
@@ -455,8 +465,8 @@ export const initChatSocket = (io: Server) => {
             receiverId: participant.userId,
             senderId: userId,
             type: "chat",
-            title: `New message from ${senderName}`,
-            body: message ?? "📎 Media message",
+            title: notifTitle,
+            body: notifBody,
             data: {
               roomId,
               messageId: String(newMessage.id),
@@ -569,12 +579,18 @@ export const initChatSocket = (io: Server) => {
           ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
           : "Someone";
 
-        const notificationBody =
+        const mediaLabel =
           mediaType === "image"    ? "📷 Image" :
           mediaType === "video"    ? "🎥 Video" :
           mediaType === "audio"    ? "🎵 Audio" :
           mediaType === "document" ? "📄 Document" :
                                      "📎 File";
+
+        // FIX: same group-identification fix as sendMessage — lead with the
+        // group name and prefix the body with the sender's name.
+        const isGroupChat = room.type === "group";
+        const notifTitle = isGroupChat ? (room.groupName || "Group") : `New message from ${senderName}`;
+        const notifBody = isGroupChat ? `${senderName}: ${mediaLabel}` : mediaLabel;
 
         for (const participant of participants) {
           if (participant.userId === userId) continue;
@@ -582,8 +598,8 @@ export const initChatSocket = (io: Server) => {
             receiverId: participant.userId,
             senderId: userId,
             type: "chat",
-            title: `New message from ${senderName}`,
-            body: notificationBody,
+            title: notifTitle,
+            body: notifBody,
             data: { roomId, messageId: String(newMessage.id) },
           });
         }
@@ -705,16 +721,22 @@ export const initChatSocket = (io: Server) => {
 
         if (!msg) return;
 
-        const { fileName, mediaUrl, mediaType } = msg;
+        const { fileName, mediaUrl, mediaType, chatRoomId } = msg;
+        // FIX: deletion was broadcast via io.emit — every connected socket,
+        // including users with no access to this room, received the just
+        // deleted message's fileName/mediaUrl. Scope it to the room instead.
+        const room = await ChatRoom.findByPk(chatRoomId, { attributes: ["roomId"] });
 
         await msg.destroy();
 
-        io.emit("Deleted", {
-          id: data.id,
-          fileName,
-          mediaUrl,
-          mediaType,
-        });
+        if (room) {
+          io.to(room.roomId).emit("Deleted", {
+            id: data.id,
+            fileName,
+            mediaUrl,
+            mediaType,
+          });
+        }
       } catch (error) {
         console.error("Error deleting message:", error);
       }
@@ -826,12 +848,6 @@ export const initChatSocket = (io: Server) => {
             return companies.has(socketCompanyId);
           });
         }
-        // 🟢 Get all rooms I am part of to filter unread messages correctly
-        const myParticipations = await ChatParticipant.findAll({
-          where: { userId },
-          attributes: ["chatRoomId"],
-        });
-        const myRoomIds = myParticipations.map((p: any) => p.chatRoomId);
         let userSearchCondition = {};
         if (cleanedSearch !== "") {
           userSearchCondition = {
@@ -858,36 +874,61 @@ export const initChatSocket = (io: Server) => {
             "role",
             "onlineSatus",
           ],
-          // include: [
-          //   {
-          //     model: Message,
-          //     as: "Messages",
-          //     where: {
-          //       status: "unseen",
-          //       chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
-          //     },
-          //     required: false,
-          //     separate: true, // 🔥 important: does not break pagination
-          //     attributes: ["id", "status"],
-          //   },
-          // ],
           order: [["id", "DESC"]],
           limit,
           offset,
         });
 
-        // Attach a flat unreadCount mathematically
-        const usersWithUnreadCounts = result.rows.map((user: any) => {
-          const userObj = user.get({ plain: true });
+        // FIX: unreadCount was always 0 — the include that was meant to
+        // populate it was commented out entirely, so private-chat sidebar
+        // badges never showed. Compute unreadCount + lastMessage/lastMessageAt
+        // per candidate from the deterministic private-room id
+        // (`${min(a,b)}-${max(a,b)}`, the same convention buildRoomId in
+        // UserChat.jsx and joinRoom already rely on). Also sort by last
+        // activity so the sidebar reflects the most recently active
+        // conversation first (WhatsApp-style) instead of raw id order.
+        // NOTE: this sort only reorders within the current page — a fully
+        // global "most recent across all pages" ordering would need the
+        // query to originate from ChatRoom/Message rather than User.
+        const usersWithUnreadCounts = await Promise.all(
+          result.rows.map(async (rowUser: any) => {
+            const userObj = rowUser.get({ plain: true });
+            const otherId = userObj.id;
+            const pairRoomId = userId < otherId ? `${userId}-${otherId}` : `${otherId}-${userId}`;
+            const room = await ChatRoom.findOne({ where: { roomId: pairRoomId }, attributes: ["id"] });
 
-          // The included Messages array contains only "unseen" messages from this user
-          const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
+            let unreadCount = 0;
+            let lastMessage: string | null = null;
+            let lastMessageAt: Date | null = null;
 
-          return {
-            ...userObj,
-            unreadCount
-          };
+            if (room) {
+              const [count, latest] = await Promise.all([
+                Message.count({
+                  where: { chatRoomId: room.id, status: "unseen", senderId: { [Op.ne]: userId } },
+                }),
+                Message.findOne({
+                  where: { chatRoomId: room.id },
+                  order: [["createdAt", "DESC"]],
+                  attributes: ["message", "mediaType", "createdAt"],
+                }),
+              ]);
+              unreadCount = count;
+              if (latest) {
+                lastMessage = latest.message ?? (latest.mediaType ? `📎 ${latest.mediaType}` : null);
+                lastMessageAt = (latest as any).createdAt;
+              }
+            }
+
+            return { ...userObj, unreadCount, lastMessage, lastMessageAt };
+          })
+        );
+
+        usersWithUnreadCounts.sort((a: any, b: any) => {
+          const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+          const bt = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+          return bt - at;
         });
+
         io.to(socket.id).emit("UserList", {
           success: true,
           total: result.count,
@@ -1184,23 +1225,52 @@ export const initChatSocket = (io: Server) => {
           order: [["updatedAt", "DESC"]], // Show newest/most recently active groups first
         });
 
-        // 3. Attach unread message counts for each group
+        // 3. Attach unread message counts + last-message preview for each group
         const groupsWithUnreadCounts = await Promise.all(
           result.rows.map(async (group: any) => {
-            const unreadCount = await Message.count({
-              where: {
-                chatRoomId: group.id,
-                status: "unseen",
-                senderId: { [Op.ne]: userId } // Don't count my own messages
-              }
-            });
-            // Convert Sequelize instance to POJO and inject unreadCount
+            const [unreadCount, latest] = await Promise.all([
+              Message.count({
+                where: {
+                  chatRoomId: group.id,
+                  status: "unseen",
+                  senderId: { [Op.ne]: userId } // Don't count my own messages
+                }
+              }),
+              Message.findOne({
+                where: { chatRoomId: group.id },
+                order: [["createdAt", "DESC"]],
+                attributes: ["message", "mediaType", "createdAt", "senderId"],
+                include: [{ model: User, attributes: ["firstName", "lastName"] }],
+              }),
+            ]);
+
+            const lastMessageSenderName = (latest as any)?.User
+              ? `${(latest as any).User.firstName ?? ""} ${(latest as any).User.lastName ?? ""}`.trim()
+              : null;
+
+            // Convert Sequelize instance to POJO and inject unreadCount + last message
             return {
               ...group.get({ plain: true }),
-              unreadCount
+              unreadCount,
+              lastMessage: latest ? (latest.message ?? (latest.mediaType ? `📎 ${latest.mediaType}` : null)) : null,
+              lastMessageAt: latest ? (latest as any).createdAt : null,
+              lastMessageSenderId: latest ? latest.senderId : null,
+              lastMessageSenderName,
             };
           })
         );
+
+        // FIX: previously ordered purely by ChatRoom.updatedAt at the DB
+        // query level — but creating a Message never touches its parent
+        // ChatRoom row, so that column stays frozen at creation time and
+        // groups never actually moved to the top on new activity. Re-sort
+        // by real last-message time (falling back to updatedAt for groups
+        // with no messages yet).
+        groupsWithUnreadCounts.sort((a: any, b: any) => {
+          const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : new Date(a.updatedAt).getTime();
+          const bt = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : new Date(b.updatedAt).getTime();
+          return bt - at;
+        });
 
         socket.emit("getMyGroups", {
           success: true,

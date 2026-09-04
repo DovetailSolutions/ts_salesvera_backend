@@ -13,6 +13,20 @@ export const parseDistanceStringToKm = (value: string | null | undefined): numbe
   return match[2].toLowerCase() === "m" ? num / 1000 : num;
 };
 
+// A road leg can't physically be driven faster than ordinary highway speeds
+// allow. Above this average implied speed, the problem is the GPS fix (e.g.
+// a network/IP-based fallback location miles from the real spot), not the
+// Google Maps distance — so it must not be trusted as a paid distance any
+// more than a failed API call would be.
+export const MAX_PLAUSIBLE_ROAD_SPEED_KMH = 120;
+
+export const isPlausibleLeg = (distanceKm: number, elapsedMs: number): boolean => {
+  if (!(distanceKm > 0)) return true;
+  if (elapsedMs <= 0) return false;
+  const elapsedHours = elapsedMs / 3_600_000;
+  return distanceKm / elapsedHours <= MAX_PLAUSIBLE_ROAD_SPEED_KMH;
+};
+
 // Record an explicit travel segment in sales_person_travel_logs
 export const recordTravelSegment = async (params: {
   userId: number;

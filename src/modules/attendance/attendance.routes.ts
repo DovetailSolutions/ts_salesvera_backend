@@ -59,4 +59,13 @@ router.get(
   AttendanceController.getTeamTravelSummary
 );
 
+
+// Self-service punch in/out and travel summary for web admin / portal users
+router.post("/attendance/punch-in", tokenCheck, checkPermission("attendance", "create"), AttendanceController.AttendancePunchIn);
+router.post("/attendance/punch-out", tokenCheck, checkPermission("attendance", "update"), AttendanceController.AttendancePunchOut);
+router.get("/attendance/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getTodayAttendance);
+router.get("/travel/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummary);
+router.get("/travel/:date", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummary);
+
 export default router;
+

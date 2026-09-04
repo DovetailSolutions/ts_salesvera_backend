@@ -97,6 +97,8 @@ router.post('/updatequotation/:id',tokenCheck, checkPermission("quotation", "upd
 
 
 router.get("/get-client",tokenCheck,AdminController.getClient);
+router.get("/get-client-details/:id", tokenCheck, AdminController.getClientDetails);
+router.get("/client-details/:id", tokenCheck, AdminController.getClientDetails);
 router.post("/update-client/:id",tokenCheck,AdminController.updateClient);
 router.post("/category/:id",tokenCheck,AdminController.CategoryStatus);
 router.post("/sub-category/:id",tokenCheck,AdminController.SubCategoryStatus);
@@ -127,6 +129,7 @@ router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
+router.get('/getmeetingdetails/:id',tokenCheck,AdminController.getMeetingDetails)
 router.get("/dashboard-summary", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDashboardSummary);
 router.get("/top-performers", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getTopPerformers);
 
@@ -152,3 +155,4 @@ router.delete("/notifications/:id",          tokenCheck, NotificationController.
 
 
 export default router;
+
