@@ -136,6 +136,16 @@ const createUserModel = (sequelize) => {
             allowNull: false,
             defaultValue: true,
         },
+        isGeofenceRequired: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: true,
+        },
+        canViewAllBranches: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: false,
+        },
     }, {
         tableName: "users",
         timestamps: true,

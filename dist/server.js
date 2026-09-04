@@ -36,17 +36,20 @@ const department_routes_1 = __importDefault(require("./modules/department/depart
 const leave_routes_1 = __importDefault(require("./modules/leave/leave.routes"));
 const attendance_routes_1 = __importDefault(require("./modules/attendance/attendance.routes"));
 const attendanceSelf_routes_1 = __importDefault(require("./modules/attendance/attendanceSelf.routes"));
+const geoFencing_routes_1 = __importDefault(require("./modules/geoFencing/geoFencing.routes"));
 const company_routes_1 = __importDefault(require("./modules/company/company.routes"));
 const auth_routes_1 = __importDefault(require("./modules/auth/auth.routes"));
 const preferences_routes_1 = __importDefault(require("./modules/preferences/preferences.routes"));
 const reports_routes_1 = __importDefault(require("./modules/reports/reports.routes"));
 const meeting_routes_1 = __importDefault(require("./modules/meeting/meeting.routes"));
 const contact_routes_1 = require("./modules/contact/contact.routes");
+const superAdmin_routes_1 = __importDefault(require("./modules/superAdmin/superAdmin.routes"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const chat_1 = require("./Notigication/chat");
 const task_2 = require("./Notigication/task");
 const notificationService_1 = require("./config/notificationService");
 const cronJobs_1 = require("./config/cronJobs");
+const socket_io_1 = require("socket.io");
 const swaggerFile = require(path_1.default.join(__dirname, "../swagger-output.json"));
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
@@ -82,6 +85,7 @@ app.use("/admin", department_routes_1.default);
 app.use("/admin", leave_routes_1.default);
 app.use("/admin", attendance_routes_1.default);
 app.use("/api", attendanceSelf_routes_1.default);
+app.use("/admin", geoFencing_routes_1.default);
 app.use("/admin", company_routes_1.default);
 app.use("/admin", auth_routes_1.default);
 app.use("/admin", preferences_routes_1.default);
@@ -89,6 +93,7 @@ app.use("/admin", reports_routes_1.default);
 app.use("/admin", meeting_routes_1.default);
 app.use("/api", contact_routes_1.contactPublicRoutes);
 app.use("/admin", contact_routes_1.contactAdminRoutes);
+app.use("/admin", superAdmin_routes_1.default);
 app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swaggerFile, {
     swaggerOptions: {
         requestInterceptor: (req) => {
@@ -100,7 +105,6 @@ app.use("/api-docs", swagger_ui_express_1.default.serve, swagger_ui_express_1.de
 app.get("/", (req, res) => {
     res.send("Hello from TypeScript Express!");
 });
-const socket_io_1 = require("socket.io");
 // Create HTTP server (IMPORTANT)
 const server = http_1.default.createServer(app);
 // Initialize socket.io
@@ -121,6 +125,8 @@ server.listen(PORT, () => __awaiter(void 0, void 0, void 0, function* () {
     yield (0, schemaExtensions_1.ensureEmployeeCode)(dbConnection_1.sequelize);
     yield (0, schemaExtensions_1.ensureNotificationPreferences)(dbConnection_1.sequelize);
     yield (0, schemaExtensions_1.ensureChatRoomOwnership)(dbConnection_1.sequelize);
+    yield (0, schemaExtensions_1.ensureBranchVisibilityToggle)(dbConnection_1.sequelize);
+    yield (0, schemaExtensions_1.ensureCompanyBrandingColumns)(dbConnection_1.sequelize);
     (0, cronJobs_1.startCronJobs)(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
     console.log(`Server is running on http://localhost:${PORT}`);
 }));

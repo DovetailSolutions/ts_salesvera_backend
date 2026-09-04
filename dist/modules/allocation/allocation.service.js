@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllocations = exports.bulkAssignShift = exports.bulkAssignBranches = void 0;
+exports.getAllocations = exports.bulkAssignDepartment = exports.bulkAssignShift = exports.bulkAssignBranches = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const serviceError_1 = require("../shared/serviceError");
@@ -62,7 +62,7 @@ const loadAssignableTargets = (loggedInId, callerRole, callerCompanyId, userIds)
     }
     const targets = yield dbConnection_1.User.findAll({
         where: { id: { [sequelize_1.Op.in]: userIds } },
-        attributes: ["id", "firstName", "lastName", "role", "branchId", "shiftId"],
+        attributes: ["id", "firstName", "lastName", "role", "branchId", "shiftId", "departmentId"],
     });
     const foundIds = targets.map((t) => Number(t.id));
     const missing = userIds.filter((id) => !foundIds.includes(id));
@@ -197,7 +197,39 @@ const bulkAssignShift = (loggedInId, callerRole, callerCompanyId, body) => __awa
     };
 });
 exports.bulkAssignShift = bulkAssignShift;
-// ── API 3: read current allocation(s) ────────────────────────────────────
+// ── API 3: bulk allocate department ─────────────────────────────────────
+// Exactly one department per person (User.departmentId), same shape as
+// bulkAssignShift — a single departmentId, not an array.
+const bulkAssignDepartment = (loggedInId, callerRole, callerCompanyId, body) => __awaiter(void 0, void 0, void 0, function* () {
+    const userIds = parseIdList(body === null || body === void 0 ? void 0 : body.userIds, "userIds");
+    const rawDepartmentId = body === null || body === void 0 ? void 0 : body.departmentId;
+    if (Array.isArray(rawDepartmentId)) {
+        throw new serviceError_1.ServiceError("Only one department can be allocated per person — departmentId must be a single value");
+    }
+    const departmentId = Number(rawDepartmentId);
+    if (!Number.isInteger(departmentId) || departmentId <= 0) {
+        throw new serviceError_1.ServiceError("A valid departmentId is required");
+    }
+    const targets = yield loadAssignableTargets(loggedInId, callerRole, callerCompanyId, userIds);
+    yield assertRefsInCallerCompany(dbConnection_1.Department, [departmentId], callerCompanyId, "Department");
+    yield dbConnection_1.User.update({ departmentId }, { where: { id: { [sequelize_1.Op.in]: userIds } } });
+    return {
+        departmentId,
+        updated: targets.length,
+        users: targets.map((t) => {
+            var _a, _b, _c;
+            return ({
+                userId: Number(t.id),
+                name: `${(_a = t.firstName) !== null && _a !== void 0 ? _a : ""} ${(_b = t.lastName) !== null && _b !== void 0 ? _b : ""}`.trim(),
+                role: t.role,
+                previousDepartmentId: (_c = t.departmentId) !== null && _c !== void 0 ? _c : null,
+                departmentId,
+            });
+        }),
+    };
+});
+exports.bulkAssignDepartment = bulkAssignDepartment;
+// ── API 4: read current allocation(s) ────────────────────────────────────
 // Powers both the "who's assigned where" table column (bulk, one round
 // trip for the whole page) and the per-person detail popup (single id) —
 // same shape either way, since the popup is just this same data.
@@ -221,10 +253,11 @@ const getAllocations = (loggedInId, callerRole, callerCompanyId, userIdsParam) =
     const [users, allocations] = yield Promise.all([
         dbConnection_1.User.findAll({
             where: { id: { [sequelize_1.Op.in]: userIds } },
-            attributes: ["id", "branchId", "shiftId"],
+            attributes: ["id", "branchId", "shiftId", "departmentId"],
             include: [
                 { model: dbConnection_1.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"] },
                 { model: dbConnection_1.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"] },
+                { model: dbConnection_1.Department, as: "department", attributes: ["id", "deptName", "deptCode"] },
             ],
         }),
         dbConnection_1.UserBranch.findAll({
@@ -256,6 +289,9 @@ const getAllocations = (loggedInId, callerRole, callerCompanyId, userIdsParam) =
             branches: (_a = branchesByUser.get(Number(u.id))) !== null && _a !== void 0 ? _a : (u.branch ? [{ id: u.branch.id, branchName: u.branch.branchName, branchCode: u.branch.branchCode }] : []),
             shift: u.shift
                 ? { id: u.shift.id, shiftName: u.shift.shiftName, startTime: u.shift.startTime, endTime: u.shift.endTime }
+                : null,
+            department: u.department
+                ? { id: u.department.id, deptName: u.department.deptName, deptCode: u.department.deptCode }
                 : null,
         });
     });

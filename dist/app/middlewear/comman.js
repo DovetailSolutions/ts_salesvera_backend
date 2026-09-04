@@ -120,9 +120,9 @@ const CreateToken = (userId, role, companyId) => {
     const payload = { userId, role };
     if (companyId)
         payload.companyId = Number(companyId);
-    const accessToken = jsonwebtoken_1.default.sign(payload, env_1.JWT_SECRET, { expiresIn: "30d" } // short-lived
+    const accessToken = jsonwebtoken_1.default.sign(Object.assign(Object.assign({}, payload), { type: "access" }), env_1.JWT_SECRET, { expiresIn: "30d" } // short-lived
     );
-    const refreshToken = jsonwebtoken_1.default.sign(payload, env_1.JWT_SECRET, { expiresIn: "60d" } // long-lived
+    const refreshToken = jsonwebtoken_1.default.sign(Object.assign(Object.assign({}, payload), { type: "refresh" }), env_1.JWT_SECRET, { expiresIn: "60d" } // long-lived
     );
     return { accessToken, refreshToken };
 };

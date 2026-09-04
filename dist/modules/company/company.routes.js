@@ -32,11 +32,15 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const jwtVerify_1 = require("../../config/jwtVerify");
 const rbac_1 = require("../../app/middlewear/rbac");
 const CompanyController = __importStar(require("./company.controller"));
+const fileUploads_1 = __importDefault(require("../../config/fileUploads"));
 // ============================================================
 // Company routes — mounted directly on the /admin router in server.ts, same
 // URL paths and same authorizeRoles gates as before. This module fully
@@ -44,13 +48,19 @@ const CompanyController = __importStar(require("./company.controller"));
 // admin.ts/router/admin.ts.
 // ============================================================
 const router = (0, express_1.Router)();
-router.post("/addcompany", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), CompanyController.addCompany);
+const companyUpload = (0, fileUploads_1.default)("company");
+const companyUploadFields = companyUpload.fields([
+    { name: "companyProfileImg", maxCount: 1 },
+    { name: "companyStampImg", maxCount: 1 },
+    { name: "companySignatureImg", maxCount: 1 },
+]);
+router.post("/addcompany", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), companyUploadFields, CompanyController.addCompany);
 router.get("/getcompany", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), CompanyController.getCompany);
 router.get("/getcompany/:id", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), CompanyController.getCompanyById);
 // Settings module's read-only Company Policy tab — manager-accessible
 // (unlike the full company record above), scoped to policy fields only.
 router.get("/company-policy", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), CompanyController.getCompanyPolicy);
-router.patch("/updatecompany/:id", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), CompanyController.updateCompany);
+router.patch("/updatecompany/:id", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), companyUploadFields, CompanyController.updateCompany);
 router.post("/assign-company-manager/:id", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), CompanyController.assignCompanyManager);
 router.delete("/remove-company-manager", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), CompanyController.removeCompanyManager);
 router.get("/company-managers/:id", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_ONLY), CompanyController.getCompanyManagers);

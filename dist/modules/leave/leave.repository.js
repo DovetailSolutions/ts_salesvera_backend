@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.findTeamLeaveTypeBalances = exports.findOrCreateLeaveTypeBalance = exports.findLatestPriorYearBalance = exports.findEmployeeLeaveTypeBalances = exports.findCompanyLeaveTypesForCompany = exports.findCompanyLeaveByIdOnly = exports.findCompanyLeaveOwnedBy = exports.findCompanyLeavesPaginated = exports.bulkCreateCompanyLeaves = exports.findTeamLeaveBalances = exports.findLeaveBalance = exports.findOrCreateLeaveBalance = exports.findOwnLeavesPaginated = exports.findEmployeeLeavesPaginated = exports.bulkCreateLeaveAttendance = exports.createLeaveRequest = exports.findOverlappingLeave = exports.createPresentAttendance = exports.findOrCreateAttendanceForDate = exports.findTodayLeaveActivity = exports.findLeavesForUsersPaginated = exports.markAttendanceForLeaveRange = exports.setLeaveStatus = exports.findLeaveForEmployee = void 0;
+exports.findTeamLeaveTypeBalances = exports.findBalancesForUserIds = exports.findOrCreateLeaveTypeBalance = exports.findLatestPriorYearBalance = exports.findEmployeeLeaveTypeBalances = exports.findCompanyLeaveTypesForCompany = exports.findCompanyLeaveByIdOnly = exports.findCompanyLeaveOwnedBy = exports.findCompanyLeavesPaginated = exports.bulkCreateCompanyLeaves = exports.findTeamLeaveBalances = exports.findLeaveBalance = exports.findOrCreateLeaveBalance = exports.findOwnLeavesPaginated = exports.findEmployeeLeavesPaginated = exports.fillMissingLeaveAttendance = exports.bulkCreateLeaveAttendance = exports.createLeaveRequest = exports.findOverlappingLeave = exports.createPresentAttendance = exports.findOrCreateAttendanceForDate = exports.findTodayLeaveActivity = exports.findLeavesForUsersPaginated = exports.markAttendanceForLeaveRange = exports.setLeaveStatus = exports.findLeaveForEmployee = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const dateUtils_1 = require("../shared/dateUtils");
@@ -121,6 +121,31 @@ const createLeaveRequest = (data) => dbConnection_1.Leave.create(data);
 exports.createLeaveRequest = createLeaveRequest;
 const bulkCreateLeaveAttendance = (rows) => dbConnection_1.Attendance.bulkCreate(rows);
 exports.bulkCreateLeaveAttendance = bulkCreateLeaveAttendance;
+// FIX (ATT-001): createLeaveRequest deliberately skips creating a placeholder
+// Attendance row for half_day/short_leave (they're partial-day, and a
+// placeholder would collide with a real punch-in/out that day) — but
+// approveLeave's markAttendanceForLeaveRange only ever UPDATES an existing
+// row, so those two leave types ended up with no Attendance row at all once
+// approved: the register/reports showed the day as a plain, unexplained
+// absence, indistinguishable from a no-show. findOrCreate here only fills
+// the gap where NOTHING exists yet (i.e. the employee never punched in) —
+// a real punch for that day is left completely untouched, preserving the
+// original intent.
+const fillMissingLeaveAttendance = (employeeId, dates, companyLeaveId, dayType) => __awaiter(void 0, void 0, void 0, function* () {
+    for (const date of dates) {
+        yield dbConnection_1.Attendance.findOrCreate({
+            where: { employee_id: employeeId, date },
+            defaults: {
+                employee_id: employeeId,
+                date,
+                status: "leaveApproved",
+                companyLeaveId,
+                dayType,
+            },
+        });
+    }
+});
+exports.fillMissingLeaveAttendance = fillMissingLeaveAttendance;
 const findEmployeeLeavesPaginated = (employeeId, limit, offset) => dbConnection_1.Leave.findAndCountAll({
     where: { employee_id: employeeId },
     limit,
@@ -218,6 +243,11 @@ const findOrCreateLeaveTypeBalance = (params) => {
     });
 };
 exports.findOrCreateLeaveTypeBalance = findOrCreateLeaveTypeBalance;
+const findBalancesForUserIds = (userIds, year) => dbConnection_1.EmployeeLeaveTypeBalance.findAll({
+    where: { employeeId: { [sequelize_1.Op.in]: userIds }, year },
+    include: [{ model: dbConnection_1.CompanyLeave, as: "leaveType", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear"] }],
+});
+exports.findBalancesForUserIds = findBalancesForUserIds;
 const findTeamLeaveTypeBalances = (params) => dbConnection_1.User.findAndCountAll({
     where: { id: { [sequelize_1.Op.in]: params.childIds } },
     attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "createdAt"],

@@ -19,6 +19,7 @@ const router = Router();
 
 router.get("/geo-fencing/my", tokenCheck, GeoFencingController.getMy);
 router.get("/geo-fencing/geocode", tokenCheck, GeoFencingController.geocodeAddress);
+router.get("/geo-fencing/reverse-geocode", tokenCheck, GeoFencingController.reverseGeocode);
 router.get(
   "/geo-fencing/:userId",
   tokenCheck,

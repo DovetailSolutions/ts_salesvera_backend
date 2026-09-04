@@ -42,7 +42,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllocations = exports.bulkAssignShift = exports.bulkAssignBranches = void 0;
+exports.getAllocations = exports.bulkAssignDepartment = exports.bulkAssignShift = exports.bulkAssignBranches = void 0;
 const errorMessage_1 = require("../../app/middlewear/errorMessage");
 const serviceError_1 = require("../shared/serviceError");
 const AllocationService = __importStar(require("./allocation.service"));
@@ -83,6 +83,18 @@ const bulkAssignShift = (req, res) => __awaiter(void 0, void 0, void 0, function
     }
 });
 exports.bulkAssignShift = bulkAssignShift;
+const bulkAssignDepartment = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const result = yield AllocationService.bulkAssignDepartment(Number(userData === null || userData === void 0 ? void 0 : userData.userId), userData === null || userData === void 0 ? void 0 : userData.role, callerCompanyId, req.body);
+        (0, errorMessage_1.createSuccess)(res, "Department allocated successfully", result);
+    }
+    catch (error) {
+        handleServiceError(res, error);
+    }
+});
+exports.bulkAssignDepartment = bulkAssignDepartment;
 // GET /admin/allocations?userIds=1,2,3 — current branch(es)/shift for one or
 // more users in a single round trip. Accepts either a comma-separated
 // string (the common query-param shape) or repeated userIds[] params.

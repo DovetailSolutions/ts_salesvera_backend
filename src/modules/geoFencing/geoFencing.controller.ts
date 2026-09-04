@@ -83,3 +83,14 @@ export const toggleRequirementForUser = async (req: Request, res: Response): Pro
     handleServiceError(res, error);
   }
 };
+
+export const reverseGeocode = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const lat = Number(req.query.lat || req.body?.lat);
+    const lng = Number(req.query.lng || req.body?.lng);
+    const result = await GeoFencingService.reverseGeocode(lat, lng);
+    res.status(200).json({ success: true, message: "Reverse geocoded successfully", data: result });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};

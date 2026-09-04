@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.findMeetingsByScopePaginated = exports.findEmployeesByIds = exports.countAllMeetings = exports.countNewClients = exports.findMeetingsInRange = exports.updateMeetingSchedule = exports.findMeetingById = exports.findConflictingMeeting = exports.createMeetingForEmployee = exports.findOrCreateMeetingCompany = exports.findLatestMeetingForUser = exports.findMeetingUserById = void 0;
+exports.findMeetingsByScopePaginated = exports.findEmployeesByIds = exports.countAllMeetings = exports.findNewClientsPaginated = exports.countNewClients = exports.findMeetingsInRange = exports.updateMeetingSchedule = exports.findMeetingById = exports.findConflictingMeeting = exports.createMeetingForEmployee = exports.findOrCreateMeetingCompany = exports.findLatestMeetingForUser = exports.findMeetingUserById = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 // ============================================================
@@ -69,6 +69,19 @@ const countNewClients = (employeeIds, fromDate, toDate) => dbConnection_1.Meetin
     where: { userId: { [sequelize_1.Op.in]: employeeIds }, createdAt: { [sequelize_1.Op.between]: [fromDate, toDate] } },
 });
 exports.countNewClients = countNewClients;
+// Dashboard drill-down for the "New Clients This Month" tile — same
+// employeeIds/date-window filter as countNewClients above, so the tile's
+// count and this list always agree.
+const findNewClientsPaginated = (employeeIds, fromDate, toDate, limit, offset) => dbConnection_1.MeetingUser.findAndCountAll({
+    where: { userId: { [sequelize_1.Op.in]: employeeIds }, createdAt: { [sequelize_1.Op.between]: [fromDate, toDate] } },
+    limit,
+    offset,
+    order: [["createdAt", "DESC"]],
+    attributes: [
+        "id", "name", "companyName", "mobile", "email", "city", "state", "customerType", "userId", "createdAt",
+    ],
+});
+exports.findNewClientsPaginated = findNewClientsPaginated;
 // All-time count, not windowed to any date range — the dashboard's other
 // numbers are all today/week/month, so there was previously no single
 // figure that just answered "how many meetings total" for the caller's
@@ -77,14 +90,21 @@ const countAllMeetings = (employeeIds) => dbConnection_1.Meeting.count({ where: 
 exports.countAllMeetings = countAllMeetings;
 const findEmployeesByIds = (employeeIds) => dbConnection_1.User.findAll({
     where: { id: { [sequelize_1.Op.in]: employeeIds } },
-    attributes: ["id", "firstName", "lastName", "email"],
+    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
 });
 exports.findEmployeesByIds = findEmployeesByIds;
 // ── Dashboard drill-down (click a stat tile -> list the meetings behind it) ──
-const findMeetingsByScopePaginated = (employeeIds, range, limit, offset) => {
+const findMeetingsByScopePaginated = (employeeIds, range, limit, offset, 
+// The "Upcoming (7 days)" tile excludes cancelled meetings from its count
+// (getMeetingDashboard's `upcoming` figure) — mirrored here so the tile's
+// count and this drill-down list agree.
+excludeCancelled = false) => {
     const where = { userId: { [sequelize_1.Op.in]: employeeIds } };
     if (range) {
         where.scheduledTime = { [sequelize_1.Op.between]: [range.from, range.to] };
+    }
+    if (excludeCancelled) {
+        where.status = { [sequelize_1.Op.ne]: "cancelled" };
     }
     return dbConnection_1.Meeting.findAndCountAll({
         where,

@@ -37,7 +37,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const jwtVerify_1 = require("../../config/jwtVerify");
 const tokenCheck_1 = require("../../config/tokenCheck");
 const fileUploads_1 = __importDefault(require("../../config/fileUploads"));
 const AuthController = __importStar(require("./auth.controller"));
@@ -48,6 +47,21 @@ const AuthController = __importStar(require("./auth.controller"));
 // ============================================================
 const router = (0, express_1.Router)();
 const profile = (0, fileUploads_1.default)("image");
+// FIX: getProfile/updateProfile/updatepassword/logout carry no role-specific
+// business logic — they're "manage my own account" actions every logged-in
+// role needs. This router's `tokenCheck` (jwtVerify.ts) excludes sale_person
+// by design for genuinely admin-side routes elsewhere in this file, but
+// AuthProvider.jsx's login flow calls getProfile immediately after every
+// login (any role) to bootstrap the session — a sale_person's login always
+// succeeded at the API level, then getProfile 403'd, which the frontend's
+// catch block surfaced as a misleading "Login failed. Please check your
+// credentials." toast. sale_person could never get past the login screen in
+// the web app at all, even though PunchWidget/attendance/leave self-service
+// are all explicitly built for that role. Every other role already worked
+// here, so only sale_person needed adding — reuse the same self-service
+// role set jwtVerify2.ts already defines for the mobile-side self-service
+// surface, since these are exactly that kind of route.
+const selfServiceTokenCheck = (0, tokenCheck_1.createTokenCheck)(["user", "admin", "super_admin", "manager", "sale_person"]);
 // FIX: this had no auth at all — anyone could POST role:"admin"/"manager"/
 // "sale_person" with an arbitrary createdBy and create accounts inheriting
 // that creator's permissions. optionalTokenCheck populates req.userData when
@@ -58,10 +72,10 @@ const profile = (0, fileUploads_1.default)("image");
 // AuthService.register itself, branching on role using req.userData.
 router.post("/register", tokenCheck_1.optionalTokenCheck, AuthController.Register);
 router.post("/login", AuthController.Login);
-router.post("/logout", jwtVerify_1.tokenCheck, AuthController.Logout);
-router.get("/getProfile", jwtVerify_1.tokenCheck, AuthController.GetProfile);
-router.patch("/updateProfile", jwtVerify_1.tokenCheck, profile.single("profile"), AuthController.UpdateProfile);
-router.patch("/updatepassword", jwtVerify_1.tokenCheck, AuthController.UpdatePassword);
+router.post("/logout", selfServiceTokenCheck, AuthController.Logout);
+router.get("/getProfile", selfServiceTokenCheck, AuthController.GetProfile);
+router.patch("/updateProfile", selfServiceTokenCheck, profile.single("profile"), AuthController.UpdateProfile);
+router.patch("/updatepassword", selfServiceTokenCheck, AuthController.UpdatePassword);
 router.post("/forgot-password", AuthController.forgotPassword);
 router.post("/verify-otp", AuthController.verifyOtp);
 router.post("/reset-password", AuthController.changePassword);

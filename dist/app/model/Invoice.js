@@ -64,6 +64,10 @@ class Invoices extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected", "cancelled", "deleted"),
                 defaultValue: "draft",
             },
+            gstNumber: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+            },
         }, {
             sequelize,
             tableName: "invoices",

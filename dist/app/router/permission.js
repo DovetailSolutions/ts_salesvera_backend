@@ -35,8 +35,17 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const jwtVerify_1 = require("../../config/jwtVerify");
+const tokenCheck_1 = require("../../config/tokenCheck");
 const rbac_1 = require("../middlewear/rbac");
 const PermissionController = __importStar(require("../controller/permission"));
+// FIX: "/my" (view my own permissions) is called on every login by
+// AuthProvider.jsx (fetchAndSyncProfile) for every role, including
+// sale_person — but this router's `tokenCheck` (jwtVerify.ts) structurally
+// excludes sale_person, the same bug as auth.routes.ts's getProfile. It's
+// non-blocking there (`.catch(() => null)`) so it didn't stop login itself,
+// but it silently left a permanently empty permissions matrix for every
+// sale_person session, which any permission-gated UI reads from.
+const selfServiceTokenCheck = (0, tokenCheck_1.createTokenCheck)(["user", "admin", "super_admin", "manager", "sale_person"]);
 // ============================================================
 // Permission Router
 // Base path: /admin/permissions  (mounted in server.ts under /admin)
@@ -54,7 +63,7 @@ router.get("/template/:role", jwtVerify_1.tokenCheck, PermissionController.getPe
 // ── Fetch users in this company filtered by role (preview before bulk assign) ─
 router.get("/users-by-role", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), PermissionController.getUsersByRole);
 // ── View calling user's own permissions ──────────────────────────────────
-router.get("/my", jwtVerify_1.tokenCheck, PermissionController.getMyPermissions);
+router.get("/my", selfServiceTokenCheck, PermissionController.getMyPermissions);
 // ── View a specific user's permissions ───────────────────────────────────
 router.get("/user/:userId", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), PermissionController.getUserPermissions);
 // ── Assign / revoke permissions — admin, manager, and super_admin ─────────

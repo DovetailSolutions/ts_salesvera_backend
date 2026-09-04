@@ -77,7 +77,7 @@ const updateDepartment = (req, res) => __awaiter(void 0, void 0, void 0, functio
         if (!id || isNaN(Number(id))) {
             return (0, errorMessage_1.badRequest)(res, "Valid department id is required");
         }
-        const updated = yield DepartmentService.updateDepartment(Number(id), Number(userData.userId), req.body);
+        const updated = yield DepartmentService.updateDepartment(Number(id), Number(userData.userId), userData.role, req.body);
         return (0, errorMessage_1.createSuccess)(res, "Department updated successfully", updated);
     }
     catch (error) {
@@ -125,7 +125,7 @@ const getDepartmentById = (req, res) => __awaiter(void 0, void 0, void 0, functi
         if (isNaN(Number(req.params.id))) {
             return (0, errorMessage_1.badRequest)(res, "Department id must be a number");
         }
-        const department = yield DepartmentService.getDepartmentById(Number(req.params.id), Number(userData.userId));
+        const department = yield DepartmentService.getDepartmentById(Number(req.params.id), Number(userData.userId), userData.role);
         return (0, errorMessage_1.createSuccess)(res, "Department fetched successfully", department);
     }
     catch (error) {

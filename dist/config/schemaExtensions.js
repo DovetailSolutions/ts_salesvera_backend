@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ensureChatRoomOwnership = exports.ensureNotificationPreferences = exports.ensureEmployeeCode = exports.ensureLeaveTypeSchema = void 0;
+exports.ensureUserGeoFencingColumns = exports.ensureCompanyBrandingColumns = exports.ensureBranchVisibilityToggle = exports.ensureChatRoomOwnership = exports.ensureNotificationPreferences = exports.ensureEmployeeCode = exports.ensureLeaveTypeSchema = void 0;
 // ============================================================
 // Additive, standalone schema changes for the dynamic per-company
 // leave-type wiring (attendance/leave records linked to the specific
@@ -114,3 +114,45 @@ const ensureChatRoomOwnership = (sequelize) => __awaiter(void 0, void 0, void 0,
     console.log("Chat room ownership ensured (chat_rooms.createdBy)");
 });
 exports.ensureChatRoomOwnership = ensureChatRoomOwnership;
+// ============================================================
+// Per-user branch-list visibility toggle — admin-configurable per sale_person
+// (User Management page), default OFF. When off, that sale_person's own
+// self-service profile (GET /api/getprofile) omits the company's full
+// branch list from profile.company.branches (previously always included
+// for every role with no gating at all); when on, they see it. Every other
+// role's profile is unaffected — this only ever gates the branch list on a
+// sale_person's OWN profile fetch.
+// ============================================================
+const ensureBranchVisibilityToggle = (sequelize) => __awaiter(void 0, void 0, void 0, function* () {
+    yield sequelize.query(`
+    ALTER TABLE "users"
+      ADD COLUMN IF NOT EXISTS "canViewAllBranches" BOOLEAN NOT NULL DEFAULT false;
+  `);
+    console.log("Branch visibility toggle ensured (users.canViewAllBranches)");
+});
+exports.ensureBranchVisibilityToggle = ensureBranchVisibilityToggle;
+// ============================================================
+// Company branding images — companyProfileImg, companyStampImg,
+// companySignatureImg. Nullable columns for storing S3/Spaces image URLs.
+// ============================================================
+const ensureCompanyBrandingColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function* () {
+    yield sequelize.query(`
+    ALTER TABLE "companies"
+      ADD COLUMN IF NOT EXISTS "companyProfileImg" TEXT,
+      ADD COLUMN IF NOT EXISTS "companyStampImg" TEXT,
+      ADD COLUMN IF NOT EXISTS "companySignatureImg" TEXT;
+  `);
+    console.log("Company branding columns ensured (companies.companyProfileImg/companyStampImg/companySignatureImg)");
+});
+exports.ensureCompanyBrandingColumns = ensureCompanyBrandingColumns;
+const ensureUserGeoFencingColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function* () {
+    yield sequelize.query(`
+    ALTER TABLE "user_geo_fencing"
+      ADD COLUMN IF NOT EXISTS "locationName" TEXT,
+      ADD COLUMN IF NOT EXISTS "landmark" TEXT,
+      ADD COLUMN IF NOT EXISTS "address" TEXT,
+      ADD COLUMN IF NOT EXISTS "city" TEXT;
+  `);
+    console.log("User geo-fencing human-readable columns ensured (locationName, landmark, address, city)");
+});
+exports.ensureUserGeoFencingColumns = ensureUserGeoFencingColumns;

@@ -31,6 +31,10 @@ export interface UserGeoFencingAttributes {
   longitude?: number | null;
   radius?: number | null;
   radiusUnit: "m" | "km";
+  locationName?: string | null;
+  landmark?: string | null;
+  address?: string | null;
+  city?: string | null;
   createdBy?: number | null;
   updatedBy?: number | null;
   createdAt?: Date;
@@ -54,6 +58,10 @@ export class UserGeoFencing
   public longitude!: number | null;
   public radius!: number | null;
   public radiusUnit!: "m" | "km";
+  public locationName!: string | null;
+  public landmark!: string | null;
+  public address!: string | null;
+  public city!: string | null;
   public createdBy!: number | null;
   public updatedBy!: number | null;
   public readonly createdAt!: Date;
@@ -97,6 +105,22 @@ export class UserGeoFencing
           type: DataTypes.STRING(4),
           allowNull: false,
           defaultValue: "m",
+        },
+        locationName: {
+          type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        landmark: {
+          type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        address: {
+          type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        city: {
+          type: DataTypes.TEXT,
+          allowNull: true,
         },
         createdBy: {
           type: DataTypes.INTEGER,

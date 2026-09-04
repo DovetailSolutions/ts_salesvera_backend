@@ -67,6 +67,50 @@ class Attendance extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
             },
+            geoFencingEnabled: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                allowNull: true,
+            },
+            geoFencingVerified: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                allowNull: true,
+            },
+            geoFenceDistance: {
+                type: sequelize_1.DataTypes.FLOAT,
+                allowNull: true,
+            },
+            lastMeetingId: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+            },
+            finalLegDistanceKm: {
+                type: sequelize_1.DataTypes.FLOAT,
+                allowNull: true,
+            },
+            totalTravelDistanceKm: {
+                type: sequelize_1.DataTypes.FLOAT,
+                allowNull: true,
+            },
+            vehicleAllowanceRateApplied: {
+                type: sequelize_1.DataTypes.FLOAT,
+                allowNull: true,
+            },
+            vehicleAllowance: {
+                type: sequelize_1.DataTypes.FLOAT,
+                allowNull: true,
+            },
+            distanceCalculationStatus: {
+                type: sequelize_1.DataTypes.STRING(20),
+                allowNull: true,
+            },
+            locationNameIn: {
+                type: sequelize_1.DataTypes.TEXT,
+                allowNull: true,
+            },
+            locationNameOut: {
+                type: sequelize_1.DataTypes.TEXT,
+                allowNull: true,
+            },
         }, {
             sequelize,
             tableName: "attendance",

@@ -60,6 +60,10 @@ const CompanyModell = (sequelize) => {
         state: { type: sequelize_1.DataTypes.STRING, allowNull: true },
         country: { type: sequelize_1.DataTypes.STRING, allowNull: true },
         zipcode: { type: sequelize_1.DataTypes.STRING, allowNull: true },
+        vehicleAllowanceRatePerKm: { type: sequelize_1.DataTypes.FLOAT, allowNull: true },
+        companyProfileImg: { type: sequelize_1.DataTypes.STRING, allowNull: true },
+        companyStampImg: { type: sequelize_1.DataTypes.STRING, allowNull: true },
+        companySignatureImg: { type: sequelize_1.DataTypes.STRING, allowNull: true },
     }, {
         tableName: "companies",
         timestamps: true,

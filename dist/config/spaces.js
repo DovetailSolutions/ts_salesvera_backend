@@ -33,6 +33,7 @@ const uploadBufferToSpaces = (key_1, buffer_1, contentType_1, ...args_1) => __aw
         Key: key,
         Body: buffer,
         ContentType: contentType,
+        ACL: "public-read",
     }));
     return (0, exports.buildSpacesUrl)(key, bucket);
 });

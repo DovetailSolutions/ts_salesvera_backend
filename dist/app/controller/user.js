@@ -77,6 +77,7 @@ const dateUtils_1 = require("../../modules/shared/dateUtils");
 const leave_service_1 = require("../../modules/leave/leave.service");
 const LeaveController = __importStar(require("../../modules/leave/leave.controller"));
 const AdminController = __importStar(require("./admin"));
+const travelDistance_service_1 = require("../../modules/attendance/travelDistance.service");
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 function getDistance(lat1, lon1, lat2, lon2) {
     const toRad = (value) => (value * Math.PI) / 180;
@@ -264,6 +265,10 @@ const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                     model: dbConnection_2.Branch,
                     as: "branch",
                 },
+                {
+                    model: dbConnection_2.Department,
+                    as: "department",
+                }
             ],
         });
         if (!item) {
@@ -271,6 +276,16 @@ const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             return;
         }
         const profile = item.get({ plain: true });
+        // FIX: serialized every column of the User model into the response,
+        // including the caller's own bcrypt password hash and their live
+        // refreshToken (a fully-usable credential on its own, see CreateToken/
+        // tokenCheck) — on every single mobile profile fetch. The /admin
+        // counterpart (AuthService.getProfile) already strips these; this one
+        // didn't. Strip before any further processing/response.
+        delete profile.password;
+        delete profile.refreshToken;
+        delete profile.otp;
+        delete profile.otpExpiry;
         // ✅ Step 2: Walk UP the hierarchy to find the root admin
         // Chain: sale_person → manager → admin
         // We keep going until we find someone with role "admin" or "super_admin"
@@ -325,6 +340,7 @@ const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                         as: "companyBanks",
                         required: false,
                     },
+                    { model: dbConnection_2.Branch, as: "branches" },
                 ],
                 // 👈 company where adminId = root admin's ID
             });
@@ -341,6 +357,24 @@ const GetProfile = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             else {
                 profile.company = null;
             }
+        }
+        // FIX: profile.company.branches (the company's FULL branch list) was
+        // included unconditionally for every role, including sale_person — any
+        // sale_person's own profile fetch always exposed every branch in the
+        // company. Now admin-gated per user (User Management page toggle,
+        // default OFF — see schemaExtensions.ts's ensureBranchVisibilityToggle):
+        // only when canViewAllBranches is explicitly true does a sale_person see
+        // the full list here. Every other role is unaffected.
+        // NOTE: profile.company above is assigned the raw Sequelize instance
+        // (not .get({ plain: true })'d) — deleting a property off it doesn't
+        // actually change what its own toJSON() serializes, so it has to be
+        // flattened to a plain object first for the delete below to take effect
+        // on the response actually sent.
+        if (profile.company && typeof profile.company.get === "function") {
+            profile.company = profile.company.get({ plain: true });
+        }
+        if (userData.role === "sale_person" && profile.company && !profile.canViewAllBranches) {
+            delete profile.company.branches;
         }
         // ✅ Step 5: For sale_person — include the admin's granted permissions
         if (userData.role === "sale_person" && rootAdminId && ((_b = profile.company) === null || _b === void 0 ? void 0 : _b.id)) {
@@ -508,10 +542,41 @@ const getLastMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function*
         };
         // ✅ Search filter
         if (search) {
+            const searchTerm = `%${search}%`;
             whereCondition[sequelize_1.Op.or] = [
                 {
                     name: {
-                        [sequelize_1.Op.iLike]: `${search}%`,
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
+                {
+                    companyName: {
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
+                {
+                    "$MeetingCompanies.company_name$": {
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
+                {
+                    "$MeetingCompanies.person_name$": {
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
+                {
+                    "$MeetingCompanies.company_email$": {
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
+                {
+                    mobile: {
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
+                {
+                    email: {
+                        [sequelize_1.Op.iLike]: searchTerm,
                     },
                 },
             ];
@@ -871,6 +936,10 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             (0, errorMessage_1.badRequest)(res, "latitude_out and longitude_out are required");
             return;
         }
+        if (!(0, travelDistance_service_1.isValidCoordinate)(latitude_out, longitude_out)) {
+            (0, errorMessage_1.badRequest)(res, "Invalid location coordinates");
+            return;
+        }
         // ✅ Check meeting exists
         const isExist = yield dbConnection_2.Meeting.findOne({
             where: {
@@ -917,6 +986,7 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 "id",
                 "latitude_in",
                 "longitude_in",
+                "punch_in",
             ],
         });
         // ✅ Previous Meetings
@@ -960,6 +1030,21 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                     const result = yield Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
                     legDistanceKm = result.km;
                     legDistanceDisplay = result.display;
+                    // GPS sanity check: this leg is Attendance-In -> this meeting's
+                    // checkout point, so it can't have covered more ground than the
+                    // elapsed clock time allows for ordinary road travel. A violation
+                    // means the checkout coordinate itself is bad (e.g. a coarse
+                    // network-location fallback), not that the person actually drove
+                    // that far — never let a bad GPS fix silently become a paid
+                    // distance (same philosophy as the "never fake a 0km" rule below).
+                    const elapsedMs = (attendance === null || attendance === void 0 ? void 0 : attendance.punch_in)
+                        ? isExist.meetingTimeOut.getTime() - new Date(attendance.punch_in).getTime()
+                        : null;
+                    if (elapsedMs != null && !(0, travelDistance_service_1.isPlausibleLeg)(legDistanceKm, elapsedMs)) {
+                        console.warn(`EndMeeting: implausible leg distance for meeting ${isExist.id} (Attendance-In -> Meeting-Out): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`);
+                        legDistanceKm = 0;
+                        legDistanceDisplay = "GPS unavailable";
+                    }
                 }
             }
         }
@@ -981,6 +1066,16 @@ const EndMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                     const result = yield Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
                     legDistanceKm = result.km;
                     legDistanceDisplay = result.display;
+                    // Same GPS sanity check as above, against the previous meeting's
+                    // checkout timestamp instead of Attendance-In.
+                    const elapsedMs = lastMeeting.meetingTimeOut
+                        ? isExist.meetingTimeOut.getTime() - new Date(lastMeeting.meetingTimeOut).getTime()
+                        : null;
+                    if (elapsedMs != null && !(0, travelDistance_service_1.isPlausibleLeg)(legDistanceKm, elapsedMs)) {
+                        console.warn(`EndMeeting: implausible leg distance for meeting ${isExist.id} (previous Meeting-Out -> this Meeting-Out): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`);
+                        legDistanceKm = 0;
+                        legDistanceDisplay = "GPS unavailable";
+                    }
                 }
             }
         }
@@ -1112,6 +1207,12 @@ const scheduled = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             (0, errorMessage_1.badRequest)(res, "latitude_in && longitude_in is required");
             return;
         }
+        if ((latitude_in !== undefined && latitude_in !== null) || (longitude_in !== undefined && longitude_in !== null)) {
+            if (!(0, travelDistance_service_1.isValidCoordinate)(latitude_in, longitude_in)) {
+                (0, errorMessage_1.badRequest)(res, "Invalid location coordinates");
+                return;
+            }
+        }
         /** ✅ Check meeting exist for this user & active */
         const isExist = yield dbConnection_2.Meeting.findOne({
             where: {
@@ -1176,7 +1277,7 @@ const getCategory = (req, res) => __awaiter(void 0, void 0, void 0, function* ()
                 {
                     model: dbConnection_2.SubCategory,
                     as: "subCategories",
-                    required: false,
+                    required: true,
                 },
             ],
             limit: pageLimit,
@@ -1408,6 +1509,11 @@ const LeaveList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             where: {
                 employee_id: finalUserId,
             },
+            // MyLeave.jsx reads row.{id,leave_type,from_date,to_date,reason,status,
+            // leaveTypeRef} only — employee_id is redundant here (this list is
+            // always "my own" leaves) and createdAt isn't displayed, just used for
+            // sort order below (ORDER BY doesn't require the column in SELECT).
+            attributes: ["id", "leave_type", "from_date", "to_date", "reason", "status"],
             // Additive — each row also carries its resolved leave type name/code
             // (when the request was made against a company-configured type),
             // same as the web admin's leave list, instead of just the bare
@@ -1914,7 +2020,8 @@ const addQuotation = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             isConsumed: false,
             guid: data.guid || null,
             alterid: data.alterid || null,
-            status: "draft"
+            status: "draft",
+            gstNumber: data.gstNumber || null
         });
         res.status(201).json({
             success: true,
@@ -2437,7 +2544,7 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             }
         }
         // 🧩 Extract fields
-        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date, guid, alterid } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date", "guid", "alterid"]);
+        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date, guid, alterid, gstNumber } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date", "guid", "alterid", "gstNumber"]);
         let quotationRecord = null;
         // ============================
         // 🔁 HANDLE QUOTATION UPDATE
@@ -2503,6 +2610,7 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             items: data.items,
             guid: guid || null,
             alterid: alterid || null,
+            gstNumber: data.gstNumber || null
         };
         const invoiceData = yield dbConnection_2.Invoices.create(invoicePayload, {
             transaction,
@@ -3104,20 +3212,20 @@ const getDashboardMobile = (req, res) => __awaiter(void 0, void 0, void 0, funct
         // merged with the team KPIs. Delegating wholesale here (as this used to)
         // returned only team numbers and silently dropped the manager's own
         // shift, attendance and leave balance from their mobile home screen.
-        // FIX: Middleware.getAllSubordinateIds throws ("column User.createdBy
-        // does not exist" — a pre-existing bug, unrelated to the role-branch
-        // above) for every caller that reaches this line. Same root cause and
-        // same fix already applied to getSalesPerformance below: self + the
-        // correct recursive-descendants helper. For sale_person (no
-        // descendants) this is simply self-only.
-        //
-        // Company-scoped: getAllChildUserIds knows nothing about companies, so a
-        // caller assigned to two companies kept counting the other company's
-        // documents after switching company. getCompanyScopedChildUserIds drops
-        // descendants that positively belong to a different company (and keeps
-        // anyone whose company membership is indeterminate).
+        // Full hierarchy (parents/grandparents AND subordinates), same approach
+        // as getInvoice: anchor at the company admin so ancestors are included,
+        // then walk the whole tree down from there via getAllSubordinateIds.
+        // Deliberately broader than getCompanyScopedChildUserIds (descendants
+        // only), which getSalesPerformance below still uses unchanged.
         const callerCompanyId = companyId ? Number(companyId) : null;
-        const allUserIds = [Number(userId), ...(yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(Number(userId), callerCompanyId))];
+        let hierarchyRootId = Number(userId);
+        if (callerCompanyId) {
+            const company = yield dbConnection_2.Company.findByPk(callerCompanyId, { attributes: ["adminId"] });
+            if (company === null || company === void 0 ? void 0 : company.adminId) {
+                hierarchyRootId = company.adminId;
+            }
+        }
+        const allUserIds = yield (0, comman_1.getAllSubordinateIds)(hierarchyRootId);
         const commonFilter = {
             userId: { [sequelize_1.Op.in]: allUserIds },
             status: { [sequelize_1.Op.notIn]: ["cancelled", "deleted"] },

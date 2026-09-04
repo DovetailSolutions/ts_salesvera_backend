@@ -56,14 +56,16 @@ const CompanyRepo = __importStar(require("./company.repository"));
 // controller bodies in admin.ts.
 // ============================================================
 const addCompany = (userId, role, body) => __awaiter(void 0, void 0, void 0, function* () {
-    if (role !== "user") {
+    if (!["admin", "super_admin", "user"].includes(role)) {
         throw new serviceError_1.ServiceError("You are not authorized to add a company");
     }
     const { companyName, legalName, registrationNo, gst, pan, industry, companySize, website, companyEmail, companyPhone, city, timezone, currency, state, country, zipcode, 
     // Bank
     bankAccountHolder, bankName, bankAccountNumber, bankIfsc, bankBranchName, bankAccountType, bankMicr, upiId, 
     // HR Config
-    payrollCycle, lateMarkAfter, autoHalfDayAfter, geoFencingRequired, officeLocationRequired, overtimeAllowed, companyWorkingDays, altSaturday, casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice, compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry, adminId, managerId, createdBy, } = body;
+    payrollCycle, lateMarkAfter, autoHalfDayAfter, geoFencingRequired, officeLocationRequired, overtimeAllowed, companyWorkingDays, altSaturday, casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice, compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry, adminId, managerId, createdBy, 
+    // Branding Images & Travel Rate
+    companyProfileImg, companyStampImg, companySignatureImg, vehicleAllowanceRatePerKm, } = body;
     if (!companyName || companyName.trim().length < 2)
         throw new serviceError_1.ServiceError("Company name is required (min 2 chars)");
     if (!legalName)
@@ -99,6 +101,8 @@ const addCompany = (userId, role, body) => __awaiter(void 0, void 0, void 0, fun
         if (item.field && isNaN(Number(item.field)))
             throw new serviceError_1.ServiceError(`${item.name} must be a number`);
     }
+    const targetUserId = createdBy || (role === "user" ? userId : (body.userId || null));
+    const targetAdminId = adminId || (role === "admin" ? userId : null);
     const company = yield CompanyRepo.createCompany({
         companyName, legalName, registrationNo, gst, pan, industry, companySize,
         website, companyEmail, companyPhone, city, timezone, currency,
@@ -112,40 +116,44 @@ const addCompany = (userId, role, body) => __awaiter(void 0, void 0, void 0, fun
         altSaturday: altSaturday !== undefined ? Boolean(altSaturday) : false,
         casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice,
         compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry,
-        userId: createdBy || userId,
-        adminId: adminId || null,
+        userId: targetUserId,
+        adminId: targetAdminId,
         managerId: managerId || null,
+        companyProfileImg: companyProfileImg || null,
+        companyStampImg: companyStampImg || null,
+        companySignatureImg: companySignatureImg || null,
+        vehicleAllowanceRatePerKm: vehicleAllowanceRatePerKm !== undefined ? vehicleAllowanceRatePerKm : null,
     });
     // When a company is linked to an admin, propagate the creator-user's permissions
     // to that admin scoped to this company. Company is optional — if no adminId, skip.
-    if (adminId) {
+    if (targetAdminId && role === "user") {
         const creatorUserId = Number(userId);
         const newCompanyId = company.id;
         const creatorPerms = yield CompanyRepo.findCreatorPermissions(creatorUserId);
         if (creatorPerms.length > 0) {
             yield Promise.all(creatorPerms.map((p) => CompanyRepo.grantPermissionToAdminForCompany({
-                adminId: Number(adminId),
+                adminId: Number(targetAdminId),
                 permissionId: p.permissionId,
                 companyId: newCompanyId,
                 grantedBy: creatorUserId,
             })));
-            (0, permissionCache_1.invalidatePermissionCache)(Number(adminId));
+            (0, permissionCache_1.invalidatePermissionCache)(Number(targetAdminId));
         }
     }
     return company;
 });
 exports.addCompany = addCompany;
-const getCompany = (userId, query) => __awaiter(void 0, void 0, void 0, function* () {
+const getCompany = (userId, query, role) => __awaiter(void 0, void 0, void 0, function* () {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 10;
     const offset = (page - 1) * limit;
     const search = query.search || "";
-    const { count, rows } = yield CompanyRepo.findCompaniesPaginated({ userId, search, limit, offset });
+    const { count, rows } = yield CompanyRepo.findCompaniesPaginated({ userId, role, search, limit, offset });
     return {
         total: count,
         page,
         limit,
-        totalPages: Math.ceil(count / limit),
+        totalPages: Math.ceil(count / limit) || 1,
         data: rows,
     };
 });
@@ -199,7 +207,40 @@ const updateCompany = (id, userId, body, role) => __awaiter(void 0, void 0, void
     const company = yield CompanyRepo.findCompanyByIdOnly(id);
     if (!company)
         throw new serviceError_1.ServiceError("Company not found");
-    return company.update(body);
+    const payload = Object.assign({}, body);
+    if (typeof payload.companyWorkingDays === "string") {
+        try {
+            payload.companyWorkingDays = JSON.parse(payload.companyWorkingDays);
+        }
+        catch (_a) { }
+    }
+    const numericFields = [
+        "lateMarkAfter", "autoHalfDayAfter", "casualHolidaysTotal", "casualHolidaysPerMonth",
+        "casualHolidayNotice", "casualCarryForwardLimit", "casualCarryForwardExpiry",
+        "compOffMinHours", "compOffExpiryDays", "vehicleAllowanceRatePerKm"
+    ];
+    numericFields.forEach((f) => {
+        if (payload[f] !== undefined && payload[f] !== null && payload[f] !== "") {
+            const n = Number(payload[f]);
+            if (!isNaN(n))
+                payload[f] = n;
+        }
+    });
+    const boolFields = [
+        "geoFencingRequired", "officeLocationRequired", "overtimeAllowed",
+        "altSaturday", "halfSaturday", "casualHolidayApprovalRequired",
+        "casualHolidayCarryForward", "compOffApprovalRequired"
+    ];
+    boolFields.forEach((f) => {
+        if (payload[f] !== undefined && payload[f] !== null) {
+            if (payload[f] === "true" || payload[f] === true)
+                payload[f] = true;
+            else if (payload[f] === "false" || payload[f] === false)
+                payload[f] = false;
+        }
+    });
+    yield company.update(payload);
+    return company.reload();
 });
 exports.updateCompany = updateCompany;
 const assignCompanyManager = (companyIdParam, userId, body) => __awaiter(void 0, void 0, void 0, function* () {
@@ -344,7 +385,7 @@ const getCompanyAdmins = (companyIdParam, userId) => __awaiter(void 0, void 0, v
     return CompanyRepo.findCompanyAdmins(Number(companyIdParam));
 });
 exports.getCompanyAdmins = getCompanyAdmins;
-const deleteCompany = (id, userId) => __awaiter(void 0, void 0, void 0, function* () {
+const deleteCompany = (id, userId, role) => __awaiter(void 0, void 0, void 0, function* () {
     if (!id)
         throw new serviceError_1.ServiceError("Company id is required");
     if (isNaN(Number(id)))

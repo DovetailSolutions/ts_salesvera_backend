@@ -38,6 +38,11 @@ const toPublicConfig = (row: any, userId: number) => ({
   longitude: row?.longitude ?? null,
   radius: row?.radius ?? null,
   radiusUnit: row?.radiusUnit ?? "m",
+  locationName: row?.locationName ?? null,
+  landmark: row?.landmark ?? null,
+  address: row?.address ?? null,
+  city: row?.city ?? null,
+  createdAt: row?.createdAt ?? null,
   updatedAt: row?.updatedAt ?? null,
 });
 
@@ -144,6 +149,10 @@ export const saveConfigForUser = async (
     longitude,
     radius,
     radiusUnit,
+    locationName: body?.locationName !== undefined ? body.locationName : undefined,
+    landmark: body?.landmark !== undefined ? body.landmark : undefined,
+    address: body?.address !== undefined ? body.address : undefined,
+    city: body?.city !== undefined ? body.city : undefined,
   });
 
   return toPublicConfig(saved, targetUserId);
@@ -302,4 +311,65 @@ export const geocodeAddress = async (address: string) => {
   }
 
   throw new ServiceError("Could not find coordinates for that address. Please try a different location.");
+};
+
+export const reverseGeocode = async (lat: number, lng: number) => {
+  if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) {
+    throw new ServiceError("Valid latitude and longitude are required");
+  }
+  const apiKey = process.env.GOOGLE_MAP_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || "";
+
+  if (apiKey) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`;
+      const response = await axios.get(url);
+      if (response.data?.status === "OK" && response.data?.results?.length > 0) {
+        const result = response.data.results[0];
+        let city = "";
+        let landmark = "";
+        for (const comp of result.address_components || []) {
+          if (comp.types.includes("locality") || comp.types.includes("administrative_area_level_2")) {
+            city = comp.long_name;
+          }
+          if (comp.types.includes("point_of_interest") || comp.types.includes("premise") || comp.types.includes("sublocality")) {
+            if (!landmark) landmark = comp.long_name;
+          }
+        }
+        return {
+          formattedAddress: result.formatted_address,
+          locationName: result.address_components?.[0]?.long_name || result.formatted_address.split(",")[0],
+          landmark: landmark || null,
+          city: city || null,
+          source: "google",
+        };
+      }
+    } catch (err) {
+      console.warn("Backend Google reverse-geocoding error:", err);
+    }
+  }
+
+  try {
+    const osmUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
+    const response = await axios.get(osmUrl, {
+      headers: { "User-Agent": "SalesVera-Backend/1.0" },
+    });
+    if (response.data && response.data.display_name) {
+      const d = response.data;
+      const addr = d.address || {};
+      const city = addr.city || addr.town || addr.village || addr.county || "";
+      const locationName = addr.amenity || addr.building || addr.road || d.display_name.split(",")[0];
+      const landmark = addr.suburb || addr.neighbourhood || "";
+      return {
+        formattedAddress: d.display_name,
+        locationName,
+        landmark: landmark || null,
+        city: city || null,
+        source: "osm",
+      };
+    }
+  } catch (err) {
+    console.warn("Backend OSM reverse-geocoding error:", err);
+  }
+
+  return { formattedAddress: `${lat}, ${lng}`, locationName: `${lat}, ${lng}`, landmark: null, city: null };
 };

@@ -145,3 +145,15 @@ export const ensureCompanyBrandingColumns = async (sequelize: Sequelize): Promis
   console.log("Company branding columns ensured (companies.companyProfileImg/companyStampImg/companySignatureImg)");
 };
 
+
+export const ensureUserGeoFencingColumns = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    ALTER TABLE "user_geo_fencing"
+      ADD COLUMN IF NOT EXISTS "locationName" TEXT,
+      ADD COLUMN IF NOT EXISTS "landmark" TEXT,
+      ADD COLUMN IF NOT EXISTS "address" TEXT,
+      ADD COLUMN IF NOT EXISTS "city" TEXT;
+  `);
+
+  console.log("User geo-fencing human-readable columns ensured (locationName, landmark, address, city)");
+};

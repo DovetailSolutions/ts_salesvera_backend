@@ -42,12 +42,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AttendanceList = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.bulkMarkAttendance = exports.exportAttendanceReport = exports.AttendanceBook = exports.attendanceSummary = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
+exports.AttendanceList = exports.getSalesPersonTravel = exports.getTeamTravelSummary = exports.getMyTravelSummary = exports.getTodayAttendance = exports.AttendancePunchOut = exports.AttendancePunchIn = exports.bulkMarkAttendance = exports.exportAttendanceReport = exports.AttendanceBook = exports.attendanceSummary = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
 const errorMessage_1 = require("../../app/middlewear/errorMessage");
 const serviceError_1 = require("../shared/serviceError");
 const Middleware = __importStar(require("../../app/middlewear/comman"));
 const dbConnection_1 = require("../../config/dbConnection");
 const AttendanceService = __importStar(require("./attendance.service"));
+const dateUtils_1 = require("../shared/dateUtils");
 // ============================================================
 // Attendance controller — thin HTTP layer, extracted verbatim from
 // admin.ts's getAttendance/markAttendancePresent/bulkMarkAttendance/
@@ -205,6 +206,52 @@ const getTodayAttendance = (req, res) => __awaiter(void 0, void 0, void 0, funct
     }
 });
 exports.getTodayAttendance = getTodayAttendance;
+// Sale Person's own daily travel summary — attendance in/out, every
+// meeting's leg, the closing leg, total distance and allowance for one date.
+const getMyTravelSummary = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const date = req.params.date || (0, dateUtils_1.getISTDateString)();
+        const result = yield AttendanceService.getMyTravelSummary(Number(userData === null || userData === void 0 ? void 0 : userData.userId), date);
+        (0, errorMessage_1.createSuccess)(res, "Travel summary fetched successfully", result);
+    }
+    catch (error) {
+        handleServiceError(res, error);
+    }
+});
+exports.getMyTravelSummary = getMyTravelSummary;
+// ---- Admin/team-scoped travel view ----
+const getTeamTravelSummary = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const date = req.params.date || (0, dateUtils_1.getISTDateString)();
+        const result = yield AttendanceService.getTeamTravelSummary(Number(userData === null || userData === void 0 ? void 0 : userData.userId), callerCompanyId, date);
+        (0, errorMessage_1.createSuccess)(res, "Team travel summary fetched successfully", result);
+    }
+    catch (error) {
+        handleServiceError(res, error);
+    }
+});
+exports.getTeamTravelSummary = getTeamTravelSummary;
+const getSalesPersonTravel = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const targetUserId = Number(req.params.userId);
+        if (Number.isNaN(targetUserId)) {
+            (0, errorMessage_1.badRequest)(res, "Invalid userId");
+            return;
+        }
+        const date = req.params.date || (0, dateUtils_1.getISTDateString)();
+        const result = yield AttendanceService.getSalesPersonTravelForAdmin(Number(userData === null || userData === void 0 ? void 0 : userData.userId), callerCompanyId, targetUserId, date);
+        (0, errorMessage_1.createSuccess)(res, "Travel summary fetched successfully", result);
+    }
+    catch (error) {
+        handleServiceError(res, error);
+    }
+});
+exports.getSalesPersonTravel = getSalesPersonTravel;
 const AttendanceList = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;

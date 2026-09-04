@@ -167,4 +167,8 @@ router.patch("/approved-expense", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeR
 router.post("/meetings/schedule", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("meeting", "schedule"), MeetingController.scheduleMeeting);
 router.patch("/meetings/:id/reschedule", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("meeting", "update"), MeetingController.rescheduleMeeting);
 router.get("/meetings/dashboard", jwtVerify2_1.tokenCheck, (0, rbac_1.authorizeRoles)("manager"), (0, checkPermission_1.checkPermission)("meeting", "view"), MeetingController.getMeetingDashboard);
+// Route aliases for Meetings (supports both /createmeeting, /scheduledupdate, /endmeeting AND /meeting/add, /meeting/start, /meeting/end)
+router.post("/meeting/add", jwtVerify2_1.tokenCheck, meeting.array("image"), Controller.CreateMeeting);
+router.post("/meeting/start", jwtVerify2_1.tokenCheck, Controller.scheduled);
+router.post("/meeting/end", jwtVerify2_1.tokenCheck, Controller.EndMeeting);
 exports.default = router;

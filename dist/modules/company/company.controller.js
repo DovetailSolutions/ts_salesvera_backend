@@ -43,6 +43,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.addCompanyBank = exports.getOwnCompany = exports.deleteCompany = exports.switchCompany = exports.getCompanyAdmins = exports.removeCompanyAdmin = exports.assignCompanyAdmin = exports.getMyCompanies = exports.getCompanyManagers = exports.removeCompanyManager = exports.assignCompanyManager = exports.updateCompany = exports.getCompanyPolicy = exports.getCompanyById = exports.getCompany = exports.addCompany = void 0;
+const spaces_1 = require("../../config/spaces");
 const errorMessage_1 = require("../../app/middlewear/errorMessage");
 const serviceError_1 = require("../shared/serviceError");
 const CompanyService = __importStar(require("./company.service"));
@@ -59,13 +60,42 @@ const handleServiceError = (res, error) => {
     return (0, errorMessage_1.badRequest)(res, errorMessage);
 };
 const addCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
     try {
         const userData = req.userData;
         if (!userData || !userData.userId) {
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        const company = yield CompanyService.addCompany(Number(userData.userId), userData.role, req.body);
+        const files = req.files;
+        const body = Object.assign({}, req.body);
+        const getFileUrl = (file) => {
+            if (!file)
+                return undefined;
+            return file.location || (file.key ? (0, spaces_1.buildSpacesUrl)(file.key) : undefined);
+        };
+        const profileImgUrl = getFileUrl((_a = files === null || files === void 0 ? void 0 : files.companyProfileImg) === null || _a === void 0 ? void 0 : _a[0]);
+        if (profileImgUrl) {
+            body.companyProfileImg = profileImgUrl;
+        }
+        else if (body.companyProfileImg === "") {
+            body.companyProfileImg = null;
+        }
+        const stampImgUrl = getFileUrl((_b = files === null || files === void 0 ? void 0 : files.companyStampImg) === null || _b === void 0 ? void 0 : _b[0]);
+        if (stampImgUrl) {
+            body.companyStampImg = stampImgUrl;
+        }
+        else if (body.companyStampImg === "") {
+            body.companyStampImg = null;
+        }
+        const signatureImgUrl = getFileUrl((_c = files === null || files === void 0 ? void 0 : files.companySignatureImg) === null || _c === void 0 ? void 0 : _c[0]);
+        if (signatureImgUrl) {
+            body.companySignatureImg = signatureImgUrl;
+        }
+        else if (body.companySignatureImg === "") {
+            body.companySignatureImg = null;
+        }
+        const company = yield CompanyService.addCompany(Number(userData.userId), userData.role, body);
         (0, errorMessage_1.createSuccess)(res, "Company added successfully", company);
     }
     catch (error) {
@@ -80,7 +110,7 @@ const getCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        const result = yield CompanyService.getCompany(Number(userData.userId), req.query);
+        const result = yield CompanyService.getCompany(Number(userData.userId), req.query, userData.role);
         (0, errorMessage_1.createSuccess)(res, "Company fetched successfully", result);
     }
     catch (error) {
@@ -120,13 +150,42 @@ const getCompanyPolicy = (req, res) => __awaiter(void 0, void 0, void 0, functio
 });
 exports.getCompanyPolicy = getCompanyPolicy;
 const updateCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b, _c;
     try {
         const userData = req.userData;
         if (!userData || !userData.userId) {
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        const updated = yield CompanyService.updateCompany(req.params.id, Number(userData.userId), req.body, userData.role);
+        const files = req.files;
+        const body = Object.assign({}, req.body);
+        const getFileUrl = (file) => {
+            if (!file)
+                return undefined;
+            return file.location || (file.key ? (0, spaces_1.buildSpacesUrl)(file.key) : undefined);
+        };
+        const profileImgUrl = getFileUrl((_a = files === null || files === void 0 ? void 0 : files.companyProfileImg) === null || _a === void 0 ? void 0 : _a[0]);
+        if (profileImgUrl) {
+            body.companyProfileImg = profileImgUrl;
+        }
+        else if (body.companyProfileImg === "") {
+            body.companyProfileImg = null;
+        }
+        const stampImgUrl = getFileUrl((_b = files === null || files === void 0 ? void 0 : files.companyStampImg) === null || _b === void 0 ? void 0 : _b[0]);
+        if (stampImgUrl) {
+            body.companyStampImg = stampImgUrl;
+        }
+        else if (body.companyStampImg === "") {
+            body.companyStampImg = null;
+        }
+        const signatureImgUrl = getFileUrl((_c = files === null || files === void 0 ? void 0 : files.companySignatureImg) === null || _c === void 0 ? void 0 : _c[0]);
+        if (signatureImgUrl) {
+            body.companySignatureImg = signatureImgUrl;
+        }
+        else if (body.companySignatureImg === "") {
+            body.companySignatureImg = null;
+        }
+        const updated = yield CompanyService.updateCompany(req.params.id, Number(userData.userId), body, userData.role);
         (0, errorMessage_1.createSuccess)(res, "Company updated successfully", updated);
     }
     catch (error) {
@@ -261,8 +320,8 @@ const deleteCompany = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             (0, errorMessage_1.badRequest)(res, "Unauthorized request");
             return;
         }
-        yield CompanyService.deleteCompany(req.params.id, Number(userData.userId));
-        (0, errorMessage_1.createSuccess)(res, "Company deleted successfully");
+        yield CompanyService.deleteCompany(req.params.id, Number(userData.userId), userData.role);
+        (0, errorMessage_1.createSuccess)(res, "Company deleted successfully", null);
     }
     catch (error) {
         handleServiceError(res, error);

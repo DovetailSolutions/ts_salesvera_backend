@@ -30,7 +30,16 @@ const grantPermissionToAdminForCompany = (params) => dbConnection_1.UserPermissi
 });
 exports.grantPermissionToAdminForCompany = grantPermissionToAdminForCompany;
 const findCompaniesPaginated = (params) => {
-    let where = { userId: params.userId };
+    let where = {};
+    if (params.role === "super_admin") {
+        where = {};
+    }
+    else if (params.role === "admin") {
+        where = { [sequelize_1.Op.or]: [{ adminId: params.userId }, { userId: params.userId }] };
+    }
+    else {
+        where = { userId: params.userId };
+    }
     if (params.search) {
         where = Object.assign(Object.assign({}, where), { [sequelize_1.Op.or]: [
                 { companyName: { [sequelize_1.Op.like]: `%${params.search}%` } },
@@ -40,6 +49,20 @@ const findCompaniesPaginated = (params) => {
             ] });
     }
     return dbConnection_1.Company.findAndCountAll({
+        attributes: [
+            "id",
+            "companyName",
+            "legalName",
+            "industry",
+            "companySize",
+            "companyEmail",
+            "companyPhone",
+            "userId",
+            "adminId",
+            "companyProfileImg",
+            "companyStampImg",
+            "companySignatureImg",
+        ],
         where,
         limit: params.limit,
         offset: params.offset,
@@ -86,6 +109,7 @@ const findCompanyPolicyFields = (id) => dbConnection_1.Company.findByPk(id, {
         "casualHolidayApprovalRequired", "casualHolidayCarryForward",
         "casualCarryForwardLimit", "casualCarryForwardExpiry",
         "compOffMinHours", "compOffExpiryDays", "compOffApprovalRequired",
+        "vehicleAllowanceRatePerKm",
     ],
 });
 exports.findCompanyPolicyFields = findCompanyPolicyFields;

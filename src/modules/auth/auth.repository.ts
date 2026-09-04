@@ -1,3 +1,15 @@
+const companyFullAttributes = [
+  "id", "companyName", "legalName", "registrationNo", "gst", "pan", "industry", "companySize",
+  "website", "companyEmail", "companyPhone", "city", "state", "country", "zipcode",
+  "timezone", "currency", "payrollCycle", "userId", "adminId", "managerId",
+  "companyProfileImg", "companyStampImg", "companySignatureImg",
+  "lateMarkAfter", "autoHalfDayAfter", "geoFencingRequired", "officeLocationRequired", "overtimeAllowed",
+  "companyWorkingDays", "altSaturday", "halfSaturday",
+  "casualHolidaysTotal", "casualHolidaysPerMonth", "casualHolidayNotice", "casualHolidayApprovalRequired",
+  "casualHolidayCarryForward", "casualCarryForwardLimit", "casualCarryForwardExpiry",
+  "compOffMinHours", "compOffExpiryDays", "compOffApprovalRequired", "vehicleAllowanceRatePerKm"
+];
+
 import { Op } from "sequelize";
 import {
   User,
@@ -131,7 +143,7 @@ export const findUserWithProfileIncludes = (id: number, role: string, includeCom
     include.push({
       model: Company,
       as: "company",
-      attributes: ["id", "companyName", "legalName", "registrationNo", "companyEmail", "companyPhone", "industry", "companySize", "userId", "adminId"],
+      attributes: companyFullAttributes,
       include: companyIncludes
     });
   }
@@ -148,7 +160,7 @@ export const findCompanyWithFullDetail = (companyId: number) => {
     { model: CompanyBank, as: "companyBanks", attributes: ["id", "bankName", "bankAccountNumber", "bankIfsc", "bankBranchName", "bankAccountHolder", "companyId"] },
   ];
   return Company.findByPk(companyId, {
-    attributes: ["id", "companyName", "legalName", "registrationNo", "companyEmail", "companyPhone", "industry", "companySize", "userId", "adminId"],
+    attributes: companyFullAttributes,
     include: companyIncludes
   });
 };

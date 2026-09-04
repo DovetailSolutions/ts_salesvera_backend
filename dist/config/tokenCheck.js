@@ -120,6 +120,20 @@ const createTokenCheck = (allowedRoles) => {
                     message: "Unauthorized — invalid or expired token",
                 });
             }
+            // FIX: access and refresh tokens were signed identically (see
+            // CreateToken in app/middlewear/comman.ts) with nothing distinguishing
+            // them, so a refresh token — e.g. the one echoed back in /register's
+            // response — worked as a full access token on every protected route
+            // for its whole 60-day lifetime. Reject it here explicitly. Tokens
+            // signed before this change have no `type` claim at all and are left
+            // alone (undefined !== "refresh").
+            if (decoded.type === "refresh") {
+                return res.status(401).json({
+                    code: "401",
+                    success: false,
+                    message: "Unauthorized — refresh tokens cannot be used as access tokens",
+                });
+            }
             const rawId = (_a = decoded.userId) !== null && _a !== void 0 ? _a : decoded.id;
             const id = Number(rawId);
             const item = (yield dbConnection_1.User.findOne({

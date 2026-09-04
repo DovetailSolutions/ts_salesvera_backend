@@ -42,7 +42,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMeetingDashboardDetails = exports.getMeetingDashboard = exports.rescheduleMeeting = exports.scheduleMeeting = exports.resolveClientScope = exports.resolveTeamScope = void 0;
+exports.getNewClientsDetails = exports.getMeetingDashboardDetails = exports.getMeetingDashboard = exports.rescheduleMeeting = exports.scheduleMeeting = exports.resolveClientScope = exports.resolveTeamScope = void 0;
 const serviceError_1 = require("../shared/serviceError");
 const userHierarchy_1 = require("../shared/userHierarchy");
 const dateUtils_1 = require("../shared/dateUtils");
@@ -201,6 +201,28 @@ const endOfDay = (d) => {
     return new Date(ist.getTime() - IST_OFFSET_MS);
 };
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
+// FIX: "This Week" was `[startOfDay(now - 6 days), endOfDay(now)]` — a
+// trailing "last 7 days" window, not the current calendar week. That made it
+// asymmetric with "This Month" (which already covers the whole calendar
+// month, past AND future): a meeting scheduled a couple of days from now,
+// but still inside the current Mon–Sun week, counted toward "This Month"
+// while silently missing from "This Week" because the window never looked
+// past today. Monday-start calendar week in IST, mirroring the same
+// "Monday-start week containing now" convention already used for the
+// meeting-trend/dashboard-summary range endpoint (user.ts's getSummaryTrend).
+const getISTWeekRange = (now) => {
+    const nowIST = new Date(now.getTime() + IST_OFFSET_MS);
+    const mondayOffset = (nowIST.getUTCDay() + 6) % 7; // Mon=0 ... Sun=6
+    const weekStartIST = new Date(nowIST);
+    weekStartIST.setUTCDate(nowIST.getUTCDate() - mondayOffset);
+    weekStartIST.setUTCHours(0, 0, 0, 0);
+    const from = new Date(weekStartIST.getTime() - IST_OFFSET_MS);
+    const weekEndIST = new Date(weekStartIST);
+    weekEndIST.setUTCDate(weekStartIST.getUTCDate() + 6);
+    weekEndIST.setUTCHours(23, 59, 59, 999);
+    const to = new Date(weekEndIST.getTime() - IST_OFFSET_MS);
+    return { from, to };
+};
 const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
     // FIX: this dashboard's visibility scope was reusing resolveTeamScope,
     // which answers a DIFFERENT question — "who can I act on behalf of"
@@ -238,13 +260,15 @@ const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(voi
     const monthEnd = new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS);
     const trendStart = startOfDay(addDays(now, -13));
     const upcomingEnd = endOfDay(addDays(now, 7));
-    // Single wide window covering: this month (past+future), the rolling
-    // week, the 14-day trend, and the next-7-days upcoming list — regardless
-    // of where "today" falls inside the current month.
-    const queryFrom = trendStart < monthStart ? trendStart : monthStart;
-    const queryTo = upcomingEnd > monthEnd ? upcomingEnd : monthEnd;
+    const { from: weekStart, to: weekEnd } = getISTWeekRange(now);
+    // Single wide window covering: this month (past+future), the current
+    // calendar week (past+future — can spill a few days into the adjacent
+    // month near a month boundary), the 14-day trend, and the next-7-days
+    // upcoming list — regardless of where "today" falls inside the current
+    // month/week.
+    const queryFrom = [trendStart, monthStart, weekStart].reduce((a, b) => (b < a ? b : a));
+    const queryTo = [upcomingEnd, monthEnd, weekEnd].reduce((a, b) => (b > a ? b : a));
     const meetings = (yield MeetingRepo.findMeetingsInRange(allowedIds, queryFrom, queryTo));
-    const weekStart = startOfDay(addDays(now, -6));
     const inRange = (t, from, to) => t >= from && t <= to;
     let scheduledToday = 0;
     let scheduledThisWeek = 0;
@@ -259,7 +283,8 @@ const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(voi
     // getISTDateString() derives the IST y-m-d string directly instead.
     for (let i = 0; i < 14; i++)
         trendByDay.set((0, dateUtils_1.getISTDateString)(addDays(now, -13 + i)), 0);
-    const completedByEmployee = new Map();
+    const completedByEmployeeMonth = new Map();
+    const completedByEmployeeWeek = new Map();
     for (const m of meetings) {
         const t = new Date(m.scheduledTime);
         if (isNaN(t.getTime()))
@@ -269,13 +294,17 @@ const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(voi
             if (m.status in statusBreakdown)
                 statusBreakdown[m.status] += 1;
             if (m.status === "completed") {
-                completedByEmployee.set(m.userId, (completedByEmployee.get(m.userId) || 0) + 1);
+                completedByEmployeeMonth.set(m.userId, (completedByEmployeeMonth.get(m.userId) || 0) + 1);
             }
         }
         if (inRange(t, today0, today1))
             scheduledToday += 1;
-        if (inRange(t, weekStart, today1))
+        if (inRange(t, weekStart, weekEnd)) {
             scheduledThisWeek += 1;
+            if (m.status === "completed") {
+                completedByEmployeeWeek.set(m.userId, (completedByEmployeeWeek.get(m.userId) || 0) + 1);
+            }
+        }
         if (inRange(t, now, upcomingEnd) && m.status !== "cancelled")
             upcoming += 1;
         // FIX: was `startOfDay(t).toISOString().slice(0, 10)` — same UTC
@@ -287,17 +316,35 @@ const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(voi
             trendByDay.set(dayKey, (trendByDay.get(dayKey) || 0) + 1);
     }
     const completionRate = scheduledThisMonth > 0 ? Number(((statusBreakdown.completed / scheduledThisMonth) * 100).toFixed(1)) : null;
-    let topPerformer = null;
-    if (completedByEmployee.size > 0) {
-        const [topUserId, topCount] = [...completedByEmployee.entries()].sort((a, b) => b[1] - a[1])[0];
-        const employees = yield MeetingRepo.findEmployeesByIds([topUserId]);
-        const emp = employees[0];
-        topPerformer = {
+    // Both periods' winners can differ (and often need distinct employee
+    // lookups), so resolve their employee info in a single batched call rather
+    // than one query per period.
+    const topEntryMonth = completedByEmployeeMonth.size > 0
+        ? [...completedByEmployeeMonth.entries()].sort((a, b) => b[1] - a[1])[0]
+        : null;
+    const topEntryWeek = completedByEmployeeWeek.size > 0
+        ? [...completedByEmployeeWeek.entries()].sort((a, b) => b[1] - a[1])[0]
+        : null;
+    const topUserIds = [...new Set([topEntryMonth === null || topEntryMonth === void 0 ? void 0 : topEntryMonth[0], topEntryWeek === null || topEntryWeek === void 0 ? void 0 : topEntryWeek[0]].filter((id) => id != null))];
+    const topEmployees = topUserIds.length > 0 ? yield MeetingRepo.findEmployeesByIds(topUserIds) : [];
+    const employeeById = new Map(topEmployees.map((e) => [e.id, e]));
+    const buildTopPerformer = (entry) => {
+        var _a, _b, _c;
+        if (!entry)
+            return null;
+        const [topUserId, topCount] = entry;
+        const emp = employeeById.get(topUserId);
+        return {
             userId: topUserId,
             name: emp ? `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || emp.email : `#${topUserId}`,
+            email: (_a = emp === null || emp === void 0 ? void 0 : emp.email) !== null && _a !== void 0 ? _a : null,
+            phone: (_b = emp === null || emp === void 0 ? void 0 : emp.phone) !== null && _b !== void 0 ? _b : null,
+            role: (_c = emp === null || emp === void 0 ? void 0 : emp.role) !== null && _c !== void 0 ? _c : null,
             completed: topCount,
         };
-    }
+    };
+    const topPerformerMonth = buildTopPerformer(topEntryMonth);
+    const topPerformerWeek = buildTopPerformer(topEntryWeek);
     const newClientsThisMonth = yield MeetingRepo.countNewClients(allowedIds, monthStart, monthEnd);
     // The plain "how many meetings does my scope actually have" figure — every
     // other number here is windowed (today/week/month), so this was the one
@@ -312,32 +359,48 @@ const getMeetingDashboard = (loggedInId, role, callerCompanyId) => __awaiter(voi
         completionRate,
         statusBreakdown,
         trend: [...trendByDay.entries()].map(([date, count]) => ({ date, count })),
-        topPerformer,
+        // `topPerformer` kept as an alias for the monthly winner — back-compat
+        // for the frontend's existing (pre-week/month-toggle) consumer.
+        topPerformer: topPerformerMonth,
+        topPerformerMonth,
+        topPerformerWeek,
         newClientsThisMonth,
     };
 });
 exports.getMeetingDashboard = getMeetingDashboard;
-const DASHBOARD_DETAIL_TYPES = new Set(["total", "today", "week", "month"]);
+const DASHBOARD_DETAIL_TYPES = new Set(["total", "today", "week", "month", "upcoming"]);
 // Backs the meeting-management dashboard's stat tiles (Total Meeting /
-// Scheduled Today / Scheduled This Week / Scheduled This Month) — clicking a
-// tile lists the actual meetings (with employee + client info) behind that
-// tile's count. Scope resolution and date-window math are identical to
-// getMeetingDashboard above, so a tile's count and its drill-down list always
-// agree.
-const getMeetingDashboardDetails = (loggedInId, role, callerCompanyId, type, page, limit) => __awaiter(void 0, void 0, void 0, function* () {
+// Scheduled Today / Scheduled This Week / Scheduled This Month / Upcoming
+// (7 days)) — clicking a tile lists the actual meetings (with employee +
+// client info) behind that tile's count. Scope resolution and date-window
+// math are identical to getMeetingDashboard above, so a tile's count and its
+// drill-down list always agree.
+const getMeetingDashboardDetails = (loggedInId, role, callerCompanyId, type, page, limit, 
+// Narrows the list to one specific employee within the caller's scope —
+// backs the Top Performer tile's click-through ("show me everything this
+// person did"), reusing the same scoped/paginated list this endpoint
+// already builds for the today/week/month/total/upcoming tiles.
+userId) => __awaiter(void 0, void 0, void 0, function* () {
     if (!DASHBOARD_DETAIL_TYPES.has(type)) {
-        throw new serviceError_1.ServiceError("type must be one of: total, today, week, month");
+        throw new serviceError_1.ServiceError("type must be one of: total, today, week, month, upcoming");
     }
     const allowedIds = role === "manager"
         ? yield (0, exports.resolveTeamScope)(loggedInId, callerCompanyId)
         : yield (0, userHierarchy_1.getCompanyScopedOrgWideUserIds)(loggedInId, callerCompanyId);
+    let scopeIds = allowedIds;
+    if (userId != null) {
+        if (!allowedIds.includes(userId)) {
+            throw new serviceError_1.ServiceError("You do not have access to this user's meetings", 403);
+        }
+        scopeIds = [userId];
+    }
     const now = new Date();
     let range = null;
     if (type === "today") {
         range = { from: startOfDay(now), to: endOfDay(now) };
     }
     else if (type === "week") {
-        range = { from: startOfDay(addDays(now, -6)), to: endOfDay(now) };
+        range = getISTWeekRange(now);
     }
     else if (type === "month") {
         const istNow = new Date(now.getTime() + IST_OFFSET_MS);
@@ -348,9 +411,14 @@ const getMeetingDashboardDetails = (loggedInId, role, callerCompanyId, type, pag
             to: new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS),
         };
     }
+    else if (type === "upcoming") {
+        // Matches getMeetingDashboard's `upcoming` figure exactly: from "right
+        // now" (not start-of-day) through 7 days out, cancelled meetings excluded.
+        range = { from: now, to: endOfDay(addDays(now, 7)) };
+    }
     // type === "total" -> range stays null (all-time, matches countAllMeetings)
     const offset = (page - 1) * limit;
-    const { rows, count } = yield MeetingRepo.findMeetingsByScopePaginated(allowedIds, range, limit, offset);
+    const { rows, count } = yield MeetingRepo.findMeetingsByScopePaginated(scopeIds, range, limit, offset, type === "upcoming");
     return {
         data: rows,
         pagination: {
@@ -362,3 +430,40 @@ const getMeetingDashboardDetails = (loggedInId, role, callerCompanyId, type, pag
     };
 });
 exports.getMeetingDashboardDetails = getMeetingDashboardDetails;
+// Backs the "New Clients This Month" dashboard tile's click-through — same
+// scope + this-month window as countNewClients (used by getMeetingDashboard
+// above), so the tile's count and this list always agree.
+const getNewClientsDetails = (loggedInId, role, callerCompanyId, page, limit) => __awaiter(void 0, void 0, void 0, function* () {
+    const allowedIds = role === "manager"
+        ? yield (0, exports.resolveTeamScope)(loggedInId, callerCompanyId)
+        : yield (0, userHierarchy_1.getCompanyScopedOrgWideUserIds)(loggedInId, callerCompanyId);
+    const now = new Date();
+    const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+    const istYear = istNow.getUTCFullYear();
+    const istMonth = istNow.getUTCMonth();
+    const monthStart = new Date(Date.UTC(istYear, istMonth, 1) - IST_OFFSET_MS);
+    const monthEnd = new Date(Date.UTC(istYear, istMonth + 1, 0, 23, 59, 59, 999) - IST_OFFSET_MS);
+    const offset = (page - 1) * limit;
+    const { rows, count } = yield MeetingRepo.findNewClientsPaginated(allowedIds, monthStart, monthEnd, limit, offset);
+    // Client rows only carry the owning salesperson's raw userId — resolve
+    // names for whichever employees actually appear on this page in one
+    // batched call, same approach as the Top Performer lookup above.
+    const ownerIds = [...new Set(rows.map((r) => r.userId).filter((id) => id != null))];
+    const owners = ownerIds.length > 0 ? yield MeetingRepo.findEmployeesByIds(ownerIds) : [];
+    const ownerById = new Map(owners.map((o) => [o.id, o]));
+    const data = rows.map((r) => {
+        const plain = typeof r.get === "function" ? r.get({ plain: true }) : r;
+        const owner = ownerById.get(plain.userId);
+        return Object.assign(Object.assign({}, plain), { ownerName: owner ? `${owner.firstName || ""} ${owner.lastName || ""}`.trim() || owner.email : null });
+    });
+    return {
+        data,
+        pagination: {
+            totalRecords: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: page,
+            limit,
+        },
+    };
+});
+exports.getNewClientsDetails = getNewClientsDetails;
