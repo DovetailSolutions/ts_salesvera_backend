@@ -246,6 +246,24 @@ const initChatSocket = (io) => {
         console.log(`SOCKET: Connected successfully! socketId: ${socket.id}, userId: ${userId}, role: ${userRole}`);
         // 📡 Register this user's socket for targeted notifications
         (0, notificationService_1.setUserSocket)(userId, socket.id);
+        // Join personal user room so real-time messages & group invites are received
+        socket.join(`user_${userId}`);
+        // Auto-join all chat rooms this user belongs to
+        try {
+            const participations = yield dbConnection_1.ChatParticipant.findAll({
+                where: { userId },
+                include: [{ model: dbConnection_1.ChatRoom, attributes: ["roomId"] }],
+            });
+            participations.forEach((p) => {
+                var _a;
+                if ((_a = p.ChatRoom) === null || _a === void 0 ? void 0 : _a.roomId) {
+                    socket.join(p.ChatRoom.roomId);
+                }
+            });
+        }
+        catch (joinErr) {
+            console.error("Auto-join rooms error:", joinErr);
+        }
         yield dbConnection_1.User.update({ onlineSatus: "online" }, { where: { id: userId } });
         // 📡 Broadcast this user's online status to ALL connected clients
         io.emit("userStatusChange", { userId, onlineSatus: "online" });
@@ -363,18 +381,35 @@ const initChatSocket = (io) => {
                 // now was silently misattributed (or dropped from the unread/
                 // notification path) instead of showing up live. Attaching the
                 // real roomId here removes the need for that fallback entirely.
-                io.to(roomId).emit("receiveMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { roomId, replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
-                // 🔔 Notify all OTHER participants in real-time
+                const sender = yield dbConnection_1.User.findByPk(userId, {
+                    attributes: ["id", "firstName", "lastName", "email"],
+                });
+                const messagePayload = Object.assign(Object.assign({}, newMessage.toJSON()), { roomId, replyToMessage: replyToMessage ? replyToMessage.toJSON() : null, Sender: sender ? sender.toJSON() : { id: userId, firstName: "User" } });
+                // Touch room updatedAt
+                yield room.changed('updatedAt', true);
+                yield room.save().catch(() => { });
+                // 1. Emit to room
+                io.to(roomId).emit("receiveMessage", messagePayload);
+                // 2. Notify all participants in real-time
                 const participants = yield dbConnection_1.ChatParticipant.findAll({
                     where: { chatRoomId: room.id },
                 });
-                // Fetch sender info for the notification title
-                const sender = yield dbConnection_1.User.findByPk(userId, {
-                    attributes: ["firstName", "lastName"],
-                });
+                // 3. Emit to all participants' user rooms (covers cases where socket hasn't joined roomId yet)
+                for (const p of participants) {
+                    io.to(`user_${p.userId}`).emit("receiveMessage", messagePayload);
+                }
                 const senderName = sender
                     ? `${(_b = sender.firstName) !== null && _b !== void 0 ? _b : ""} ${(_c = sender.lastName) !== null && _c !== void 0 ? _c : ""}`.trim()
                     : "Someone";
+                // FIX: group notifications previously read "New message from X" with
+                // no mention of which group — indistinguishable from a private
+                // message. Lead with the group name and prefix the body with the
+                // sender's name so a group notification is self-explanatory.
+                const isGroupChat = room.type === "group";
+                const notifTitle = isGroupChat ? (room.groupName || "Group") : `New message from ${senderName}`;
+                const notifBody = isGroupChat
+                    ? `${senderName}: ${message !== null && message !== void 0 ? message : "📎 Media message"}`
+                    : (message !== null && message !== void 0 ? message : "📎 Media message");
                 for (const participant of participants) {
                     if (participant.userId === userId)
                         continue; // skip sender
@@ -382,8 +417,8 @@ const initChatSocket = (io) => {
                         receiverId: participant.userId,
                         senderId: userId,
                         type: "chat",
-                        title: `New message from ${senderName}`,
-                        body: message !== null && message !== void 0 ? message : "📎 Media message",
+                        title: notifTitle,
+                        body: notifBody,
                         data: {
                             roomId,
                             messageId: String(newMessage.id),
@@ -468,22 +503,33 @@ const initChatSocket = (io) => {
                         attributes: ["id", "message", "mediaUrl", "mediaType", "fileName", "senderId"],
                     });
                 }
-                io.to(roomId).emit("receiveFileMessage", Object.assign(Object.assign({}, newMessage.toJSON()), { roomId, replyToMessage: replyToMessage ? replyToMessage.toJSON() : null }));
-                // 🔔 Notify other participants
+                const sender = yield dbConnection_1.User.findByPk(userId, {
+                    attributes: ["id", "firstName", "lastName", "email"],
+                });
+                const filePayload = Object.assign(Object.assign({}, newMessage.toJSON()), { roomId, replyToMessage: replyToMessage ? replyToMessage.toJSON() : null, Sender: sender ? sender.toJSON() : { id: userId, firstName: "User" } });
+                // Touch room updatedAt
+                yield room.changed('updatedAt', true);
+                yield room.save().catch(() => { });
+                io.to(roomId).emit("receiveFileMessage", filePayload);
                 const participants = yield dbConnection_1.ChatParticipant.findAll({
                     where: { chatRoomId: room.id },
                 });
-                const sender = yield dbConnection_1.User.findByPk(userId, {
-                    attributes: ["firstName", "lastName"],
-                });
+                for (const p of participants) {
+                    io.to(`user_${p.userId}`).emit("receiveFileMessage", filePayload);
+                }
                 const senderName = sender
                     ? `${(_b = sender.firstName) !== null && _b !== void 0 ? _b : ""} ${(_c = sender.lastName) !== null && _c !== void 0 ? _c : ""}`.trim()
                     : "Someone";
-                const notificationBody = mediaType === "image" ? "📷 Image" :
+                const mediaLabel = mediaType === "image" ? "📷 Image" :
                     mediaType === "video" ? "🎥 Video" :
                         mediaType === "audio" ? "🎵 Audio" :
                             mediaType === "document" ? "📄 Document" :
                                 "📎 File";
+                // FIX: same group-identification fix as sendMessage — lead with the
+                // group name and prefix the body with the sender's name.
+                const isGroupChat = room.type === "group";
+                const notifTitle = isGroupChat ? (room.groupName || "Group") : `New message from ${senderName}`;
+                const notifBody = isGroupChat ? `${senderName}: ${mediaLabel}` : mediaLabel;
                 for (const participant of participants) {
                     if (participant.userId === userId)
                         continue;
@@ -491,8 +537,8 @@ const initChatSocket = (io) => {
                         receiverId: participant.userId,
                         senderId: userId,
                         type: "chat",
-                        title: `New message from ${senderName}`,
-                        body: notificationBody,
+                        title: notifTitle,
+                        body: notifBody,
                         data: { roomId, messageId: String(newMessage.id) },
                     });
                 }
@@ -583,10 +629,19 @@ const initChatSocket = (io) => {
                     success: true,
                     msg_id: msg.msg_id,
                     seenBy: userId,
+                    roomId: msg.roomId,
                     fileName: message.fileName,
                     mediaUrl: message.mediaUrl,
                     mediaType: message.mediaType,
                 });
+                if (message.senderId) {
+                    io.to(`user_${message.senderId}`).emit("seenMessage", {
+                        success: true,
+                        msg_id: msg.msg_id,
+                        seenBy: userId,
+                        roomId: msg.roomId,
+                    });
+                }
             }
             catch (err) {
                 console.error("Seen message error:", err);
@@ -605,14 +660,20 @@ const initChatSocket = (io) => {
                 });
                 if (!msg)
                     return;
-                const { fileName, mediaUrl, mediaType } = msg;
+                const { fileName, mediaUrl, mediaType, chatRoomId } = msg;
+                // FIX: deletion was broadcast via io.emit — every connected socket,
+                // including users with no access to this room, received the just
+                // deleted message's fileName/mediaUrl. Scope it to the room instead.
+                const room = yield dbConnection_1.ChatRoom.findByPk(chatRoomId, { attributes: ["roomId"] });
                 yield msg.destroy();
-                io.emit("Deleted", {
-                    id: data.id,
-                    fileName,
-                    mediaUrl,
-                    mediaType,
-                });
+                if (room) {
+                    io.to(room.roomId).emit("Deleted", {
+                        id: data.id,
+                        fileName,
+                        mediaUrl,
+                        mediaType,
+                    });
+                }
             }
             catch (error) {
                 console.error("Error deleting message:", error);
@@ -712,12 +773,6 @@ const initChatSocket = (io) => {
                         return companies.has(socketCompanyId);
                     });
                 }
-                // 🟢 Get all rooms I am part of to filter unread messages correctly
-                const myParticipations = yield dbConnection_1.ChatParticipant.findAll({
-                    where: { userId },
-                    attributes: ["chatRoomId"],
-                });
-                const myRoomIds = myParticipations.map((p) => p.chatRoomId);
                 let userSearchCondition = {};
                 if (cleanedSearch !== "") {
                     userSearchCondition = {
@@ -741,29 +796,53 @@ const initChatSocket = (io) => {
                         "role",
                         "onlineSatus",
                     ],
-                    // include: [
-                    //   {
-                    //     model: Message,
-                    //     as: "Messages",
-                    //     where: {
-                    //       status: "unseen",
-                    //       chatRoomId: { [Op.in]: myRoomIds }, // ✅ Only rooms shared with ME
-                    //     },
-                    //     required: false,
-                    //     separate: true, // 🔥 important: does not break pagination
-                    //     attributes: ["id", "status"],
-                    //   },
-                    // ],
                     order: [["id", "DESC"]],
                     limit,
                     offset,
                 });
-                // Attach a flat unreadCount mathematically
-                const usersWithUnreadCounts = result.rows.map((user) => {
-                    const userObj = user.get({ plain: true });
-                    // The included Messages array contains only "unseen" messages from this user
-                    const unreadCount = userObj.Messages ? userObj.Messages.length : 0;
-                    return Object.assign(Object.assign({}, userObj), { unreadCount });
+                // FIX: unreadCount was always 0 — the include that was meant to
+                // populate it was commented out entirely, so private-chat sidebar
+                // badges never showed. Compute unreadCount + lastMessage/lastMessageAt
+                // per candidate from the deterministic private-room id
+                // (`${min(a,b)}-${max(a,b)}`, the same convention buildRoomId in
+                // UserChat.jsx and joinRoom already rely on). Also sort by last
+                // activity so the sidebar reflects the most recently active
+                // conversation first (WhatsApp-style) instead of raw id order.
+                // NOTE: this sort only reorders within the current page — a fully
+                // global "most recent across all pages" ordering would need the
+                // query to originate from ChatRoom/Message rather than User.
+                const usersWithUnreadCounts = yield Promise.all(result.rows.map((rowUser) => __awaiter(void 0, void 0, void 0, function* () {
+                    var _a;
+                    const userObj = rowUser.get({ plain: true });
+                    const otherId = userObj.id;
+                    const pairRoomId = userId < otherId ? `${userId}-${otherId}` : `${otherId}-${userId}`;
+                    const room = yield dbConnection_1.ChatRoom.findOne({ where: { roomId: pairRoomId }, attributes: ["id"] });
+                    let unreadCount = 0;
+                    let lastMessage = null;
+                    let lastMessageAt = null;
+                    if (room) {
+                        const [count, latest] = yield Promise.all([
+                            dbConnection_1.Message.count({
+                                where: { chatRoomId: room.id, status: "unseen", senderId: { [sequelize_1.Op.ne]: userId } },
+                            }),
+                            dbConnection_1.Message.findOne({
+                                where: { chatRoomId: room.id },
+                                order: [["createdAt", "DESC"]],
+                                attributes: ["message", "mediaType", "createdAt"],
+                            }),
+                        ]);
+                        unreadCount = count;
+                        if (latest) {
+                            lastMessage = (_a = latest.message) !== null && _a !== void 0 ? _a : (latest.mediaType ? `📎 ${latest.mediaType}` : null);
+                            lastMessageAt = latest.createdAt;
+                        }
+                    }
+                    return Object.assign(Object.assign({}, userObj), { unreadCount, lastMessage, lastMessageAt });
+                })));
+                usersWithUnreadCounts.sort((a, b) => {
+                    const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+                    const bt = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+                    return bt - at;
                 });
                 io.to(socket.id).emit("UserList", {
                     success: true,
@@ -788,11 +867,6 @@ const initChatSocket = (io) => {
                 if (!members || members.length === 0) {
                     return socket.emit("createGroup", { error: "Group members are required" });
                 }
-                // Tenant isolation: only allow creating a group with users from the
-                // same tenant (mirrors the same check already present in
-                // addGroupMembers — createGroup previously had none at all, so a
-                // crafted socket payload could add users from a different tenant
-                // straight into a brand-new group).
                 const requester = yield dbConnection_1.User.findByPk(userId, { attributes: ["tenantId"] });
                 if (requester === null || requester === void 0 ? void 0 : requester.tenantId) {
                     const validMembers = yield dbConnection_1.User.findAll({
@@ -804,20 +878,17 @@ const initChatSocket = (io) => {
                     }
                 }
                 const newRoomId = (0, uuid_1.v4)();
-                // Create the group room
                 const room = yield dbConnection_1.ChatRoom.create({
                     roomId: newRoomId,
                     type: "group",
-                    groupName: name, // ← Save the group name
-                    createdBy: userId, // so deleteGroup can restrict deletion to the creator
+                    groupName: name,
+                    createdBy: userId,
                 });
                 const dbRoomId = room.id;
-                // Add the creator
                 yield dbConnection_1.ChatParticipant.create({
                     chatRoomId: dbRoomId,
                     userId,
                 });
-                // Add the other members
                 const bulk = members.map((m) => ({
                     chatRoomId: dbRoomId,
                     userId: m,
@@ -825,14 +896,24 @@ const initChatSocket = (io) => {
                 yield dbConnection_1.ChatParticipant.bulkCreate(bulk, {
                     ignoreDuplicates: true,
                 });
-                // Join socket.io room
                 socket.join(room.roomId);
+                const allMembers = [userId, ...members];
+                allMembers.forEach((mId) => {
+                    io.to(`user_${mId}`).emit("groupCreated", {
+                        roomId: room.roomId,
+                        type: "group",
+                        groupName: room.groupName,
+                        createdBy: room.createdBy,
+                        members: allMembers,
+                    });
+                    io.in(`user_${mId}`).socketsJoin(room.roomId);
+                });
                 socket.emit("createGroup", {
                     roomId: room.roomId,
                     type: "group",
                     groupName: room.groupName,
                     createdBy: room.createdBy,
-                    members: [userId, ...members],
+                    members: allMembers,
                 });
             }
             catch (error) {
@@ -841,7 +922,7 @@ const initChatSocket = (io) => {
             }
         }));
         // --------------------------------------------------------
-        // 🟦 ADD MEMBERS TO GROUP
+        // ADD MEMBERS TO GROUP
         // --------------------------------------------------------
         socket.on("addGroupMembers", (_a) => __awaiter(void 0, [_a], void 0, function* ({ roomId, newMembers = [] }) {
             try {
@@ -880,8 +961,16 @@ const initChatSocket = (io) => {
                 });
                 io.to(roomId).emit("addGroupMembers", {
                     roomId,
-                    addedMembers: newMembers,
+                    newMembers,
                     addedBy: userId
+                });
+                newMembers.forEach((mId) => {
+                    io.to(`user_${mId}`).emit("groupAdded", {
+                        roomId,
+                        groupName: room.groupName,
+                        addedBy: userId,
+                    });
+                    io.in(`user_${mId}`).socketsJoin(room.roomId);
                 });
             }
             catch (error) {
@@ -1021,18 +1110,41 @@ const initChatSocket = (io) => {
                     limit,
                     order: [["updatedAt", "DESC"]], // Show newest/most recently active groups first
                 });
-                // 3. Attach unread message counts for each group
+                // 3. Attach unread message counts + last-message preview for each group
                 const groupsWithUnreadCounts = yield Promise.all(result.rows.map((group) => __awaiter(void 0, void 0, void 0, function* () {
-                    const unreadCount = yield dbConnection_1.Message.count({
-                        where: {
-                            chatRoomId: group.id,
-                            status: "unseen",
-                            senderId: { [sequelize_1.Op.ne]: userId } // Don't count my own messages
-                        }
-                    });
-                    // Convert Sequelize instance to POJO and inject unreadCount
-                    return Object.assign(Object.assign({}, group.get({ plain: true })), { unreadCount });
+                    var _a, _b, _c;
+                    const [unreadCount, latest] = yield Promise.all([
+                        dbConnection_1.Message.count({
+                            where: {
+                                chatRoomId: group.id,
+                                status: "unseen",
+                                senderId: { [sequelize_1.Op.ne]: userId } // Don't count my own messages
+                            }
+                        }),
+                        dbConnection_1.Message.findOne({
+                            where: { chatRoomId: group.id },
+                            order: [["createdAt", "DESC"]],
+                            attributes: ["message", "mediaType", "createdAt", "senderId"],
+                            include: [{ model: dbConnection_1.User, attributes: ["firstName", "lastName"] }],
+                        }),
+                    ]);
+                    const lastMessageSenderName = (latest === null || latest === void 0 ? void 0 : latest.User)
+                        ? `${(_a = latest.User.firstName) !== null && _a !== void 0 ? _a : ""} ${(_b = latest.User.lastName) !== null && _b !== void 0 ? _b : ""}`.trim()
+                        : null;
+                    // Convert Sequelize instance to POJO and inject unreadCount + last message
+                    return Object.assign(Object.assign({}, group.get({ plain: true })), { unreadCount, lastMessage: latest ? ((_c = latest.message) !== null && _c !== void 0 ? _c : (latest.mediaType ? `📎 ${latest.mediaType}` : null)) : null, lastMessageAt: latest ? latest.createdAt : null, lastMessageSenderId: latest ? latest.senderId : null, lastMessageSenderName });
                 })));
+                // FIX: previously ordered purely by ChatRoom.updatedAt at the DB
+                // query level — but creating a Message never touches its parent
+                // ChatRoom row, so that column stays frozen at creation time and
+                // groups never actually moved to the top on new activity. Re-sort
+                // by real last-message time (falling back to updatedAt for groups
+                // with no messages yet).
+                groupsWithUnreadCounts.sort((a, b) => {
+                    const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : new Date(a.updatedAt).getTime();
+                    const bt = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : new Date(b.updatedAt).getTime();
+                    return bt - at;
+                });
                 socket.emit("getMyGroups", {
                     success: true,
                     total: result.count,
@@ -1128,11 +1240,12 @@ const initChatSocket = (io) => {
         // --------------------------------------------------------
         socket.on("disconnect", (reason) => __awaiter(void 0, void 0, void 0, function* () {
             console.log(`SOCKET: Disconnected socketId: ${socket.id}, userId: ${userId} — reason: ${reason}`);
-            yield dbConnection_1.User.update({ onlineSatus: "offline" }, { where: { id: userId } });
-            // 📡 Broadcast this user's offline status to ALL connected clients
-            io.emit("userStatusChange", { userId, onlineSatus: "offline" });
-            // Clean up notification socket map
-            (0, notificationService_1.removeUserSocket)(userId, socket.id);
+            const isFullyOffline = (0, notificationService_1.removeUserSocket)(userId, socket.id);
+            if (isFullyOffline) {
+                yield dbConnection_1.User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+                // 📡 Broadcast this user's offline status to ALL connected clients
+                io.emit("userStatusChange", { userId, onlineSatus: "offline" });
+            }
         }));
     }));
 };

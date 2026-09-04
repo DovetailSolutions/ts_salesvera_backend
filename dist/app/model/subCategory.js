@@ -53,7 +53,7 @@ class SubCategory extends sequelize_1.Model {
             secondaryUnit: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
-                field: "secandryUnit",
+                field: "secondaryUnit",
             },
             tallyGuid: {
                 type: sequelize_1.DataTypes.STRING,

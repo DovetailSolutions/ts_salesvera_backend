@@ -2455,11 +2455,11 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
       return badRequest(res, "Invalid status value");
     }
 
-    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
+    // const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
     // ✅ Base where condition
     let whereCondition: any = {
       userId: {
-        [Op.in]: allUserIds
+        [Op.in]: userData.userId
       },
       status: {
         [Op.notIn]: ["cancelled", "deleted"]
@@ -3241,9 +3241,9 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       }
     }
 
-    const allUserIds = await Middleware.getAllSubordinateIds(hierarchyRootId);
+    // const allUserIds = await Middleware.getAllSubordinateIds(hierarchyRootId);
 
-    console.log(">>>>>>>>>>>>>allUserIds>",allUserIds)
+    // console.log(">>>>>>>>>>>>>allUserIds>",allUserIds)
 
     // Drafts are gated separately via proformainvoice:view — a user with only
     // invoice:view should not see draft-status invoices in the list.
@@ -3257,7 +3257,7 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     // ✅ Dynamic where condition
     const whereCondition: any = {
       userId: {
-        [Op.in]: allUserIds
+        [Op.in]: userData.userId
       },
       status: {
         [Op.notIn]: ["cancelled", "deleted"]
@@ -3907,10 +3907,10 @@ export const getDashboardMobile = async (
         hierarchyRootId = company.adminId;
       }
     }
-    const allUserIds = await getAllSubordinateIds(hierarchyRootId);
+    // const allUserIds = await getAllSubordinateIds(hierarchyRootId);
 
     const commonFilter = {
-      userId: { [Op.in]: allUserIds },
+      userId: { [Op.in]: userId },
       status: { [Op.notIn]: ["cancelled", "deleted"] },
     };
 
@@ -3920,7 +3920,7 @@ export const getDashboardMobile = async (
 
     const perfomaInvoice = await Invoices.count({
       where: {
-        userId: { [Op.in]: allUserIds },
+        userId: { [Op.in]: userId },
         [Op.and]: [
           { status: { [Op.in]: ["draft", "imported"] } },
           { status: { [Op.notIn]: ["cancelled", "deleted"] } },
@@ -3930,7 +3930,7 @@ export const getDashboardMobile = async (
 
     const invoice = await Invoices.count({
       where: {
-        userId: { [Op.in]: allUserIds },
+        userId: { [Op.in]: userId },
         [Op.and]: [
           { status: "accepted" },
           { status: { [Op.notIn]: ["cancelled", "deleted"] } },

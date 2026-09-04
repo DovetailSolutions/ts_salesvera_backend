@@ -18,6 +18,10 @@ export const upsertConfig = async (
     longitude: number | null;
     radius: number | null;
     radiusUnit: "m" | "km";
+    locationName?: string | null;
+    landmark?: string | null;
+    address?: string | null;
+    city?: string | null;
   }
 ) => {
   const existing = await findConfigByUserId(userId);
@@ -27,6 +31,10 @@ export const upsertConfig = async (
     existing.longitude = data.longitude;
     existing.radius = data.radius;
     existing.radiusUnit = data.radiusUnit;
+    if (data.locationName !== undefined) existing.locationName = data.locationName;
+    if (data.landmark !== undefined) existing.landmark = data.landmark;
+    if (data.address !== undefined) existing.address = data.address;
+    if (data.city !== undefined) existing.city = data.city;
     existing.updatedBy = actorId;
     if (companyId != null) existing.companyId = companyId;
     await existing.save();
@@ -41,6 +49,10 @@ export const upsertConfig = async (
     longitude: data.longitude,
     radius: data.radius,
     radiusUnit: data.radiusUnit,
+    locationName: data.locationName ?? null,
+    landmark: data.landmark ?? null,
+    address: data.address ?? null,
+    city: data.city ?? null,
     createdBy: actorId,
     updatedBy: actorId,
   });

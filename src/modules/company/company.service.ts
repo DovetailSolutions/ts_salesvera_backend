@@ -171,7 +171,35 @@ export const updateCompany = async (id: string, userId: number, body: any, role?
   const company = await CompanyRepo.findCompanyByIdOnly(id);
   if (!company) throw new ServiceError("Company not found");
 
-  return company.update(body);
+  const payload = { ...body };
+  if (typeof payload.companyWorkingDays === "string") {
+    try { payload.companyWorkingDays = JSON.parse(payload.companyWorkingDays); } catch {}
+  }
+  const numericFields = [
+    "lateMarkAfter", "autoHalfDayAfter", "casualHolidaysTotal", "casualHolidaysPerMonth",
+    "casualHolidayNotice", "casualCarryForwardLimit", "casualCarryForwardExpiry",
+    "compOffMinHours", "compOffExpiryDays", "vehicleAllowanceRatePerKm"
+  ];
+  numericFields.forEach((f) => {
+    if (payload[f] !== undefined && payload[f] !== null && payload[f] !== "") {
+      const n = Number(payload[f]);
+      if (!isNaN(n)) payload[f] = n;
+    }
+  });
+  const boolFields = [
+    "geoFencingRequired", "officeLocationRequired", "overtimeAllowed",
+    "altSaturday", "halfSaturday", "casualHolidayApprovalRequired",
+    "casualHolidayCarryForward", "compOffApprovalRequired"
+  ];
+  boolFields.forEach((f) => {
+    if (payload[f] !== undefined && payload[f] !== null) {
+      if (payload[f] === "true" || payload[f] === true) payload[f] = true;
+      else if (payload[f] === "false" || payload[f] === false) payload[f] = false;
+    }
+  });
+
+  await company.update(payload);
+  return company.reload();
 };
 
 export const assignCompanyManager = async (companyIdParam: string, userId: number, body: any) => {

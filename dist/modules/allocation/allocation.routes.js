@@ -49,5 +49,6 @@ const AllocationController = __importStar(require("./allocation.controller"));
 const router = (0, express_1.Router)();
 router.post("/bulk-assign-branches", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AllocationController.bulkAssignBranches);
 router.post("/bulk-assign-shift", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AllocationController.bulkAssignShift);
+router.post("/bulk-assign-department", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AllocationController.bulkAssignDepartment);
 router.get("/allocations", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AllocationController.getAllocations);
 exports.default = router;

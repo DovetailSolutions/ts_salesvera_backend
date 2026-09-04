@@ -65,4 +65,16 @@ router.get("/attendance-summary", jwtVerify_1.tokenCheck, (0, checkPermission_1.
 // Query: startDate/endDate (default: current month), userId (optional — one
 // team member instead of the whole team).
 router.get("/attendance-report/export", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.exportAttendanceReport);
+// Admin/manager view of one Sale Person's daily travel (their own
+// company-scoped team only — see getSalesPersonTravelForAdmin).
+router.get("/sales-person/:userId/travel/:date", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getSalesPersonTravel);
+// "My Team" travel overview — one row per direct-report sale_person for the
+// date, so a manager/admin can scan everyone before drilling into one.
+router.get("/sales-team/travel-summary/:date", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getTeamTravelSummary);
+// Self-service punch in/out and travel summary for web admin / portal users
+router.post("/attendance/punch-in", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "create"), AttendanceController.AttendancePunchIn);
+router.post("/attendance/punch-out", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "update"), AttendanceController.AttendancePunchOut);
+router.get("/attendance/today", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getTodayAttendance);
+router.get("/travel/today", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getMyTravelSummary);
+router.get("/travel/:date", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getMyTravelSummary);
 exports.default = router;

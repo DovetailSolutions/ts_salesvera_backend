@@ -42,7 +42,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMeetingDashboardDetails = exports.getMeetingDashboard = exports.rescheduleMeeting = exports.scheduleMeeting = void 0;
+exports.getNewClientsDashboardDetails = exports.getMeetingDashboardDetails = exports.getMeetingDashboard = exports.rescheduleMeeting = exports.scheduleMeeting = void 0;
 const errorMessage_1 = require("../../app/middlewear/errorMessage");
 const serviceError_1 = require("../shared/serviceError");
 const MeetingService = __importStar(require("./meeting.service"));
@@ -107,7 +107,8 @@ const getMeetingDashboardDetails = (req, res) => __awaiter(void 0, void 0, void 
         const type = String(req.query.type || "total");
         const page = Number(req.query.page || 1);
         const limit = Number(req.query.limit || 10);
-        const result = yield MeetingService.getMeetingDashboardDetails(Number(userData.userId), userData.role, callerCompanyId, type, page, limit);
+        const userId = req.query.userId ? Number(req.query.userId) : undefined;
+        const result = yield MeetingService.getMeetingDashboardDetails(Number(userData.userId), userData.role, callerCompanyId, type, page, limit, userId);
         res.status(200).json({
             success: true,
             message: "Meeting dashboard details fetched successfully",
@@ -120,3 +121,22 @@ const getMeetingDashboardDetails = (req, res) => __awaiter(void 0, void 0, void 
     }
 });
 exports.getMeetingDashboardDetails = getMeetingDashboardDetails;
+const getNewClientsDashboardDetails = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+        const page = Number(req.query.page || 1);
+        const limit = Number(req.query.limit || 10);
+        const result = yield MeetingService.getNewClientsDetails(Number(userData.userId), userData.role, callerCompanyId, page, limit);
+        res.status(200).json({
+            success: true,
+            message: "New clients fetched successfully",
+            data: result.data,
+            pagination: result.pagination,
+        });
+    }
+    catch (error) {
+        handleServiceError(res, error);
+    }
+});
+exports.getNewClientsDashboardDetails = getNewClientsDashboardDetails;

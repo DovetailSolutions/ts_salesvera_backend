@@ -12,6 +12,7 @@ const getUploadMiddleware = (type, maxSizeMB = 1000, maxFiles = 100) => {
         storage: (0, multer_s3_1.default)({
             s3: spaces_1.spacesClient,
             bucket: spaces_1.SPACES_BUCKET,
+            acl: "public-read",
             contentType: multer_s3_1.default.AUTO_CONTENT_TYPE,
             key: (_req, file, cb) => {
                 const ext = file.originalname.split(".").pop();

@@ -459,7 +459,7 @@ export const initChatSocket = (io: Server) => {
         };
 
         // Touch room updatedAt
-        await room.changed('updatedAt', true);
+        await (room as any).changed('updatedAt', true);
         await room.save().catch(() => {});
 
         // 1. Emit to room
@@ -603,7 +603,7 @@ export const initChatSocket = (io: Server) => {
         };
 
         // Touch room updatedAt
-        await room.changed('updatedAt', true);
+        await (room as any).changed('updatedAt', true);
         await room.save().catch(() => {});
 
         io.to(roomId).emit("receiveFileMessage", filePayload);

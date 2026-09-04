@@ -56,7 +56,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.assignAdmin = exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.updateClient = exports.getClient = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.assignEmployeeShift = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.assignMeeting = exports.createClient = exports.userExpense = exports.getTopPerformers = exports.getDashboardSummary = exports.buildDashboardSummary = exports.GetExpense = exports.UpdateExpense = exports.test = exports.BulkUploads = exports.BulkAddSalePerson = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getCategoryWithSubCategories = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = void 0;
+exports.assignAdmin = exports.updateReport = exports.getReportDetails = exports.getReport = exports.addReport = exports.getRecordSale = exports.updateInvoice = exports.getInvoice = exports.addInvoice = exports.SubCategoryStatus = exports.CategoryStatus = exports.getClientDetails = exports.updateClient = exports.getClient = exports.updateQuotation = exports.getQuotationPdfList2 = exports.addQuotation2 = exports.assignEmployeeShift = exports.getFuelExpense = exports.getMeetingDistance = exports.addQuotationPdf = exports.downloadQuotationPdf = exports.getQuotationPdfList = exports.getSubCategory = exports.updateSubCategory = exports.addSubCategory = exports.addQuotation = exports.assignMeeting = exports.createClient = exports.userExpense = exports.getTopPerformers = exports.getDashboardSummary = exports.buildDashboardSummary = exports.GetExpense = exports.UpdateExpense = exports.UpdateBranchVisibility = exports.test = exports.BulkUploads = exports.BulkAddSalePerson = exports.getMeetingDetails = exports.getMeeting = exports.DeleteCategory = exports.UpdateCategory = exports.categoryDetails = exports.getCategoryWithSubCategories = exports.getcategory = exports.AddCategory = exports.GetAllUser = exports.assignSalesman = void 0;
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 const spaces_1 = require("../../config/spaces");
@@ -147,7 +147,7 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
     try {
         const userData = req.userData;
         console.log("userData in GetAllUser:", userData); // Debugging line
-        const { page = 1, limit = 10, search = "", role, shiftId, branchId } = req.query;
+        const { page = 1, limit = 10, search = "", role, shiftId, branchId, departmentId } = req.query;
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const offset = (pageNum - 1) * limitNum;
@@ -184,6 +184,8 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             where.shiftId = Number(shiftId);
         if (branchId)
             where.branchId = Number(branchId);
+        if (departmentId)
+            where.departmentId = Number(departmentId);
         if (search) {
             where[sequelize_1.Op.or] = [
                 { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
@@ -203,7 +205,9 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 "role",
                 "shiftId",
                 "branchId",
+                "departmentId",
                 "createdAt",
+                "canViewAllBranches",
             ],
             where,
             offset,
@@ -233,9 +237,12 @@ const GetAllUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 // FIX: branchId/shiftId were already selected but never joined to
                 // their names, so this list could show a raw id at best. Adds the
                 // names alongside the existing ids without changing what's returned
-                // for anyone who reads branchId/shiftId directly.
+                // for anyone who reads branchId/shiftId directly. departmentId gets
+                // the same treatment now that User->Department resolves via the
+                // right FK (see dbConnection.ts) instead of being left bare.
                 { model: dbConnection_2.Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
                 { model: dbConnection_2.Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+                { model: dbConnection_2.Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
             ],
         });
         const finalRows = rows.map((user) => {
@@ -484,111 +491,112 @@ exports.DeleteCategory = DeleteCategory;
 const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
     try {
-        const { page = 1, limit = 10, search = "", userId, date, startDate, endDate, empty, } = req.query;
+        const { page = "1", limit = "10", search = "", userId, date, startDate, endDate, empty, } = req.query;
         const userData = req.userData;
-        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const loggedInId = Number(userData === null || userData === void 0 ? void 0 : userData.userId);
         const role = userData === null || userData === void 0 ? void 0 : userData.role;
-        let ll = loggedInId;
-        let manager = null;
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId)
+            ? Number(userData.companyId)
+            : null;
+        if (!loggedInId) {
+            (0, errorMessage_1.badRequest)(res, "UserId not found");
+            return;
+        }
+        const pageNum = Math.max(Number(page) || 1, 1);
+        const limitNum = Math.min(Math.max(Number(limit) || 10, 1), 50);
+        const offset = (pageNum - 1) * limitNum;
+        /**
+         * ----------------------------------------------------
+         * Find scope user
+         * ----------------------------------------------------
+         */
+        let scopeUserId = loggedInId;
         if (role === "manager") {
-            manager = yield dbConnection_2.User.findByPk(loggedInId, {
-                attributes: ["id", "role"],
+            const manager = yield dbConnection_2.User.findByPk(loggedInId, {
+                attributes: ["id"],
                 include: [
                     {
                         model: dbConnection_2.User,
                         as: "creators",
-                        attributes: ["id", "role"],
-                        through: { attributes: [] },
+                        attributes: ["id"],
+                        through: {
+                            attributes: [],
+                        },
                     },
                 ],
             });
-            const plain = manager === null || manager === void 0 ? void 0 : manager.get({ plain: true });
-            if (((_a = plain === null || plain === void 0 ? void 0 : plain.creators) === null || _a === void 0 ? void 0 : _a.length) > 0) {
-                ll = plain.creators[0].id; // parent admin ID
+            const managerData = manager === null || manager === void 0 ? void 0 : manager.get({
+                plain: true,
+            });
+            if ((_a = managerData === null || managerData === void 0 ? void 0 : managerData.creators) === null || _a === void 0 ? void 0 : _a.length) {
+                scopeUserId = Number(managerData.creators[0].id);
             }
         }
-        const pageNum = Number(page);
-        const limitNum = Number(limit);
-        const offset = (pageNum - 1) * limitNum;
-        // FIX: previously `where` stayed `{}` (no userId filter at all) unless the
-        // caller explicitly passed `empty=true` or `userId` — a plain GET with no
-        // query params returned every company's meeting records. Always scope to
-        // the caller's own team.
-        // FIX: the team walk itself has no notion of company, so an admin (or the
-        // parent admin `ll` re-anchored to above) who is assigned to more than one
-        // company exposed the OTHER company's meetings to whichever company the
-        // caller is currently acting in. The anchor stays the parent admin — the
-        // shared client pool is deliberate — but the pool is now limited to the
-        // company in the caller's active token.
-        // PERF: Fast variant — see getDashboardSummary. This endpoint backs both
-        // /client-management (Client List) and the Meeting Management page, so
-        // the old one-DB-round-trip-per-user walk hit every team member on
-        // every page load/search keystroke of either page.
-        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
-        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(ll, callerCompanyId);
-        const allowedIds = [ll, ...childIds];
-        // `allowedIds` above is anchored to the parent admin for a manager
-        // (deliberate — see the "shared client pool" comment on `ll`), which is
-        // correct for `empty==="true"` but was ALSO being used to authorize/scope
-        // everything else: a manager could pass any OTHER manager's salesperson
-        // as `userId` and it would pass the `allowedIds.includes(...)` check
-        // (whole org, not just their own team), and the no-userId default listing
-        // branch handed back the whole org's meetings the same way. Neither is
-        // the "shared client pool" case, so both need the manager's OWN team,
-        // never widened to siblings.
-        const ownAllowedIds = role === "manager"
-            ? [loggedInId, ...(yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId))]
-            : allowedIds;
-        const where = {};
+        /**
+         * ----------------------------------------------------
+         * Get allowed users
+         * ----------------------------------------------------
+         */
+        let allowedIds;
+        if (role === "manager") {
+            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
+            allowedIds = [loggedInId, ...childIds];
+        }
+        else {
+            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(scopeUserId, callerCompanyId);
+            allowedIds = [scopeUserId, ...childIds];
+        }
+        allowedIds = [...new Set(allowedIds)];
+        /**
+         * ----------------------------------------------------
+         * MeetingUser filter
+         * ----------------------------------------------------
+         */
+        const meetingUserWhere = {};
         if (empty === "true") {
-            where.userId = ll;
+            meetingUserWhere.userId = scopeUserId;
         }
         else if (userId) {
             const requestedId = Number(userId);
-            if (!ownAllowedIds.includes(requestedId)) {
+            if (!allowedIds.includes(requestedId)) {
                 (0, errorMessage_1.forbidden)(res, "You can only view meetings of your own team members");
                 return;
             }
-            where.userId = requestedId;
+            meetingUserWhere.userId = requestedId;
         }
         else {
-            where.userId = { [sequelize_1.Op.in]: ownAllowedIds };
+            meetingUserWhere.userId = {
+                [sequelize_1.Op.in]: allowedIds,
+            };
         }
-        // FIX: was `personName` — MeetingUser has no such column (that field
-        // only exists on the separate MeetingCompany model), so this crashed
-        // every search with a 400 "column MeetingUser.personName does not
-        // exist" the moment the team search box's text was also sent through
-        // as the meetings search param. MeetingUser's actual client-name column
-        // is `name`.
+        /**
+         * ----------------------------------------------------
+         * Search MeetingUser
+         * ----------------------------------------------------
+         */
         if (search) {
-            where[sequelize_1.Op.or] = [
-                { companyName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { name: { [sequelize_1.Op.iLike]: `%${search}%` } },
+            const searchTerm = `%${String(search).trim()}%`;
+            meetingUserWhere[sequelize_1.Op.or] = [
+                {
+                    companyName: {
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
+                {
+                    name: {
+                        [sequelize_1.Op.iLike]: searchTerm,
+                    },
+                },
             ];
         }
-        // FIX: `meetingTimeIn`/`meetingTimeOut` live on the child Meeting model
-        // (one client can have many visits), not on MeetingUser itself — filtering
-        // `where.meetingTimeIn` directly on the MeetingUser query crashed every
-        // "Today"/"Yesterday" tab with a 400 "column MeetingUser.meetingTimeIn
-        // does not exist", and the "Range" (startDate/endDate) filter was never
-        // read at all, so it silently had no effect. Both are resolved into a
-        // single IST-aware window, then applied two ways below: (1) to select
-        // which clients qualify — a client matches if ANY of their visits falls
-        // in the window — and (2) to scope which of that client's visits are
-        // actually returned, so "Visits" count / "Last Check-in" / "Last
-        // Check-out" reflect the selected filter instead of always showing the
-        // client's all-time history regardless of which date tab is active.
-        let meetingTimeWindow = null;
+        /**
+         * ----------------------------------------------------
+         * Meeting date filter
+         * ----------------------------------------------------
+         */
+        let meetingWhere = {};
         if (date) {
-            // FIX: was setUTCHours(0/23,...) — a UTC calendar day is offset 5:30h
-            // from the real IST business day this business operates in, so a
-            // "date=2026-08-01" filter silently excluded that morning's meetings
-            // before 5:30 AM IST (they fell in the previous UTC day) and instead
-            // pulled in meetings from the following IST morning. Resolve which IST
-            // calendar day the input represents, then build the boundary from that
-            // via the explicit-offset helpers so this is correct regardless of
-            // server timezone too.
-            meetingTimeWindow = {
+            meetingWhere.meetingTimeIn = {
                 [sequelize_1.Op.between]: [
                     getISTDayBoundary(String(date), "start"),
                     getISTDayBoundary(String(date), "end"),
@@ -596,73 +604,90 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             };
         }
         else if (startDate || endDate) {
-            const filter = getDateFilter({ startDate, endDate });
-            if (Object.keys(filter).length > 0)
-                meetingTimeWindow = filter;
+            const filter = getDateFilter({
+                startDate,
+                endDate,
+            });
+            if (Object.keys(filter).length > 0) {
+                meetingWhere.meetingTimeIn = filter;
+            }
         }
-        if (meetingTimeWindow) {
-            // Reuse the exact same userId scope already resolved into `where`
-            // above (a single requested salesperson, or the caller's whole team)
-            // rather than re-deriving it, so this prefilter can never end up
-            // broader than the visibility the caller was actually granted.
-            const matches = (yield dbConnection_2.Meeting.findAll({
-                where: { meetingTimeIn: meetingTimeWindow, userId: where.userId },
-                attributes: ["meetingUserId"],
-                group: ["meetingUserId"],
-                raw: true,
-            }));
-            const matchingIds = matches.map((m) => m.meetingUserId).filter((id) => id != null);
-            // No matches is a legitimate "nothing in this window" result, not
-            // "ignore the filter" — Op.in: [] would do the latter in some dialects,
-            // so force an always-false condition instead.
-            where.id = { [sequelize_1.Op.in]: matchingIds.length > 0 ? matchingIds : [-1] };
-        }
-        const { rows, count } = yield dbConnection_2.MeetingUser.findAndCountAll({
-            // PERF: was pulling every MeetingUser column (attributes previously
-            // commented out, presumably abandoned after the columns above were
-            // guessed wrong — MeetingUser has no personName/mobileNumber/
-            // companyEmail/meetingTimeIn/meetingTimeOut/meetingPurpose; those live
-            // on the child Meeting model, already included separately below).
-            // This list is every column actually consumed client-side, verified
-            // against both consumers of this endpoint: the Client Management page
-            // (id/name/mobile/email/createdAt) and the Meeting Management page's
-            // list + detail drawer (+customerType/companyName/status/gstNumber/
-            // panNumber/address/city/state/pincode/country/userId). Only
-            // tallyGuid (internal Tally-sync id) and updatedAt are excluded —
-            // neither is rendered anywhere.
+        /**
+         * ----------------------------------------------------
+         * Meeting include
+         * ----------------------------------------------------
+         */
+        const meetingInclude = {
+            model: dbConnection_2.Meeting,
+            required: Boolean(Object.keys(meetingWhere).length),
+            separate: true,
+            // Meeting.jsx reads row.Meetings[].{id,status,meetingPurpose,
+            // scheduledTime,meetingTimeIn,meetingTimeOut,latitude_in,longitude_in,
+            // latitude_out,longitude_out,legDistance,totalDistance} plus
+            // ManagerDashboard.jsx's createdAt fallback when scheduledTime is
+            // null — nothing else off this row is read anywhere in the frontend.
             attributes: [
-                "id", "name", "email", "mobile", "userId", "customerType",
-                "companyName", "status", "gstNumber", "panNumber",
-                "address", "city", "state", "pincode", "country", "createdAt",
+                "id", "status", "meetingPurpose", "scheduledTime",
+                "meetingTimeIn", "meetingTimeOut",
+                "latitude_in", "longitude_in", "latitude_out", "longitude_out",
+                "legDistance", "totalDistance", "createdAt",
             ],
-            where,
+            order: [["meetingTimeIn", "DESC"]],
             include: [
-                Object.assign(Object.assign({ model: dbConnection_2.Meeting, 
-                    // `separate: true` runs this as its own query per returned client
-                    // rather than a JOIN — needed so its own `where` here narrows which
-                    // visits come back without ALSO corrupting the outer LIMIT/OFFSET
-                    // (a hasMany include with a `where` and a JOIN can silently drop or
-                    // duplicate parent rows once paginated).
-                    separate: true, 
-                    // PERF: every Meeting column the Meeting Management list + detail
-                    // drawer + "Visits" count actually reads — userId/companyId/
-                    // categoryId/subCategoryId/pincode are never rendered (categoryId
-                    // is only echoed back on the *request* when scheduling, not read
-                    // off these response rows).
-                    attributes: [
-                        "id", "status", "scheduledTime", "meetingTimeIn", "meetingTimeOut",
-                        "meetingPurpose", "latitude_in", "longitude_in", "latitude_out",
-                        "longitude_out", "totalDistance", "legDistance",
-                    ] }, (meetingTimeWindow ? { where: { meetingTimeIn: meetingTimeWindow } } : {})), { order: [["meetingTimeIn", "DESC"]] }),
+                {
+                    // MeetingUser is the frozen "Client" entity (see meeting.repository.ts)
+                    // — left fully unrestricted here, unlike the two models below.
+                    model: dbConnection_2.MeetingUser,
+                    required: false,
+                },
+                {
+                    // Meeting.jsx's `mc?.x` chains only ever resolve real columns via
+                    // mobileNumber/companyEmail/address/city/state/pincode/country —
+                    // every other alternative in those chains (mc.phone, mc.mobile,
+                    // mc.postalCode, ...) doesn't exist on this model at all.
+                    model: dbConnection_2.MeetingCompany,
+                    attributes: ["id", "mobileNumber", "companyEmail", "address", "city", "state", "pincode", "country"],
+                    required: false,
+                },
+                // {
+                //   model: MeetingImage,
+                //   required: false,
+                // },
             ],
-            distinct: true, // avoid inflated count from the hasMany join
-            offset,
+        };
+        if (Object.keys(meetingWhere).length) {
+            meetingInclude.where = meetingWhere;
+        }
+        /**
+         * ----------------------------------------------------
+         * Query
+         * ----------------------------------------------------
+         */
+        const { rows, count } = yield dbConnection_2.MeetingUser.findAndCountAll({
+            attributes: [
+                "id",
+                "name",
+                "email",
+                "mobile",
+                "userId",
+                "customerType",
+                "companyName",
+                "status",
+                "gstNumber",
+                "panNumber",
+                "address",
+                "city",
+                "state",
+                "pincode",
+                "country",
+                "createdAt",
+            ],
+            where: meetingUserWhere,
+            include: [meetingInclude],
             limit: limitNum,
+            offset,
             order: [["createdAt", "DESC"]],
         });
-        // FIX: an empty result is a legitimate state (no meetings/clients yet),
-        // not an error — was previously a 400, which made every caller treat
-        // "nothing to show" as a failed request instead of an empty list.
         (0, errorMessage_1.createSuccess)(res, "User Meeting fetched successfully", {
             page: pageNum,
             limit: limitNum,
@@ -672,12 +697,133 @@ const getMeeting = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
         });
     }
     catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        const errorMessage = error instanceof Error
+            ? error.message
+            : "Something went wrong";
         (0, errorMessage_1.badRequest)(res, errorMessage);
-        return;
     }
 });
 exports.getMeeting = getMeeting;
+/**
+ * ----------------------------------------------------
+ * GET /admin/getmeetingdetails/:id
+ * ----------------------------------------------------
+ * Single-meeting drill-down for getMeeting's list — the client (MeetingUser),
+ * the "visiting company" snapshot (MeetingCompany), every uploaded photo
+ * (MeetingImage), and the salesperson who owns the meeting (User), all in
+ * one round trip via Sequelize's `include` (no N+1 follow-up queries).
+ * Access uses the exact same allowedIds scoping as getMeeting above, so a
+ * manager/admin can only open a meeting that already appears in their list.
+ */
+const getMeetingDetails = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        const userData = req.userData;
+        const loggedInId = Number(userData === null || userData === void 0 ? void 0 : userData.userId);
+        const role = userData === null || userData === void 0 ? void 0 : userData.role;
+        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId)
+            ? Number(userData.companyId)
+            : null;
+        if (!loggedInId) {
+            (0, errorMessage_1.badRequest)(res, "UserId not found");
+            return;
+        }
+        const meetingId = Number(req.params.id);
+        if (!meetingId || Number.isNaN(meetingId)) {
+            (0, errorMessage_1.badRequest)(res, "A valid meeting id is required");
+            return;
+        }
+        /**
+         * ----------------------------------------------------
+         * Find scope user (mirrors getMeeting)
+         * ----------------------------------------------------
+         */
+        let scopeUserId = loggedInId;
+        if (role === "manager") {
+            const manager = yield dbConnection_2.User.findByPk(loggedInId, {
+                attributes: ["id"],
+                include: [
+                    {
+                        model: dbConnection_2.User,
+                        as: "creators",
+                        attributes: ["id"],
+                        through: { attributes: [] },
+                    },
+                ],
+            });
+            const managerData = manager === null || manager === void 0 ? void 0 : manager.get({ plain: true });
+            if ((_a = managerData === null || managerData === void 0 ? void 0 : managerData.creators) === null || _a === void 0 ? void 0 : _a.length) {
+                scopeUserId = Number(managerData.creators[0].id);
+            }
+        }
+        let allowedIds;
+        if (role === "manager") {
+            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
+            allowedIds = [loggedInId, ...childIds];
+        }
+        else {
+            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(scopeUserId, callerCompanyId);
+            allowedIds = [scopeUserId, ...childIds];
+        }
+        allowedIds = [...new Set(allowedIds)];
+        /**
+         * ----------------------------------------------------
+         * One optimized query: the meeting plus every related entity the
+         * details page needs, scoped to the caller's allowed users so this
+         * can't be used to peek at another team's meeting by guessing an id.
+         * ----------------------------------------------------
+         */
+        const meeting = yield dbConnection_2.Meeting.findOne({
+            where: {
+                id: meetingId,
+                userId: { [sequelize_1.Op.in]: allowedIds },
+            },
+            attributes: [
+                "id", "userId", "companyId", "meetingUserId",
+                "status", "meetingPurpose", "categoryId", "subCategoryId",
+                "scheduledTime", "meetingTimeIn", "meetingTimeOut",
+                "latitude_in", "longitude_in", "latitude_out", "longitude_out",
+                "totalDistance", "legDistance", "pincode", "createdAt",
+            ],
+            include: [
+                {
+                    // Salesperson who owns this meeting
+                    model: dbConnection_2.User,
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    required: false,
+                },
+                {
+                    // Client entity (frozen — see meeting.repository.ts)
+                    model: dbConnection_2.MeetingUser,
+                    required: false,
+                },
+                {
+                    // Visiting-company snapshot for this specific meeting
+                    model: dbConnection_2.MeetingCompany,
+                    required: false,
+                },
+                {
+                    // Every photo captured during this meeting
+                    model: dbConnection_2.MeetingImage,
+                    attributes: ["id", "image", "meetingUserId"],
+                    required: false,
+                },
+            ],
+        });
+        if (!meeting) {
+            (0, errorMessage_1.badRequest)(res, "Meeting not found");
+            return;
+        }
+        (0, errorMessage_1.createSuccess)(res, "Meeting details fetched successfully", meeting);
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error
+            ? error.message
+            : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.getMeetingDetails = getMeetingDetails;
 const BulkAddSalePerson = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -1057,6 +1203,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                         "createdAt",
                         "branchId",
                         "shiftId",
+                        "canViewAllBranches",
                     ],
                     through: { attributes: [] },
                     where: createdWhere,
@@ -1079,6 +1226,7 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
                                 "createdAt",
                                 "branchId",
                                 "shiftId",
+                                "canViewAllBranches",
                             ],
                             through: { attributes: [] },
                             required: false,
@@ -1119,6 +1267,54 @@ const test = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.test = test;
+// Admin/super_admin-only toggle (User Management page) — controls whether a
+// sale_person's own GET /api/getprofile includes the company's full branch
+// list. See schemaExtensions.ts's ensureBranchVisibilityToggle and
+// app/controller/user.ts's GetProfile for the read side.
+const UpdateBranchVisibility = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        const loggedInId = userData === null || userData === void 0 ? void 0 : userData.userId;
+        const loggedInRole = userData === null || userData === void 0 ? void 0 : userData.role;
+        const targetUserId = Number(req.params.userId);
+        if (!targetUserId || isNaN(targetUserId)) {
+            (0, errorMessage_1.badRequest)(res, "Valid userId is required");
+            return;
+        }
+        const { canViewAllBranches } = req.body || {};
+        if (typeof canViewAllBranches !== "boolean") {
+            (0, errorMessage_1.badRequest)(res, "canViewAllBranches (boolean) is required");
+            return;
+        }
+        const target = yield dbConnection_2.User.findByPk(targetUserId);
+        if (!target) {
+            (0, errorMessage_1.badRequest)(res, "User not found");
+            return;
+        }
+        // super_admin may toggle anyone; every other role only their own
+        // company-scoped team — same ownership check GetAllUser/test already
+        // apply to this same "who can I see/manage" surface.
+        if (loggedInRole !== "super_admin") {
+            const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
+            const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(Number(loggedInId), callerCompanyId);
+            if (!childIds.includes(targetUserId)) {
+                (0, errorMessage_1.forbidden)(res, "This user is not on your team");
+                return;
+            }
+        }
+        target.canViewAllBranches = canViewAllBranches;
+        yield target.save();
+        (0, errorMessage_1.createSuccess)(res, "Branch visibility updated successfully", {
+            userId: target.id,
+            canViewAllBranches: target.canViewAllBranches,
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage);
+    }
+});
+exports.UpdateBranchVisibility = UpdateBranchVisibility;
 const UpdateExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { approvedByAdmin, approvedBySuperAdmin, userId, expenseId } = req.body || {};
@@ -1286,64 +1482,77 @@ exports.UpdateExpense = UpdateExpense;
 const GetExpense = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
-        const loggedInId = userData.userId;
+        const loggedInId = Number(userData === null || userData === void 0 ? void 0 : userData.userId) || 0;
+        const role = userData === null || userData === void 0 ? void 0 : userData.role;
         const search = req.query.search;
         const { page, limit, offset } = getPagination(req);
-        // Company-scoped team: an admin/manager assigned to several companies
-        // otherwise kept seeing the other company's expense rows here.
         const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
-        const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
-        const allUserIds = [...childIds];
+        let childIds = [];
+        if (role === "super_admin" && !callerCompanyId) {
+            const allUsers = yield dbConnection_2.User.findAll({
+                where: { id: { [sequelize_1.Op.ne]: loggedInId }, status: { [sequelize_1.Op.ne]: "delete" } },
+                attributes: ["id"],
+            });
+            childIds = allUsers.map((u) => u.id);
+        }
+        else {
+            childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
+        }
+        const allUserIds = [loggedInId, ...childIds];
         const { approvedByAdmin, approvedBySuperAdmin } = req.query;
-        // 🔥 Build dynamic where condition
         const expenseWhere = {
             userId: { [sequelize_1.Op.in]: allUserIds },
         };
         let userWhere = {};
-        if (approvedByAdmin !== undefined) {
+        if (approvedByAdmin !== undefined && approvedByAdmin !== "") {
             expenseWhere.approvedByAdmin = approvedByAdmin;
         }
-        if (approvedBySuperAdmin !== undefined) {
+        if (approvedBySuperAdmin !== undefined && approvedBySuperAdmin !== "") {
             expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
         }
-        if (search) {
+        if (search && String(search).trim() !== "") {
+            const searchStr = String(search).trim();
             userWhere[sequelize_1.Op.or] = [
-                { firstName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { lastName: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { email: { [sequelize_1.Op.iLike]: `%${search}%` } },
-                { phone: { [sequelize_1.Op.iLike]: `%${search}%` } },
+                { firstName: { [sequelize_1.Op.iLike]: `%${searchStr}%` } },
+                { lastName: { [sequelize_1.Op.iLike]: `%${searchStr}%` } },
+                { email: { [sequelize_1.Op.iLike]: `%${searchStr}%` } },
+                { phone: { [sequelize_1.Op.iLike]: `%${searchStr}%` } },
             ];
         }
+        const hasUserFilter = Object.keys(userWhere).length > 0;
         const { rows, count } = yield dbConnection_2.Expense.findAndCountAll({
-            where: expenseWhere, // 👈 final merged condition
+            attributes: [
+                "id", "userId", "title", "total_amount", "approvedByAdmin", "approvedBySuperAdmin",
+                "date", "category", "amount", "description", "location", "createdAt", "updatedAt"
+            ],
+            where: expenseWhere,
+            limit,
+            offset,
+            order: [["createdAt", "DESC"]],
+            distinct: true,
             include: [
                 {
                     model: dbConnection_2.ExpenseImage,
                     as: "images",
+                    attributes: ["id", "expenseId", "imageUrl", "createdAt"],
+                    required: false,
                 },
                 {
                     model: dbConnection_2.User,
                     as: "user",
                     attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-                    required: false,
-                    where: userWhere,
+                    required: hasUserFilter,
+                    where: hasUserFilter ? userWhere : undefined,
                 },
             ],
-            order: [["createdAt", "DESC"]],
         });
-        // FIX: previously called badRequest() here without returning, then fell
-        // through to the 200 response below anyway — an empty list was never
-        // actually an error case, it just tried to send two responses on the
-        // same request (crashing with "headers already sent" server-side),
-        // which is why this page failed for any company/user with zero expense
-        // records instead of just showing an empty list.
         res.status(200).json({
             success: true,
             message: "Expense fetched successfully",
             data: rows,
             pagination: {
                 totalRecords: count,
-                totalPages: Math.ceil(count / limit),
+                totalPages: Math.ceil(count / limit) || 1,
                 currentPage: page,
                 limit,
             },
@@ -2760,7 +2969,8 @@ const addQuotation2 = (req, res) => __awaiter(void 0, void 0, void 0, function* 
             status: data.status || "draft",
             isConsumed: false,
             guid: data.guid || null,
-            alterid: data.alterid || null
+            alterid: data.alterid || null,
+            gstNumber: data.gstNumber || null,
         });
         res.status(201).json({
             success: true,
@@ -2780,6 +2990,7 @@ exports.addQuotation2 = addQuotation2;
 const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
+        // console.log("User data in getQuotationPdfList2:", userData);
         if (!userData || !userData.userId) {
             return (0, errorMessage_1.badRequest)(res, "Unauthorized request");
         }
@@ -2795,15 +3006,8 @@ const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, fun
         if (status && !allowedStatus.includes(status)) {
             return (0, errorMessage_1.badRequest)(res, "Invalid status value");
         }
-        // 🟢 HIERARCHY LOGIC 🟢
-        // Admin > Manager > Sales Person
-        // We fetch all sub-users created by the logged-in user, and their sub-users too.
-        // 🟢 DEEP HIERARCHY LOGIC (Recursive Descendants) 🟢
-        // Starts with the logged-in user and recursively finds all children, grandchildren, etc.
-        // This supports chains like: Admin(1) > Manager(15) > Manager(16) > Sales Person(17)
         let teamUserIds = [userData.userId];
         let currentParentIds = [userData.userId];
-        // 🔄 Loop until no more children are found at the next level
         while (currentParentIds.length > 0) {
             // Find all users created by the current batch of parents
             const subUsers = yield dbConnection_2.User.findAll({
@@ -2830,27 +3034,18 @@ const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, fun
         }
         // ✅ Base where condition for Quotations
         // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
+        console.log("Team user IDs for getQuotationPdfList2:", teamUserIds);
         let whereCondition = {
             userId: { [sequelize_1.Op.in]: teamUserIds },
             status: {
                 [sequelize_1.Op.notIn]: ["cancelled", "deleted"]
             }
         };
-        // Company isolation — an admin/manager assigned to more than one company
-        // must not keep seeing another company's quotations after switching.
-        // The hierarchy walk above is company-blind (it only knows who created
-        // whom), so scope by the quotation's own companyId, which is the
-        // authoritative owner.
-        //
-        // Deliberately fails OPEN on NULL: legacy/Tally-synced rows may predate
-        // companyId being stamped, and hiding every such row would be far worse
-        // than showing it. Only rows that positively belong to a DIFFERENT
-        // company are excluded — same convention as getCompanyScopedChildUserIds.
-        const callerCompanyId = (userData === null || userData === void 0 ? void 0 : userData.companyId) ? Number(userData.companyId) : null;
-        if (callerCompanyId) {
-            whereCondition.companyId = { [sequelize_1.Op.or]: [callerCompanyId, null] };
-        }
-        // ✅ Status filter
+        // const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+        // if (callerCompanyId) {
+        //   whereCondition.companyId = { [Op.or]: [callerCompanyId, null] };
+        // }
+        // // ✅ Status filter
         if (status) {
             whereCondition.status = status;
         }
@@ -2860,6 +3055,7 @@ const getQuotationPdfList2 = (req, res) => __awaiter(void 0, void 0, void 0, fun
                 (0, sequelize_1.literal)(`LOWER("quotation"->'quotation'->>'companyName') = '${companyName.toLowerCase().replace(/'/g, "''")}'`),
             ];
         }
+        // console.log("Where condition for getQuotationPdfList2:", JSON.stringify(whereCondition, null, 2));
         // ✅ Query
         const { count, rows } = yield dbConnection_2.Quotations.findAndCountAll({
             where: whereCondition,
@@ -3038,6 +3234,99 @@ const updateClient = (req, res) => __awaiter(void 0, void 0, void 0, function* (
     }
 });
 exports.updateClient = updateClient;
+const getClientDetails = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userData = req.userData;
+        if (!userData || !userData.userId) {
+            (0, errorMessage_1.badRequest)(res, "Unauthorized request");
+            return;
+        }
+        const { id } = req.params;
+        const clientId = Number(id);
+        if (!clientId || Number.isNaN(clientId)) {
+            (0, errorMessage_1.badRequest)(res, "A valid client id is required");
+            return;
+        }
+        const client = yield dbConnection_2.MeetingUser.findByPk(clientId);
+        if (!client) {
+            (0, errorMessage_1.badRequest)(res, "Client not found");
+            return;
+        }
+        // 1. User meetings attended with this client
+        const userMeetings = yield dbConnection_2.Meeting.findAll({
+            where: { meetingUserId: clientId },
+            attributes: [
+                "id", "userId", "companyId", "meetingUserId",
+                "status", "meetingPurpose", "categoryId", "subCategoryId",
+                "scheduledTime", "meetingTimeIn", "meetingTimeOut",
+                "latitude_in", "longitude_in", "latitude_out", "longitude_out",
+                "totalDistance", "legDistance", "pincode", "createdAt",
+            ],
+            include: [
+                {
+                    model: dbConnection_2.User,
+                    attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+                    required: false,
+                },
+                {
+                    model: dbConnection_2.MeetingCompany,
+                    attributes: ["id", "companyName", "personName", "mobileNumber", "companyEmail", "customerType", "address", "city", "state", "pincode", "remarks", "gstNumber"],
+                    required: false,
+                },
+                {
+                    model: dbConnection_2.MeetingImage,
+                    attributes: ["id", "image", "meetingId", "meetingUserId"],
+                    required: false,
+                },
+            ],
+            order: [["meetingTimeIn", "DESC"], ["createdAt", "DESC"]],
+        });
+        // 2. Company meetings for this client
+        const companyMeetings = yield dbConnection_2.MeetingCompany.findAll({
+            where: { meetingUserId: clientId },
+            order: [["createdAt", "DESC"]],
+        });
+        // 3. Meeting images for this client
+        const meetingIds = userMeetings.map((m) => m.id);
+        const rawImages = yield dbConnection_2.MeetingImage.findAll({
+            where: {
+                [sequelize_1.Op.or]: [
+                    { meetingUserId: clientId },
+                    ...(meetingIds.length > 0 ? [{ meetingId: { [sequelize_1.Op.in]: meetingIds } }] : []),
+                ],
+            },
+            order: [["id", "DESC"]],
+        });
+        // Deduplicate images
+        const seen = new Set();
+        const meetingImages = [];
+        for (const img of rawImages) {
+            const key = img.image || img.id;
+            if (!seen.has(key)) {
+                seen.add(key);
+                meetingImages.push(img);
+            }
+        }
+        (0, errorMessage_1.createSuccess)(res, "Client details fetched successfully", {
+            client,
+            userMeetings,
+            companyMeetings,
+            meetingImages,
+            stats: {
+                totalMeetings: userMeetings.length,
+                completedMeetings: userMeetings.filter((m) => m.status === "completed").length,
+                pendingMeetings: userMeetings.filter((m) => m.status === "pending" || m.status === "scheduled").length,
+                totalCompanyMeetings: companyMeetings.length,
+                totalImages: meetingImages.length,
+            }
+        });
+    }
+    catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+        (0, errorMessage_1.badRequest)(res, errorMessage, error);
+    }
+});
+exports.getClientDetails = getClientDetails;
 const CategoryStatus = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const userData = req.userData;
@@ -3134,7 +3423,7 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
                 (0, errorMessage_1.badRequest)(res, "Item quantity must be greater than 0");
             }
         }
-        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date, guid, alterid } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date", "guid", "alterid"]);
+        const { tallyInvoiceNumber = "web", customerName, quotationId, status, QuotationNumber, QuotationDate, date, guid, alterid, gstNumber } = data, restData = __rest(data, ["tallyInvoiceNumber", "customerName", "quotationId", "status", "QuotationNumber", "QuotationDate", "date", "guid", "alterid", "gstNumber"]);
         let quotationRecord = null;
         // =========================================
         // 🔁 QUOTATION HANDLING (FIXED LOGIC)
@@ -3217,7 +3506,8 @@ const addInvoice = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             invoice: restData,
             items: data.items,
             guid: guid || null,
-            alterid: alterid || null
+            alterid: alterid || null,
+            gstNumber: data.gstNumber || null
         };
         const invoiceData = yield dbConnection_2.Invoices.create(invoicePayload, {
             transaction,

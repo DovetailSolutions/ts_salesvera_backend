@@ -76,6 +76,10 @@ router.post("/bulk-add-saleperson", jwtVerify_1.tokenCheck, (0, rbac_1.authorize
 // FIX: expense routes now require explicit permissions.
 router.get("/get-expense", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("expense", "view"), AdminController.GetExpense);
 router.get("/admin-manager", jwtVerify_1.tokenCheck, AdminController.test);
+// User Management page: admin/super_admin toggle controlling whether a
+// sale_person's own GET /api/getprofile includes the company's full branch
+// list (default off).
+router.patch("/users/:userId/branch-visibility", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)("super_admin", "admin"), AdminController.UpdateBranchVisibility);
 router.patch('/approved-expense', jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("expense", "approve"), AdminController.UpdateExpense);
 router.get('/user-expense', jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("expense", "view"), AdminController.userExpense);
 router.post("/create-client", jwtVerify_1.tokenCheck, AdminController.createClient);
@@ -118,6 +122,8 @@ router.post('/updatequotation/:id', jwtVerify_1.tokenCheck, (0, checkPermission_
 // router.patch("/update-bank/:id",tokenCheck,AdminController.updateBank);
 // router.delete("/delete-bank/:id",tokenCheck,AdminController.deleteBank);
 router.get("/get-client", jwtVerify_1.tokenCheck, AdminController.getClient);
+router.get("/get-client-details/:id", jwtVerify_1.tokenCheck, AdminController.getClientDetails);
+router.get("/client-details/:id", jwtVerify_1.tokenCheck, AdminController.getClientDetails);
 router.post("/update-client/:id", jwtVerify_1.tokenCheck, AdminController.updateClient);
 router.post("/category/:id", jwtVerify_1.tokenCheck, AdminController.CategoryStatus);
 router.post("/sub-category/:id", jwtVerify_1.tokenCheck, AdminController.SubCategoryStatus);
@@ -142,6 +148,7 @@ router.patch("/assign-admin/:id", jwtVerify_1.tokenCheck, AdminController.assign
 router.get("/getalluser", jwtVerify_1.tokenCheck, AdminController.GetAllUser);
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 router.get('/getusermeeting', jwtVerify_1.tokenCheck, AdminController.getMeeting);
+router.get('/getmeetingdetails/:id', jwtVerify_1.tokenCheck, AdminController.getMeetingDetails);
 router.get("/dashboard-summary", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AdminController.getDashboardSummary);
 router.get("/top-performers", jwtVerify_1.tokenCheck, (0, rbac_1.authorizeRoles)(...rbac_1.ADMIN_AND_MANAGER), AdminController.getTopPerformers);
 // ── Notifications (admin-surface) ───────────────────────────────────────

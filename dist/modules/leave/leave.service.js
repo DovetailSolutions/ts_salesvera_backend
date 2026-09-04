@@ -43,6 +43,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.updateLeave = exports.getLeaveById = exports.getLeave = exports.addLeave = exports.ownLeave = exports.userLeave = exports.cancelLeaveAndMarkPresent = exports.getTodayLeaveRequests = exports.leaveList = exports.getTeamLeaveBalances = exports.getEmployeeLeaveBalance = exports.assignLeaveBalance = exports.resolveLeaveTypeBalance = exports.approveLeave = exports.createLeaveRequest = exports.inferLegacyLeaveTypeEnum = exports.countLeaveDays = exports.LEAVE_BALANCE_FIELDS = void 0;
+const dbConnection_1 = require("../../config/dbConnection");
 const sequelize_1 = require("sequelize");
 const serviceError_1 = require("../shared/serviceError");
 const userHierarchy_1 = require("../shared/userHierarchy");
@@ -231,7 +232,7 @@ const createLeaveRequest = (loggedInId, callerCompanyId, body) => __awaiter(void
 });
 exports.createLeaveRequest = createLeaveRequest;
 const approveLeave = (loggedInId, callerCompanyId, body) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+    var _a, _b;
     const { employee_id, leaveID, status } = body;
     if (!employee_id)
         throw new serviceError_1.ServiceError("Employee id is missing");
@@ -261,6 +262,21 @@ const approveLeave = (loggedInId, callerCompanyId, body) => __awaiter(void 0, vo
     }
     if (status === "approved") {
         yield LeaveRepo.markAttendanceForLeaveRange(employee_id, leave.from_date, leave.to_date, ["leave"], "leaveApproved", (_a = leave.companyLeaveId) !== null && _a !== void 0 ? _a : null);
+        // FIX (ATT-001): half_day/short_leave never had a placeholder "leave"
+        // row created at request time (see inferLegacyLeaveTypeEnum's comment
+        // in createLeaveRequest), so the update above has nothing to flip and
+        // the day was left with NO attendance record at all. Backfill it now —
+        // findOrCreate is a no-op wherever the employee already punched in.
+        const leaveTypeEnum = leave.leave_type;
+        if (leaveTypeEnum === "half_day" || leaveTypeEnum === "short_leave") {
+            const from = new Date(leave.from_date);
+            const to = new Date(leave.to_date);
+            const dates = [];
+            for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += 86400000) {
+                dates.push(new Date(cursor));
+            }
+            yield LeaveRepo.fillMissingLeaveAttendance(employee_id, dates, (_b = leave.companyLeaveId) !== null && _b !== void 0 ? _b : null, leaveTypeEnum);
+        }
     }
     return leave;
 });
@@ -409,29 +425,60 @@ const getEmployeeLeaveBalance = (loggedInId, employeeId, year, callerCompanyId) 
     };
 });
 exports.getEmployeeLeaveBalance = getEmployeeLeaveBalance;
-const getTeamLeaveBalances = (loggedInId, year, page, limit, offset, callerCompanyId) => __awaiter(void 0, void 0, void 0, function* () {
-    // Company-scoped team — this list is rendered against the ACTIVE company's
-    // leave types, so it must not include employees of another company the
-    // caller happens to also be assigned to.
-    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
-    const leaveTypes = callerCompanyId ? yield LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId) : [];
-    const { rows, count } = yield LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset });
-    // Materialize this page's employees × configured types so a carried-
-    // forward amount is visible the moment the list is viewed, not only after
-    // someone explicitly re-assigns an allocation for the new year.
-    if (leaveTypes.length > 0 && rows.length > 0) {
-        yield Promise.all(rows.flatMap((user) => leaveTypes.map((lt) => (0, exports.resolveLeaveTypeBalance)(user.id, lt, year, loggedInId))));
+const getTeamLeaveBalances = (loggedInId, year, page, limit, offset, callerCompanyId, role) => __awaiter(void 0, void 0, void 0, function* () {
+    let childIds = [];
+    if (role === "super_admin" && !callerCompanyId) {
+        const allUsers = yield dbConnection_1.User.findAll({
+            where: { id: { [sequelize_1.Op.ne]: loggedInId }, status: { [sequelize_1.Op.ne]: "delete" } },
+            attributes: ["id"],
+        });
+        childIds = allUsers.map((u) => u.id);
     }
-    const data = yield Promise.all(rows.map((user) => __awaiter(void 0, void 0, void 0, function* () {
+    else {
+        childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIdsFast)(loggedInId, callerCompanyId);
+    }
+    let leaveTypes = callerCompanyId ? yield LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId) : [];
+    if (leaveTypes.length === 0 && role === "super_admin") {
+        // For super_admin without companyId filter, fetch all configured company leave types
+        leaveTypes = (yield dbConnection_1.CompanyLeave.findAll({
+            attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "companyId"],
+        }));
+    }
+    const { rows, count } = yield LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset });
+    if (rows.length === 0) {
+        return {
+            totalRecords: count,
+            totalPages: Math.ceil(count / limit) || 1,
+            currentPage: page,
+            data: [],
+        };
+    }
+    const userIds = rows.map((u) => u.id);
+    const existingBalances = leaveTypes.length > 0 ? yield LeaveRepo.findBalancesForUserIds(userIds, year) : [];
+    const balanceMap = new Map();
+    existingBalances.forEach((b) => {
+        balanceMap.set(`${b.employeeId}_${b.companyLeaveId}`, b);
+    });
+    const missingResolutions = [];
+    rows.forEach((user) => {
+        leaveTypes.forEach((lt) => {
+            const key = `${user.id}_${lt.id}`;
+            if (!balanceMap.has(key)) {
+                missingResolutions.push((0, exports.resolveLeaveTypeBalance)(user.id, lt, year, loggedInId).then((b) => balanceMap.set(key, b)));
+            }
+        });
+    });
+    if (missingResolutions.length > 0) {
+        yield Promise.all(missingResolutions);
+    }
+    const data = rows.map((user) => {
         const userJson = user.toJSON();
-        const balanceRows = leaveTypes.length > 0
-            ? yield LeaveRepo.findEmployeeLeaveTypeBalances(user.id, year)
-            : userJson.leaveTypeBalances || [];
-        return Object.assign(Object.assign({}, userJson), { leaveBalances: formatDynamicBalances(leaveTypes, balanceRows) });
-    })));
+        const userBalanceRows = leaveTypes.map((lt) => balanceMap.get(`${user.id}_${lt.id}`)).filter(Boolean);
+        return Object.assign(Object.assign({}, userJson), { leaveBalances: formatDynamicBalances(leaveTypes, userBalanceRows) });
+    });
     return {
         totalRecords: count,
-        totalPages: Math.ceil(count / limit),
+        totalPages: Math.ceil(count / limit) || 1,
         currentPage: page,
         data,
     };

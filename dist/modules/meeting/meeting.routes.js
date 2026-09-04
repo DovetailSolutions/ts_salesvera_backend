@@ -48,4 +48,5 @@ router.post("/meetings/schedule", jwtVerify_1.tokenCheck, (0, checkPermission_1.
 router.patch("/meetings/:id/reschedule", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "update"), MeetingController.rescheduleMeeting);
 router.get("/meetings/dashboard", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "view"), MeetingController.getMeetingDashboard);
 router.get("/meetings/dashboard/details", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "view"), MeetingController.getMeetingDashboardDetails);
+router.get("/meetings/dashboard/new-clients", jwtVerify_1.tokenCheck, (0, checkPermission_1.checkPermission)("meeting", "view"), MeetingController.getNewClientsDashboardDetails);
 exports.default = router;

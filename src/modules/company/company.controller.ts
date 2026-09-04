@@ -1,3 +1,4 @@
+import { buildSpacesUrl } from "../../config/spaces";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { createSuccess, badRequest } from "../../app/middlewear/errorMessage";
@@ -26,14 +27,27 @@ export const addCompany = async (req: Request, res: Response): Promise<void> => 
     }
     const files = req.files as { [fieldname: string]: Express.MulterS3.File[] } | undefined;
     const body = { ...req.body };
-    if (files?.companyProfileImg?.[0]?.location) {
-      body.companyProfileImg = files.companyProfileImg[0].location;
+    const getFileUrl = (file?: any) => {
+      if (!file) return undefined;
+      return file.location || (file.key ? buildSpacesUrl(file.key) : undefined);
+    };
+    const profileImgUrl = getFileUrl(files?.companyProfileImg?.[0]);
+    if (profileImgUrl) {
+      body.companyProfileImg = profileImgUrl;
+    } else if (body.companyProfileImg === "") {
+      body.companyProfileImg = null;
     }
-    if (files?.companyStampImg?.[0]?.location) {
-      body.companyStampImg = files.companyStampImg[0].location;
+    const stampImgUrl = getFileUrl(files?.companyStampImg?.[0]);
+    if (stampImgUrl) {
+      body.companyStampImg = stampImgUrl;
+    } else if (body.companyStampImg === "") {
+      body.companyStampImg = null;
     }
-    if (files?.companySignatureImg?.[0]?.location) {
-      body.companySignatureImg = files.companySignatureImg[0].location;
+    const signatureImgUrl = getFileUrl(files?.companySignatureImg?.[0]);
+    if (signatureImgUrl) {
+      body.companySignatureImg = signatureImgUrl;
+    } else if (body.companySignatureImg === "") {
+      body.companySignatureImg = null;
     }
     const company = await CompanyService.addCompany(Number(userData.userId), userData.role, body);
     createSuccess(res, "Company added successfully", company);
@@ -94,14 +108,27 @@ export const updateCompany = async (req: Request, res: Response): Promise<void> 
     }
     const files = req.files as { [fieldname: string]: Express.MulterS3.File[] } | undefined;
     const body = { ...req.body };
-    if (files?.companyProfileImg?.[0]?.location) {
-      body.companyProfileImg = files.companyProfileImg[0].location;
+    const getFileUrl = (file?: any) => {
+      if (!file) return undefined;
+      return file.location || (file.key ? buildSpacesUrl(file.key) : undefined);
+    };
+    const profileImgUrl = getFileUrl(files?.companyProfileImg?.[0]);
+    if (profileImgUrl) {
+      body.companyProfileImg = profileImgUrl;
+    } else if (body.companyProfileImg === "") {
+      body.companyProfileImg = null;
     }
-    if (files?.companyStampImg?.[0]?.location) {
-      body.companyStampImg = files.companyStampImg[0].location;
+    const stampImgUrl = getFileUrl(files?.companyStampImg?.[0]);
+    if (stampImgUrl) {
+      body.companyStampImg = stampImgUrl;
+    } else if (body.companyStampImg === "") {
+      body.companyStampImg = null;
     }
-    if (files?.companySignatureImg?.[0]?.location) {
-      body.companySignatureImg = files.companySignatureImg[0].location;
+    const signatureImgUrl = getFileUrl(files?.companySignatureImg?.[0]);
+    if (signatureImgUrl) {
+      body.companySignatureImg = signatureImgUrl;
+    } else if (body.companySignatureImg === "") {
+      body.companySignatureImg = null;
     }
     const updated = await CompanyService.updateCompany(req.params.id, Number(userData.userId), body, userData.role as string | undefined);
     createSuccess(res, "Company updated successfully", updated);

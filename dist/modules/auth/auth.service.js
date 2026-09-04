@@ -41,6 +41,17 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __rest = (this && this.__rest) || function (s, e) {
+    var t = {};
+    for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
+        t[p] = s[p];
+    if (s != null && typeof Object.getOwnPropertySymbols === "function")
+        for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
+            if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
+                t[p[i]] = s[p[i]];
+        }
+    return t;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -71,7 +82,7 @@ const REGISTER_ALLOWED_ROLES = {
     manager: ["sale_person"],
 };
 const register = (body, callerData) => __awaiter(void 0, void 0, void 0, function* () {
-    const { email, password, firstName, lastName, phone, dob, role, createdBy, permissionIds, branchId, shiftId } = body;
+    const { email, password, firstName, lastName, phone, dob, role, createdBy, permissionIds, branchId, shiftId, departmentId } = body;
     const requiredFields = { email, password, firstName, lastName, phone, dob, role };
     for (const key in requiredFields) {
         if (!requiredFields[key])
@@ -159,21 +170,45 @@ const register = (body, callerData) => __awaiter(void 0, void 0, void 0, functio
     let resolvedShiftId = shiftId !== undefined && shiftId !== null && shiftId !== "" && !isNaN(Number(shiftId))
         ? Number(shiftId)
         : null;
+    let resolvedDepartmentId = departmentId !== undefined && departmentId !== null && departmentId !== "" && !isNaN(Number(departmentId))
+        ? Number(departmentId)
+        : null;
+    // Resolved once whenever there's a creator — used for the branch/shift/
+    // department defaulting and validation below AND to link a new manager
+    // into the CompanyManager junction table (see FIX further down), not just
+    // when branch/shift defaulting happens to be needed.
+    const creatorCompanyId = creator
+        ? yield (0, tokenCheck_1.resolveCompanyId)(creator.id, creator.role, null)
+        : null;
+    // FIX: an explicitly-supplied branchId/departmentId was never checked
+    // against the caller's own company — the same cross-tenant hole
+    // assignEmployeeShift used to have (see the FIX note there). Reject
+    // outright if either belongs to (or exists in) a different company than
+    // the caller's, instead of silently stamping the new user with it.
+    if (resolvedBranchId !== null) {
+        const branch = yield dbConnection_1.Branch.findByPk(resolvedBranchId);
+        if (!branch || (creatorCompanyId && Number(branch.companyId) !== creatorCompanyId)) {
+            throw new serviceError_1.ServiceError("Branch not found");
+        }
+    }
+    if (resolvedDepartmentId !== null) {
+        const department = yield dbConnection_1.Department.findByPk(resolvedDepartmentId);
+        if (!department || (creatorCompanyId && Number(department.companyId) !== creatorCompanyId)) {
+            throw new serviceError_1.ServiceError("Department not found");
+        }
+    }
     // No branch/shift explicitly given — default to the company's main branch
     // (its first-ever registered branch) and its first-ever registered shift,
     // resolved via the creator's own company, instead of leaving this employee
     // unassigned. Silently no-ops (stays null) if the company has neither yet
     // (e.g. this is the very first user created, before Step 1/3 have run) or
     // no company context is resolvable at all.
-    if ((resolvedBranchId === null || resolvedShiftId === null) && creator) {
-        const creatorCompanyId = yield (0, tokenCheck_1.resolveCompanyId)(creator.id, creator.role, null);
-        if (creatorCompanyId) {
-            const defaults = yield (0, companyAccess_1.resolveDefaultBranchAndShift)(creatorCompanyId);
-            if (resolvedBranchId === null)
-                resolvedBranchId = defaults.branchId;
-            if (resolvedShiftId === null)
-                resolvedShiftId = defaults.shiftId;
-        }
+    if ((resolvedBranchId === null || resolvedShiftId === null) && creatorCompanyId) {
+        const defaults = yield (0, companyAccess_1.resolveDefaultBranchAndShift)(creatorCompanyId);
+        if (resolvedBranchId === null)
+            resolvedBranchId = defaults.branchId;
+        if (resolvedShiftId === null)
+            resolvedShiftId = defaults.shiftId;
     }
     const obj = Object.assign({ email,
         password,
@@ -181,7 +216,7 @@ const register = (body, callerData) => __awaiter(void 0, void 0, void 0, functio
         lastName,
         phone,
         dob,
-        role, tenantId: resolvedTenantId, branchId: resolvedBranchId, shiftId: resolvedShiftId }, (primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}));
+        role, tenantId: resolvedTenantId, branchId: resolvedBranchId, shiftId: resolvedShiftId, departmentId: resolvedDepartmentId }, (primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}));
     const item = yield AuthRepo.createUser(obj);
     // If this is a tenant root (user role created by super_admin), point tenantId at self
     if (role === "user" && !resolvedTenantId) {
@@ -235,11 +270,32 @@ const register = (body, callerData) => __awaiter(void 0, void 0, void 0, functio
             })));
         }
     }
+    // FIX (ATT-003 root cause): a newly-registered manager was never linked to
+    // their company via the CompanyManager junction table — admins get linked
+    // via Company.adminId (set when their company is registered), but managers
+    // have no equivalent direct FK and nothing here ever created this row.
+    // Both login()'s companyId resolution and every subsequent request's
+    // resolveCompanyId (config/tokenCheck.ts) only ever check this same
+    // junction table for a manager, so without it a manager's JWT/req.userData
+    // permanently had no companyId — breaking every company-scoped endpoint
+    // for them (e.g. GET /admin/user-leave's "no company context in token").
+    if (role === "manager" && creatorCompanyId) {
+        yield dbConnection_1.CompanyManager.findOrCreate({
+            where: { companyId: creatorCompanyId, managerId: item.getDataValue("id") },
+            defaults: { companyId: creatorCompanyId, managerId: item.getDataValue("id") },
+        });
+    }
     const { accessToken, refreshToken } = Middleware.CreateToken(String(item.getDataValue("id")), String(item.getDataValue("role")));
     yield item.update({ refreshToken });
     // Email login credentials in the background (no await — don't block registration)
     (0, email_1.sendEmail)("Welcome to SalesVera - Your Login Credentials", password, email, firstName, lastName).catch((err) => console.error(`Failed to send credentials email to ${email}:`, err));
-    return { item, accessToken, role };
+    // FIX: `item` was returned as the raw Sequelize instance, which serializes
+    // every column straight into the HTTP response — including the bcrypt
+    // password hash and the refreshToken just set above (itself a fully-usable
+    // credential on its own, see CreateToken/tokenCheck), handed to whoever
+    // created this account (not the account itself). Strip before returning.
+    const _a = item.get({ plain: true }), { password: _pw, refreshToken: _rt, otp: _otp, otpExpiry: _otpExp } = _a, safeItem = __rest(_a, ["password", "refreshToken", "otp", "otpExpiry"]);
+    return { item: safeItem, accessToken, role };
 });
 exports.register = register;
 const login = (body) => __awaiter(void 0, void 0, void 0, function* () {
@@ -250,10 +306,10 @@ const login = (body) => __awaiter(void 0, void 0, void 0, function* () {
     const user = yield Middleware.FindByEmailInTenant(dbConnection_1.User, email, loginTenantId);
     if (!user)
         throw new serviceError_1.ServiceError("Invalid email or password");
-    const allowedRoles = ["admin", "manager", "super_admin", "user"];
+    const allowedRoles = ["admin", "manager", "super_admin", "user", "sale_person", "sales_person"];
     const userRole = user.get("role");
     if (!allowedRoles.includes(userRole)) {
-        throw new serviceError_1.ServiceError("Access restricted. Only admin, manager & user can login.");
+        throw new serviceError_1.ServiceError("Access restricted. Invalid user role.");
     }
     // Exe (desktop) login is admin-only; web login is unrestricted (within allowedRoles)
     if (deviceType === "exe" && userRole !== "admin") {
@@ -366,6 +422,17 @@ const getProfile = (userId, role, companyId) => __awaiter(void 0, void 0, void 0
             user.dataValues.company = activeCompany;
         }
     }
+    // FIX: `user` serialized every column of the User model into the response
+    // — including the caller's own bcrypt password hash and their live
+    // refreshToken (a fully-usable credential on its own, see CreateToken/
+    // tokenCheck) — on every single profile fetch (this fires on every page
+    // load via AuthProvider.fetchAndSyncProfile). Strip before returning.
+    if (user) {
+        delete user.dataValues.password;
+        delete user.dataValues.refreshToken;
+        delete user.dataValues.otp;
+        delete user.dataValues.otpExpiry;
+    }
     const permissions = [];
     const matrix = {};
     if (role === "super_admin" || role === "user") {
@@ -439,8 +506,13 @@ const forgotPassword = (body) => __awaiter(void 0, void 0, void 0, function* () 
         throw new serviceError_1.ServiceError("Email is missing");
     const loginTenantId = tenantId ? Number(tenantId) : null;
     const user = yield Middleware.FindByEmailInTenant(dbConnection_1.User, email, loginTenantId);
+    // FIX: throwing "User not found" here let anyone enumerate which emails
+    // are registered (including which Owners/Admins exist) with zero
+    // authentication. The controller always responds "OTP sent to your
+    // email" regardless — silently no-op instead of erroring when there's no
+    // matching account, so the response is identical either way.
     if (!user)
-        throw new serviceError_1.ServiceError("User not found");
+        return;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.otp = otp;
     user.otpExpiry = new Date(Date.now() + 10 * 60 * 1000);

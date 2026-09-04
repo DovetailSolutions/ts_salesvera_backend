@@ -45,7 +45,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ContactQuery = exports.TaskComment = exports.TaskHistory = exports.Task = exports.Report = exports.Notification = exports.UserPermission = exports.Permission = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.EmployeeLeaveTypeBalance = exports.EmployeeLeaveBalance = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.UserBranch = exports.Branch = exports.CompanyAdmin = exports.CompanyManager = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.connectDB = void 0;
+exports.UserGeoFencing = exports.ContactQuery = exports.TaskComment = exports.TaskHistory = exports.Task = exports.Report = exports.Notification = exports.UserPermission = exports.Permission = exports.RecordSales = exports.Invoices = exports.CompanyBank = exports.EmployeeLeaveTypeBalance = exports.EmployeeLeaveBalance = exports.CompanyLeave = exports.Holiday = exports.Department = exports.Shift = exports.UserBranch = exports.Branch = exports.CompanyAdmin = exports.CompanyManager = exports.Company = exports.Quotations = exports.MeetingUser = exports.MeetingCompany = exports.MeetingImage = exports.Message = exports.ChatParticipant = exports.ChatRoom = exports.ExpenseImage = exports.Expense = exports.Leave = exports.Attendance = exports.Device = exports.Meeting = exports.SubCategory = exports.Category = exports.User = exports.sequelize = exports.SalesPersonTravelLog = exports.connectDB = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 // Validates required DB_*/JWT_SECRET env vars before this module builds its
@@ -113,6 +113,10 @@ const taskComment_1 = require("../app/model/taskComment");
 Object.defineProperty(exports, "TaskComment", { enumerable: true, get: function () { return taskComment_1.TaskComment; } });
 const contactQuery_1 = require("../app/model/contactQuery");
 Object.defineProperty(exports, "ContactQuery", { enumerable: true, get: function () { return contactQuery_1.ContactQuery; } });
+const userGeoFencing_1 = require("../app/model/userGeoFencing");
+Object.defineProperty(exports, "UserGeoFencing", { enumerable: true, get: function () { return userGeoFencing_1.UserGeoFencing; } });
+const salesPersonTravelLog_1 = require("../app/model/salesPersonTravelLog");
+Object.defineProperty(exports, "SalesPersonTravelLog", { enumerable: true, get: function () { return salesPersonTravelLog_1.SalesPersonTravelLog; } });
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
 // this point — env.ts (imported above) exits the process if any are missing,
@@ -152,6 +156,8 @@ exports.Device = Device;
 // HR
 attendance_1.Attendance.initModel(sequelize);
 leaverequests_1.Leave.initModel(sequelize);
+userGeoFencing_1.UserGeoFencing.initModel(sequelize);
+salesPersonTravelLog_1.SalesPersonTravelLog.initModel(sequelize);
 // Expense
 expense_1.Expense.initModel(sequelize);
 expanseImages_1.ExpenseImage.initModel(sequelize);
@@ -213,6 +219,11 @@ User.belongsToMany(User, {
     otherKey: "user_id",
 });
 // Attendance / Leave
+// SalesPersonTravelLog
+User.hasMany(salesPersonTravelLog_1.SalesPersonTravelLog, { foreignKey: "userId", as: "travelLogs" });
+salesPersonTravelLog_1.SalesPersonTravelLog.belongsTo(User, { foreignKey: "userId", as: "user" });
+attendance_1.Attendance.hasMany(salesPersonTravelLog_1.SalesPersonTravelLog, { foreignKey: "attendanceId", as: "travelLogs" });
+salesPersonTravelLog_1.SalesPersonTravelLog.belongsTo(attendance_1.Attendance, { foreignKey: "attendanceId", as: "attendance" });
 User.hasMany(attendance_1.Attendance, { foreignKey: "employee_id" });
 attendance_1.Attendance.belongsTo(User, { foreignKey: "employee_id", as: "user" });
 User.hasMany(leaverequests_1.Leave, { foreignKey: "employee_id" });
@@ -283,6 +294,8 @@ quotations_1.Quotations.belongsTo(User, { foreignKey: "userId" });
 // User / Company
 User.hasOne(Company, { foreignKey: "adminId", as: "company" });
 Company.belongsTo(User, { foreignKey: "adminId", as: "admin" });
+User.hasMany(Company, { foreignKey: "userId", as: "ownedCompanies" });
+Company.belongsTo(User, { foreignKey: "userId", as: "owner" });
 // Many-to-many: a manager can manage multiple companies, a company can have multiple managers
 Company.belongsToMany(User, { through: CompanyManager, as: "managers", foreignKey: "companyId", otherKey: "managerId" });
 User.belongsToMany(Company, { through: CompanyManager, as: "managedCompanies", foreignKey: "managerId", otherKey: "companyId" });
@@ -362,6 +375,15 @@ Shift.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 // hardcoded default for everyone (see AttendancePunchIn/PunchOut).
 User.belongsTo(Shift, { foreignKey: "shiftId", as: "shift" });
 Shift.hasMany(User, { foreignKey: "shiftId", as: "employees" });
+// FIX: this pair was commented out while a different pair further down
+// (User.hasOne(Department, { foreignKey: "userId" }) — see removal note near
+// TaskComment associations) stood in under the SAME "department" alias,
+// joining on Department.userId (an ownership stamp — "which tenant user
+// created this department", mirrors Branch.adminId/managerId/userId) instead
+// of the actual assignment column, User.departmentId. Every caller of
+// GetProfile's `{ model: Department, as: "department" }` include therefore
+// resolved a department this user happens to administratively own — null for
+// almost everyone — instead of the department they belong to.
 User.belongsTo(Department, { foreignKey: "departmentId", as: "department" });
 Department.hasMany(User, { foreignKey: "departmentId", as: "employees" });
 Company.hasMany(Leave_1.CompanyLeave, { foreignKey: "companyId", as: "companyLeaves" });
@@ -406,6 +428,11 @@ task_1.Task.hasMany(taskComment_1.TaskComment, { foreignKey: "taskId", as: "comm
 taskComment_1.TaskComment.belongsTo(task_1.Task, { foreignKey: "taskId", constraints: false });
 User.hasMany(taskComment_1.TaskComment, { foreignKey: "userId", as: "taskComments", constraints: false });
 taskComment_1.TaskComment.belongsTo(User, { foreignKey: "userId", as: "author", constraints: false });
+// Removed: User.hasOne(Department, { foreignKey: "userId", as: "department" })
+// and Department.belongsTo(User, { foreignKey: "userId", as: "user" }) — wrong
+// relationship, see the FIX note above User.belongsTo(Department, ...).
+// Department.userId is an ownership stamp (which tenant user created this
+// department), unrelated to which department a user is assigned to.
 /**
  * 🛠️ MANUAL MIGRATION HELPER
  * This ensures the 'meeting_user_id' column exists in essential tables.
@@ -515,7 +542,7 @@ const ensureColumns = (sequelize) => __awaiter(void 0, void 0, void 0, function*
             columns: [
                 { name: "tally_guid", type: "VARCHAR(255)" },
                 { name: "baseUnit", type: "VARCHAR(255)" },
-                { name: "secandryUnit", type: "VARCHAR(255)" },
+                { name: "secondaryUnit", type: "VARCHAR(255)" },
             ],
         },
         {

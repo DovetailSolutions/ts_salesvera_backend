@@ -105,6 +105,8 @@ const sendNotification = (payload) => __awaiter(void 0, void 0, void 0, function
         };
         // 2️⃣ Real-time delivery via socket.io
         if (_io) {
+            // Deliver to user room (covers all user connections)
+            _io.to(`user_${receiverId}`).emit("notification", eventPayload);
             const receiverSockets = userSocketMap.get(receiverId);
             if (receiverSockets) {
                 receiverSockets.forEach((sid) => {

@@ -55,4 +55,7 @@ router.post("/attendance/punch-in", tokenCheck, (0, checkPermission_1.checkPermi
 router.post("/attendance/punch-out", tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "update"), AttendanceController.AttendancePunchOut);
 router.get("/attendance/today", tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getTodayAttendance);
 router.get("/attendancelist", tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.AttendanceList);
+// Sale Person's own daily travel: Attendance In -> each meeting leg -> Attendance Out, total distance + vehicle allowance.
+router.get("/travel/today", tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getMyTravelSummary);
+router.get("/travel/:date", tokenCheck, (0, checkPermission_1.checkPermission)("attendance", "view"), AttendanceController.getMyTravelSummary);
 exports.default = router;

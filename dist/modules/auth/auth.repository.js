@@ -1,6 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.findCompanyWithFullDetail = exports.findUserWithProfileIncludes = exports.updateUserFields = exports.findUserPermissionsWithPermission = exports.findAllPermissions = exports.findCompanyAdminAssignmentFor = exports.findCompanyAdminAssignment = exports.findCompanyByIdAndManagerOwner = exports.findCompanyManagerAssignmentFor = exports.findCompanyByIdAndAdmin = exports.findFirstUserPermissionCompany = exports.findCompanyByUserId = exports.findCompanyManagerAssignment = exports.findCompanyByAdminId = exports.grantPermission = exports.findUserPermissionsForUser = exports.findPermissionsByIds = exports.findUserByRoleAndId = exports.findUserWithCreatedUsers = exports.createUser = exports.findUserById = void 0;
+const companyFullAttributes = [
+    "id", "companyName", "legalName", "registrationNo", "gst", "pan", "industry", "companySize",
+    "website", "companyEmail", "companyPhone", "city", "state", "country", "zipcode",
+    "timezone", "currency", "payrollCycle", "userId", "adminId", "managerId",
+    "companyProfileImg", "companyStampImg", "companySignatureImg",
+    "lateMarkAfter", "autoHalfDayAfter", "geoFencingRequired", "officeLocationRequired", "overtimeAllowed",
+    "companyWorkingDays", "altSaturday", "halfSaturday",
+    "casualHolidaysTotal", "casualHolidaysPerMonth", "casualHolidayNotice", "casualHolidayApprovalRequired",
+    "casualHolidayCarryForward", "casualCarryForwardLimit", "casualCarryForwardExpiry",
+    "compOffMinHours", "compOffExpiryDays", "compOffApprovalRequired", "vehicleAllowanceRatePerKm"
+];
 const sequelize_1 = require("sequelize");
 const dbConnection_1 = require("../../config/dbConnection");
 // ============================================================
@@ -71,28 +82,47 @@ exports.findUserPermissionsWithPermission = findUserPermissionsWithPermission;
 const updateUserFields = (id, fields) => dbConnection_1.User.update(fields, { where: { id } });
 exports.updateUserFields = updateUserFields;
 const findUserWithProfileIncludes = (id, role, includeCompanyRelations) => {
-    const companyIncludes = [
-        { model: dbConnection_1.Branch, as: "branches" },
-        { model: dbConnection_1.Shift, as: "shifts" },
-        { model: dbConnection_1.Department, as: "departments" },
-        { model: dbConnection_1.CompanyLeave, as: "companyLeaves" },
-        { model: dbConnection_1.CompanyBank, as: "companyBanks" },
+    const userAttributes = [
+        "id", "employeeCode", "firstName", "lastName", "email", "phone", "dob", "profile",
+        "role", "status", "branchId", "departmentId", "shiftId", "tenantId", "createdBy",
+        "canViewAllBranches", "tallyGuid", "tallyName", "tallyStartDate", "createdAt", "updatedAt"
     ];
-    const include = [{ model: dbConnection_1.Branch, as: "branch" }];
-    if (includeCompanyRelations) {
-        include.push({ model: dbConnection_1.Company, as: "company", include: companyIncludes });
+    if (role === "super_admin") {
+        return dbConnection_1.User.findByPk(id, { attributes: userAttributes });
     }
-    return dbConnection_1.User.findByPk(id, { include });
+    const companyIncludes = [
+        { model: dbConnection_1.Branch, as: "branches", attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "addressLine2", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId"] },
+        { model: dbConnection_1.Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
+        { model: dbConnection_1.Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
+        { model: dbConnection_1.CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
+        { model: dbConnection_1.CompanyBank, as: "companyBanks", attributes: ["id", "bankName", "bankAccountNumber", "bankIfsc", "bankBranchName", "bankAccountHolder", "companyId"] },
+    ];
+    const include = [
+        { model: dbConnection_1.Branch, as: "branch", attributes: ["id", "branchName", "branchCode", "latitude", "longitude", "geoRadius"] },
+        { model: dbConnection_1.Department, as: "department", attributes: ["id", "deptName", "deptCode"] }
+    ];
+    if (includeCompanyRelations) {
+        include.push({
+            model: dbConnection_1.Company,
+            as: "company",
+            attributes: companyFullAttributes,
+            include: companyIncludes
+        });
+    }
+    return dbConnection_1.User.findByPk(id, { attributes: userAttributes, include });
 };
 exports.findUserWithProfileIncludes = findUserWithProfileIncludes;
 const findCompanyWithFullDetail = (companyId) => {
     const companyIncludes = [
-        { model: dbConnection_1.Branch, as: "branches" },
-        { model: dbConnection_1.Shift, as: "shifts" },
-        { model: dbConnection_1.Department, as: "departments" },
-        { model: dbConnection_1.CompanyLeave, as: "companyLeaves" },
-        { model: dbConnection_1.CompanyBank, as: "companyBanks" },
+        { model: dbConnection_1.Branch, as: "branches", attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "addressLine2", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId"] },
+        { model: dbConnection_1.Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
+        { model: dbConnection_1.Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
+        { model: dbConnection_1.CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
+        { model: dbConnection_1.CompanyBank, as: "companyBanks", attributes: ["id", "bankName", "bankAccountNumber", "bankIfsc", "bankBranchName", "bankAccountHolder", "companyId"] },
     ];
-    return dbConnection_1.Company.findByPk(companyId, { include: companyIncludes });
+    return dbConnection_1.Company.findByPk(companyId, {
+        attributes: companyFullAttributes,
+        include: companyIncludes
+    });
 };
 exports.findCompanyWithFullDetail = findCompanyWithFullDetail;

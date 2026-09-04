@@ -45,6 +45,7 @@ const findBranches = (params) => {
         where = { [sequelize_1.Op.and]: [where, searchClause] };
     }
     return dbConnection_1.Branch.findAndCountAll({
+        attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId", "createdAt"],
         where,
         limit: params.limit,
         offset: params.offset,

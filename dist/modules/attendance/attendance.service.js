@@ -49,14 +49,19 @@ var __asyncValues = (this && this.__asyncValues) || function (o) {
     function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getTodayAttendance = exports.attendancePunchOut = exports.getDayTypeFromWorkingHours = exports.resolveHalfDayThresholdHours = exports.attendancePunchIn = exports.computeShiftOverlapHours = exports.bulkMarkAttendance = exports.exportAttendanceReportExcel = exports.attendanceBook = exports.attendanceSummary = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
+exports.getTodayAttendance = exports.getTeamTravelSummary = exports.getSalesPersonTravelForAdmin = exports.getMyTravelSummary = exports.applyTravelSummaryOnPunchOut = exports.attendancePunchOut = exports.getDayTypeFromWorkingHours = exports.resolveHalfDayThresholdHours = exports.attendancePunchIn = exports.computeShiftOverlapHours = exports.bulkMarkAttendance = exports.exportAttendanceReportExcel = exports.attendanceBook = exports.attendanceSummary = exports.userAttendance = exports.markAttendancePresent = exports.getAttendance = void 0;
 const sequelize_1 = require("sequelize");
 const spaces_1 = require("../../config/spaces");
 const XLSX = __importStar(require("xlsx"));
 const serviceError_1 = require("../shared/serviceError");
 const userHierarchy_1 = require("../shared/userHierarchy");
 const dateUtils_1 = require("../shared/dateUtils");
+const geo_1 = require("../shared/geo");
+const geoFencing_service_1 = require("../geoFencing/geoFencing.service");
 const AttendanceRepo = __importStar(require("./attendance.repository"));
+const travelDistance_service_1 = require("./travelDistance.service");
+const locationName_service_1 = require("./locationName.service");
+const dbConnection_1 = require("../../config/dbConnection");
 // ============================================================
 // Attendance service — validation + orchestration. Byte-for-byte port of the
 // previous getAttendance/markAttendancePresent/bulkMarkAttendance/
@@ -1022,14 +1027,6 @@ const bulkMarkAttendance = (loggedInId, companyId, file, body) => __awaiter(void
 });
 exports.bulkMarkAttendance = bulkMarkAttendance;
 // ---- Self-service (punch in/out, today, list) ----
-const haversineMeters = (lat1, lon1, lat2, lon2) => {
-    const R = 6371000;
-    const toRad = (d) => (d * Math.PI) / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.pow(Math.sin(dLat / 2), 2) + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.pow(Math.sin(dLon / 2), 2);
-    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-};
 // ── Shift-start gate ─────────────────────────────────────────────────────
 // An employee's attendance for "today" can only be marked present starting
 // this many minutes before their assigned shift's start time ("about to
@@ -1163,10 +1160,19 @@ const resolveAttendanceContext = (employeeId, callerCompanyId) => __awaiter(void
     return { shift: shift, company: company, branch: branch };
 });
 const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e, _f;
     const { punch_in, latitude_in, longitude_in } = body || {};
     if (!punch_in)
         throw new serviceError_1.ServiceError("Punch-in time is required");
+    // Backend must not trust frontend-side lat/lng validation alone — reject
+    // garbage coordinates outright rather than silently storing them (location
+    // itself stays optional here; geofencing below is what actually requires
+    // it for companies that need it).
+    if ((latitude_in !== undefined && latitude_in !== null) || (longitude_in !== undefined && longitude_in !== null)) {
+        if (!(0, travelDistance_service_1.isValidCoordinate)(latitude_in, longitude_in)) {
+            throw new serviceError_1.ServiceError("Invalid location coordinates");
+        }
+    }
     // FIX: was formatLocalDate(new Date()) — formatLocalDate reads local
     // getFullYear()/getMonth()/getDate(), which only resolve to the IST
     // calendar day because this dev machine's OS timezone happens to be set
@@ -1186,10 +1192,19 @@ const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void
     if (isBeforeShiftWindow(shift, today)) {
         throw new serviceError_1.ServiceError(formatShiftWindowMessage(shift, today));
     }
-    // Geofencing — only enforced when the company requires it AND the
-    // employee's branch has geofence data configured; missing config never
-    // blocks a punch (there's nothing to enforce against).
-    const geofencingActive = ((_a = company === null || company === void 0 ? void 0 : company.geoFencingRequired) !== null && _a !== void 0 ? _a : true) &&
+    // Per-user geo-fencing (super_admin/admin-configured, see modules/geoFencing)
+    // takes precedence over the company-wide branch geofence below when it's
+    // enabled for this specific employee — it's the more specific rule.
+    // Throws ServiceError itself (with the exact user-facing copy) when the
+    // employee is outside their configured radius or location is missing.
+    const userGeoFence = yield (0, geoFencing_service_1.checkUserGeoFencing)(finalUserId, latitude_in, longitude_in);
+    // Company-wide branch geofencing — only enforced when the company
+    // requires it, the employee's branch has geofence data configured, AND
+    // no per-user geofence already governed this punch above; missing config
+    // never blocks a punch (there's nothing to enforce against).
+    const geofencingActive = !userGeoFence.enforced &&
+        !userGeoFence.bypassed &&
+        ((_a = company === null || company === void 0 ? void 0 : company.geoFencingRequired) !== null && _a !== void 0 ? _a : true) &&
         ((_b = company === null || company === void 0 ? void 0 : company.officeLocationRequired) !== null && _b !== void 0 ? _b : true) &&
         (branch === null || branch === void 0 ? void 0 : branch.latitude) != null &&
         (branch === null || branch === void 0 ? void 0 : branch.longitude) != null &&
@@ -1198,8 +1213,13 @@ const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void
         if (latitude_in == null || longitude_in == null) {
             throw new serviceError_1.ServiceError("Location is required to punch in for this company");
         }
-        const distance = haversineMeters(Number(latitude_in), Number(longitude_in), Number(branch.latitude), Number(branch.longitude));
-        if (distance > Number(branch.git)) {
+        const distance = (0, geo_1.haversineMeters)(Number(latitude_in), Number(longitude_in), Number(branch.latitude), Number(branch.longitude));
+        // FIX: compared against branch.git (not a real field — always undefined,
+        // so Number(undefined) is NaN and `distance > NaN` is always false),
+        // which meant this check could never actually reject a punch-in
+        // regardless of how far away it came from. Compare against the branch's
+        // actual configured radius.
+        if (distance > Number(branch.geoRadius)) {
             throw new serviceError_1.ServiceError(`You are ${Math.round(distance)}m away from ${branch.branchName || "your branch"} — must be within ${branch.geoRadius}m to punch in`);
         }
     }
@@ -1235,6 +1255,12 @@ const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void
     // is the most authoritative record of what actually happened that day, so
     // it overrides whatever the row previously said. "late" reflects the
     // day's first arrival only — preserved as-is on a re-punch, not recomputed.
+    // Resolved once here (branch-match first, then reverse geocode) and
+    // persisted on the row — the travel timeline then just reads it back
+    // instead of re-geocoding on every GET /travel/:date.
+    const locationNameIn = (0, travelDistance_service_1.isValidCoordinate)(latitude_in, longitude_in)
+        ? yield (0, locationName_service_1.resolveAttendanceLocationName)(latitude_in, longitude_in, (_d = company === null || company === void 0 ? void 0 : company.id) !== null && _d !== void 0 ? _d : null)
+        : null;
     if (existingRecordsForToday) {
         existingRecordsForToday.punch_in = punchInTime;
         existingRecordsForToday.punch_out = null;
@@ -1245,6 +1271,19 @@ const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void
         existingRecordsForToday.companyLeaveId = null;
         existingRecordsForToday.latitude_in = latitude_in;
         existingRecordsForToday.longitude_in = longitude_in;
+        existingRecordsForToday.locationNameIn = locationNameIn;
+        existingRecordsForToday.locationNameOut = null;
+        existingRecordsForToday.geoFencingEnabled = userGeoFence.enforced;
+        existingRecordsForToday.geoFencingVerified = userGeoFence.enforced ? !!userGeoFence.verified : null;
+        existingRecordsForToday.geoFenceDistance = userGeoFence.enforced ? (_e = userGeoFence.distanceMeters) !== null && _e !== void 0 ? _e : null : null;
+        // A fresh punch-in starts a new day-session — any travel totals computed
+        // against the previous session's punch-out are no longer valid.
+        existingRecordsForToday.lastMeetingId = null;
+        existingRecordsForToday.finalLegDistanceKm = null;
+        existingRecordsForToday.totalTravelDistanceKm = null;
+        existingRecordsForToday.vehicleAllowanceRateApplied = null;
+        existingRecordsForToday.vehicleAllowance = null;
+        existingRecordsForToday.distanceCalculationStatus = null;
         yield existingRecordsForToday.save();
         return existingRecordsForToday;
     }
@@ -1256,6 +1295,10 @@ const attendancePunchIn = (finalUserId, callerCompanyId, body) => __awaiter(void
         late,
         latitude_in,
         longitude_in,
+        locationNameIn,
+        geoFencingEnabled: userGeoFence.enforced,
+        geoFencingVerified: userGeoFence.enforced ? !!userGeoFence.verified : null,
+        geoFenceDistance: userGeoFence.enforced ? (_f = userGeoFence.distanceMeters) !== null && _f !== void 0 ? _f : null : null,
     });
 });
 exports.attendancePunchIn = attendancePunchIn;
@@ -1294,10 +1337,15 @@ const getDayTypeFromWorkingHours = (workingHours, shift, company) => {
 };
 exports.getDayTypeFromWorkingHours = getDayTypeFromWorkingHours;
 const attendancePunchOut = (finalUserId, callerCompanyId, body) => __awaiter(void 0, void 0, void 0, function* () {
-    var _a;
+    var _a, _b, _c, _d;
     const { punch_out, AttendanceId, latitude_out, longitude_out } = body || {};
     if (!punch_out)
         throw new serviceError_1.ServiceError("Punch-out time is required");
+    if ((latitude_out !== undefined && latitude_out !== null) || (longitude_out !== undefined && longitude_out !== null)) {
+        if (!(0, travelDistance_service_1.isValidCoordinate)(latitude_out, longitude_out)) {
+            throw new serviceError_1.ServiceError("Invalid location coordinates");
+        }
+    }
     // FIX: was formatLocalDate(new Date()) — OS-timezone-dependent (only
     // correct here because this dev machine's OS tz happens to be IST); not
     // guaranteed on the production host. getISTDateString() resolves "today"
@@ -1311,13 +1359,21 @@ const attendancePunchOut = (finalUserId, callerCompanyId, body) => __awaiter(voi
     const punchOutTime = new Date(punch_out);
     if (punchOutTime < punchInTime)
         throw new serviceError_1.ServiceError("Punch-out must be after punch-in");
+    // Per-user geo-fencing applies to punch-out too (spec explicitly covers
+    // both Check In and Check Out) — no company/branch-level equivalent
+    // existed for punch-out before this, so this is purely additive.
+    const targetUserObjOut = yield dbConnection_1.User.findByPk(finalUserId, { attributes: ["id", "isGeofenceRequired"] });
+    const isUserGeofenceRequiredOut = (_a = targetUserObjOut === null || targetUserObjOut === void 0 ? void 0 : targetUserObjOut.isGeofenceRequired) !== null && _a !== void 0 ? _a : true;
+    const userGeoFenceOut = isUserGeofenceRequiredOut
+        ? yield (0, geoFencing_service_1.checkUserGeoFencing)(finalUserId, latitude_out, longitude_out)
+        : { enforced: false };
     const diffMs = punchOutTime.getTime() - punchInTime.getTime();
     const workingHours = diffMs / (1000 * 60 * 60);
     const workingHoursRounded = Number(workingHours.toFixed(2));
     const { shift, company } = yield resolveAttendanceContext(Number(finalUserId), callerCompanyId);
     // Overtime — only computed when the company has opted in; baseline from
     // the employee's shift working-hours, falling back to 8h.
-    const overtimeAllowed = (_a = company === null || company === void 0 ? void 0 : company.overtimeAllowed) !== null && _a !== void 0 ? _a : false;
+    const overtimeAllowed = (_b = company === null || company === void 0 ? void 0 : company.overtimeAllowed) !== null && _b !== void 0 ? _b : false;
     const officeHours = (shift === null || shift === void 0 ? void 0 : shift.workingHours) && shift.workingHours > 0 ? shift.workingHours : 8;
     const overtime = overtimeAllowed && workingHoursRounded > officeHours
         ? Number((workingHoursRounded - officeHours).toFixed(2))
@@ -1329,6 +1385,14 @@ const attendancePunchOut = (finalUserId, callerCompanyId, body) => __awaiter(voi
     attendance.overtime = overtime;
     attendance.latitude_out = latitude_out;
     attendance.longitude_out = longitude_out;
+    attendance.locationNameOut = (0, travelDistance_service_1.isValidCoordinate)(latitude_out, longitude_out)
+        ? yield (0, locationName_service_1.resolveAttendanceLocationName)(latitude_out, longitude_out, (_c = company === null || company === void 0 ? void 0 : company.id) !== null && _c !== void 0 ? _c : null)
+        : null;
+    if (userGeoFenceOut.enforced) {
+        attendance.geoFencingEnabled = true;
+        attendance.geoFencingVerified = !!userGeoFenceOut.verified;
+        attendance.geoFenceDistance = (_d = userGeoFenceOut.distanceMeters) !== null && _d !== void 0 ? _d : null;
+    }
     // FIX: dayType/status were both derived from raw punch duration alone —
     // not "shift aware" in any real sense, since punching in well before the
     // shift starts (or staying logged in well after it ends) padded out
@@ -1351,10 +1415,159 @@ const attendancePunchOut = (finalUserId, callerCompanyId, body) => __awaiter(voi
     // sees exactly what happened instead of a bare "absent" with no context.
     const halfDayThresholdHours = (0, exports.resolveHalfDayThresholdHours)(shift, company);
     attendance.status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
+    // ── Sale Person daily travel: close out the day's journey ────────────────
+    // Attendance-In -> Meeting-1 and Meeting -> Meeting legs are already
+    // computed and stored on each Meeting row as they happen (see
+    // app/controller/user.ts's EndMeeting). The only leg still missing at
+    // punch-out time is the closing one — last completed meeting (or, with no
+    // meetings today, nowhere) -> Attendance Out.
+    yield (0, exports.applyTravelSummaryOnPunchOut)(attendance, finalUserId, today, company);
     yield attendance.save();
     return attendance;
 });
 exports.attendancePunchOut = attendancePunchOut;
+// Exported for reuse by the travel summary read path (see
+// getSalesPersonTravelSummary below) so a summary requested before punch-out
+// can show the same "no_meetings" / "failed" / "calculated" semantics
+// without duplicating this logic.
+const applyTravelSummaryOnPunchOut = (attendance, finalUserId, today, company) => __awaiter(void 0, void 0, void 0, function* () {
+    if (!(0, travelDistance_service_1.isValidCoordinate)(attendance.latitude_out, attendance.longitude_out)) {
+        // No usable Attendance-Out location — nothing to measure the closing leg
+        // against. Leave distance/allowance null rather than guessing at 0.
+        attendance.distanceCalculationStatus = "failed";
+        return;
+    }
+    const startOfDay = new Date(`${today}T00:00:00.000+05:30`);
+    const endOfDay = new Date(`${today}T23:59:59.999+05:30`);
+    const lastMeeting = yield dbConnection_1.Meeting.findOne({
+        where: {
+            userId: finalUserId,
+            status: "out",
+            meetingTimeOut: { [sequelize_1.Op.between]: [startOfDay, endOfDay] },
+        },
+        attributes: ["id", "latitude_out", "longitude_out", "totalDistance", "meetingTimeOut"],
+        order: [["meetingTimeOut", "DESC"]],
+    });
+    if (!lastMeeting) {
+        // No meetings today — the defined journey (Attendance In -> meetings ->
+        // Attendance Out) never left the starting point in any measurable way.
+        attendance.lastMeetingId = null;
+        attendance.finalLegDistanceKm = null;
+        attendance.totalTravelDistanceKm = 0;
+        attendance.distanceCalculationStatus = "no_meetings";
+    }
+    else {
+        attendance.lastMeetingId = lastMeeting.id;
+        if (!(0, travelDistance_service_1.isValidCoordinate)(lastMeeting.latitude_out, lastMeeting.longitude_out)) {
+            attendance.distanceCalculationStatus = "failed";
+        }
+        else {
+            const result = yield (0, travelDistance_service_1.calculateDrivingDistanceKm)(lastMeeting.latitude_out, lastMeeting.longitude_out, attendance.latitude_out, attendance.longitude_out);
+            // GPS sanity check: this leg can't have covered more ground than the
+            // elapsed clock time allows for ordinary road travel. A violation
+            // means the Attendance-Out (or last meeting's checkout) coordinate is
+            // a bad GPS fix, not a real 250km detour — treat it the same as an
+            // API failure below rather than saving a number nobody can trust.
+            const elapsedMs = lastMeeting.meetingTimeOut
+                ? attendance.punch_out.getTime() - new Date(lastMeeting.meetingTimeOut).getTime()
+                : null;
+            const resultKm = result.success && result.km != null ? result.km : null;
+            const plausible = resultKm != null && elapsedMs != null && (0, travelDistance_service_1.isPlausibleLeg)(resultKm, elapsedMs);
+            if (resultKm != null && !plausible) {
+                console.warn(`applyTravelSummaryOnPunchOut: implausible final leg for user ${finalUserId} on ${today}: ${resultKm} km in ${elapsedMs != null ? (elapsedMs / 60000).toFixed(1) : "?"} min — flagging instead of saving.`);
+            }
+            if (plausible && resultKm != null) {
+                const previousTotalKm = (0, travelDistance_service_1.parseDistanceStringToKm)(lastMeeting.totalDistance);
+                attendance.finalLegDistanceKm = resultKm;
+                attendance.totalTravelDistanceKm = Number((previousTotalKm + resultKm).toFixed(3));
+                attendance.distanceCalculationStatus = "calculated";
+            }
+            else {
+                // Per spec: a Google API failure (or an implausible GPS fix) must
+                // never silently become a fake 0km — leave the distance fields
+                // untouched (null) and mark it failed so the admin/self travel view
+                // can show "unavailable" and a retry, rather than a number nobody
+                // can trust.
+                attendance.distanceCalculationStatus = "failed";
+            }
+        }
+    }
+    const rate = company === null || company === void 0 ? void 0 : company.vehicleAllowanceRatePerKm;
+    if (rate != null && attendance.totalTravelDistanceKm != null) {
+        attendance.vehicleAllowanceRateApplied = rate;
+        attendance.vehicleAllowance = Number((attendance.totalTravelDistanceKm * rate).toFixed(2));
+    }
+});
+exports.applyTravelSummaryOnPunchOut = applyTravelSummaryOnPunchOut;
+// ---- Sale Person daily travel summary ----
+const getMyTravelSummary = (finalUserId, date) => __awaiter(void 0, void 0, void 0, function* () {
+    return (0, travelDistance_service_1.getSalesPersonTravelSummary)(finalUserId, date);
+});
+exports.getMyTravelSummary = getMyTravelSummary;
+// Admin/manager view — company-scoped: the target must actually be a member
+// of the caller's team (same rule getAttendance/getCompanyScopedChildUserIds
+// already enforce everywhere else), so an admin can never pull another
+// company's Sale Person's GPS trail by guessing a userId.
+const getSalesPersonTravelForAdmin = (loggedInId, callerCompanyId, targetUserId, date) => __awaiter(void 0, void 0, void 0, function* () {
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
+    if (targetUserId !== loggedInId && !childIds.includes(targetUserId)) {
+        throw new serviceError_1.ServiceError("You do not have access to this user's travel data", 403);
+    }
+    return (0, travelDistance_service_1.getSalesPersonTravelSummary)(targetUserId, date);
+});
+exports.getSalesPersonTravelForAdmin = getSalesPersonTravelForAdmin;
+// Manager/admin "My Team" travel overview (spec item 52) — one row per
+// direct-report sale_person for the given date, so a manager can scan
+// everyone's meetings/distance/allowance before drilling into one person's
+// full journey. Company-scoped via the same getCompanyScopedChildUserIds
+// used by getSalesPersonTravelForAdmin, so it can never leak another
+// manager's/tenant's team.
+const getTeamTravelSummary = (loggedInId, callerCompanyId, date) => __awaiter(void 0, void 0, void 0, function* () {
+    const childIds = yield (0, userHierarchy_1.getCompanyScopedChildUserIds)(loggedInId, callerCompanyId);
+    if (childIds.length === 0)
+        return [];
+    const salesPersons = yield dbConnection_1.User.findAll({
+        where: { id: { [sequelize_1.Op.in]: childIds }, role: "sale_person", status: { [sequelize_1.Op.ne]: "delete" } },
+        attributes: ["id", "firstName", "lastName", "email"],
+    });
+    if (salesPersons.length === 0)
+        return [];
+    const salesPersonIds = salesPersons.map((u) => u.id);
+    const attendanceRows = yield dbConnection_1.Attendance.findAll({
+        where: { employee_id: { [sequelize_1.Op.in]: salesPersonIds }, date },
+        attributes: ["employee_id", "punch_in", "punch_out", "totalTravelDistanceKm", "vehicleAllowance", "distanceCalculationStatus"],
+    });
+    const attendanceByUser = new Map(attendanceRows.map((a) => [a.employee_id, a]));
+    const startOfDay = new Date(`${date}T00:00:00.000+05:30`);
+    const endOfDay = new Date(`${date}T23:59:59.999+05:30`);
+    const meetingCounts = yield dbConnection_1.Meeting.findAll({
+        where: {
+            userId: { [sequelize_1.Op.in]: salesPersonIds },
+            meetingTimeIn: { [sequelize_1.Op.between]: [startOfDay, endOfDay] },
+        },
+        attributes: ["userId", [(0, sequelize_1.fn)("COUNT", (0, sequelize_1.col)("id")), "count"]],
+        group: ["userId"],
+        raw: true,
+    });
+    const meetingCountByUser = new Map(meetingCounts.map((r) => [Number(r.userId), Number(r.count)]));
+    return salesPersons.map((u) => {
+        var _a, _b, _c, _d, _e;
+        const att = attendanceByUser.get(u.id);
+        return {
+            userId: u.id,
+            name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email,
+            email: u.email,
+            punchIn: (_a = att === null || att === void 0 ? void 0 : att.punch_in) !== null && _a !== void 0 ? _a : null,
+            punchOut: (_b = att === null || att === void 0 ? void 0 : att.punch_out) !== null && _b !== void 0 ? _b : null,
+            meetingsCount: meetingCountByUser.get(u.id) || 0,
+            totalDistanceKm: (_c = att === null || att === void 0 ? void 0 : att.totalTravelDistanceKm) !== null && _c !== void 0 ? _c : null,
+            vehicleAllowance: (_d = att === null || att === void 0 ? void 0 : att.vehicleAllowance) !== null && _d !== void 0 ? _d : null,
+            distanceCalculationStatus: (_e = att === null || att === void 0 ? void 0 : att.distanceCalculationStatus) !== null && _e !== void 0 ? _e : null,
+            hasAttendance: !!att,
+        };
+    });
+});
+exports.getTeamTravelSummary = getTeamTravelSummary;
 const getTodayAttendance = (finalUserId) => __awaiter(void 0, void 0, void 0, function* () {
     // FIX: was formatLocalDate(new Date()) — OS-timezone-dependent (only
     // correct here because this dev machine's OS tz happens to be IST); not

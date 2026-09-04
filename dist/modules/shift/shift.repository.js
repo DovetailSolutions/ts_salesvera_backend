@@ -26,6 +26,7 @@ const findShifts = (params) => {
     if (params.branchId)
         where.branchId = params.branchId;
     return dbConnection_1.Shift.findAndCountAll({
+        attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId", "createdAt"],
         where,
         limit: params.limit,
         offset: params.offset,
