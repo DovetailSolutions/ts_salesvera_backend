@@ -117,8 +117,11 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
       createdAt: notification.createdAt,
     };
 
-    // 2️⃣ Real-time delivery via socket.io
+        // 2️⃣ Real-time delivery via socket.io
     if (_io) {
+      // Deliver to user room (covers all user connections)
+      _io.to(`user_${receiverId}`).emit("notification", eventPayload);
+
       const receiverSockets = userSocketMap.get(receiverId);
       if (receiverSockets) {
         receiverSockets.forEach((sid) => {
