@@ -129,3 +129,19 @@ export const ensureBranchVisibilityToggle = async (sequelize: Sequelize): Promis
 
   console.log("Branch visibility toggle ensured (users.canViewAllBranches)");
 };
+
+// ============================================================
+// Company branding images — companyProfileImg, companyStampImg,
+// companySignatureImg. Nullable columns for storing S3/Spaces image URLs.
+// ============================================================
+export const ensureCompanyBrandingColumns = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    ALTER TABLE "companies"
+      ADD COLUMN IF NOT EXISTS "companyProfileImg" TEXT,
+      ADD COLUMN IF NOT EXISTS "companyStampImg" TEXT,
+      ADD COLUMN IF NOT EXISTS "companySignatureImg" TEXT;
+  `);
+
+  console.log("Company branding columns ensured (companies.companyProfileImg/companyStampImg/companySignatureImg)");
+};
+

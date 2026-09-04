@@ -2,6 +2,7 @@ import { Router } from "express";
 import { tokenCheck } from "../../config/jwtVerify";
 import { authorizeRoles, ADMIN_ONLY, ADMIN_AND_MANAGER } from "../../app/middlewear/rbac";
 import * as CompanyController from "./company.controller";
+import getUploadMiddleware from "../../config/fileUploads";
 
 // ============================================================
 // Company routes — mounted directly on the /admin router in server.ts, same
@@ -11,13 +12,20 @@ import * as CompanyController from "./company.controller";
 // ============================================================
 const router = Router();
 
-router.post("/addcompany", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.addCompany);
+const companyUpload = getUploadMiddleware("company");
+const companyUploadFields = companyUpload.fields([
+  { name: "companyProfileImg", maxCount: 1 },
+  { name: "companyStampImg", maxCount: 1 },
+  { name: "companySignatureImg", maxCount: 1 },
+]);
+
+router.post("/addcompany", tokenCheck, authorizeRoles(...ADMIN_ONLY), companyUploadFields, CompanyController.addCompany);
 router.get("/getcompany", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.getCompany);
 router.get("/getcompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.getCompanyById);
 // Settings module's read-only Company Policy tab — manager-accessible
 // (unlike the full company record above), scoped to policy fields only.
 router.get("/company-policy", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), CompanyController.getCompanyPolicy);
-router.patch("/updatecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.updateCompany);
+router.patch("/updatecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), companyUploadFields, CompanyController.updateCompany);
 router.post("/assign-company-manager/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.assignCompanyManager);
 router.delete("/remove-company-manager", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.removeCompanyManager);
 router.get("/company-managers/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.getCompanyManagers);

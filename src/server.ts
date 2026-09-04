@@ -11,7 +11,7 @@ import path from "path";
 import http from "http";
 
 import { connectDB, sequelize } from "./config/dbConnection";
-import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences, ensureChatRoomOwnership, ensureBranchVisibilityToggle } from "./config/schemaExtensions";
+import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences, ensureChatRoomOwnership, ensureBranchVisibilityToggle, ensureCompanyBrandingColumns } from "./config/schemaExtensions";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
@@ -38,6 +38,7 @@ import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
 import { registerIo } from "./config/notificationService";
 import { startCronJobs } from "./config/cronJobs";
+import { Server } from "socket.io";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
@@ -102,8 +103,6 @@ app.get("/", (req: Request, res: Response) => {
   res.send("Hello from TypeScript Express!");
 });
 
-import { Server } from "socket.io";
-
 // Create HTTP server (IMPORTANT)
 const server = http.createServer(app);
 
@@ -129,7 +128,7 @@ server.listen(PORT, async () => {
   await ensureNotificationPreferences(sequelize);
   await ensureChatRoomOwnership(sequelize);
   await ensureBranchVisibilityToggle(sequelize);
+  await ensureCompanyBrandingColumns(sequelize);
   startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   console.log(`Server is running on http://localhost:${PORT}`);
 });
-

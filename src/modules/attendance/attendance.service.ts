@@ -8,7 +8,7 @@ import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUti
 import { haversineMeters } from "../shared/geo";
 import { checkUserGeoFencing } from "../geoFencing/geoFencing.service";
 import * as AttendanceRepo from "./attendance.repository";
-import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary } from "./travelDistance.service";
+import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary, isPlausibleLeg } from "./travelDistance.service";
 import { resolveAttendanceLocationName } from "./locationName.service";
 import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User } from "../../config/dbConnection";
 
@@ -1590,7 +1590,7 @@ export const applyTravelSummaryOnPunchOut = async (
       status: "out",
       meetingTimeOut: { [Op.between]: [startOfDay, endOfDay] },
     },
-    attributes: ["id", "latitude_out", "longitude_out", "totalDistance"],
+    attributes: ["id", "latitude_out", "longitude_out", "totalDistance", "meetingTimeOut"],
     order: [["meetingTimeOut", "DESC"]],
   });
 
@@ -1614,16 +1614,34 @@ export const applyTravelSummaryOnPunchOut = async (
         attendance.longitude_out
       );
 
-      if (result.success && result.km != null) {
+      // GPS sanity check: this leg can't have covered more ground than the
+      // elapsed clock time allows for ordinary road travel. A violation
+      // means the Attendance-Out (or last meeting's checkout) coordinate is
+      // a bad GPS fix, not a real 250km detour — treat it the same as an
+      // API failure below rather than saving a number nobody can trust.
+      const elapsedMs = lastMeeting.meetingTimeOut
+        ? attendance.punch_out.getTime() - new Date(lastMeeting.meetingTimeOut).getTime()
+        : null;
+      const resultKm = result.success && result.km != null ? result.km : null;
+      const plausible = resultKm != null && elapsedMs != null && isPlausibleLeg(resultKm, elapsedMs);
+
+      if (resultKm != null && !plausible) {
+        console.warn(
+          `applyTravelSummaryOnPunchOut: implausible final leg for user ${finalUserId} on ${today}: ${resultKm} km in ${elapsedMs != null ? (elapsedMs / 60000).toFixed(1) : "?"} min — flagging instead of saving.`
+        );
+      }
+
+      if (plausible && resultKm != null) {
         const previousTotalKm = parseDistanceStringToKm(lastMeeting.totalDistance);
-        attendance.finalLegDistanceKm = result.km;
-        attendance.totalTravelDistanceKm = Number((previousTotalKm + result.km).toFixed(3));
+        attendance.finalLegDistanceKm = resultKm;
+        attendance.totalTravelDistanceKm = Number((previousTotalKm + resultKm).toFixed(3));
         attendance.distanceCalculationStatus = "calculated";
       } else {
-        // Per spec: a Google API failure must never silently become a fake
-        // 0km — leave the distance fields untouched (null) and mark it
-        // failed so the admin/self travel view can show "unavailable" and a
-        // retry, rather than a number nobody can trust.
+        // Per spec: a Google API failure (or an implausible GPS fix) must
+        // never silently become a fake 0km — leave the distance fields
+        // untouched (null) and mark it failed so the admin/self travel view
+        // can show "unavailable" and a retry, rather than a number nobody
+        // can trust.
         attendance.distanceCalculationStatus = "failed";
       }
     }

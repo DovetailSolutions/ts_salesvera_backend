@@ -53,7 +53,7 @@ import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils"
 import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
-import { isValidCoordinate } from "../../modules/attendance/travelDistance.service";
+import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -635,6 +635,11 @@ export const getLastMeeting = async (
           },
         },
         {
+          "$MeetingCompanies.company_email$": {
+            [Op.iLike]: searchTerm,
+          },
+        },
+        {
           mobile: {
             [Op.iLike]: searchTerm,
           },
@@ -1162,6 +1167,7 @@ export const EndMeeting = async (
         "id",
         "latitude_in",
         "longitude_in",
+        "punch_in",
       ],
     });
 
@@ -1211,6 +1217,24 @@ export const EndMeeting = async (
           const result = await Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
           legDistanceKm = result.km;
           legDistanceDisplay = result.display;
+
+          // GPS sanity check: this leg is Attendance-In -> this meeting's
+          // checkout point, so it can't have covered more ground than the
+          // elapsed clock time allows for ordinary road travel. A violation
+          // means the checkout coordinate itself is bad (e.g. a coarse
+          // network-location fallback), not that the person actually drove
+          // that far — never let a bad GPS fix silently become a paid
+          // distance (same philosophy as the "never fake a 0km" rule below).
+          const elapsedMs = attendance?.punch_in
+            ? isExist.meetingTimeOut.getTime() - new Date(attendance.punch_in).getTime()
+            : null;
+          if (elapsedMs != null && !isPlausibleLeg(legDistanceKm, elapsedMs)) {
+            console.warn(
+              `EndMeeting: implausible leg distance for meeting ${isExist.id} (Attendance-In -> Meeting-Out): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`
+            );
+            legDistanceKm = 0;
+            legDistanceDisplay = "GPS unavailable";
+          }
         }
       }
     }
@@ -1237,6 +1261,19 @@ export const EndMeeting = async (
           const result = await Middleware.getDistance(lat1, lon1, lat2, lon2, isExist.id);
           legDistanceKm = result.km;
           legDistanceDisplay = result.display;
+
+          // Same GPS sanity check as above, against the previous meeting's
+          // checkout timestamp instead of Attendance-In.
+          const elapsedMs = lastMeeting.meetingTimeOut
+            ? isExist.meetingTimeOut.getTime() - new Date(lastMeeting.meetingTimeOut).getTime()
+            : null;
+          if (elapsedMs != null && !isPlausibleLeg(legDistanceKm, elapsedMs)) {
+            console.warn(
+              `EndMeeting: implausible leg distance for meeting ${isExist.id} (previous Meeting-Out -> this Meeting-Out): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`
+            );
+            legDistanceKm = 0;
+            legDistanceDisplay = "GPS unavailable";
+          }
         }
       }
     }

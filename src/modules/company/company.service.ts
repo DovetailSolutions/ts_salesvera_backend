@@ -13,7 +13,7 @@ import * as CompanyRepo from "./company.repository";
 // ============================================================
 
 export const addCompany = async (userId: number, role: any, body: any) => {
-  if (role !== "user") {
+  if (!["admin", "super_admin", "user"].includes(role)) {
     throw new ServiceError("You are not authorized to add a company");
   }
 
@@ -28,6 +28,8 @@ export const addCompany = async (userId: number, role: any, body: any) => {
     overtimeAllowed, companyWorkingDays, altSaturday, casualHolidaysTotal, casualHolidaysPerMonth,
     casualHolidayNotice, compOffMinHours, compOffExpiryDays, casualCarryForwardLimit,
     casualCarryForwardExpiry, adminId, managerId, createdBy,
+    // Branding Images & Travel Rate
+    companyProfileImg, companyStampImg, companySignatureImg, vehicleAllowanceRatePerKm,
   } = body;
 
   if (!companyName || companyName.trim().length < 2) throw new ServiceError("Company name is required (min 2 chars)");
@@ -56,6 +58,9 @@ export const addCompany = async (userId: number, role: any, body: any) => {
     if (item.field && isNaN(Number(item.field))) throw new ServiceError(`${item.name} must be a number`);
   }
 
+  const targetUserId = createdBy || (role === "user" ? userId : (body.userId || null));
+  const targetAdminId = adminId || (role === "admin" ? userId : null);
+
   const company = await CompanyRepo.createCompany({
     companyName, legalName, registrationNo, gst, pan, industry, companySize,
     website, companyEmail, companyPhone, city, timezone, currency,
@@ -69,14 +74,18 @@ export const addCompany = async (userId: number, role: any, body: any) => {
     altSaturday: altSaturday !== undefined ? Boolean(altSaturday) : false,
     casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice,
     compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry,
-    userId: createdBy || userId,
-    adminId: adminId || null,
+    userId: targetUserId,
+    adminId: targetAdminId,
     managerId: managerId || null,
+    companyProfileImg: companyProfileImg || null,
+    companyStampImg: companyStampImg || null,
+    companySignatureImg: companySignatureImg || null,
+    vehicleAllowanceRatePerKm: vehicleAllowanceRatePerKm !== undefined ? vehicleAllowanceRatePerKm : null,
   });
 
   // When a company is linked to an admin, propagate the creator-user's permissions
   // to that admin scoped to this company. Company is optional — if no adminId, skip.
-  if (adminId) {
+  if (targetAdminId && role === "user") {
     const creatorUserId = Number(userId);
     const newCompanyId = (company as any).id;
 
@@ -86,14 +95,14 @@ export const addCompany = async (userId: number, role: any, body: any) => {
       await Promise.all(
         creatorPerms.map((p: any) =>
           CompanyRepo.grantPermissionToAdminForCompany({
-            adminId: Number(adminId),
+            adminId: Number(targetAdminId),
             permissionId: p.permissionId,
             companyId: newCompanyId,
             grantedBy: creatorUserId,
           })
         )
       );
-      invalidatePermissionCache(Number(adminId));
+      invalidatePermissionCache(Number(targetAdminId));
     }
   }
 

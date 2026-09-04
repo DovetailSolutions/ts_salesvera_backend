@@ -24,7 +24,18 @@ export const addCompany = async (req: Request, res: Response): Promise<void> => 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const company = await CompanyService.addCompany(Number(userData.userId), userData.role, req.body);
+    const files = req.files as { [fieldname: string]: Express.MulterS3.File[] } | undefined;
+    const body = { ...req.body };
+    if (files?.companyProfileImg?.[0]?.location) {
+      body.companyProfileImg = files.companyProfileImg[0].location;
+    }
+    if (files?.companyStampImg?.[0]?.location) {
+      body.companyStampImg = files.companyStampImg[0].location;
+    }
+    if (files?.companySignatureImg?.[0]?.location) {
+      body.companySignatureImg = files.companySignatureImg[0].location;
+    }
+    const company = await CompanyService.addCompany(Number(userData.userId), userData.role, body);
     createSuccess(res, "Company added successfully", company);
   } catch (error) {
     handleServiceError(res, error);
@@ -81,7 +92,18 @@ export const updateCompany = async (req: Request, res: Response): Promise<void> 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const updated = await CompanyService.updateCompany(req.params.id, Number(userData.userId), req.body, userData.role as string | undefined);
+    const files = req.files as { [fieldname: string]: Express.MulterS3.File[] } | undefined;
+    const body = { ...req.body };
+    if (files?.companyProfileImg?.[0]?.location) {
+      body.companyProfileImg = files.companyProfileImg[0].location;
+    }
+    if (files?.companyStampImg?.[0]?.location) {
+      body.companyStampImg = files.companyStampImg[0].location;
+    }
+    if (files?.companySignatureImg?.[0]?.location) {
+      body.companySignatureImg = files.companySignatureImg[0].location;
+    }
+    const updated = await CompanyService.updateCompany(req.params.id, Number(userData.userId), body, userData.role as string | undefined);
     createSuccess(res, "Company updated successfully", updated);
   } catch (error) {
     handleServiceError(res, error);

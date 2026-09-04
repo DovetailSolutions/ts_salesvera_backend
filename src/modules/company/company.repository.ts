@@ -44,7 +44,15 @@ export const findCompaniesPaginated = (params: {
   limit: number;
   offset: number;
 }) => {
-  let where: any = { userId: params.userId };
+  let where: any = {};
+  if (params.role === "super_admin") {
+    where = {};
+  } else if (params.role === "admin") {
+    where = { [Op.or]: [{ adminId: params.userId }, { userId: params.userId }] };
+  } else {
+    where = { userId: params.userId };
+  }
+
   if (params.search) {
     where = {
       ...where,
@@ -57,11 +65,20 @@ export const findCompaniesPaginated = (params: {
     };
   }
   return Company.findAndCountAll({
-    // CompanyManagement.jsx's table only reads these 6 columns + userId
-    // (owner lookup — read directly off this row by CompanyDetailEditor's
-    // Team tab, not refetched, so it must stay here even though the rest of
-    // that editor's fields come from a separate getCompanyById call).
-    attributes: ["id", "companyName", "legalName", "industry", "companySize", "companyEmail", "companyPhone", "userId"],
+    attributes: [
+      "id",
+      "companyName",
+      "legalName",
+      "industry",
+      "companySize",
+      "companyEmail",
+      "companyPhone",
+      "userId",
+      "adminId",
+      "companyProfileImg",
+      "companyStampImg",
+      "companySignatureImg",
+    ],
     where,
     limit: params.limit,
     offset: params.offset,

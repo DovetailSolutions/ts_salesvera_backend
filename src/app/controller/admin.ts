@@ -25,6 +25,7 @@ import {
   Meeting,
   MeetingCompany,
   MeetingUser,
+  MeetingImage,
   Attendance,
   Leave,
   Expense,
@@ -538,135 +539,7 @@ export const DeleteCategory = async (
   }
 };
 
-// export const getMeeting = async (
-//   req: Request,
-//   res: Response
-// ): Promise<void> => {
-//   try {
-//     const {
-//       page = 1,
-//       limit = 10,
-//       search = "",
-//       userId,
-//       date,
-//       startDate,
-//       endDate,
-//       empty,
-//     } = req.query;
-//     const userData = req.userData as JwtPayload;
-//     const loggedInId = userData?.userId;
-//     const role = userData?.role;
-//     let ll = loggedInId;
-//     let manager: any = null;
-//     if (role === "manager") {
-//       manager = await User.findByPk(loggedInId, {
-//         attributes: ["id", "role"],
-//         include: [
-//           {
-//             model: User,
-//             as: "creators",
-//             attributes: ["id", "role"],
-//             through: { attributes: [] },
-//           },
-//         ],
-//       });
-//       const plain = manager?.get({ plain: true }) as any;
-//       if (plain?.creators?.length > 0) {
-//         ll = plain.creators[0].id; // parent admin ID
-//       }
-//     }
-//     const pageNum = Number(page);
-//     const limitNum = Number(limit);
-//     const offset = (pageNum - 1) * limitNum;
-//     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-//     const childIds = await getCompanyScopedChildUserIdsFast(ll, callerCompanyId);
-//     const allowedIds = [ll, ...childIds];
-//     const ownAllowedIds =
-//       role === "manager"
-//         ? [loggedInId, ...(await getCompanyScopedChildUserIds(loggedInId, callerCompanyId))]
-//         : allowedIds;
-//     const where: any = {};
-//     if (empty === "true") {
-//       where.userId = ll;
-//     } else if (userId) {
-//       const requestedId = Number(userId);
-//       if (!ownAllowedIds.includes(requestedId)) {
-//         forbidden(res, "You can only view meetings of your own team members");
-//         return;
-//       }
-//       where.userId = requestedId;
-//     } else {
-//       where.userId = { [Op.in]: ownAllowedIds };
-//     }
-//     if (search) {
-//       where[Op.or] = [
-//         { companyName: { [Op.iLike]: `%${search}%` } },
-//         { name: { [Op.iLike]: `%${search}%` } },
-//       ];
-//     }
 
-  
-//     let meetingTimeWindow: { [key: symbol]: any } | null = null;
-//     if (date) {
-//       meetingTimeWindow = {
-//         [Op.between]: [
-//           getISTDayBoundary(String(date), "start"),
-//           getISTDayBoundary(String(date), "end"),
-//         ],
-//       };
-//     } else if (startDate || endDate) {
-//       const filter = getDateFilter({ startDate, endDate });
-//       if (Object.keys(filter).length > 0) meetingTimeWindow = filter;
-//     }
-
-//     if (meetingTimeWindow) {
-//       const matches = (await Meeting.findAll({
-//         where: { meetingTimeIn: meetingTimeWindow, userId: where.userId },
-//         attributes: ["meetingUserId"],
-//         group: ["meetingUserId"],
-//         raw: true,
-//       })) as any[];
-//       const matchingIds = matches.map((m) => m.meetingUserId).filter((id) => id != null);
-     
-//       where.id = { [Op.in]: matchingIds.length > 0 ? matchingIds : [-1] };
-//     }
-//     const { rows, count } = await MeetingUser.findAndCountAll({
-//       attributes: [
-//         "id", "name", "email", "mobile", "userId", "customerType",
-//         "companyName", "status", "gstNumber", "panNumber",
-//         "address", "city", "state", "pincode", "country", "createdAt",
-//       ],
-//       where,
-//       include: [
-//         {
-//           model: Meeting, // joined via Meeting.meetingUserId -> MeetingUser.id
-//           separate: true,
-          
-//           ...(meetingTimeWindow ? { where: { meetingTimeIn: meetingTimeWindow } } : {}),
-//           order: [["meetingTimeIn", "DESC"]],
-
-//         },
-        
-//       ],
-//       distinct: true, // avoid inflated count from the hasMany join
-//       offset,
-//       limit: limitNum,
-//       order: [["createdAt", "DESC"]],
-//     });
-//     createSuccess(res, "User Meeting fetched successfully", {
-//       page: pageNum,
-//       limit: limitNum,
-//       total: count,
-//       totalPages: Math.ceil(count / limitNum),
-//       rows,
-//     });
-//   } catch (error) {
-//     const errorMessage =
-//       error instanceof Error ? error.message : "Something went wrong";
-//     badRequest(res, errorMessage);
-//     return;
-//   }
-// };
 
 
 export const getMeeting = async (
@@ -937,6 +810,148 @@ export const getMeeting = async (
     badRequest(res, errorMessage);
   }
 };
+
+/**
+ * ----------------------------------------------------
+ * GET /admin/getmeetingdetails/:id
+ * ----------------------------------------------------
+ * Single-meeting drill-down for getMeeting's list — the client (MeetingUser),
+ * the "visiting company" snapshot (MeetingCompany), every uploaded photo
+ * (MeetingImage), and the salesperson who owns the meeting (User), all in
+ * one round trip via Sequelize's `include` (no N+1 follow-up queries).
+ * Access uses the exact same allowedIds scoping as getMeeting above, so a
+ * manager/admin can only open a meeting that already appears in their list.
+ */
+export const getMeetingDetails = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    const loggedInId = Number(userData?.userId);
+    const role = userData?.role;
+    const callerCompanyId = userData?.companyId
+      ? Number(userData.companyId)
+      : null;
+
+    if (!loggedInId) {
+      badRequest(res, "UserId not found");
+      return;
+    }
+
+    const meetingId = Number(req.params.id);
+    if (!meetingId || Number.isNaN(meetingId)) {
+      badRequest(res, "A valid meeting id is required");
+      return;
+    }
+
+    /**
+     * ----------------------------------------------------
+     * Find scope user (mirrors getMeeting)
+     * ----------------------------------------------------
+     */
+    let scopeUserId = loggedInId;
+
+    if (role === "manager") {
+      const manager = await User.findByPk(loggedInId, {
+        attributes: ["id"],
+        include: [
+          {
+            model: User,
+            as: "creators",
+            attributes: ["id"],
+            through: { attributes: [] },
+          },
+        ],
+      });
+
+      const managerData = manager?.get({ plain: true }) as any;
+
+      if (managerData?.creators?.length) {
+        scopeUserId = Number(managerData.creators[0].id);
+      }
+    }
+
+    let allowedIds: number[];
+
+    if (role === "manager") {
+      const childIds = await getCompanyScopedChildUserIdsFast(
+        loggedInId,
+        callerCompanyId
+      );
+      allowedIds = [loggedInId, ...childIds];
+    } else {
+      const childIds = await getCompanyScopedChildUserIdsFast(
+        scopeUserId,
+        callerCompanyId
+      );
+      allowedIds = [scopeUserId, ...childIds];
+    }
+
+    allowedIds = [...new Set(allowedIds)];
+
+    /**
+     * ----------------------------------------------------
+     * One optimized query: the meeting plus every related entity the
+     * details page needs, scoped to the caller's allowed users so this
+     * can't be used to peek at another team's meeting by guessing an id.
+     * ----------------------------------------------------
+     */
+    const meeting = await Meeting.findOne({
+      where: {
+        id: meetingId,
+        userId: { [Op.in]: allowedIds },
+      },
+      attributes: [
+        "id", "userId", "companyId", "meetingUserId",
+        "status", "meetingPurpose", "categoryId", "subCategoryId",
+        "scheduledTime", "meetingTimeIn", "meetingTimeOut",
+        "latitude_in", "longitude_in", "latitude_out", "longitude_out",
+        "totalDistance", "legDistance", "pincode", "createdAt",
+      ],
+      include: [
+        {
+          // Salesperson who owns this meeting
+          model: User,
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          required: false,
+        },
+        {
+          // Client entity (frozen — see meeting.repository.ts)
+          model: MeetingUser,
+          required: false,
+        },
+        {
+          // Visiting-company snapshot for this specific meeting
+          model: MeetingCompany,
+          required: false,
+        },
+        {
+          // Every photo captured during this meeting
+          model: MeetingImage,
+          attributes: ["id", "image", "meetingUserId"],
+          required: false,
+        },
+      ],
+    });
+
+    if (!meeting) {
+      badRequest(res, "Meeting not found");
+      return;
+    }
+
+    createSuccess(res, "Meeting details fetched successfully", meeting);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Something went wrong";
+
+    badRequest(res, errorMessage);
+  }
+};
+
 export const BulkAddSalePerson = async (
   req: Request,
   res: Response
@@ -3833,6 +3848,107 @@ export const updateClient = async (req: Request, res: Response): Promise<void> =
 };
 
 
+export const getClientDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { id } = req.params;
+    const clientId = Number(id);
+
+    if (!clientId || Number.isNaN(clientId)) {
+      badRequest(res, "A valid client id is required");
+      return;
+    }
+
+    const client = await MeetingUser.findByPk(clientId);
+    if (!client) {
+      badRequest(res, "Client not found");
+      return;
+    }
+
+    // 1. User meetings attended with this client
+    const userMeetings = await Meeting.findAll({
+      where: { meetingUserId: clientId },
+      attributes: [
+        "id", "userId", "companyId", "meetingUserId",
+        "status", "meetingPurpose", "categoryId", "subCategoryId",
+        "scheduledTime", "meetingTimeIn", "meetingTimeOut",
+        "latitude_in", "longitude_in", "latitude_out", "longitude_out",
+        "totalDistance", "legDistance", "pincode", "createdAt",
+      ],
+      include: [
+        {
+          model: User,
+          attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
+          required: false,
+        },
+        {
+          model: MeetingCompany,
+          attributes: ["id", "companyName", "personName", "mobileNumber", "companyEmail", "customerType", "address", "city", "state", "pincode", "remarks", "gstNumber"],
+          required: false,
+        },
+        {
+          model: MeetingImage,
+          attributes: ["id", "image", "meetingId", "meetingUserId"],
+          required: false,
+        },
+      ],
+      order: [["meetingTimeIn", "DESC"], ["createdAt", "DESC"]],
+    });
+
+    // 2. Company meetings for this client
+    const companyMeetings = await MeetingCompany.findAll({
+      where: { meetingUserId: clientId },
+      order: [["createdAt", "DESC"]],
+    });
+
+    // 3. Meeting images for this client
+    const meetingIds = userMeetings.map((m: any) => m.id);
+    const rawImages = await MeetingImage.findAll({
+      where: {
+        [Op.or]: [
+          { meetingUserId: clientId },
+          ...(meetingIds.length > 0 ? [{ meetingId: { [Op.in]: meetingIds } }] : []),
+        ],
+      },
+      order: [["id", "DESC"]],
+    });
+
+    // Deduplicate images
+    const seen = new Set();
+    const meetingImages: any[] = [];
+    for (const img of rawImages) {
+      const key = (img as any).image || (img as any).id;
+      if (!seen.has(key)) {
+        seen.add(key);
+        meetingImages.push(img);
+      }
+    }
+
+    createSuccess(res, "Client details fetched successfully", {
+      client,
+      userMeetings,
+      companyMeetings,
+      meetingImages,
+      stats: {
+        totalMeetings: userMeetings.length,
+        completedMeetings: userMeetings.filter((m: any) => m.status === "completed").length,
+        pendingMeetings: userMeetings.filter((m: any) => m.status === "pending" || m.status === "scheduled").length,
+        totalCompanyMeetings: companyMeetings.length,
+        totalImages: meetingImages.length,
+      }
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage, error);
+  }
+};
+
 export const CategoryStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -5528,3 +5644,4 @@ export const assignAdmin = async(req:Request, res:Response):Promise<void>=>{
 
 // forgotPassword/verifyOtp/changePassword have moved to src/modules/auth/
 // — see auth.controller.ts/service.ts/repository.ts.
+
