@@ -281,8 +281,26 @@ export const initChatSocket = (io: Server) => {
 
     console.log(`SOCKET: Connected successfully! socketId: ${socket.id}, userId: ${userId}, role: ${userRole}`);
 
-    // 📡 Register this user's socket for targeted notifications
+        // 📡 Register this user's socket for targeted notifications
     setUserSocket(userId, socket.id);
+
+    // Join personal user room so real-time messages & group invites are received
+    socket.join(`user_${userId}`);
+
+    // Auto-join all chat rooms this user belongs to
+    try {
+      const participations = await ChatParticipant.findAll({
+        where: { userId },
+        include: [{ model: ChatRoom, attributes: ["roomId"] }],
+      });
+      participations.forEach((p: any) => {
+        if (p.ChatRoom?.roomId) {
+          socket.join(p.ChatRoom.roomId);
+        }
+      });
+    } catch (joinErr) {
+      console.error("Auto-join rooms error:", joinErr);
+    }
 
 
     await User.update({ onlineSatus: "online" }, { where: { id: userId } });
@@ -429,21 +447,33 @@ export const initChatSocket = (io: Server) => {
         // now was silently misattributed (or dropped from the unread/
         // notification path) instead of showing up live. Attaching the
         // real roomId here removes the need for that fallback entirely.
-        io.to(roomId).emit("receiveMessage", {
+        const sender = await User.findByPk(userId, {
+          attributes: ["id", "firstName", "lastName", "email"],
+        }) as any;
+
+        const messagePayload = {
           ...newMessage.toJSON(),
           roomId,
           replyToMessage: replyToMessage ? replyToMessage.toJSON() : null,
-        });
+          Sender: sender ? sender.toJSON() : { id: userId, firstName: "User" },
+        };
 
-        // 🔔 Notify all OTHER participants in real-time
+        // Touch room updatedAt
+        await room.changed('updatedAt', true);
+        await room.save().catch(() => {});
+
+        // 1. Emit to room
+        io.to(roomId).emit("receiveMessage", messagePayload);
+
+        // 2. Notify all participants in real-time
         const participants = await ChatParticipant.findAll({
           where: { chatRoomId: room.id },
         });
 
-        // Fetch sender info for the notification title
-        const sender = await User.findByPk(userId, {
-          attributes: ["firstName", "lastName"],
-        }) as any;
+        // 3. Emit to all participants' user rooms (covers cases where socket hasn't joined roomId yet)
+        for (const p of participants) {
+          io.to(`user_${p.userId}`).emit("receiveMessage", messagePayload);
+        }
         const senderName = sender
           ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
           : "Someone";
@@ -561,20 +591,30 @@ export const initChatSocket = (io: Server) => {
           });
         }
 
-        io.to(roomId).emit("receiveFileMessage", {
+        const sender = await User.findByPk(userId, {
+          attributes: ["id", "firstName", "lastName", "email"],
+        }) as any;
+
+        const filePayload = {
           ...newMessage.toJSON(),
           roomId,
           replyToMessage: replyToMessage ? replyToMessage.toJSON() : null,
-        });
+          Sender: sender ? sender.toJSON() : { id: userId, firstName: "User" },
+        };
 
-        // 🔔 Notify other participants
+        // Touch room updatedAt
+        await room.changed('updatedAt', true);
+        await room.save().catch(() => {});
+
+        io.to(roomId).emit("receiveFileMessage", filePayload);
+
         const participants = await ChatParticipant.findAll({
           where: { chatRoomId: room.id },
         });
 
-        const sender = await User.findByPk(userId, {
-          attributes: ["firstName", "lastName"],
-        }) as any;
+        for (const p of participants) {
+          io.to(`user_${p.userId}`).emit("receiveFileMessage", filePayload);
+        }
         const senderName = sender
           ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
           : "Someone";
@@ -698,10 +738,19 @@ export const initChatSocket = (io: Server) => {
           success: true,
           msg_id: msg.msg_id,
           seenBy: userId,
+          roomId: msg.roomId,
           fileName: message.fileName,
           mediaUrl: message.mediaUrl,
           mediaType: message.mediaType,
         });
+        if (message.senderId) {
+          io.to(`user_${message.senderId}`).emit("seenMessage", {
+            success: true,
+            msg_id: msg.msg_id,
+            seenBy: userId,
+            roomId: msg.roomId,
+          });
+        }
       } catch (err) {
         console.error("Seen message error:", err);
       }
@@ -955,11 +1004,6 @@ export const initChatSocket = (io: Server) => {
           return socket.emit("createGroup", { error: "Group members are required" });
         }
 
-        // Tenant isolation: only allow creating a group with users from the
-        // same tenant (mirrors the same check already present in
-        // addGroupMembers — createGroup previously had none at all, so a
-        // crafted socket payload could add users from a different tenant
-        // straight into a brand-new group).
         const requester = await User.findByPk(userId, { attributes: ["tenantId"] }) as any;
         if (requester?.tenantId) {
           const validMembers = await User.findAll({
@@ -973,23 +1017,20 @@ export const initChatSocket = (io: Server) => {
 
         const newRoomId = uuid();
 
-        // Create the group room
         const room = await ChatRoom.create({
           roomId: newRoomId,
           type: "group",
-          groupName: name, // ← Save the group name
-          createdBy: userId, // so deleteGroup can restrict deletion to the creator
+          groupName: name,
+          createdBy: userId,
         });
 
         const dbRoomId = room.id;
 
-        // Add the creator
         await ChatParticipant.create({
           chatRoomId: dbRoomId,
           userId,
         });
 
-        // Add the other members
         const bulk = members.map((m: any) => ({
           chatRoomId: dbRoomId,
           userId: m,
@@ -999,15 +1040,26 @@ export const initChatSocket = (io: Server) => {
           ignoreDuplicates: true,
         });
 
-        // Join socket.io room
         socket.join(room.roomId);
+
+        const allMembers = [userId, ...members];
+        allMembers.forEach((mId) => {
+          io.to(`user_${mId}`).emit("groupCreated", {
+            roomId: room.roomId,
+            type: "group",
+            groupName: room.groupName,
+            createdBy: room.createdBy,
+            members: allMembers,
+          });
+          io.in(`user_${mId}`).socketsJoin(room.roomId);
+        });
 
         socket.emit("createGroup", {
           roomId: room.roomId,
           type: "group",
           groupName: room.groupName,
           createdBy: room.createdBy,
-          members: [userId, ...members],
+          members: allMembers,
         });
 
       } catch (error) {
@@ -1017,7 +1069,7 @@ export const initChatSocket = (io: Server) => {
     });
 
     // --------------------------------------------------------
-    // 🟦 ADD MEMBERS TO GROUP
+    // ADD MEMBERS TO GROUP
     // --------------------------------------------------------
     socket.on("addGroupMembers", async ({ roomId, newMembers = [] }) => {
       try {
@@ -1063,8 +1115,17 @@ export const initChatSocket = (io: Server) => {
 
         io.to(roomId).emit("addGroupMembers", {
           roomId,
-          addedMembers: newMembers,
+          newMembers,
           addedBy: userId
+        });
+
+        newMembers.forEach((mId: any) => {
+          io.to(`user_${mId}`).emit("groupAdded", {
+            roomId,
+            groupName: room.groupName,
+            addedBy: userId,
+          });
+          io.in(`user_${mId}`).socketsJoin(room.roomId);
         });
 
       } catch (error) {
@@ -1383,12 +1444,12 @@ export const initChatSocket = (io: Server) => {
     // --------------------------------------------------------
     socket.on("disconnect", async (reason) => {
       console.log(`SOCKET: Disconnected socketId: ${socket.id}, userId: ${userId} — reason: ${reason}`);
-      await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
-      // 📡 Broadcast this user's offline status to ALL connected clients
-      io.emit("userStatusChange", { userId, onlineSatus: "offline" });
-      // Clean up notification socket map
-      removeUserSocket(userId, socket.id);
-
+      const isFullyOffline = removeUserSocket(userId, socket.id);
+      if (isFullyOffline) {
+        await User.update({ onlineSatus: "offline" }, { where: { id: userId } });
+        // 📡 Broadcast this user's offline status to ALL connected clients
+        io.emit("userStatusChange", { userId, onlineSatus: "offline" });
+      }
     });
   });
 };
