@@ -2457,13 +2457,20 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
 
     // const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
     // ✅ Base where condition
-    let whereCondition: any = {
-      userId: {
-        [Op.in]: userData.userId
-      },
+    // let whereCondition: any = {
+    //   userId: {
+    //     [Op.in]: userData.userId
+    //   },
+    //   status: {
+    //     [Op.notIn]: ["cancelled", "deleted"]
+    //   }
+    // };
+
+    const whereCondition: any = {
+      userId: userData.userId,
       status: {
-        [Op.notIn]: ["cancelled", "deleted"]
-      }
+        [Op.notIn]: ["cancelled", "deleted"],
+      },
     };
 
 
@@ -3255,13 +3262,20 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     );
 
     // ✅ Dynamic where condition
+    // const whereCondition: any = {
+    //   userId: {
+    //     [Op.in]: userData.userId
+    //   },
+    //   status: {
+    //     [Op.notIn]: ["cancelled", "deleted"]
+    //   }
+    // };
+
     const whereCondition: any = {
-      userId: {
-        [Op.in]: userData.userId
-      },
+      userId: userData.userId,
       status: {
-        [Op.notIn]: ["cancelled", "deleted"]
-      }
+        [Op.notIn]: ["cancelled", "deleted"],
+      },
     };
 
     // 🔍 Global search
@@ -3910,7 +3924,7 @@ export const getDashboardMobile = async (
     // const allUserIds = await getAllSubordinateIds(hierarchyRootId);
 
     const commonFilter = {
-      userId: { [Op.in]: userId },
+      userId: userId,
       status: { [Op.notIn]: ["cancelled", "deleted"] },
     };
 
@@ -3920,7 +3934,7 @@ export const getDashboardMobile = async (
 
     const perfomaInvoice = await Invoices.count({
       where: {
-        userId: { [Op.in]: userId },
+        userId  : userId,
         [Op.and]: [
           { status: { [Op.in]: ["draft", "imported"] } },
           { status: { [Op.notIn]: ["cancelled", "deleted"] } },
@@ -3930,7 +3944,7 @@ export const getDashboardMobile = async (
 
     const invoice = await Invoices.count({
       where: {
-        userId: { [Op.in]: userId },
+        userId: userId,
         [Op.and]: [
           { status: "accepted" },
           { status: { [Op.notIn]: ["cancelled", "deleted"] } },
