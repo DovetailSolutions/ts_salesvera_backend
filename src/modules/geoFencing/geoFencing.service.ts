@@ -27,6 +27,7 @@ import * as GeoFencingRepo from "./geoFencing.repository";
 const GEO_ASSIGNABLE_TARGET_ROLES: Record<string, string[]> = {
   super_admin: ["admin"],
   admin: ["manager", "sale_person"],
+  manager: ["sale_person"],
 };
 
 const MAX_RADIUS_METERS = 500000; // 500km — generous upper bound, guards against fat-finger entry
@@ -178,8 +179,8 @@ export const assertCanAct = async (
     );
   }
 
-  if (callerRole === "admin") {
-    // Tenant isolation — admin may only reach managers/sale_persons inside
+  if (callerRole === "admin" || callerRole === "manager") {
+    // Tenant isolation — admin/manager may only reach salespersons/managers inside
     // their OWN company-scoped team, never another company's.
     const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
     if (!teamIds.includes(Number(targetUser.id))) {
@@ -188,11 +189,6 @@ export const assertCanAct = async (
         403
       );
     }
-
-    // Parent/child capability gate: an admin can only CONFIGURE (not just
-    // view) their team's geo-fencing once super_admin has enabled it for
-    // the admin's own account.
-    // Capability check bypassed for admin configuring team members
   }
 }
   // super_admin: role check above is sufficient — global reach, no company

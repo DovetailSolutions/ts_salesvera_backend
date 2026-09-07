@@ -118,7 +118,14 @@ export const checkPermission = (module: string, action: string) => {
 
       const required = `${module}:${action}`;
 
-      if (!permissionSet.has(required)) {
+      const hasPerm =
+        permissionSet.has(required) ||
+        (module === "attendance-security" &&
+          (permissionSet.has(`attendance:${action}`) ||
+            permissionSet.has("attendance:view") ||
+            permissionSet.has("attendance:update")));
+
+      if (!hasPerm) {
         return res.status(403).json({
           success: false,
           message: `You don’t have '${module}:${action}' permission`,
