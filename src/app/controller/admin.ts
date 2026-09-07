@@ -168,7 +168,7 @@ export const GetAllUser = async (
       // company's staff. Scope the team to the company the caller is acting
       // in (null companyId keeps the previous, unfiltered behavior).
       const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-      const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+      const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
       if (childIds.length === 0) {
         createSuccess(res, "Users fetched successfully", {
           page: pageNum,

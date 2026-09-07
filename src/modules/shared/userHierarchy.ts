@@ -87,7 +87,13 @@ export const collectUserCompanyIds = async (
     map.get(userId)!.add(Number(companyId));
   };
 
-  const [users, managerLinks, adminLinks, ownedOrAdminedCompanies] = await Promise.all([
+  // All independent of each other (none needs another's result), so they go
+  // in one round trip instead of being awaited one-by-one — on a remote DB
+  // each extra sequential round trip was adding real wall-clock latency.
+  // `allocated` (multi-branch junction) used to be fetched only after
+  // `branches` resolved even though it only depends on `userIds`, which was
+  // already known here.
+  const [users, managerLinks, adminLinks, ownedOrAdminedCompanies, allocated] = await Promise.all([
     (User as any).findAll({ where: { id: { [Op.in]: userIds } }, attributes: ["id", "branchId"] }),
     (CompanyManager as any).findAll({ where: { managerId: { [Op.in]: userIds } }, attributes: ["managerId", "companyId"] }),
     (CompanyAdmin as any).findAll({ where: { adminId: { [Op.in]: userIds } }, attributes: ["adminId", "companyId"] }),
@@ -95,11 +101,23 @@ export const collectUserCompanyIds = async (
       where: { [Op.or]: [{ adminId: { [Op.in]: userIds } }, { userId: { [Op.in]: userIds } }] },
       attributes: ["id", "adminId", "userId"],
     }),
+    // Additional branches from the multi-branch allocation junction — an
+    // admin/manager may hold several branches (User.branchId only records
+    // their primary one), and each of those branches implies membership of
+    // its company. Without this, allocating a second branch would leave the
+    // user unable to see that branch's company data.
+    (UserBranch as any).findAll({ where: { userId: { [Op.in]: userIds } }, attributes: ["userId", "branchId"] }),
   ]);
 
-  // Branch membership (the primary signal for sale_persons).
+  // Branch membership (the primary signal for sale_persons) — one combined
+  // lookup for every branch referenced by either signal, instead of a
+  // second round trip for whatever the allocation junction added.
   const branchIds = Array.from(
-    new Set(users.map((u: any) => u.branchId).filter((b: any) => b != null).map((b: any) => Number(b)))
+    new Set(
+      [...users.map((u: any) => u.branchId), ...allocated.map((r: any) => r.branchId)]
+        .filter((b: any) => b != null)
+        .map((b: any) => Number(b))
+    )
   );
   const branches: any[] = branchIds.length
     ? await (Branch as any).findAll({ where: { id: { [Op.in]: branchIds } }, attributes: ["id", "companyId"] })
@@ -111,31 +129,7 @@ export const collectUserCompanyIds = async (
     if (u.branchId == null) return;
     add(Number(u.id), companyIdByBranch.get(Number(u.branchId)) ?? null);
   });
-
-  // Additional branches from the multi-branch allocation junction — an
-  // admin/manager may hold several branches (User.branchId only records
-  // their primary one), and each of those branches implies membership of
-  // its company. Without this, allocating a second branch would leave the
-  // user unable to see that branch's company data.
-  const allocated: any[] = await (UserBranch as any).findAll({
-    where: { userId: { [Op.in]: userIds } },
-    attributes: ["userId", "branchId"],
-  });
-  if (allocated.length > 0) {
-    const extraBranchIds = Array.from(
-      new Set(allocated.map((r: any) => Number(r.branchId)).filter((b) => !companyIdByBranch.has(b)))
-    );
-    if (extraBranchIds.length > 0) {
-      const extraBranches: any[] = await (Branch as any).findAll({
-        where: { id: { [Op.in]: extraBranchIds } },
-        attributes: ["id", "companyId"],
-      });
-      extraBranches.forEach((b: any) =>
-        companyIdByBranch.set(Number(b.id), b.companyId == null ? null : Number(b.companyId))
-      );
-    }
-    allocated.forEach((r: any) => add(Number(r.userId), companyIdByBranch.get(Number(r.branchId)) ?? null));
-  }
+  allocated.forEach((r: any) => add(Number(r.userId), companyIdByBranch.get(Number(r.branchId)) ?? null));
 
   managerLinks.forEach((r: any) => add(Number(r.managerId), r.companyId));
   adminLinks.forEach((r: any) => add(Number(r.adminId), r.companyId));

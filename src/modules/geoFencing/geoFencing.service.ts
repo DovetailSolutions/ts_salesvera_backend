@@ -1,7 +1,7 @@
 import { User } from "../../config/dbConnection";
 import axios from "axios"
 import { ServiceError } from "../shared/serviceError";
-import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
+import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import { haversineMeters } from "../shared/geo";
 import { resolveCompanyId } from "../../config/tokenCheck";
 import * as GeoFencingRepo from "./geoFencing.repository";
@@ -181,7 +181,7 @@ export const assertCanAct = async (
   if (callerRole === "admin") {
     // Tenant isolation — admin may only reach managers/sale_persons inside
     // their OWN company-scoped team, never another company's.
-    const teamIds = await getCompanyScopedChildUserIds(callerId, callerCompanyId);
+    const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
     if (!teamIds.includes(Number(targetUser.id))) {
       throw new ServiceError(
         "This user is not on your team, or belongs to another company",

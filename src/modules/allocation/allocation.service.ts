@@ -1,7 +1,7 @@
 import { Op } from "sequelize";
 import { User, Branch, Shift, Department, UserBranch } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
-import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
+import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 
 // ============================================================
 // Bulk allocation of branches and shifts, role-aware.
@@ -83,7 +83,7 @@ const loadAssignableTargets = async (
   // scope against; every other caller may only touch their own descendants
   // within the company they're currently acting in.
   if (callerRole !== "super_admin") {
-    const teamIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const teamIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
     const outsiders = userIds.filter((id) => id !== loggedInId && !teamIds.includes(id));
     if (outsiders.length > 0) {
       throw new ServiceError(
@@ -297,7 +297,7 @@ export const getAllocations = async (
   const userIds = parseIdList(userIdsParam, "userIds");
 
   if (callerRole !== "super_admin") {
-    const teamIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const teamIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
     const outsiders = userIds.filter((id) => id !== loggedInId && !teamIds.includes(id));
     if (outsiders.length > 0) {
       throw new ServiceError(
