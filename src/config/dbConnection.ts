@@ -68,6 +68,11 @@ import { ContactQuery } from "../app/model/contactQuery";
 
 import { UserGeoFencing } from "../app/model/userGeoFencing";
 import { SalesPersonTravelLog } from "../app/model/salesPersonTravelLog";
+import { AttendanceTrustedDevice } from "../app/model/attendanceTrustedDevice";
+import { AttendanceDeviceChangeRequest } from "../app/model/attendanceDeviceChangeRequest";
+import { AttendanceAuditLog } from "../app/model/attendanceAuditLog";
+import { TenantSetupStatus, CompanySetupStatus } from "../app/model/setupStatus";
+import { SetupAuditLog } from "../app/model/setupAuditLog";
 
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
@@ -119,6 +124,12 @@ Attendance.initModel(sequelize);
 Leave.initModel(sequelize);
 UserGeoFencing.initModel(sequelize);
   SalesPersonTravelLog.initModel(sequelize);
+AttendanceTrustedDevice.initModel(sequelize);
+AttendanceDeviceChangeRequest.initModel(sequelize);
+AttendanceAuditLog.initModel(sequelize);
+TenantSetupStatus.initModel(sequelize);
+CompanySetupStatus.initModel(sequelize);
+SetupAuditLog.initModel(sequelize);
 
 // Expense
 Expense.initModel(sequelize);
@@ -1241,4 +1252,10 @@ export {
   TaskComment,
   ContactQuery,
   UserGeoFencing,
+  AttendanceTrustedDevice,
+  AttendanceDeviceChangeRequest,
+  AttendanceAuditLog,
+  TenantSetupStatus,
+  CompanySetupStatus,
+  SetupAuditLog,
 };

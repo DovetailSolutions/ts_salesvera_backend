@@ -11,6 +11,7 @@ import * as AttendanceRepo from "./attendance.repository";
 import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary, isPlausibleLeg } from "./travelDistance.service";
 import { resolveAttendanceLocationName } from "./locationName.service";
 import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User } from "../../config/dbConnection";
+import * as AttendanceSecurity from "../attendanceSecurity/attendanceSecurity.service";
 
 // ============================================================
 // Attendance service — validation + orchestration. Byte-for-byte port of the
@@ -1262,7 +1263,7 @@ const resolveAttendanceContext = async (employeeId: number, callerCompanyId?: nu
   return { shift: shift as any, company: company as any, branch: branch as any };
 };
 
-export const attendancePunchIn = async (finalUserId: number, callerCompanyId: number | null, body: any) => {
+export const attendancePunchIn = async (finalUserId: number, callerCompanyId: number | null, body: any, file?: any) => {
   const { punch_in, latitude_in, longitude_in } = body || {};
 
   if (!punch_in) throw new ServiceError("Punch-in time is required");
@@ -1289,6 +1290,16 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
 
   const activeSession = await AttendanceRepo.findActivePunchSession(finalUserId, today);
   if (activeSession) throw new ServiceError("You have already punched-in. Please punch-out first.");
+
+  // Attendance Security (modules/attendanceSecurity) — device binding and
+  // photo-required checks, each a no-op unless an admin explicitly enabled
+  // it for this user. Device check runs before anything else in this
+  // function's flow that would mutate state, so a blocked device never
+  // partially applies a punch-in.
+  const securityFlags = await AttendanceSecurity.getUserSecurityFlags(finalUserId);
+  if (securityFlags.isDeviceSecurityRequired) {
+    await AttendanceSecurity.checkDeviceSecurity(finalUserId, callerCompanyId, body?.deviceId, body?.deviceName, body?.deviceType);
+  }
 
   const { shift, company, branch } = await resolveAttendanceContext(Number(finalUserId), callerCompanyId);
 
@@ -1382,6 +1393,28 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     ? await resolveAttendanceLocationName(latitude_in, longitude_in, company?.id ?? null)
     : null;
 
+  // Photo requirement — checked last (after everything else that could
+  // reject this punch) so a photo is only ever demanded once every other
+  // check has already passed. Never silently marks attendance successful
+  // without a required photo actually stored.
+  let attendancePhotoUrl: string | null = null;
+  if (securityFlags.isAttendancePhotoRequired) {
+    if (!file?.location) {
+      throw new ServiceError(
+        "A photo is required to punch in. Please capture a photo and try again.",
+        400,
+        { code: "PHOTO_REQUIRED", action: "RETRY_PHOTO" }
+      );
+    }
+    attendancePhotoUrl = file.location;
+    AttendanceSecurity.logSecurityEvent({
+      userId: finalUserId,
+      companyId: callerCompanyId,
+      actorId: finalUserId,
+      eventType: "PHOTO_UPLOADED",
+    });
+  }
+
   if (existingRecordsForToday) {
     existingRecordsForToday.punch_in = punchInTime;
     existingRecordsForToday.punch_out = null as any;
@@ -1397,6 +1430,8 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     existingRecordsForToday.geoFencingEnabled = userGeoFence.enforced;
     existingRecordsForToday.geoFencingVerified = userGeoFence.enforced ? !!userGeoFence.verified : null as any;
     existingRecordsForToday.geoFenceDistance = userGeoFence.enforced ? userGeoFence.distanceMeters ?? null : null as any;
+    existingRecordsForToday.attendancePhoto = attendancePhotoUrl;
+    existingRecordsForToday.punchInDeviceId = body?.deviceId ?? null;
     // A fresh punch-in starts a new day-session — any travel totals computed
     // against the previous session's punch-out are no longer valid.
     existingRecordsForToday.lastMeetingId = null as any;
@@ -1406,10 +1441,18 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     existingRecordsForToday.vehicleAllowance = null as any;
     existingRecordsForToday.distanceCalculationStatus = null as any;
     await existingRecordsForToday.save();
+    AttendanceSecurity.logSecurityEvent({
+      userId: finalUserId,
+      companyId: callerCompanyId,
+      actorId: finalUserId,
+      eventType: "ATTENDANCE_MARKED",
+      attendanceId: existingRecordsForToday.id,
+      message: "Punch-in",
+    });
     return existingRecordsForToday;
   }
 
-  return AttendanceRepo.createAttendanceRecord({
+  const created = await AttendanceRepo.createAttendanceRecord({
     employee_id: finalUserId,
     date: today,
     punch_in: punchInTime,
@@ -1421,7 +1464,20 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     geoFencingEnabled: userGeoFence.enforced,
     geoFencingVerified: userGeoFence.enforced ? !!userGeoFence.verified : null,
     geoFenceDistance: userGeoFence.enforced ? userGeoFence.distanceMeters ?? null : null,
+    attendancePhoto: attendancePhotoUrl,
+    punchInDeviceId: body?.deviceId ?? null,
   } as any);
+
+  AttendanceSecurity.logSecurityEvent({
+    userId: finalUserId,
+    companyId: callerCompanyId,
+    actorId: finalUserId,
+    eventType: "ATTENDANCE_MARKED",
+    attendanceId: (created as any).id,
+    message: "Punch-in",
+  });
+
+  return created;
 };
 
 // Derived from a punch-out session's working_hours against the employee's
@@ -1488,14 +1544,50 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
 
   if (punchOutTime < punchInTime) throw new ServiceError("Punch-out must be after punch-in");
 
-  // Per-user geo-fencing applies to punch-out too (spec explicitly covers
-  // both Check In and Check Out) — no company/branch-level equivalent
-  // existed for punch-out before this, so this is purely additive.
-  const targetUserObjOut = await User.findByPk(finalUserId, { attributes: ["id", "isGeofenceRequired"] });
-  const isUserGeofenceRequiredOut = (targetUserObjOut as any)?.isGeofenceRequired ?? true;
-  const userGeoFenceOut = isUserGeofenceRequiredOut
-    ? await checkUserGeoFencing(finalUserId, latitude_out, longitude_out)
-    : { enforced: false };
+  // Attendance Security — device binding (same check as punch-in, since a
+  // revoked/untrusted device must not be able to punch out either) and
+  // punch-out geofencing, which is its OWN independent toggle
+  // (isPunchOutGeofenceRequired) — deliberately does NOT inherit punch-in's
+  // isGeofenceRequired, per the Attendance Security module spec.
+  const securityFlagsOut = await AttendanceSecurity.getUserSecurityFlags(finalUserId);
+  if (securityFlagsOut.isDeviceSecurityRequired) {
+    await AttendanceSecurity.checkDeviceSecurity(finalUserId, callerCompanyId, body?.deviceId, body?.deviceName, body?.deviceType);
+  }
+
+  let userGeoFenceOut: { enforced: boolean; verified?: boolean; distanceMeters?: number; radiusMeters?: number } = {
+    enforced: false,
+  };
+  if (securityFlagsOut.isPunchOutGeofenceRequired) {
+    try {
+      userGeoFenceOut = await checkUserGeoFencing(finalUserId, latitude_out, longitude_out, {
+        requiredFlag: "isPunchOutGeofenceRequired",
+      });
+      AttendanceSecurity.logSecurityEvent({
+        userId: finalUserId,
+        companyId: callerCompanyId,
+        actorId: finalUserId,
+        eventType: "PUNCH_OUT_GEOFENCE_PASSED",
+      });
+    } catch (err) {
+      if (err instanceof ServiceError && err.meta?.distanceMeters != null) {
+        AttendanceSecurity.logSecurityEvent({
+          userId: finalUserId,
+          companyId: callerCompanyId,
+          actorId: finalUserId,
+          eventType: "PUNCH_OUT_GEOFENCE_FAILED",
+          metadata: err.meta,
+        });
+        // Punch-out-specific copy (required radius + current distance,
+        // spec item 17) — punch-in's own geofence message is untouched.
+        throw new ServiceError(
+          `You are outside the allowed punch-out location.\n\nRequired: Within ${Math.round(err.meta.radiusMeters)}m of the assigned location.\nCurrent distance: ${Math.round(err.meta.distanceMeters)}m.`,
+          400,
+          err.meta
+        );
+      }
+      throw err;
+    }
+  }
 
   const diffMs = punchOutTime.getTime() - punchInTime.getTime();
   const workingHours = diffMs / (1000 * 60 * 60);
@@ -1519,6 +1611,7 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   attendance.overtime = overtime;
   attendance.latitude_out = latitude_out;
   attendance.longitude_out = longitude_out;
+  attendance.punchOutDeviceId = body?.deviceId ?? null;
   attendance.locationNameOut = isValidCoordinate(latitude_out, longitude_out)
     ? await resolveAttendanceLocationName(latitude_out, longitude_out, company?.id ?? null)
     : null;
@@ -1560,6 +1653,15 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   await applyTravelSummaryOnPunchOut(attendance, finalUserId, today, company);
 
   await attendance.save();
+
+  AttendanceSecurity.logSecurityEvent({
+    userId: finalUserId,
+    companyId: callerCompanyId,
+    actorId: finalUserId,
+    eventType: "ATTENDANCE_MARKED",
+    attendanceId: attendance.id,
+    message: "Punch-out",
+  });
 
   return attendance;
 };

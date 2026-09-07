@@ -3,6 +3,7 @@ import { tokenCheck } from "../../config/jwtVerify";
 import { checkPermission } from "../../config/checkPermission";
 import getUploadMiddleware from "../../config/fileUploads";
 import * as AttendanceController from "./attendance.controller";
+import { handleAttendancePhoto } from "./attendancePhotoUpload";
 
 // ============================================================
 // Attendance routes (admin/team-scoped side) — mounted directly on the
@@ -61,7 +62,13 @@ router.get(
 
 
 // Self-service punch in/out and travel summary for web admin / portal users
-router.post("/attendance/punch-in", tokenCheck, checkPermission("attendance", "create"), AttendanceController.AttendancePunchIn);
+router.post(
+  "/attendance/punch-in",
+  tokenCheck,
+  checkPermission("attendance", "create"),
+  handleAttendancePhoto,
+  AttendanceController.AttendancePunchIn
+);
 router.post("/attendance/punch-out", tokenCheck, checkPermission("attendance", "update"), AttendanceController.AttendancePunchOut);
 router.get("/attendance/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getTodayAttendance);
 router.get("/travel/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummary);

@@ -550,10 +550,11 @@ export const MySalePerson = async (
     where.id = { [Op.in]: childIds };
     const { count, rows } = await User.findAndCountAll({
       where,
-      attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "shiftId", "branchId"],
+      attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "shiftId", "branchId", "departmentId"],
       include: [
         { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
         { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+        { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
       ],
       limit: limitNum,
       offset,

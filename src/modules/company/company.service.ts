@@ -3,6 +3,7 @@ import * as Middleware from "../../app/middlewear/comman";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { hasCompanyAccess } from "../shared/companyAccess";
 import * as CompanyRepo from "./company.repository";
+import * as SetupTracking from "../setupTracking/setupTracking.service";
 
 // ============================================================
 // Company service — validation + orchestration. Byte-for-byte port of the
@@ -104,6 +105,19 @@ export const addCompany = async (userId: number, role: any, body: any) => {
       );
       invalidatePermissionCache(Number(targetAdminId));
     }
+  }
+
+  // Setup Tracking: best-effort audit trail — never block company creation.
+  try {
+    await SetupTracking.recordCompanyCreated({
+      companyId: (company as any).id,
+      companyName: (company as any).companyName,
+      tenantUserId: targetUserId ?? null,
+      actorId: Number(userId),
+      actorRole: role ?? null,
+    });
+  } catch (e) {
+    console.error("setupTracking.recordCompanyCreated failed:", e);
   }
 
   return company;
@@ -371,25 +385,136 @@ export const getOwnCompany = async (userId: number) => {
   return companies;
 };
 
-export const addCompanyBank = async (userId: number, body: any) => {
-  const { companyId, banks } = body;
-
+export const addCompanyBank = async (userId: number, body: any, fallbackCompanyId?: number) => {
+  const companyId = body.companyId || fallbackCompanyId;
   if (!companyId) throw new ServiceError("companyId is required");
-  if (!Array.isArray(banks) || banks.length === 0) throw new ServiceError("banks array is required");
 
-  const bankData = banks.map((b: any) => ({
+  let banksList: any[] = [];
+  if (Array.isArray(body.banks)) {
+    banksList = body.banks;
+  } else if (body.bankAccountHolder || body.bankAccountNumber || body.bankName) {
+    banksList = [body];
+  } else if (body.banks && typeof body.banks === "object") {
+    banksList = [body.banks];
+  }
+
+  if (banksList.length === 0) {
+    throw new ServiceError("At least one bank account is required");
+  }
+
+  for (const b of banksList) {
+    if (!b.bankAccountHolder || !String(b.bankAccountHolder).trim()) {
+      throw new ServiceError("Bank account holder name is required");
+    }
+    if (!b.bankName || !String(b.bankName).trim()) {
+      throw new ServiceError("Bank name is required");
+    }
+    if (!b.bankAccountNumber || !String(b.bankAccountNumber).trim()) {
+      throw new ServiceError("Bank account number is required");
+    }
+    if (!b.bankIfsc || !String(b.bankIfsc).trim()) {
+      throw new ServiceError("Bank IFSC code is required");
+    }
+  }
+
+  const bankData = banksList.map((b: any) => ({
     companyId: Number(companyId),
     branchId: b.branchId ? Number(b.branchId) : null,
     userId: Number(userId),
-    bankAccountHolder: b.bankAccountHolder,
-    bankName: b.bankName,
-    bankAccountNumber: b.bankAccountNumber,
-    bankIfsc: b.bankIfsc,
-    bankBranchName: b.bankBranchName || null,
-    bankAccountType: b.bankAccountType || null,
-    bankMicr: b.bankMicr || null,
-    upiId: b.upiId || null,
+    bankAccountHolder: String(b.bankAccountHolder).trim(),
+    bankName: String(b.bankName).trim(),
+    bankAccountNumber: String(b.bankAccountNumber).trim(),
+    bankIfsc: String(b.bankIfsc).trim().toUpperCase(),
+    bankBranchName: b.bankBranchName ? String(b.bankBranchName).trim() : null,
+    bankAccountType: b.bankAccountType ? String(b.bankAccountType).trim() : null,
+    bankMicr: b.bankMicr ? String(b.bankMicr).trim() : null,
+    upiId: b.upiId ? String(b.upiId).trim() : null,
   }));
 
+  if (bankData.length === 1) {
+    return CompanyRepo.createCompanyBank(bankData[0]);
+  }
   return CompanyRepo.bulkCreateCompanyBanks(bankData);
+};
+
+export const getCompanyBanks = async (companyId: number) => {
+  if (!companyId) throw new ServiceError("companyId is required");
+  return CompanyRepo.findCompanyBanks(Number(companyId));
+};
+
+export const getCompanyBankById = async (id: number, userCompanyId?: number, role?: string) => {
+  if (!id) throw new ServiceError("Bank ID is required");
+  const bank = await CompanyRepo.findCompanyBankById(Number(id));
+  if (!bank) throw new ServiceError("Bank account not found");
+  if (role !== "super_admin" && userCompanyId && bank.companyId !== Number(userCompanyId)) {
+    throw new ServiceError("You do not have access to this bank account");
+  }
+  return bank;
+};
+
+export const updateCompanyBank = async (id: number, body: any, userCompanyId?: number, role?: string) => {
+  if (!id) throw new ServiceError("Bank ID is required");
+  const bank = await CompanyRepo.findCompanyBankById(Number(id));
+  if (!bank) throw new ServiceError("Bank account not found");
+
+  if (role !== "super_admin" && userCompanyId && bank.companyId !== Number(userCompanyId)) {
+    throw new ServiceError("You are not authorized to update this bank account");
+  }
+
+  const updateFields: any = {};
+  if (body.bankAccountHolder !== undefined) {
+    if (!body.bankAccountHolder || !String(body.bankAccountHolder).trim()) {
+      throw new ServiceError("Bank account holder name is required");
+    }
+    updateFields.bankAccountHolder = String(body.bankAccountHolder).trim();
+  }
+  if (body.bankName !== undefined) {
+    if (!body.bankName || !String(body.bankName).trim()) {
+      throw new ServiceError("Bank name is required");
+    }
+    updateFields.bankName = String(body.bankName).trim();
+  }
+  if (body.bankAccountNumber !== undefined) {
+    if (!body.bankAccountNumber || !String(body.bankAccountNumber).trim()) {
+      throw new ServiceError("Bank account number is required");
+    }
+    updateFields.bankAccountNumber = String(body.bankAccountNumber).trim();
+  }
+  if (body.bankIfsc !== undefined) {
+    if (!body.bankIfsc || !String(body.bankIfsc).trim()) {
+      throw new ServiceError("Bank IFSC code is required");
+    }
+    updateFields.bankIfsc = String(body.bankIfsc).trim().toUpperCase();
+  }
+  if (body.bankBranchName !== undefined) {
+    updateFields.bankBranchName = body.bankBranchName ? String(body.bankBranchName).trim() : null;
+  }
+  if (body.bankAccountType !== undefined) {
+    updateFields.bankAccountType = body.bankAccountType ? String(body.bankAccountType).trim() : null;
+  }
+  if (body.bankMicr !== undefined) {
+    updateFields.bankMicr = body.bankMicr ? String(body.bankMicr).trim() : null;
+  }
+  if (body.upiId !== undefined) {
+    updateFields.upiId = body.upiId ? String(body.upiId).trim() : null;
+  }
+  if (body.branchId !== undefined) {
+    updateFields.branchId = body.branchId ? Number(body.branchId) : null;
+  }
+
+  await CompanyRepo.updateCompanyBank(Number(id), updateFields);
+  return CompanyRepo.findCompanyBankById(Number(id));
+};
+
+export const deleteCompanyBank = async (id: number, userCompanyId?: number, role?: string) => {
+  if (!id) throw new ServiceError("Bank ID is required");
+  const bank = await CompanyRepo.findCompanyBankById(Number(id));
+  if (!bank) throw new ServiceError("Bank account not found");
+
+  if (role !== "super_admin" && userCompanyId && bank.companyId !== Number(userCompanyId)) {
+    throw new ServiceError("You are not authorized to delete this bank account");
+  }
+
+  await CompanyRepo.deleteCompanyBank(Number(id));
+  return { success: true, id: Number(id) };
 };

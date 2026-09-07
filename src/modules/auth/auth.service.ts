@@ -8,6 +8,7 @@ import { resolveDefaultBranchAndShift } from "../shared/companyAccess";
 import { resolveCompanyId } from "../../config/tokenCheck";
 import { SpacesFile } from "../../config/spaces";
 import * as AuthRepo from "./auth.repository";
+import * as SetupTracking from "../setupTracking/setupTracking.service";
 
 // ============================================================
 // Auth service — validation + orchestration. Byte-for-byte port of the
@@ -271,6 +272,20 @@ export const register = async (body: any, callerData?: { userId?: number | strin
       where: { companyId: creatorCompanyId, managerId: item.getDataValue("id") },
       defaults: { companyId: creatorCompanyId, managerId: item.getDataValue("id") },
     });
+  }
+
+  // Setup Tracking: best-effort audit trail — never block registration.
+  try {
+    await SetupTracking.recordUserCreated({
+      newUserId: item.getDataValue("id") as number,
+      newUserRole: role,
+      newUserTenantId: (item.getDataValue("tenantId") as number | null) ?? resolvedTenantId,
+      actorId: callerId,
+      actorRole: callerRole ?? null,
+      companyId: creatorCompanyId,
+    });
+  } catch (e) {
+    console.error("setupTracking.recordUserCreated failed:", e);
   }
 
   const { accessToken, refreshToken } = Middleware.CreateToken(

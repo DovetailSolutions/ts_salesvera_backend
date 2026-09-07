@@ -24,7 +24,7 @@ import { getCompanyScopedChildUserIds } from "../shared/userHierarchy";
 
 const ASSIGNABLE_TARGET_ROLES: Record<string, string[]> = {
   super_admin: ["user", "admin", "manager", "sale_person"],
-  user: ["admin", "manager"],
+  user: ["admin", "manager", "sale_person", "salesperson"],
   admin: ["manager", "sale_person"],
   manager: ["sale_person"],
 };

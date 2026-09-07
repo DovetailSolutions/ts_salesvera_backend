@@ -237,3 +237,20 @@ export const findCompaniesWithFullDetail = (userId: number) =>
   });
 
 export const bulkCreateCompanyBanks = (rows: any[]) => CompanyBank.bulkCreate(rows);
+
+export const createCompanyBank = (row: any) => CompanyBank.create(row);
+
+export const findCompanyBanks = (companyId: number) =>
+  CompanyBank.findAll({
+    where: { companyId },
+    order: [["id", "ASC"]],
+  });
+
+export const findCompanyBankById = (id: number) =>
+  CompanyBank.findByPk(id);
+
+export const updateCompanyBank = (id: number, fields: any) =>
+  CompanyBank.update(fields, { where: { id } });
+
+export const deleteCompanyBank = (id: number) =>
+  CompanyBank.destroy({ where: { id } });

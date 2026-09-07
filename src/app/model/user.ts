@@ -55,6 +55,12 @@ interface UserAttributes {
   // ensureBranchVisibilityToggle.
   canViewAllBranches?: boolean;
   isGeofenceRequired?: boolean;
+  // Attendance Security module (modules/attendanceSecurity) — all three
+  // default false so no existing user's attendance behavior changes until
+  // an admin explicitly opts them in per user or in bulk.
+  isAttendancePhotoRequired?: boolean;
+  isDeviceSecurityRequired?: boolean;
+  isPunchOutGeofenceRequired?: boolean;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -246,6 +252,21 @@ export const createUserModel = (sequelize: Sequelize) => {
           type: DataTypes.BOOLEAN,
           allowNull: false,
           defaultValue: true,
+        },
+        isAttendancePhotoRequired: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        isDeviceSecurityRequired: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        isPunchOutGeofenceRequired: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
         },
         canViewAllBranches: {
         type: DataTypes.BOOLEAN,

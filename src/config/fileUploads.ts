@@ -6,7 +6,8 @@ import { spacesClient, SPACES_BUCKET } from "./spaces";
 const getUploadMiddleware = (
   type: string,
   maxSizeMB: number = 1000,
-  maxFiles: number = 100
+  maxFiles: number = 100,
+  options?: { allowedMimeTypes?: string[] }
 ): multer.Multer => {
   return multer({
     storage: multerS3({
@@ -26,6 +27,17 @@ const getUploadMiddleware = (
       fileSize: maxSizeMB * 1024 * 1024,
       files: maxFiles,
     },
+    // Optional — every existing call site omits this and is unaffected.
+    // Added for attendance-photo uploads, which must reject non-image files
+    // server-side rather than trusting the frontend's <input accept=...>.
+    ...(options?.allowedMimeTypes
+      ? {
+          fileFilter: (_req: any, file: any, cb: any) => {
+            if (options.allowedMimeTypes!.includes(file.mimetype)) cb(null, true);
+            else cb(new Error("UNSUPPORTED_FILE_TYPE"));
+          },
+        }
+      : {}),
   });
 };
 

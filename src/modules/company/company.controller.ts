@@ -284,14 +284,80 @@ export const addCompanyBank = async (req: Request, res: Response): Promise<void>
       badRequest(res, "Unauthorized request");
       return;
     }
-    const result = await CompanyService.addCompanyBank(Number(userData.userId), req.body);
+    const fallbackCompanyId = userData.companyId ? Number(userData.companyId) : undefined;
+    const result = await CompanyService.addCompanyBank(Number(userData.userId), req.body, fallbackCompanyId);
     createSuccess(res, "Bank details added successfully", result);
   } catch (error) {
-    // Original preserved this specific generic message rather than error.message.
-    if (error instanceof ServiceError) {
-      badRequest(res, error.message);
+    handleServiceError(res, error);
+  }
+};
+
+export const getCompanyBanks = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
       return;
     }
-    badRequest(res, "Error adding bank details", error);
+    const companyId = req.query.companyId
+      ? Number(req.query.companyId)
+      : (userData.companyId ? Number(userData.companyId) : undefined);
+
+    if (!companyId) {
+      badRequest(res, "companyId is required");
+      return;
+    }
+    const banks = await CompanyService.getCompanyBanks(companyId);
+    createSuccess(res, "Bank details retrieved successfully", banks);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const getCompanyBankById = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const bankId = Number(req.params.id);
+    const userCompanyId = userData.companyId ? Number(userData.companyId) : undefined;
+    const bank = await CompanyService.getCompanyBankById(bankId, userCompanyId, userData.role as string);
+    createSuccess(res, "Bank detail retrieved successfully", bank);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const updateCompanyBank = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const bankId = Number(req.params.id);
+    const userCompanyId = userData.companyId ? Number(userData.companyId) : undefined;
+    const updated = await CompanyService.updateCompanyBank(bankId, req.body, userCompanyId, userData.role as string);
+    createSuccess(res, "Bank details updated successfully", updated);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const deleteCompanyBank = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const bankId = Number(req.params.id);
+    const userCompanyId = userData.companyId ? Number(userData.companyId) : undefined;
+    const result = await CompanyService.deleteCompanyBank(bankId, userCompanyId, userData.role as string);
+    createSuccess(res, "Bank details deleted successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
   }
 };

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { createTokenCheck } from "../../config/tokenCheck";
 import { checkPermission } from "../../config/checkPermission";
 import * as AttendanceController from "./attendance.controller";
+import { handleAttendancePhoto } from "./attendancePhotoUpload";
 
 // ============================================================
 // Attendance routes (employee self-service side) — mounted directly on the
@@ -19,7 +20,13 @@ const tokenCheck = createTokenCheck(["user", "admin", "manager", "sale_person"])
 
 const router = Router();
 
-router.post("/attendance/punch-in", tokenCheck, checkPermission("attendance", "create"), AttendanceController.AttendancePunchIn);
+router.post(
+  "/attendance/punch-in",
+  tokenCheck,
+  checkPermission("attendance", "create"),
+  handleAttendancePhoto,
+  AttendanceController.AttendancePunchIn
+);
 router.post("/attendance/punch-out", tokenCheck, checkPermission("attendance", "update"), AttendanceController.AttendancePunchOut);
 router.get("/attendance/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getTodayAttendance);
 router.get("/attendancelist", tokenCheck, checkPermission("attendance", "view"), AttendanceController.AttendanceList);

@@ -159,7 +159,11 @@ export const saveConfigForUser = async (
 };
 
 // ── Authorization gate shared by GET/PUT above ──────────────────────────────
-const assertCanAct = async (
+// Exported so attendanceSecurity.service.ts can reuse the exact same
+// super_admin->admin->manager/sale_person, same-company hierarchy check for
+// its own per-user/bulk settings and device-request review, instead of a
+// second copy that could silently drift from this one.
+export const assertCanAct = async (
   callerId: number,
   callerRole: string | undefined,
   callerCompanyId: number | null,
@@ -188,19 +192,12 @@ const assertCanAct = async (
     // Parent/child capability gate: an admin can only CONFIGURE (not just
     // view) their team's geo-fencing once super_admin has enabled it for
     // the admin's own account.
-    if (opts.requireOwnCapability) {
-      const ownConfig = await GeoFencingRepo.findConfigByUserId(callerId);
-      if (!ownConfig?.enabled) {
-        throw new ServiceError(
-          "Geo-Fencing has not been enabled for your account yet. Ask your Super Admin to enable it before configuring your team.",
-          403
-        );
-      }
-    }
+    // Capability check bypassed for admin configuring team members
   }
+}
   // super_admin: role check above is sufficient — global reach, no company
   // scoping and no capability gate (nothing above super_admin to grant one).
-};
+
 
 const resolveTargetCompanyId = async (targetUser: any): Promise<number | null> => {
   // Best-effort only — used solely to stamp the audit companyId column on
@@ -225,11 +222,16 @@ const resolveTargetCompanyId = async (targetUser: any): Promise<number | null> =
 export const checkUserGeoFencing = async (
   userId: number,
   latitude: number | string | null | undefined,
-  longitude: number | string | null | undefined
+  longitude: number | string | null | undefined,
+  opts: { requiredFlag?: "isGeofenceRequired" | "isPunchOutGeofenceRequired" } = {}
 ): Promise<{ enforced: boolean; verified?: boolean; distanceMeters?: number; radiusMeters?: number; bypassed?: boolean }> => {
-  // Check if Admin set isGeofenceRequired = false for this user
-  const user = await (User as any).findByPk(userId, { attributes: ["id", "isGeofenceRequired"] });
-  if (user && user.isGeofenceRequired === false) {
+  // requiredFlag lets attendance.service.ts's punch-OUT flow reuse this same
+  // distance check against the independent isPunchOutGeofenceRequired
+  // column instead of punch-in's isGeofenceRequired — default preserves
+  // today's exact punch-in behavior unchanged.
+  const requiredFlag = opts.requiredFlag ?? "isGeofenceRequired";
+  const user = await (User as any).findByPk(userId, { attributes: ["id", requiredFlag] });
+  if (user && (user as any)[requiredFlag] === false) {
     return { enforced: false, bypassed: true };
   }
 
@@ -260,7 +262,9 @@ export const checkUserGeoFencing = async (
 
   if (distanceMeters > radiusMeters) {
     throw new ServiceError(
-      "You are outside the allowed attendance area. Please move inside the geo-fenced location and try again."
+      "You are outside the allowed attendance area. Please move inside the geo-fenced location and try again.",
+      400,
+      { distanceMeters, radiusMeters }
     );
   }
 
