@@ -23,13 +23,13 @@ router.get("/geo-fencing/reverse-geocode", tokenCheck, GeoFencingController.reve
 router.get(
   "/geo-fencing/:userId",
   tokenCheck,
-  authorizeRoles("super_admin", "admin"),
+  authorizeRoles("super_admin", "admin", "manager"),
   GeoFencingController.getForUser
 );
 router.put(
   "/geo-fencing/:userId",
   tokenCheck,
-  authorizeRoles("super_admin", "admin"),
+  authorizeRoles("super_admin", "admin", "manager"),
   GeoFencingController.saveForUser
 );
 
