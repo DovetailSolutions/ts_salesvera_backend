@@ -36,6 +36,10 @@ router.get("/my-companies", tokenCheck, CompanyController.getMyCompanies);
 router.post("/switch-company", tokenCheck, CompanyController.switchCompany);
 router.delete("/deletecompany/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.deleteCompany);
 router.post("/add-bank", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.addCompanyBank);
+router.get("/get-bank", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), CompanyController.getCompanyBanks);
+router.get("/get-bank/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), CompanyController.getCompanyBankById);
+router.patch("/update-bank/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.updateCompanyBank);
+router.delete("/delete-bank/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.deleteCompanyBank);
 router.get("/getowncompany", tokenCheck, CompanyController.getOwnCompany);
 
 export default router;

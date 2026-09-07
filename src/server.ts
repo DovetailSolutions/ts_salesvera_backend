@@ -26,6 +26,7 @@ import leaveRoutes from "./modules/leave/leave.routes";
 import attendanceRoutes from "./modules/attendance/attendance.routes";
 import attendanceSelfRoutes from "./modules/attendance/attendanceSelf.routes";
 import geoFencingRoutes from "./modules/geoFencing/geoFencing.routes";
+import attendanceSecurityRoutes from "./modules/attendanceSecurity/attendanceSecurity.routes";
 import companyRoutes from "./modules/company/company.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import preferencesRoutes from "./modules/preferences/preferences.routes";
@@ -33,6 +34,7 @@ import reportsRoutes from "./modules/reports/reports.routes";
 import meetingRoutes from "./modules/meeting/meeting.routes";
 import { contactPublicRoutes, contactAdminRoutes } from "./modules/contact/contact.routes";
 import superAdminRoutes from "./modules/superAdmin/superAdmin.routes";
+import setupTrackingRoutes from "./modules/setupTracking/setupTracking.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -81,6 +83,7 @@ app.use("/admin", leaveRoutes);
 app.use("/admin", attendanceRoutes);
 app.use("/api", attendanceSelfRoutes);
 app.use("/admin", geoFencingRoutes);
+app.use("/admin", attendanceSecurityRoutes);
 app.use("/admin", companyRoutes);
 app.use("/admin", authRoutes);
 app.use("/admin", preferencesRoutes);
@@ -88,6 +91,10 @@ app.use("/admin", reportsRoutes);
 app.use("/admin", meetingRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
+// setupTrackingRoutes is mounted BEFORE superAdminRoutes on purpose — see
+// the FIX note in superAdmin.routes.ts: a path-less router.use(tokenCheck)
+// there previously shadowed any route mounted after it.
+app.use("/admin", setupTrackingRoutes);
 app.use("/admin", superAdminRoutes);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {

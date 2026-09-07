@@ -99,6 +99,12 @@ export const PERMISSION_SEEDS = [
 
   // ── Profile ──────────────────────────────────────────────
   { module: "profile", action: "view",   description: "View own profile" },
+
+  // ── Attendance Security (photo capture, device binding, punch-out
+  // geofencing — see modules/attendanceSecurity) ───────────
+  { module: "attendance-security", action: "view", description: "View attendance security settings, device requests, and audit log" },
+  { module: "attendance-security", action: "update", description: "Update per-user or bulk attendance security settings" },
+  { module: "attendance-security", action: "device-review", description: "Approve, reject, or revoke attendance device-change requests" },
 ];
 
 export const seedPermissions = async (): Promise<void> => {

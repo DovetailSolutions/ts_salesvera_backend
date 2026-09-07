@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
-import { createSuccess, badRequest, forbidden } from "../../app/middlewear/errorMessage";
-import { ServiceError } from "../shared/serviceError";
+import { createSuccess, badRequest } from "../../app/middlewear/errorMessage";
+import { handleServiceError } from "../shared/handleServiceError";
 import * as Middleware from "../../app/middlewear/comman";
 import { Attendance } from "../../config/dbConnection";
 import * as AttendanceService from "./attendance.service";
@@ -13,15 +13,6 @@ import { getISTDateString } from "../shared/dateUtils";
 // userAttendance/AttendanceBook and user.ts's AttendancePunchIn/
 // AttendancePunchOut/getTodayAttendance/AttendanceList.
 // ============================================================
-
-const handleServiceError = (res: Response, error: unknown) => {
-  if (error instanceof ServiceError) {
-    if (error.status === 403) return forbidden(res, error.message);
-    return badRequest(res, error.message);
-  }
-  const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-  return badRequest(res, errorMessage);
-};
 
 // ---- Admin/team-scoped ----
 
@@ -138,7 +129,7 @@ export const AttendancePunchIn = async (req: Request, res: Response): Promise<vo
   try {
     const userData = req.userData as JwtPayload;
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
-    const record = await AttendanceService.attendancePunchIn(Number(userData?.userId), callerCompanyId, req.body);
+    const record = await AttendanceService.attendancePunchIn(Number(userData?.userId), callerCompanyId, req.body, req.file as any);
     createSuccess(res, "Punch-in recorded successfully", record);
   } catch (error) {
     handleServiceError(res, error);
@@ -186,7 +177,8 @@ export const getTeamTravelSummary = async (req: Request, res: Response): Promise
     const userData = req.userData as JwtPayload;
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const date = (req.params.date as string) || getISTDateString();
-    const result = await AttendanceService.getTeamTravelSummary(Number(userData?.userId), callerCompanyId, date);
+    const { page, limit, search } = req.query;
+    const result = await AttendanceService.getTeamTravelSummary(Number(userData?.userId), callerCompanyId, date, { page: page ? Number(page) : undefined, limit: limit ? Number(limit) : undefined, search: search as string });
     createSuccess(res, "Team travel summary fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);

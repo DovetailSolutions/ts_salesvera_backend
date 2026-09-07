@@ -131,7 +131,7 @@ export const findUserWithProfileIncludes = (id: number, role: string, includeCom
     { model: Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
     { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
     { model: CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
-    { model: CompanyBank, as: "companyBanks", attributes: ["id", "bankName", "bankAccountNumber", "bankIfsc", "bankBranchName", "bankAccountHolder", "companyId"] },
+    { model: CompanyBank, as: "companyBanks" },
   ];
 
   const include: any[] = [
@@ -157,7 +157,7 @@ export const findCompanyWithFullDetail = (companyId: number) => {
     { model: Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
     { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
     { model: CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
-    { model: CompanyBank, as: "companyBanks", attributes: ["id", "bankName", "bankAccountNumber", "bankIfsc", "bankBranchName", "bankAccountHolder", "companyId"] },
+    { model: CompanyBank, as: "companyBanks" },
   ];
   return Company.findByPk(companyId, {
     attributes: companyFullAttributes,

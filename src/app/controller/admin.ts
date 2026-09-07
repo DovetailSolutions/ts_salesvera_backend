@@ -246,6 +246,7 @@ export const GetAllUser = async (
         { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
         { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
         { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
+        { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
       ],
     });
 
@@ -1405,6 +1406,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
             "createdAt",
             "branchId",
             "shiftId",
+            "departmentId",
             "canViewAllBranches",
           ],
           through: { attributes: [] },
@@ -1414,6 +1416,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
           include: [
             { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
             { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+        { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
             {
               model: User,
               as: "createdUsers",
@@ -1428,6 +1431,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
                 "createdAt",
                 "branchId",
                 "shiftId",
+                "departmentId",
                 "canViewAllBranches",
               ],
               through: { attributes: [] },
@@ -1435,6 +1439,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
               include: [
                 { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
                 { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+        { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
               ],
             },
           ],

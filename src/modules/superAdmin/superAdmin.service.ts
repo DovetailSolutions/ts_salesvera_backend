@@ -8,7 +8,9 @@ import {
   CompanyManager,
   Branch,
   Department,
+  TenantSetupStatus,
 } from "../../config/dbConnection";
+import * as SetupTracking from "../setupTracking/setupTracking.service";
 
 // ============================================================
 // Super Admin Service - Handles System-Wide Aggregations,
@@ -64,6 +66,8 @@ export const getDashboardStats = async () => {
     limit: 5,
   });
 
+  const setupStats = await computeSetupStatsForAllTenants();
+
   return {
     organizationStats: {
       totalCompanies,
@@ -88,7 +92,54 @@ export const getDashboardStats = async () => {
     },
     recentUsers,
     recentCompanies,
+    setupStats,
   };
+};
+
+// Batched (no N+1) tenant setup-status tally for the dashboard's "Setup
+// Overview" — completed/skipped come from the explicit override
+// (setupTracking.service's TenantSetupStatus); everything else is
+// pending/in_progress purely from whether an admin/company exists yet.
+const computeSetupStatsForAllTenants = async () => {
+  const tenantUsers = await User.findAll({
+    where: { role: "user", status: { [Op.ne]: "delete" } },
+    attributes: ["id"],
+  });
+  const tenantUserIds = tenantUsers.map((u: any) => u.id as number);
+  if (tenantUserIds.length === 0) {
+    return { completed: 0, inProgress: 0, pending: 0, skipped: 0 };
+  }
+
+  const [overrides, adminRows, companyRows] = await Promise.all([
+    (TenantSetupStatus as any).findAll({ where: { userId: { [Op.in]: tenantUserIds } }, raw: true }),
+    User.findAll({
+      where: { tenantId: { [Op.in]: tenantUserIds }, role: "admin", status: { [Op.ne]: "delete" } },
+      attributes: ["tenantId"],
+      group: ["tenantId"],
+      raw: true,
+    }),
+    Company.findAll({
+      where: { userId: { [Op.in]: tenantUserIds } },
+      attributes: ["userId"],
+      group: ["userId"],
+      raw: true,
+    }),
+  ]);
+
+  const overrideMap = new Map<number, string>(overrides.map((o: any) => [o.userId, o.overrideStatus]));
+  const adminTenantSet = new Set(adminRows.map((r: any) => r.tenantId));
+  const companyTenantSet = new Set(companyRows.map((r: any) => r.userId));
+
+  let completed = 0, skipped = 0, inProgress = 0, pending = 0;
+  for (const id of tenantUserIds) {
+    const override = overrideMap.get(id);
+    if (override === "completed") completed++;
+    else if (override === "skipped") skipped++;
+    else if (adminTenantSet.has(id) || companyTenantSet.has(id)) inProgress++;
+    else pending++;
+  }
+
+  return { completed, inProgress, pending, skipped };
 };
 
 export const getUsersList = async (params: {
@@ -228,6 +279,37 @@ export const getUsersList = async (params: {
     });
   }
 
+  // Setup status is only meaningful for tenant-root ("user") rows — batched
+  // the same way as computeSetupStatsForAllTenants, scoped to this page.
+  const tenantIdsOnPage = rows.filter((u) => u.role === "user").map((u) => u.id as number);
+  const setupStatusMap = new Map<number, string>();
+  if (tenantIdsOnPage.length > 0) {
+    const [overrides, adminRows, companyRows] = await Promise.all([
+      (TenantSetupStatus as any).findAll({ where: { userId: { [Op.in]: tenantIdsOnPage } }, raw: true }),
+      User.findAll({
+        where: { tenantId: { [Op.in]: tenantIdsOnPage }, role: "admin", status: { [Op.ne]: "delete" } },
+        attributes: ["tenantId"],
+        group: ["tenantId"],
+        raw: true,
+      }),
+      Company.findAll({ where: { userId: { [Op.in]: tenantIdsOnPage } }, attributes: ["userId"], group: ["userId"], raw: true }),
+    ]);
+    const overrideMap = new Map<number, string>(overrides.map((o: any) => [o.userId, o.overrideStatus]));
+    const adminTenantSet = new Set(adminRows.map((r: any) => r.tenantId));
+    const companyTenantSet = new Set(companyRows.map((r: any) => r.userId));
+    for (const id of tenantIdsOnPage) {
+      const override = overrideMap.get(id);
+      setupStatusMap.set(
+        id,
+        override === "completed" || override === "skipped"
+          ? override
+          : adminTenantSet.has(id) || companyTenantSet.has(id)
+          ? "in_progress"
+          : "not_started"
+      );
+    }
+  }
+
   const formattedRows = rows.map((u) => {
     const userObj = u.toJSON() as any;
     const uid = u.id as number;
@@ -235,6 +317,7 @@ export const getUsersList = async (params: {
     userObj.companies = companiesMap.get(uid) || [];
     userObj.companiesCount = userObj.companies.length;
     userObj.childUsersCount = childCountsMap.get(uid) || 0;
+    userObj.setupStatus = u.role === "user" ? setupStatusMap.get(uid) || "not_started" : null;
     return userObj;
   });
 
@@ -460,10 +543,11 @@ export const createUserAsSuperAdmin = async (
     branchId?: number;
     departmentId?: number;
     shiftId?: number;
+    companyId?: number;
   },
   superAdminUserId: number
 ) => {
-  const { email, password, firstName, lastName, role, phone, createdBy, tenantId, branchId, departmentId, shiftId } = data;
+  const { email, password, firstName, lastName, role, phone, createdBy, tenantId, branchId, departmentId, shiftId, companyId } = data;
 
   if (!email || !email.trim()) throw new ServiceError("Email is required", 400);
   if (!firstName || !firstName.trim()) throw new ServiceError("First Name is required", 400);
@@ -473,22 +557,65 @@ export const createUserAsSuperAdmin = async (
   if (existing) throw new ServiceError("User with this email already exists", 400);
 
   const rawPassword = password || "Admin@123";
-  const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+  let resolvedTenantId = tenantId ? Number(tenantId) : null;
+  if (companyId) {
+    const comp = await Company.findByPk(Number(companyId));
+    if (comp && !resolvedTenantId && comp.userId) {
+      resolvedTenantId = comp.userId;
+    }
+  }
 
   const newUser = await User.create({
     firstName: firstName.trim(),
     lastName: lastName ? lastName.trim() : "",
     email: email.trim().toLowerCase(),
-    password: hashedPassword,
+    password: rawPassword,
     phone: phone ? phone.trim() : "",
     role,
     status: "active",
     createdBy: createdBy || superAdminUserId,
-    tenantId: tenantId || null,
-    branchId: branchId || null,
-    departmentId: departmentId || null,
-    shiftId: shiftId || null,
+    tenantId: resolvedTenantId,
+    branchId: branchId ? Number(branchId) : null,
+    departmentId: departmentId ? Number(departmentId) : null,
+    shiftId: shiftId ? Number(shiftId) : null,
   });
+
+  if (role === "user" && !resolvedTenantId) {
+    await newUser.update({ tenantId: newUser.id as number });
+  }
+
+  if (companyId) {
+    if (role === "manager") {
+      await CompanyManager.create({
+        companyId: Number(companyId),
+        managerId: newUser.id as number,
+      }).catch((e) => console.error("CompanyManager link error:", e));
+    } else if (role === "admin") {
+      await CompanyAdmin.findOrCreate({
+        where: { companyId: Number(companyId), adminId: newUser.id as number },
+        defaults: { companyId: Number(companyId), adminId: newUser.id as number },
+      }).catch((e) => console.error("CompanyAdmin link error:", e));
+      await Company.update(
+        { adminId: newUser.id as number },
+        { where: { id: Number(companyId) } }
+      ).catch((e) => console.error("Company adminId update error:", e));
+    }
+  }
+
+  // Setup Tracking: best-effort audit trail — never block user creation.
+  try {
+    await SetupTracking.recordUserCreated({
+      newUserId: newUser.id as number,
+      newUserRole: role,
+      newUserTenantId: resolvedTenantId,
+      actorId: superAdminUserId,
+      actorRole: "super_admin",
+      companyId: companyId ? Number(companyId) : null,
+    });
+  } catch (e) {
+    console.error("setupTracking.recordUserCreated failed:", e);
+  }
 
   return {
     id: newUser.id,

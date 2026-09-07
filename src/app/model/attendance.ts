@@ -54,6 +54,14 @@ interface AttendanceAttributes {
   locationNameIn?: string | null;
   locationNameOut?: string | null;
 
+  // Attendance Security module — see modules/attendanceSecurity. Photo is
+  // punch-in only (multer-s3 file.location URL); device ids record which
+  // trusted device (if device security is enabled for this user) performed
+  // each punch. All null when the corresponding control isn't enabled.
+  attendancePhoto?: string | null;
+  punchInDeviceId?: string | null;
+  punchOutDeviceId?: string | null;
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -81,6 +89,9 @@ type AttendanceCreationAttributes = Optional<
   | "distanceCalculationStatus"
   | "locationNameIn"
   | "locationNameOut"
+  | "attendancePhoto"
+  | "punchInDeviceId"
+  | "punchOutDeviceId"
 >;
 
 export class Attendance
@@ -116,6 +127,10 @@ export class Attendance
   public distanceCalculationStatus!: "calculated" | "failed" | "no_meetings" | null;
   public locationNameIn!: string | null;
   public locationNameOut!: string | null;
+
+  public attendancePhoto!: string | null;
+  public punchInDeviceId!: string | null;
+  public punchOutDeviceId!: string | null;
 
   static initModel(sequelize: Sequelize): typeof Attendance {
     Attendance.init(
@@ -224,6 +239,18 @@ export class Attendance
         },
         locationNameOut: {
           type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        attendancePhoto: {
+          type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        punchInDeviceId: {
+          type: DataTypes.STRING,
+          allowNull: true,
+        },
+        punchOutDeviceId: {
+          type: DataTypes.STRING,
           allowNull: true,
         },
       },
