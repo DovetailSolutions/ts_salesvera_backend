@@ -48,7 +48,7 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
-import { getCompanyScopedChildUserIds, getCompanyScopedOrgWideUserIds } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds } from "../../modules/shared/userHierarchy";
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
 import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
@@ -507,7 +507,7 @@ export const MySalePerson = async (
     let targetUserId = callerId;
     if (managerId !== undefined && Number(managerId) !== callerId) {
       const requestedId = Number(managerId);
-      const callerTeam = await getCompanyScopedChildUserIds(callerId, callerCompanyId);
+      const callerTeam = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
       if (!callerTeam.includes(requestedId)) {
         badRequest(res, "You are not authorized to view this manager's team");
         return;
@@ -541,7 +541,7 @@ export const MySalePerson = async (
     // created, including the other company's employees, after switching
     // company. Scope the FULL recursive team to the company this token is
     // currently acting in, for every caller uniformly.
-    const childIds = await getCompanyScopedChildUserIds(targetUserId, callerCompanyId);
+    const childIds = await getCompanyScopedChildUserIdsFast(targetUserId, callerCompanyId);
     if (childIds.length === 0) {
       createSuccess(res, "My sale persons", { page: pageNum, limit: limitNum, total: 0, rows: [] });
       return;

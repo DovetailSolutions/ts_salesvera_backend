@@ -1772,7 +1772,7 @@ export const getSalesPersonTravelForAdmin = async (
   targetUserId: number,
   date: string
 ) => {
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   if (targetUserId !== loggedInId && !childIds.includes(targetUserId)) {
     throw new ServiceError("You do not have access to this user's travel data", 403);
   }
@@ -1790,7 +1790,7 @@ export const getTeamTravelSummary = async (
   callerCompanyId: number | null,
   date: string
 ) => {
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   if (childIds.length === 0) return [];
 
   const salesPersons = await User.findAll({
