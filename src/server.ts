@@ -35,11 +35,14 @@ import meetingRoutes from "./modules/meeting/meeting.routes";
 import { contactPublicRoutes, contactAdminRoutes } from "./modules/contact/contact.routes";
 import superAdminRoutes from "./modules/superAdmin/superAdmin.routes";
 import setupTrackingRoutes from "./modules/setupTracking/setupTracking.routes";
+import announcementRoutes from "./modules/announcement/announcement.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
+import { initAnnouncementSocket } from "./Notigication/announcement";
 import { registerIo } from "./config/notificationService";
 import { startCronJobs } from "./config/cronJobs";
+import { startAnnouncementCronJobs } from "./config/announcementCron";
 import { Server } from "socket.io";
 
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
@@ -89,6 +92,7 @@ app.use("/admin", authRoutes);
 app.use("/admin", preferencesRoutes);
 app.use("/admin", reportsRoutes);
 app.use("/admin", meetingRoutes);
+app.use("/admin", announcementRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
 // setupTrackingRoutes is mounted BEFORE superAdminRoutes on purpose — see
@@ -123,6 +127,7 @@ const io = new Server(server, {
 
 initChatSocket(io);
 initTaskSocket(io);
+initAnnouncementSocket(io);
 
 // Register io so notificationService can deliver real-time events
 registerIo(io);
@@ -137,5 +142,6 @@ server.listen(PORT, async () => {
   await ensureBranchVisibilityToggle(sequelize);
   await ensureCompanyBrandingColumns(sequelize);
   startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
+  startAnnouncementCronJobs(); // ⏰ Publish scheduled announcements once due
   console.log(`Server is running on http://localhost:${PORT}`);
 });

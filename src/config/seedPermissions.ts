@@ -105,6 +105,11 @@ export const PERMISSION_SEEDS = [
   { module: "attendance-security", action: "view", description: "View attendance security settings, device requests, and audit log" },
   { module: "attendance-security", action: "update", description: "Update per-user or bulk attendance security settings" },
   { module: "attendance-security", action: "device-review", description: "Approve, reject, or revoke attendance device-change requests" },
+
+  // ── Announcement ─────────────────────────────────────────
+  { module: "announcement", action: "create", description: "Create and send announcements to team members below you in the hierarchy" },
+  { module: "announcement", action: "view",   description: "View sent and received announcements" },
+  { module: "announcement", action: "cancel", description: "Cancel a draft/scheduled announcement before delivery" },
 ];
 
 export const seedPermissions = async (): Promise<void> => {

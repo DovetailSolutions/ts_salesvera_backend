@@ -1788,13 +1788,24 @@ export const getSalesPersonTravelForAdmin = async (
 export const getTeamTravelSummary = async (
   loggedInId: number,
   callerCompanyId: number | null,
-  date: string
+  date: string,
+  options?: { page?: number; limit?: number; search?: string }
 ) => {
   const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   if (childIds.length === 0) return [];
 
+  const userWhere: any = { id: { [Op.in]: childIds }, role: "sale_person", status: { [Op.ne]: "delete" } };
+  if (options?.search && options.search.trim()) {
+    const search = options.search.trim();
+    userWhere[Op.or] = [
+      { firstName: { [Op.iLike]: `%${search}%` } },
+      { lastName: { [Op.iLike]: `%${search}%` } },
+      { email: { [Op.iLike]: `%${search}%` } },
+    ];
+  }
+
   const salesPersons = await User.findAll({
-    where: { id: { [Op.in]: childIds }, role: "sale_person", status: { [Op.ne]: "delete" } },
+    where: userWhere,
     attributes: ["id", "firstName", "lastName", "email"],
   });
   if (salesPersons.length === 0) return [];
