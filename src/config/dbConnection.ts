@@ -54,6 +54,8 @@ import { Invoices } from "../app/model/Invoice";
 import { RecordSales } from "../app/model/saleRecord";
 import { Notification } from "../app/model/Notification";
 import { RepostModel } from "../app/model/report";
+import { Announcement } from "../app/model/Announcement";
+import { AnnouncementRecipient } from "../app/model/AnnouncementRecipient";
 
 
 // RBAC Models
@@ -164,6 +166,8 @@ Invoices.initModel(sequelize);
 
 RecordSales.initModel(sequelize);
 Notification.initModel(sequelize);
+Announcement.initModel(sequelize);
+AnnouncementRecipient.initModel(sequelize);
 
 // RBAC
 const Permission = PermissionModel(sequelize);
@@ -450,6 +454,16 @@ TaskComment.belongsTo(Task, { foreignKey: "taskId", constraints: false });
 
 User.hasMany(TaskComment, { foreignKey: "userId", as: "taskComments", constraints: false });
 TaskComment.belongsTo(User, { foreignKey: "userId", as: "author", constraints: false });
+
+// Announcement associations
+Announcement.hasMany(AnnouncementRecipient, { foreignKey: "announcementId", as: "recipients", constraints: false });
+AnnouncementRecipient.belongsTo(Announcement, { foreignKey: "announcementId", as: "announcement", constraints: false });
+
+User.hasMany(Announcement, { foreignKey: "createdBy", as: "createdAnnouncements", constraints: false });
+Announcement.belongsTo(User, { foreignKey: "createdBy", as: "creator", constraints: false });
+
+User.hasMany(AnnouncementRecipient, { foreignKey: "recipientId", as: "announcementRecipientRows", constraints: false });
+AnnouncementRecipient.belongsTo(User, { foreignKey: "recipientId", as: "recipient", constraints: false });
 // Removed: User.hasOne(Department, { foreignKey: "userId", as: "department" })
 // and Department.belongsTo(User, { foreignKey: "userId", as: "user" }) — wrong
 // relationship, see the FIX note above User.belongsTo(Department, ...).
@@ -1258,4 +1272,6 @@ export {
   TenantSetupStatus,
   CompanySetupStatus,
   SetupAuditLog,
+  Announcement,
+  AnnouncementRecipient,
 };

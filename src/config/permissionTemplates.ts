@@ -23,6 +23,7 @@ const ADMIN_TEMPLATE: ModuleAction[] = [
   ["task", "create"], ["task", "view"], ["task", "update"], ["task", "delete"],
   ["notification", "view"], ["notification", "mark_read"], ["notification", "delete"],
   ["profile", "view"],
+  ["announcement", "create"], ["announcement", "view"], ["announcement", "cancel"],
 ];
 
 export const PERMISSION_TEMPLATES: Record<string, ModuleAction[]> = {
@@ -44,6 +45,7 @@ export const PERMISSION_TEMPLATES: Record<string, ModuleAction[]> = {
     ["task", "create"], ["task", "view"], ["task", "update"],
     ["notification", "view"], ["notification", "mark_read"],
     ["profile", "view"],
+    ["announcement", "create"], ["announcement", "view"], ["announcement", "cancel"],
   ],
 
   sale_person: [
@@ -58,5 +60,6 @@ export const PERMISSION_TEMPLATES: Record<string, ModuleAction[]> = {
     ["task", "view"], ["task", "update"],
     ["notification", "view"], ["notification", "mark_read"],
     ["profile", "view"],
+    ["announcement", "view"],
   ],
 };
