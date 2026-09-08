@@ -1397,16 +1397,15 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
   // reject this punch) so a photo is only ever demanded once every other
   // check has already passed. Never silently marks attendance successful
   // without a required photo actually stored.
-  let attendancePhotoUrl: string | null = null;
-  if (securityFlags.isAttendancePhotoRequired) {
-    if (!file?.location) {
-      throw new ServiceError(
-        "A photo is required to punch in. Please capture a photo and try again.",
-        400,
-        { code: "PHOTO_REQUIRED", action: "RETRY_PHOTO" }
-      );
-    }
-    attendancePhotoUrl = file.location;
+  let attendancePhotoUrl: string | null = file?.location ?? null;
+  if (securityFlags.isAttendancePhotoRequired && !attendancePhotoUrl) {
+    throw new ServiceError(
+      "A photo is required to punch in. Please capture a photo and try again.",
+      400,
+      { code: "PHOTO_REQUIRED", action: "RETRY_PHOTO" }
+    );
+  }
+  if (attendancePhotoUrl) {
     AttendanceSecurity.logSecurityEvent({
       userId: finalUserId,
       companyId: callerCompanyId,
