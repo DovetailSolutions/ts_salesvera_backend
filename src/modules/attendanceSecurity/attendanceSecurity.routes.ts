@@ -42,6 +42,10 @@ router.get(
   checkPermission("attendance-security", "view"),
   Controller.listDeviceRequests
 );
+// Self-service status view (any authenticated role, scoped to the caller's
+// own userId) — must be registered before the "/:id" route below, or Express
+// would match "my" as an :id and hit getDeviceRequest with NaN instead.
+router.get("/attendance-security/device-requests/my", tokenCheck, Controller.listMyDeviceRequests);
 router.get(
   "/attendance-security/device-requests/:id",
   tokenCheck,

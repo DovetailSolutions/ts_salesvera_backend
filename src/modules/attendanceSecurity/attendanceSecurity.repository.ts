@@ -46,35 +46,43 @@ export const findUserById = (userId: number) =>
   });
 
 // ── Trusted device (single row per user) ────────────────────────────────
-export const findTrustedDevice = (userId: number) =>
-  (AttendanceTrustedDevice as any).findOne({ where: { userId } });
+export const findTrustedDevice = (userId: number, transaction?: Transaction) =>
+  (AttendanceTrustedDevice as any).findOne({ where: { userId }, transaction });
 
 export const createTrustedDevice = (
   userId: number,
   companyId: number | null,
   deviceId: string,
   deviceName?: string | null,
-  deviceType?: string | null
+  deviceType?: string | null,
+  transaction?: Transaction
 ) =>
-  (AttendanceTrustedDevice as any).create({
-    userId,
-    companyId,
-    deviceId,
-    deviceName: deviceName ?? null,
-    deviceType: deviceType ?? null,
-    registeredAt: new Date(),
-    lastSeenAt: new Date(),
-  });
+  (AttendanceTrustedDevice as any).create(
+    {
+      userId,
+      companyId,
+      deviceId,
+      deviceName: deviceName ?? null,
+      deviceType: deviceType ?? null,
+      registeredAt: new Date(),
+      lastSeenAt: new Date(),
+    },
+    { transaction }
+  );
 
 // Replace-on-approval: upserts the single trusted-device row for this user.
+// Accepts an optional transaction so callers that need this to commit/
+// rollback atomically with other writes (e.g. approveDeviceRequest's status
+// update) can pass theirs through instead of this committing independently.
 export const replaceTrustedDevice = async (
   userId: number,
   companyId: number | null,
   deviceId: string,
   deviceName?: string | null,
-  deviceType?: string | null
+  deviceType?: string | null,
+  transaction?: Transaction
 ) => {
-  const existing = await findTrustedDevice(userId);
+  const existing = await findTrustedDevice(userId, transaction);
   if (existing) {
     existing.deviceId = deviceId;
     existing.deviceName = deviceName ?? null;
@@ -82,10 +90,10 @@ export const replaceTrustedDevice = async (
     if (companyId != null) existing.companyId = companyId;
     existing.registeredAt = new Date();
     existing.lastSeenAt = new Date();
-    await existing.save();
+    await existing.save({ transaction });
     return existing;
   }
-  return createTrustedDevice(userId, companyId, deviceId, deviceName, deviceType);
+  return createTrustedDevice(userId, companyId, deviceId, deviceName, deviceType, transaction);
 };
 
 export const touchTrustedDevice = (id: number) =>
@@ -120,6 +128,27 @@ export const createDeviceChangeRequest = (
   });
 
 export const findDeviceRequestById = (id: number) => (AttendanceDeviceChangeRequest as any).findByPk(id);
+
+// Row-locked read for the approve/reject critical section — see
+// attendanceSecurity.service.ts's approveDeviceRequest/rejectDeviceRequest.
+// Without FOR UPDATE here, two concurrent reviews of the same request both
+// pass the "is it still pending" check before either write lands, and both
+// succeed (double-approve, or approve-then-reject racing each other).
+export const findDeviceRequestByIdForUpdate = (id: number, transaction: Transaction) =>
+  (AttendanceDeviceChangeRequest as any).findByPk(id, { transaction, lock: Transaction.LOCK.UPDATE });
+
+// Self-service history for the "My Device Requests" status view — scoped to
+// the caller's own userId only (never companyId/admin-scoped), so any
+// authenticated role can call this about themselves with no permission gate.
+export const findDeviceRequestsForUser = (userId: number, { page = 1, limit = 20 }: { page?: number; limit?: number }) => {
+  const offset = (Math.max(page, 1) - 1) * limit;
+  return (AttendanceDeviceChangeRequest as any).findAndCountAll({
+    where: { userId },
+    order: [["createdAt", "DESC"]],
+    limit,
+    offset,
+  });
+};
 
 export const findDeviceRequests = ({
   companyId,
