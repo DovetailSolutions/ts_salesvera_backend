@@ -1,6 +1,9 @@
-import { sequelize } from "../../config/dbConnection";
+import { UniqueConstraintError } from "sequelize";
+import { sequelize, Company, CompanyAdmin } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { assertCanAct } from "../geoFencing/geoFencing.service";
+import { sendNotification } from "../../config/notificationService";
+import { NotificationType } from "../../app/model/Notification";
 import * as Repo from "./attendanceSecurity.repository";
 
 // ============================================================
@@ -97,14 +100,31 @@ export const checkDeviceSecurity = async (
   const existing = await Repo.findLatestRequestForDevice(userId, deviceId);
 
   if (!existing) {
-    const created = await Repo.createDeviceChangeRequest(
-      userId,
-      companyId,
-      deviceId,
-      deviceName,
-      deviceType,
-      trusted.deviceId
-    );
+    // The check above and this insert aren't atomic — two near-simultaneous
+    // punch attempts from the same unrecognized device (double-tap, client
+    // retry) can both reach here before either commits. The partial unique
+    // index (idx_adcr_one_pending_per_device, migration 0017) makes the
+    // second insert fail rather than create a duplicate PENDING row; when
+    // that happens, fall back to whichever row actually won the race and
+    // treat this call exactly like the "already pending" branch below —
+    // no second audit log, no second admin notification.
+    let created;
+    try {
+      created = await Repo.createDeviceChangeRequest(userId, companyId, deviceId, deviceName, deviceType, trusted.deviceId);
+    } catch (err) {
+      if (err instanceof UniqueConstraintError) {
+        const winner = await Repo.findLatestRequestForDevice(userId, deviceId);
+        if (winner) {
+          throw new ServiceError(
+            "This device is still awaiting admin approval. Please use your trusted device, or wait for approval.",
+            403,
+            { code: "DEVICE_CHANGE_PENDING", action: "REQUEST_DEVICE_APPROVAL", requestId: winner.id }
+          );
+        }
+      }
+      throw err;
+    }
+
     logSecurityEvent({ userId, companyId, actorId: userId, eventType: "DEVICE_CHANGE_DETECTED", metadata: { deviceId } });
     logSecurityEvent({
       userId,
@@ -113,6 +133,7 @@ export const checkDeviceSecurity = async (
       eventType: "DEVICE_CHANGE_REQUESTED",
       deviceChangeRequestId: created.id,
     });
+    notifyDeviceChangeRequested(userId, companyId, created.id, deviceName);
     throw new ServiceError(
       "This device isn't recognized. A request to use it has been sent to your admin for approval.",
       403,
@@ -155,6 +176,21 @@ export const getMySettings = async (userId: number) => {
   const user = await Repo.findUserById(userId);
   if (!user) throw new ServiceError("User not found", 404);
   return toPublicSettings(user);
+};
+
+// "My Device Requests" status view — self-service, no admin/hierarchy check
+// needed since it's hard-scoped to the caller's own userId (derived from the
+// authenticated session, never client-supplied). Shows the same information
+// PunchWidget's blocked-attendance toast points the user at: their current
+// trusted device plus their own request history (pending/approved/rejected)
+// with the admin's response, so they aren't left guessing after a punch is
+// blocked.
+export const getMyDeviceRequests = async (userId: number, opts: { page?: number; limit?: number }) => {
+  const [trustedDevice, { rows, count }] = await Promise.all([
+    Repo.findTrustedDevice(userId),
+    Repo.findDeviceRequestsForUser(userId, opts),
+  ]);
+  return { trustedDevice, rows, total: count };
 };
 
 export const getSettingsForUser = async (
@@ -324,25 +360,40 @@ export const approveDeviceRequest = async (
   requestId: number,
   note?: string
 ) => {
-  const request = await Repo.findDeviceRequestById(requestId);
-  if (!request) throw new ServiceError("Device change request not found", 404);
-  if (request.status !== "pending") {
-    throw new ServiceError(`This request has already been ${request.status}`, 400);
-  }
-
-  const targetUser = await Repo.findUserById(request.userId);
+  // Existence + permission check up front — a 404/403 shouldn't hold a row
+  // lock, and assertCanAct needs the target user regardless of the race
+  // below.
+  const preCheck = await Repo.findDeviceRequestById(requestId);
+  if (!preCheck) throw new ServiceError("Device change request not found", 404);
+  const targetUser = await Repo.findUserById(preCheck.userId);
   if (!targetUser) throw new ServiceError("User not found", 404);
   await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: false });
 
-  await sequelize.transaction(async (t) => {
+  // The actual state transition, atomically: lock the row, re-verify it's
+  // still pending (another admin/tab may have reviewed it since preCheck
+  // above), then flip status + promote the trusted device together. Any
+  // failure here rolls back both writes — no partial "status approved but
+  // device not promoted" state.
+  const request = await sequelize.transaction(async (t) => {
+    const locked = await Repo.findDeviceRequestByIdForUpdate(requestId, t);
+    if (!locked) throw new ServiceError("Device change request not found", 404);
+    if (locked.status !== "pending") {
+      throw new ServiceError("This request has already been reviewed", 409, {
+        code: "REQUEST_ALREADY_REVIEWED",
+        status: locked.status,
+      });
+    }
+
     await Repo.updateDeviceRequestStatus(requestId, "approved", callerId, note, t);
     await Repo.replaceTrustedDevice(
-      request.userId,
-      request.companyId,
-      request.requestedDeviceId,
-      request.requestedDeviceName,
-      request.requestedDeviceType
+      locked.userId,
+      locked.companyId,
+      locked.requestedDeviceId,
+      locked.requestedDeviceName,
+      locked.requestedDeviceType,
+      t
     );
+    return locked;
   });
 
   logSecurityEvent({
@@ -352,6 +403,7 @@ export const approveDeviceRequest = async (
     eventType: "DEVICE_CHANGE_APPROVED",
     deviceChangeRequestId: requestId,
   });
+  notifyUserDeviceRequestReviewed(request.userId, requestId, true);
 
   return { requestId, status: "approved" as const };
 };
@@ -363,17 +415,27 @@ export const rejectDeviceRequest = async (
   requestId: number,
   reason?: string
 ) => {
-  const request = await Repo.findDeviceRequestById(requestId);
-  if (!request) throw new ServiceError("Device change request not found", 404);
-  if (request.status !== "pending") {
-    throw new ServiceError(`This request has already been ${request.status}`, 400);
-  }
-
-  const targetUser = await Repo.findUserById(request.userId);
+  const preCheck = await Repo.findDeviceRequestById(requestId);
+  if (!preCheck) throw new ServiceError("Device change request not found", 404);
+  const targetUser = await Repo.findUserById(preCheck.userId);
   if (!targetUser) throw new ServiceError("User not found", 404);
   await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: false });
 
-  await Repo.updateDeviceRequestStatus(requestId, "rejected", callerId, reason);
+  // Same lock-then-verify pattern as approveDeviceRequest — prevents a
+  // reject racing an approve (or a second reject) on the same request.
+  const request = await sequelize.transaction(async (t) => {
+    const locked = await Repo.findDeviceRequestByIdForUpdate(requestId, t);
+    if (!locked) throw new ServiceError("Device change request not found", 404);
+    if (locked.status !== "pending") {
+      throw new ServiceError("This request has already been reviewed", 409, {
+        code: "REQUEST_ALREADY_REVIEWED",
+        status: locked.status,
+      });
+    }
+
+    await Repo.updateDeviceRequestStatus(requestId, "rejected", callerId, reason, t);
+    return locked;
+  });
 
   logSecurityEvent({
     userId: request.userId,
@@ -382,6 +444,7 @@ export const rejectDeviceRequest = async (
     eventType: "DEVICE_CHANGE_REJECTED",
     deviceChangeRequestId: requestId,
   });
+  notifyUserDeviceRequestReviewed(request.userId, requestId, false, reason);
 
   return { requestId, status: "rejected" as const };
 };
@@ -406,6 +469,73 @@ export const revokeTrustedDevice = async (
   });
 
   return { userId: targetUserId, revoked: true };
+};
+
+// ── Real-time notifications ─────────────────────────────────────────────────
+// Reuses the existing app-wide notification pipeline (DB persist + the
+// same Socket.IO "notification" event NotificationContext.jsx already
+// listens on) — no separate socket connection or event name. Both helpers
+// are fire-and-forget: a notification failure must never surface as an
+// attendance-punch or admin-approval failure to the caller who triggered it.
+
+// Resolves "the admin(s) responsible for this company" — the legacy single
+// Company.adminId plus every additional admin via the CompanyAdmin junction
+// (same multi-admin support userHierarchy.ts's getCompanyScopedOrgWideUserIds
+// relies on), so a company with more than one admin gets every one of them
+// notified, not just the primary.
+const getCompanyAdminIds = async (companyId: number | null | undefined): Promise<number[]> => {
+  if (companyId == null) return [];
+  const ids = new Set<number>();
+  const company = await (Company as any).findByPk(companyId, { attributes: ["id", "adminId"] });
+  if (company?.adminId) ids.add(Number(company.adminId));
+  const junctionAdmins = await (CompanyAdmin as any).findAll({
+    where: { companyId },
+    attributes: ["adminId"],
+  });
+  junctionAdmins.forEach((a: any) => ids.add(Number(a.adminId)));
+  return Array.from(ids);
+};
+
+const notifyDeviceChangeRequested = (
+  userId: number,
+  companyId: number | null,
+  requestId: number,
+  deviceName?: string | null
+): void => {
+  (async () => {
+    const [user, adminIds] = await Promise.all([Repo.findUserById(userId), getCompanyAdminIds(companyId)]);
+    if (adminIds.length === 0) return;
+    const userLabel = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email : `User #${userId}`;
+    await Promise.all(
+      adminIds.map((adminId) =>
+        sendNotification({
+          receiverId: adminId,
+          senderId: userId,
+          type: NotificationType.SYSTEM,
+          title: "Device Change Request",
+          body: `${userLabel} is trying to mark attendance from a new device${deviceName ? ` (${deviceName})` : ""}.`,
+          data: { kind: "device_change_request", requestId, userId },
+        })
+      )
+    );
+  })().catch((err) => console.error("attendanceSecurity: admin device-change notification failed:", err));
+};
+
+const notifyUserDeviceRequestReviewed = (
+  userId: number,
+  requestId: number,
+  approved: boolean,
+  reason?: string | null
+): void => {
+  sendNotification({
+    receiverId: userId,
+    type: NotificationType.SYSTEM,
+    title: approved ? "Device Change Approved" : "Device Change Rejected",
+    body: approved
+      ? "Your new device has been approved. You can now mark attendance from this device."
+      : `Your device change request was rejected.${reason ? ` Reason: ${reason}` : ""}`,
+    data: { kind: "device_change_reviewed", requestId, approved },
+  }).catch((err) => console.error("attendanceSecurity: user device-review notification failed:", err));
 };
 
 // ── Audit log ─────────────────────────────────────────────────────────────

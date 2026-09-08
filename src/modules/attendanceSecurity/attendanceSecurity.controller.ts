@@ -76,6 +76,20 @@ export const bulkUpdate = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
+export const listMyDeviceRequests = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { callerId } = callerContext(req);
+    const { page, limit } = req.query as any;
+    const result = await AttendanceSecurityService.getMyDeviceRequests(callerId, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    createSuccess(res, "My device requests fetched", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 export const listDeviceRequests = async (req: Request, res: Response): Promise<void> => {
   try {
     const { callerId, callerRole, callerCompanyId } = callerContext(req);
