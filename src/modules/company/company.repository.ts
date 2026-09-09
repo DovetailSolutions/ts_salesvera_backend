@@ -174,6 +174,17 @@ export const findManagerCompanyAssignment = (companyId: number, managerId: numbe
 export const updateUserRefreshToken = (userId: number, refreshToken: string) =>
   User.update({ refreshToken }, { where: { id: userId } });
 
+// Persists which company is "active" for this user independent of any
+// token — see auth.service.ts's refresh(), which restores this on every
+// access-token renewal. Needed now that access tokens are short-lived
+// (15m default, was 30d): without this, switching company then simply
+// staying logged in past the access token's lifetime silently reverted the
+// company context back to whatever resolveCompanyId's default lookup
+// picks, since the refresh token/session itself never carried the
+// switched-to companyId.
+export const updateLastLoginCompanyId = (userId: number, companyId: number) =>
+  User.update({ lastLoginCompanyId: companyId }, { where: { id: userId } });
+
 // ── Multi-company admin support (mirrors the CompanyManager functions above) ──
 export const findAdminById = (adminId: number) =>
   User.findOne({ where: { id: adminId, role: "admin" } });

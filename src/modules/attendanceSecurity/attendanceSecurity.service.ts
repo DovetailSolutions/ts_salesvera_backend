@@ -1,9 +1,10 @@
 import { UniqueConstraintError } from "sequelize";
-import { sequelize, Company, CompanyAdmin } from "../../config/dbConnection";
+import { sequelize } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { assertCanAct } from "../geoFencing/geoFencing.service";
 import { sendNotification } from "../../config/notificationService";
 import { NotificationType } from "../../app/model/Notification";
+import { getCompanyAdminIds } from "../shared/userHierarchy";
 import * as Repo from "./attendanceSecurity.repository";
 
 // ============================================================
@@ -475,24 +476,6 @@ export const revokeTrustedDevice = async (
 // listens on) — no separate socket connection or event name. Both helpers
 // are fire-and-forget: a notification failure must never surface as an
 // attendance-punch or admin-approval failure to the caller who triggered it.
-
-// Resolves "the admin(s) responsible for this company" — the legacy single
-// Company.adminId plus every additional admin via the CompanyAdmin junction
-// (same multi-admin support userHierarchy.ts's getCompanyScopedOrgWideUserIds
-// relies on), so a company with more than one admin gets every one of them
-// notified, not just the primary.
-const getCompanyAdminIds = async (companyId: number | null | undefined): Promise<number[]> => {
-  if (companyId == null) return [];
-  const ids = new Set<number>();
-  const company = await (Company as any).findByPk(companyId, { attributes: ["id", "adminId"] });
-  if (company?.adminId) ids.add(Number(company.adminId));
-  const junctionAdmins = await (CompanyAdmin as any).findAll({
-    where: { companyId },
-    attributes: ["adminId"],
-  });
-  junctionAdmins.forEach((a: any) => ids.add(Number(a.adminId)));
-  return Array.from(ids);
-};
 
 const notifyDeviceChangeRequested = (
   userId: number,

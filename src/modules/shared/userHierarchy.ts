@@ -340,3 +340,23 @@ export async function getDirectCreator(userId: number): Promise<{ id: number; ro
   const creator = plain?.creators?.[0];
   return creator ? { id: creator.id, role: creator.role } : null;
 }
+
+// Resolves "the admin(s) responsible for this company" — the legacy single
+// Company.adminId plus every additional admin via the CompanyAdmin junction
+// (same multi-admin support getCompanyScopedOrgWideUserIds above relies
+// on), so a company with more than one admin gets every one of them
+// notified, not just the primary. Extracted from attendanceSecurity
+// .service.ts (its original call site) so attendanceRegularization
+// .service.ts can reuse the identical lookup instead of a second copy.
+export const getCompanyAdminIds = async (companyId: number | null | undefined): Promise<number[]> => {
+  if (companyId == null) return [];
+  const ids = new Set<number>();
+  const company = await (Company as any).findByPk(companyId, { attributes: ["id", "adminId"] });
+  if (company?.adminId) ids.add(Number(company.adminId));
+  const junctionAdmins = await (CompanyAdmin as any).findAll({
+    where: { companyId },
+    attributes: ["adminId"],
+  });
+  junctionAdmins.forEach((a: any) => ids.add(Number(a.adminId)));
+  return Array.from(ids);
+};

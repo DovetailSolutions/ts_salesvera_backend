@@ -73,6 +73,8 @@ import { SalesPersonTravelLog } from "../app/model/salesPersonTravelLog";
 import { AttendanceTrustedDevice } from "../app/model/attendanceTrustedDevice";
 import { AttendanceDeviceChangeRequest } from "../app/model/attendanceDeviceChangeRequest";
 import { AttendanceAuditLog } from "../app/model/attendanceAuditLog";
+import { RefreshSession } from "../app/model/refreshSession";
+import { AttendanceRegularization } from "../app/model/attendanceRegularization";
 import { TenantSetupStatus, CompanySetupStatus } from "../app/model/setupStatus";
 import { SetupAuditLog } from "../app/model/setupAuditLog";
 
@@ -129,6 +131,8 @@ UserGeoFencing.initModel(sequelize);
 AttendanceTrustedDevice.initModel(sequelize);
 AttendanceDeviceChangeRequest.initModel(sequelize);
 AttendanceAuditLog.initModel(sequelize);
+RefreshSession.initModel(sequelize);
+AttendanceRegularization.initModel(sequelize);
 TenantSetupStatus.initModel(sequelize);
 CompanySetupStatus.initModel(sequelize);
 SetupAuditLog.initModel(sequelize);
@@ -1269,6 +1273,8 @@ export {
   AttendanceTrustedDevice,
   AttendanceDeviceChangeRequest,
   AttendanceAuditLog,
+  RefreshSession,
+  AttendanceRegularization,
   TenantSetupStatus,
   CompanySetupStatus,
   SetupAuditLog,

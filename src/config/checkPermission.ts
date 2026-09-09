@@ -123,6 +123,14 @@ export const checkPermission = (module: string, action: string) => {
         (module === "attendance-security" &&
           (permissionSet.has(`attendance:${action}`) ||
             permissionSet.has("attendance:view") ||
+            permissionSet.has("attendance:update"))) ||
+        // Same fallback as attendance-security above — an admin/manager who
+        // already has core attendance permissions can review/view
+        // regularization requests without needing a separate grant for a
+        // module that didn't exist when their permissions were assigned.
+        (module === "attendance-regularization" &&
+          (permissionSet.has(`attendance:${action}`) ||
+            permissionSet.has("attendance:view") ||
             permissionSet.has("attendance:update")));
 
       if (!hasPerm) {

@@ -37,6 +37,11 @@ const selfServiceTokenCheck = createTokenCheck(["user", "admin", "super_admin", 
 // AuthService.register itself, branching on role using req.userData.
 router.post("/register", optionalTokenCheck, AuthController.Register);
 router.post("/login", AuthController.Login);
+// No auth middleware — this endpoint's whole purpose is to mint a new
+// access token when the caller's OLD one has already expired; requiring a
+// still-valid one to call it would defeat the point. The HttpOnly refresh
+// cookie itself is what authenticates this request.
+router.post("/refreshtoken", AuthController.RefreshToken);
 router.post("/logout", selfServiceTokenCheck, AuthController.Logout);
 router.get("/getProfile", selfServiceTokenCheck, AuthController.GetProfile);
 router.patch("/updateProfile", selfServiceTokenCheck, profile.single("profile"), AuthController.UpdateProfile);

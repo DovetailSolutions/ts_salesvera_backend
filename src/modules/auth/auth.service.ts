@@ -9,6 +9,8 @@ import { resolveCompanyId } from "../../config/tokenCheck";
 import { SpacesFile } from "../../config/spaces";
 import * as AuthRepo from "./auth.repository";
 import * as SetupTracking from "../setupTracking/setupTracking.service";
+import { issueAccessToken, issueRefreshToken } from "./webToken.service";
+import { createSession, rotateSession, revokeSession, revokeAllSessionsForUser } from "./refreshSession.service";
 
 // ============================================================
 // Auth service — validation + orchestration. Byte-for-byte port of the
@@ -310,34 +312,19 @@ export const register = async (body: any, callerData?: { userId?: number | strin
   return { item: safeItem, accessToken, role };
 };
 
-export const login = async (body: any) => {
-  const { email, password, tenantId, deviceType } = body || {};
-
-  if (!email || !password) throw new ServiceError("Email and password are required");
-
-  const loginTenantId = tenantId ? Number(tenantId) : null;
-  const user = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
-  if (!user) throw new ServiceError("Invalid email or password");
-
-  const allowedRoles = ["admin", "manager", "super_admin", "user", "sale_person", "sales_person"];
-  const userRole = user.get("role") as string;
-
-  if (!allowedRoles.includes(userRole)) {
-    throw new ServiceError("Access restricted. Invalid user role.");
-  }
-
-  // Exe (desktop) login is admin-only; web login is unrestricted (within allowedRoles)
-  if (deviceType === "exe" && userRole !== "admin") {
-    throw new ServiceError("Only admin can login from the desktop application");
-  }
-
-  const hashedPassword = user.get("password") as string;
-  const isPasswordValid = await bcrypt.compare(password, hashedPassword);
-  if (!isPasswordValid) throw new ServiceError("Invalid email or password");
-
-  const userId = user.get("id") as number;
-
-  // ── Resolve companyId for the JWT ─────────────────────────────────
+// Shared by login() and refresh() — resolving which company a token should
+// be scoped to is identical in both cases: role-based default lookup, then
+// restore the user's last active company (persisted at logout AND at
+// company-switch, see company.service.ts's switchCompany) if they still
+// have access to it. Pulling this into refresh() specifically matters now
+// that access tokens are short-lived (15m default, was 30d) — without it,
+// a company switch would silently revert on the very next background
+// refresh instead of surviving for most of a 30-day session.
+export const resolveLoginCompanyId = async (
+  userId: number,
+  userRole: string,
+  lastLoginCompanyId: number | null
+): Promise<number | null> => {
   let companyId: number | null = null;
 
   if (userRole === "admin") {
@@ -364,8 +351,7 @@ export const login = async (body: any) => {
     companyId = firstPermission ? firstPermission.companyId : null;
   }
 
-  // ── Restore last active company (from previous logout), if still accessible ──
-  const lastLoginCompanyId = user.get("lastLoginCompanyId") as number | null;
+  // ── Restore last active company (from previous logout/switch), if still accessible ──
   if (lastLoginCompanyId && (userRole === "admin" || userRole === "manager" || userRole === "sale_person")) {
     let hasAccess = false;
 
@@ -387,8 +373,48 @@ export const login = async (body: any) => {
     if (hasAccess) companyId = lastLoginCompanyId;
   }
 
-  const { accessToken, refreshToken } = Middleware.CreateToken(String(userId), userRole, companyId);
-  await user.update({ refreshToken });
+  return companyId;
+};
+
+export const login = async (body: any, meta: { deviceId?: string | null; userAgent?: string | null; ipAddress?: string | null } = {}) => {
+  const { email, password, tenantId, deviceType } = body || {};
+
+  if (!email || !password) throw new ServiceError("Email and password are required");
+
+  const loginTenantId = tenantId ? Number(tenantId) : null;
+  const user = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
+  if (!user) throw new ServiceError("Invalid email or password");
+
+  const allowedRoles = ["admin", "manager", "super_admin", "user", "sale_person", "sales_person"];
+  const userRole = user.get("role") as string;
+
+  if (!allowedRoles.includes(userRole)) {
+    throw new ServiceError("Access restricted. Invalid user role.");
+  }
+
+  // Exe (desktop) login is admin-only; web login is unrestricted (within allowedRoles)
+  if (deviceType === "exe" && userRole !== "admin") {
+    throw new ServiceError("Only admin can login from the desktop application");
+  }
+
+  const hashedPassword = user.get("password") as string;
+  const isPasswordValid = await bcrypt.compare(password, hashedPassword);
+  if (!isPasswordValid) throw new ServiceError("Invalid email or password");
+
+  const userId = user.get("id") as number;
+
+  const lastLoginCompanyId = user.get("lastLoginCompanyId") as number | null;
+  const companyId = await resolveLoginCompanyId(userId, userRole, lastLoginCompanyId);
+
+  // Web login cookie flow (see webToken.service.ts / refreshSession.service.ts)
+  // — separate token issuance and storage from Middleware.CreateToken's
+  // legacy both-in-JSON, plaintext-in-users-table mechanism, which mobile's
+  // /api/login keeps using unmodified. The refresh token is returned here
+  // (not stripped) so the controller can set it as the HttpOnly cookie —
+  // it must never reach the JSON response the browser's JS can read.
+  const accessToken = issueAccessToken({ userId, role: userRole, companyId });
+  const { token: refreshToken, expiresAt } = issueRefreshToken({ userId, role: userRole, companyId });
+  await createSession(userId, refreshToken, expiresAt, meta);
 
   // ── Fetch Permissions for the Login Response ─────────────────────
   let permissions: string[] = [];
@@ -421,7 +447,7 @@ export const login = async (body: any) => {
   };
 };
 
-export const logout = async (userId: number, body: any) => {
+export const logout = async (userId: number, body: any, refreshCookieToken?: string | null) => {
   const { lastLoginCompanyId } = body || {};
 
   // Frontend sends {} when the user has no active company context yet — nothing to persist.
@@ -430,6 +456,54 @@ export const logout = async (userId: number, body: any) => {
       lastLoginCompanyId: lastLoginCompanyId === null ? null : Number(lastLoginCompanyId),
     });
   }
+
+  // Backend-side invalidation — the frontend clearing its in-memory access
+  // token isn't enough on its own; the refresh session must actually be
+  // revoked so the cookie can't silently mint a new access token later
+  // (e.g. from a second tab, or if the cookie is stolen after logout).
+  if (refreshCookieToken) {
+    await revokeSession(refreshCookieToken);
+  }
+};
+
+// POST /admin/refreshtoken — see auth.routes.ts. Validates the refresh
+// cookie's JWT signature/expiry, then rotates its DB session (see
+// refreshSession.service.ts's rotateSession: revokes the presented token,
+// issues + stores a new one) and mints a fresh short-lived access token.
+export const refresh = async (
+  refreshCookieToken: string | undefined,
+  meta: { deviceId?: string | null; userAgent?: string | null; ipAddress?: string | null } = {}
+) => {
+  if (!refreshCookieToken) {
+    throw new ServiceError("Authentication session expired", 401, { code: "REFRESH_MISSING" });
+  }
+
+  const { verifyRefreshTokenSignature } = await import("./webToken.service");
+  const decoded = verifyRefreshTokenSignature(refreshCookieToken);
+  if (!decoded) {
+    throw new ServiceError("Authentication session expired", 401, { code: "REFRESH_INVALID" });
+  }
+
+  const userRow = await AuthRepo.findUserById(decoded.userId);
+  if (!userRow || userRow.get("status") !== "active") {
+    throw new ServiceError("Authentication session expired", 401, { code: "REFRESH_USER_INVALID" });
+  }
+  const role = userRow.get("role") as string;
+  const lastLoginCompanyId = userRow.get("lastLoginCompanyId") as number | null;
+  const companyId = await resolveLoginCompanyId(decoded.userId, role, lastLoginCompanyId);
+
+  const { token: newRefreshToken, expiresAt } = issueRefreshToken({ userId: decoded.userId, role, companyId });
+  const { session } = await rotateSession(refreshCookieToken, newRefreshToken, expiresAt, meta);
+  const accessToken = issueAccessToken({ userId: decoded.userId, role, companyId });
+
+  return { accessToken, refreshToken: newRefreshToken, sessionId: session.id };
+};
+
+// Revokes every refresh session for a user — for a future "log out of all
+// devices" action, or to call from a password-change flow so old sessions
+// can't outlive a credential rotation. Not wired into any route yet.
+export const logoutAllSessions = async (userId: number) => {
+  await revokeAllSessionsForUser(userId);
 };
 
 export const getProfile = async (userId: number, role: string, companyId: number | undefined) => {
