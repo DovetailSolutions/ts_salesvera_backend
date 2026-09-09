@@ -12,7 +12,7 @@ import path from "path";
 import http from "http";
 
 import { connectDB, sequelize } from "./config/dbConnection";
-import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences, ensureChatRoomOwnership, ensureBranchVisibilityToggle, ensureCompanyBrandingColumns } from "./config/schemaExtensions";
+import { ensureLeaveTypeSchema, ensureEmployeeCode, ensureNotificationPreferences, ensureChatRoomOwnership, ensureBranchVisibilityToggle, ensureCompanyBrandingColumns, ensureTallyMastersSchema } from "./config/schemaExtensions";
 import adminRouter from "./app/router/admin";
 import UserRouter from "./app/router/user";
 import permissionRouter from "./app/router/permission";
@@ -164,6 +164,7 @@ server.listen(PORT, async () => {
   await ensureChatRoomOwnership(sequelize);
   await ensureBranchVisibilityToggle(sequelize);
   await ensureCompanyBrandingColumns(sequelize);
+  await ensureTallyMastersSchema(sequelize);
   startCronJobs(); // ⏰ Start scheduled cron jobs (auto punch-out at 11:59 PM IST)
   startAnnouncementCronJobs(); // ⏰ Publish scheduled announcements once due
   console.log(`Server is running on http://localhost:${PORT}`);

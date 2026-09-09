@@ -6,7 +6,8 @@ export enum NotificationType {
   MEETING = "meeting",
   SYSTEM = "system",
   OTHER = "other",
-  ANNOUNCEMENT = "announcement"
+  ANNOUNCEMENT = "announcement",
+  SUBSCRIPTION = "subscription"
 }
 
 export class Notification extends Model {
