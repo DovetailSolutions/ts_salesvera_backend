@@ -3,10 +3,11 @@ dotenv.config();
 
 // Validate required env vars before anything else loads (fails fast instead
 // of silently falling back to insecure defaults).
-import "./config/env";
+import { FRONTEND_URL } from "./config/env";
 
 import express, { Request, Response } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import path from "path";
 import http from "http";
 
@@ -27,6 +28,8 @@ import attendanceRoutes from "./modules/attendance/attendance.routes";
 import attendanceSelfRoutes from "./modules/attendance/attendanceSelf.routes";
 import geoFencingRoutes from "./modules/geoFencing/geoFencing.routes";
 import attendanceSecurityRoutes from "./modules/attendanceSecurity/attendanceSecurity.routes";
+import attendanceRegularizationRoutes from "./modules/attendanceRegularization/attendanceRegularization.routes";
+import attendanceRegularizationSelfRoutes from "./modules/attendanceRegularization/attendanceRegularizationSelf.routes";
 import companyRoutes from "./modules/company/company.routes";
 import authRoutes from "./modules/auth/auth.routes";
 import preferencesRoutes from "./modules/preferences/preferences.routes";
@@ -48,12 +51,30 @@ import { Server } from "socket.io";
 const swaggerFile = require(path.join(__dirname, "../swagger-output.json"));
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// FIX: was `origin: true` (reflects and allows ANY request origin) — fine
+// with credentials:true as long as the only credential in play was a
+// Bearer token a page has to deliberately attach in JS, but now that
+// /admin/login sets a real browser-managed cookie, ANY origin being
+// allowed to make credentialed requests means any site could trigger
+// authenticated requests carrying it. Restricted to an explicit allowlist
+// (FRONTEND_URL, comma-separated for more than one legitimate origin —
+// e.g. a staging environment) instead. Requests with no Origin header at
+// all (curl, Postman, server-to-server, the mobile app) are still allowed
+// through — CORS only ever governs browser-enforced cross-origin reads,
+// it was never what protected non-browser callers.
+const allowedOrigins = FRONTEND_URL.split(",").map((o) => o.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: true, // reflect request origin
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      console.warn(`CORS: rejected request from unlisted origin "${origin}" — add it to FRONTEND_URL if legitimate.`);
+      return callback(null, false);
+    },
     credentials: true,
   })
 );
+app.use(cookieParser());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -85,8 +106,10 @@ app.use("/admin", departmentRoutes);
 app.use("/admin", leaveRoutes);
 app.use("/admin", attendanceRoutes);
 app.use("/api", attendanceSelfRoutes);
+app.use("/api", attendanceRegularizationSelfRoutes);
 app.use("/admin", geoFencingRoutes);
 app.use("/admin", attendanceSecurityRoutes);
+app.use("/admin", attendanceRegularizationRoutes);
 app.use("/admin", companyRoutes);
 app.use("/admin", authRoutes);
 app.use("/admin", preferencesRoutes);

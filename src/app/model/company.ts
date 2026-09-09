@@ -1,6 +1,11 @@
 import { Sequelize, DataTypes, Model, Optional } from "sequelize";
+import { generateBusinessId } from "../../modules/shared/businessId.service";
 interface CompanyAttributes {
   id: number;
+  // Human-readable Business ID (e.g. "CMP001") — separate from `id`, which
+  // remains the only thing used for foreign keys/joins. Backend-generated
+  // only, see the beforeCreate hook below and businessId.service.ts.
+  businessCode: string | null;
   companyName: string;
   legalName: string;
   registrationNo: string;
@@ -71,6 +76,7 @@ export class Company
   implements CompanyAttributes {
 
   public id!: number;
+  public businessCode!: string | null;
 
   public companyName!: string;
   public legalName!: string;
@@ -139,6 +145,7 @@ export const CompanyModell = (sequelize: Sequelize) => {
         autoIncrement: true,
         primaryKey: true,
       },
+      businessCode: { type: DataTypes.STRING(20), allowNull: true, unique: true },
 
       companyName: { type: DataTypes.STRING, allowNull: false },
       legalName: { type: DataTypes.STRING, allowNull: false },
@@ -198,6 +205,21 @@ export const CompanyModell = (sequelize: Sequelize) => {
     {
       tableName: "companies",
       timestamps: true,
+      hooks: {
+        // Always backend-generated — a client-supplied businessCode in the
+        // create payload is discarded, not just defaulted.
+        beforeCreate: async (company: any) => {
+          company.businessCode = await generateBusinessId(sequelize, "company");
+        },
+        // Immutable by default — revert any attempted change from a normal
+        // update call. A genuine re-issue would need a separate, audited,
+        // authorized operation, not a side effect of editing company details.
+        beforeUpdate: (company: any) => {
+          if (company.changed("businessCode")) {
+            company.businessCode = company.previous("businessCode");
+          }
+        },
+      },
     }
   );
 

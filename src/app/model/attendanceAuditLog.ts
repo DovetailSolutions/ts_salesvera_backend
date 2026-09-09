@@ -16,6 +16,7 @@ export interface AttendanceAuditLogAttributes {
   eventType: string;
   attendanceId?: number | null;
   deviceChangeRequestId?: number | null;
+  regularizationRequestId?: number | null;
   message?: string | null;
   metadata?: Record<string, any> | null;
   createdAt?: Date;
@@ -24,7 +25,14 @@ export interface AttendanceAuditLogAttributes {
 
 type AttendanceAuditLogCreationAttributes = Optional<
   AttendanceAuditLogAttributes,
-  "id" | "companyId" | "actorId" | "attendanceId" | "deviceChangeRequestId" | "message" | "metadata"
+  | "id"
+  | "companyId"
+  | "actorId"
+  | "attendanceId"
+  | "deviceChangeRequestId"
+  | "regularizationRequestId"
+  | "message"
+  | "metadata"
 >;
 
 export class AttendanceAuditLog
@@ -38,6 +46,7 @@ export class AttendanceAuditLog
   public eventType!: string;
   public attendanceId!: number | null;
   public deviceChangeRequestId!: number | null;
+  public regularizationRequestId!: number | null;
   public message!: string | null;
   public metadata!: Record<string, any> | null;
   public readonly createdAt!: Date;
@@ -72,6 +81,10 @@ export class AttendanceAuditLog
           allowNull: true,
         },
         deviceChangeRequestId: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
+        },
+        regularizationRequestId: {
           type: DataTypes.INTEGER,
           allowNull: true,
         },

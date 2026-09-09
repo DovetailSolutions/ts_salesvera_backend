@@ -168,4 +168,27 @@ export const startCronJobs = () => {
       timezone: "Asia/Kolkata", // 11:59 PM IST
     }
   );
+
+  // ─────────────────────────────────────────────
+  //  REFRESH-SESSION CLEANUP
+  //  Schedule : Every day at 03:30 AM (IST)
+  //  Purpose  : Delete refresh_sessions rows that have ALREADY expired.
+  //             Never touches an active (non-expired) session, revoked or
+  //             not — a revoked-but-not-yet-expired row is still useful
+  //             replay-detection history (see refreshSession.service.ts's
+  //             rotateSession).
+  // ─────────────────────────────────────────────
+  cron.schedule(
+    "30 3 * * *",
+    async () => {
+      try {
+        const { cleanupExpiredSessions } = await import("../modules/auth/refreshSession.service");
+        const deleted = await cleanupExpiredSessions();
+        if (deleted > 0) console.log(`[CRON] 🧹 Refresh-session cleanup — removed ${deleted} expired session(s).`);
+      } catch (error) {
+        console.error("[CRON] ❌ Refresh-session cleanup failed:", error);
+      }
+    },
+    { timezone: "Asia/Kolkata" }
+  );
 };

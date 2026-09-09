@@ -11,6 +11,15 @@ import {
   BelongsToManyRemoveAssociationsMixin,
 } from "sequelize";
 import bcrypt from "bcrypt";
+import { generateBusinessId } from "../../modules/shared/businessId.service";
+
+// Only these three roles are in the Business ID rollout's agreed scope —
+// user/client/super_admin intentionally get no businessCode (stays null).
+const ROLE_BUSINESS_ID_ENTITY_TYPE: Record<string, string> = {
+  admin: "admin",
+  manager: "manager",
+  sale_person: "sale_person",
+};
 
 // 1. Define the attributes
 interface UserAttributes {
@@ -21,6 +30,12 @@ interface UserAttributes {
   // memorable code instead of the raw internal id (bulk attendance CSV,
   // employee tables, etc.) — internal FKs/joins still use `id`.
   employeeCode?: string;
+  // Human-readable Business ID, role-scoped prefix (ADM/MGR/SAL) — only
+  // assigned for admin/manager/sale_person (see the beforeCreate hook
+  // below and businessId.service.ts). null for user/super_admin/client,
+  // which aren't in this rollout's scope. Separate from `id` and from
+  // employeeCode (which is unscoped-by-role and derived from `id` itself).
+  businessCode?: string | null;
   firstName?: string;
   lastName?: string;
   email?: string;
@@ -91,6 +106,7 @@ type UserCreationAttributes = Optional<
   UserAttributes,
   | "id"
   | "employeeCode"
+  | "businessCode"
   | "firstName"
   | "lastName"
   | "email"
@@ -232,6 +248,15 @@ export const createUserModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING(20),
         allowNull: true,
       },
+      // Role-scoped Business ID (ADM.../MGR.../SAL...) — see the
+      // beforeCreate hook below and businessId.service.ts. Backend-assigned
+      // only; null for roles outside this rollout's scope (user, client,
+      // super_admin).
+      businessCode: {
+        type: DataTypes.STRING(20),
+        allowNull: true,
+        unique: true,
+      },
       // See schemaExtensions.ts's ensureNotificationPreferences.
       notifyChat: {
         type: DataTypes.BOOLEAN,
@@ -283,11 +308,23 @@ export const createUserModel = (sequelize: Sequelize) => {
             const salt = await bcrypt.genSalt(10);
             user.password = await bcrypt.hash(user.password, salt);
           }
+          // Always backend-generated for the roles in scope — a
+          // client-supplied businessCode in the create payload is
+          // discarded, not just defaulted. Roles outside this rollout's
+          // scope (user, client, super_admin) get no Business ID.
+          const entityType = ROLE_BUSINESS_ID_ENTITY_TYPE[user.role ?? ""];
+          user.businessCode = entityType ? await generateBusinessId(sequelize, entityType) : null;
         },
         beforeUpdate: async (user: UserInstance) => {
           if (user.changed("password") && user.password) {
             const salt = await bcrypt.genSalt(10);
             user.password = await bcrypt.hash(user.password, salt);
+          }
+          // Immutable by default — revert any attempted change from a
+          // normal update call (e.g. a role change should not silently
+          // re-stamp a different prefix onto an existing businessCode).
+          if (user.changed("businessCode")) {
+            user.businessCode = user.previous("businessCode") as string | null;
           }
         },
       },

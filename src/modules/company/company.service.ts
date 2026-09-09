@@ -309,6 +309,11 @@ export const switchCompany = async (userId: number, role: any, body: any) => {
   const { accessToken, refreshToken } = Middleware.CreateToken(String(callerId), role, targetCompanyId);
 
   await CompanyRepo.updateUserRefreshToken(callerId, refreshToken);
+  // See updateLastLoginCompanyId's doc comment — this is what lets a
+  // subsequent /admin/refreshtoken call (now happening far more often,
+  // with short-lived access tokens) restore the company the user actually
+  // switched to, instead of reverting to a default.
+  await CompanyRepo.updateLastLoginCompanyId(callerId, targetCompanyId);
 
   return {
     accessToken,

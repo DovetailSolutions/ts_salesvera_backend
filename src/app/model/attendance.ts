@@ -1,7 +1,13 @@
 import { Model, DataTypes, Optional, Sequelize } from "sequelize";
+import { generateBusinessId } from "../../modules/shared/businessId.service";
 
 interface AttendanceAttributes {
   id: number;
+  // Human-readable Business ID (e.g. "ATT001") — separate from `id`.
+  // Backend-generated only, see the beforeCreate hook below. Assigned once
+  // per attendance row (a same-day re-punch reuses the existing row via
+  // beforeUpdate, not a new create, so it keeps its original businessCode).
+  businessCode?: string | null;
   employee_id: number;
   date: Date;
   punch_in?: Date | null;
@@ -62,6 +68,18 @@ interface AttendanceAttributes {
   punchInDeviceId?: string | null;
   punchOutDeviceId?: string | null;
 
+  // Attendance Regularization module (see modules/attendanceRegularization)
+  // — 'NORMAL' (default, a real punch) vs 'REGULARIZATION' (admin/manager-
+  // approved correction). original* preserve exactly what the row held
+  // immediately before an approved regularization overwrote it (NULL if
+  // there was no prior attendance row at all — a genuinely missed punch),
+  // so "what actually happened vs. what was corrected" stays auditable
+  // directly on the row, not only in attendance_audit_logs.
+  attendanceSource?: "NORMAL" | "REGULARIZATION" | null;
+  originalPunchIn?: Date | null;
+  originalPunchOut?: Date | null;
+  regularizedFromRequestId?: number | null;
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -92,6 +110,11 @@ type AttendanceCreationAttributes = Optional<
   | "attendancePhoto"
   | "punchInDeviceId"
   | "punchOutDeviceId"
+  | "businessCode"
+  | "attendanceSource"
+  | "originalPunchIn"
+  | "originalPunchOut"
+  | "regularizedFromRequestId"
 >;
 
 export class Attendance
@@ -99,6 +122,7 @@ export class Attendance
   implements AttendanceAttributes
 {
   public id!: number;
+  public businessCode!: string | null;
   public employee_id!: number;
   public date!: Date;
   public punch_in!: Date | null;
@@ -132,6 +156,11 @@ export class Attendance
   public punchInDeviceId!: string | null;
   public punchOutDeviceId!: string | null;
 
+  public attendanceSource!: "NORMAL" | "REGULARIZATION" | null;
+  public originalPunchIn!: Date | null;
+  public originalPunchOut!: Date | null;
+  public regularizedFromRequestId!: number | null;
+
   static initModel(sequelize: Sequelize): typeof Attendance {
     Attendance.init(
       {
@@ -139,6 +168,11 @@ export class Attendance
           type: DataTypes.INTEGER,
           primaryKey: true,
           autoIncrement: true,
+        },
+        businessCode: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+          unique: true,
         },
         employee_id: {
           type: DataTypes.INTEGER,
@@ -253,11 +287,44 @@ export class Attendance
           type: DataTypes.STRING,
           allowNull: true,
         },
+        attendanceSource: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+          defaultValue: "NORMAL",
+        },
+        originalPunchIn: {
+          type: DataTypes.DATE,
+          allowNull: true,
+        },
+        originalPunchOut: {
+          type: DataTypes.DATE,
+          allowNull: true,
+        },
+        regularizedFromRequestId: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
+        },
       },
       {
         sequelize,
         tableName: "attendance",
         timestamps: true,
+        hooks: {
+          // Always backend-generated — a client-supplied businessCode in
+          // the create payload is discarded, not just defaulted.
+          beforeCreate: async (attendance: any) => {
+            attendance.businessCode = await generateBusinessId(sequelize, "attendance");
+          },
+          // Immutable by default — a same-day re-punch reuses this row via
+          // .save() (see attendance.service.ts), which must not reassign a
+          // fresh Business ID or let a stray field in the update payload
+          // change the existing one.
+          beforeUpdate: (attendance: any) => {
+            if (attendance.changed("businessCode")) {
+              attendance.businessCode = attendance.previous("businessCode");
+            }
+          },
+        },
       }
     );
 
