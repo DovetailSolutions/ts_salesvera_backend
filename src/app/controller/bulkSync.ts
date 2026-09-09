@@ -6,6 +6,7 @@ import {
   Quotations,
   MeetingUser,
   SubCategory,
+  TallyMaster,
 } from "../../config/dbConnection";
 import {
   createSuccess,
@@ -17,6 +18,7 @@ import {
 interface BulkEnvelope {
   source: string;
   company: { name: string; guid: string };
+  masterType?: string;
   financialYear?: string;
   dateRange?: { from: string; to: string };
   batch: { uploadId: string; index: number; total: number };
@@ -649,3 +651,149 @@ export const bulkStockItems = async (
     );
   }
 };
+
+// ─── POST /admin/bulk/masters ─────────────────────────────────────────────────
+
+export const bulkMasters = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const start = Date.now();
+  try {
+    const { userId } = req.userData as JwtPayload;
+
+    if (!validateEnvelope(req.body)) {
+      log("masters", "Invalid envelope", { userId });
+      badRequest(res, "Invalid envelope: company.guid and records[] are required");
+      return;
+    }
+
+    const { records, company, masterType: envelopeMasterType } = req.body;
+    const companyGuid = company.guid;
+    log("masters", "Started", { userId, companyGuid, envelopeMasterType, total: records.length });
+
+    const results: RecordResult[] = [];
+
+    const valid = records.filter((r: any) => {
+      const tallyGuid = r.tallyGuid || r.guid || "";
+      if (!tallyGuid) {
+        logError("masters", "Record skipped — tallyGuid missing", null, { record: r });
+        results.push({ tallyGuid: "", status: "failed", error: "tallyGuid missing" });
+        return false;
+      }
+      return true;
+    });
+
+    const guids = valid.map((r: any) => (r.tallyGuid || r.guid) as string);
+
+    // Fetch existing records by userId, companyGuid, and guids
+    const existingRows = await TallyMaster.findAll({
+      where: {
+        userId: Number(userId),
+        companyGuid,
+        tallyGuid: { [Op.in]: guids },
+      },
+    });
+
+    const existingMap = new Map<string, any>();
+    for (const row of existingRows) {
+      const key = `${row.masterType}:${row.tallyGuid}`;
+      existingMap.set(key, row);
+    }
+
+    const toCreate: Record<string, any>[] = [];
+    const toUpdate: { record: Record<string, any>; existing: any }[] = [];
+
+    for (const record of valid) {
+      const tallyGuid = record.tallyGuid || record.guid;
+      const masterType = record.masterType || envelopeMasterType || "ledger";
+      const key = `${masterType}:${tallyGuid}`;
+      const ex = existingMap.get(key);
+      if (ex) {
+        toUpdate.push({ record: { ...record, masterType, tallyGuid }, existing: ex });
+      } else {
+        toCreate.push({ ...record, masterType, tallyGuid });
+      }
+    }
+
+    log("masters", "Partitioned", { toCreate: toCreate.length, toUpdate: toUpdate.length });
+
+    let chunkIndex = 0;
+    for (const ch of chunk(toCreate, CHUNK_SIZE)) {
+      chunkIndex++;
+      try {
+        const created = await TallyMaster.bulkCreate(
+          ch.map((r) => ({
+            userId: Number(userId),
+            companyGuid,
+            masterType: r.masterType,
+            tallyGuid: r.tallyGuid,
+            name: (r.name || "").trim(),
+            parent: r.parent ?? null,
+            alterId: r.alterId ?? null,
+            attributes: r.attributes ?? (r.details || null),
+            status: r.status ?? "active",
+          }))
+        );
+        created.forEach((row: any, i: number) => {
+          results.push({ tallyGuid: ch[i].tallyGuid, status: "created", id: row.id });
+        });
+        log("masters", `Create chunk ${chunkIndex} done`, { size: ch.length });
+      } catch (err) {
+        logError("masters", `Create chunk ${chunkIndex} failed`, err, { size: ch.length, guids: ch.map((r) => r.tallyGuid) });
+        ch.forEach((r) =>
+          results.push({
+            tallyGuid: r.tallyGuid,
+            status: "failed",
+            error: err instanceof Error ? err.message : "bulk create failed",
+          })
+        );
+      }
+    }
+
+    chunkIndex = 0;
+    for (const ch of chunk(toUpdate, CHUNK_SIZE)) {
+      chunkIndex++;
+      const settled = await Promise.allSettled(
+        ch.map(({ record, existing }) =>
+          existing.update({
+            name: (record.name || existing.name).trim(),
+            parent: record.parent ?? existing.parent,
+            alterId: record.alterId ?? existing.alterId,
+            attributes: record.attributes ?? record.details ?? existing.attributes,
+            status: record.status ?? existing.status,
+          })
+        )
+      );
+      let chunkFailed = 0;
+      settled.forEach((result, i) => {
+        const { record, existing } = ch[i];
+        if (result.status === "fulfilled") {
+          results.push({ tallyGuid: record.tallyGuid, status: "updated", id: existing.id });
+        } else {
+          chunkFailed++;
+          logError("masters", `Update failed for guid=${record.tallyGuid}`, result.reason, { existingId: existing.id });
+          results.push({
+            tallyGuid: record.tallyGuid,
+            status: "failed",
+            error: result.reason instanceof Error ? result.reason.message : "update failed",
+          });
+        }
+      });
+      log("masters", `Update chunk ${chunkIndex} done`, { size: ch.length, failed: chunkFailed });
+    }
+
+    const summary = buildSummary(results);
+    log("masters", "Completed", { ...summary, elapsedMs: Date.now() - start });
+
+    createSuccess(res, "Bulk masters processed", { summary, results });
+  } catch (error) {
+    logError("masters", "Unhandled exception", error, { elapsedMs: Date.now() - start });
+    badRequest(
+      res,
+      error instanceof Error ? error.message : "Something went wrong",
+      error
+    );
+  }
+};
+

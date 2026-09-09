@@ -77,6 +77,10 @@ import { RefreshSession } from "../app/model/refreshSession";
 import { AttendanceRegularization } from "../app/model/attendanceRegularization";
 import { TenantSetupStatus, CompanySetupStatus } from "../app/model/setupStatus";
 import { SetupAuditLog } from "../app/model/setupAuditLog";
+import { SubscriptionPlan } from "../app/model/subscriptionPlan";
+import { Subscription } from "../app/model/subscription";
+import { Payment } from "../app/model/payment";
+import { TallyMaster } from "../app/model/tallyMaster";
 
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
@@ -136,6 +140,9 @@ AttendanceRegularization.initModel(sequelize);
 TenantSetupStatus.initModel(sequelize);
 CompanySetupStatus.initModel(sequelize);
 SetupAuditLog.initModel(sequelize);
+SubscriptionPlan.initModel(sequelize);
+Subscription.initModel(sequelize);
+Payment.initModel(sequelize);
 
 // Expense
 Expense.initModel(sequelize);
@@ -185,6 +192,7 @@ TaskHistory.initModel(sequelize);
 TaskComment.initModel(sequelize);
 
 ContactQuery.initModel(sequelize);
+TallyMaster.initModel(sequelize);
 
 // ===== ASSOCIATIONS =====
 
@@ -305,6 +313,21 @@ Company.belongsTo(User, { foreignKey: "userId", as: "owner" });
 
 // Many-to-many: a manager can manage multiple companies, a company can have multiple managers
 Company.belongsToMany(User, { through: CompanyManager, as: "managers", foreignKey: "companyId", otherKey: "managerId" });
+
+// Subscription / billing — a tenant-root User (role='user') has many
+// historical Subscription rows (trial + each renewal/upgrade); "only one
+// LIVE row" is enforced at the service layer, not here. Each Subscription
+// belongs to one SubscriptionPlan and has many Payment attempts.
+User.hasMany(Subscription, { foreignKey: "userId", as: "subscriptions" });
+Subscription.belongsTo(User, { foreignKey: "userId", as: "user" });
+SubscriptionPlan.hasMany(Subscription, { foreignKey: "planId", as: "subscriptions" });
+Subscription.belongsTo(SubscriptionPlan, { foreignKey: "planId", as: "plan" });
+Subscription.hasMany(Payment, { foreignKey: "subscriptionId", as: "payments" });
+Payment.belongsTo(Subscription, { foreignKey: "subscriptionId", as: "subscription" });
+User.hasMany(Payment, { foreignKey: "userId", as: "payments" });
+Payment.belongsTo(User, { foreignKey: "userId", as: "user" });
+SubscriptionPlan.hasMany(Payment, { foreignKey: "planId", as: "payments" });
+Payment.belongsTo(SubscriptionPlan, { foreignKey: "planId", as: "plan" });
 User.belongsToMany(Company, { through: CompanyManager, as: "managedCompanies", foreignKey: "managerId", otherKey: "companyId" });
 CompanyManager.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 CompanyManager.belongsTo(User, { foreignKey: "managerId", as: "manager" });
@@ -1280,4 +1303,8 @@ export {
   SetupAuditLog,
   Announcement,
   AnnouncementRecipient,
+  SubscriptionPlan,
+  Subscription,
+  Payment,
+  TallyMaster,
 };
