@@ -66,7 +66,7 @@ export const checkDeviceSecurity = async (
   deviceId: string | undefined,
   deviceName: string | undefined,
   deviceType: string | undefined
-): Promise<{ deviceStatus: "trusted_new" | "trusted" | "trusted_promoted" }> => {
+): Promise<{ deviceStatus: "trusted_new" | "trusted" }> => {
   if (!deviceId) {
     throw new ServiceError("A device identifier is required to mark attendance.", 400, {
       code: "DEVICE_ID_MISSING",
@@ -99,49 +99,7 @@ export const checkDeviceSecurity = async (
   // (userId, deviceId) pair.
   const existing = await Repo.findLatestRequestForDevice(userId, deviceId);
 
-  if (!existing) {
-    // The check above and this insert aren't atomic — two near-simultaneous
-    // punch attempts from the same unrecognized device (double-tap, client
-    // retry) can both reach here before either commits. The partial unique
-    // index (idx_adcr_one_pending_per_device, migration 0017) makes the
-    // second insert fail rather than create a duplicate PENDING row; when
-    // that happens, fall back to whichever row actually won the race and
-    // treat this call exactly like the "already pending" branch below —
-    // no second audit log, no second admin notification.
-    let created;
-    try {
-      created = await Repo.createDeviceChangeRequest(userId, companyId, deviceId, deviceName, deviceType, trusted.deviceId);
-    } catch (err) {
-      if (err instanceof UniqueConstraintError) {
-        const winner = await Repo.findLatestRequestForDevice(userId, deviceId);
-        if (winner) {
-          throw new ServiceError(
-            "This device is still awaiting admin approval. Please use your trusted device, or wait for approval.",
-            403,
-            { code: "DEVICE_CHANGE_PENDING", action: "REQUEST_DEVICE_APPROVAL", requestId: winner.id }
-          );
-        }
-      }
-      throw err;
-    }
-
-    logSecurityEvent({ userId, companyId, actorId: userId, eventType: "DEVICE_CHANGE_DETECTED", metadata: { deviceId } });
-    logSecurityEvent({
-      userId,
-      companyId,
-      actorId: userId,
-      eventType: "DEVICE_CHANGE_REQUESTED",
-      deviceChangeRequestId: created.id,
-    });
-    notifyDeviceChangeRequested(userId, companyId, created.id, deviceName);
-    throw new ServiceError(
-      "This device isn't recognized. A request to use it has been sent to your admin for approval.",
-      403,
-      { code: "DEVICE_CHANGE_PENDING", action: "REQUEST_DEVICE_APPROVAL", requestId: created.id }
-    );
-  }
-
-  if (existing.status === "pending") {
+  if (existing?.status === "pending") {
     throw new ServiceError(
       "This device is still awaiting admin approval. Please use your trusted device, or wait for approval.",
       403,
@@ -149,7 +107,7 @@ export const checkDeviceSecurity = async (
     );
   }
 
-  if (existing.status === "rejected") {
+  if (existing?.status === "rejected") {
     throw new ServiceError(
       "This device was not approved by your admin. Please use your trusted device or contact your admin.",
       403,
@@ -157,18 +115,58 @@ export const checkDeviceSecurity = async (
     );
   }
 
-  // status === "approved" — promote (replace-on-approval). Every call after
-  // this hits the "same device as trusted" branch above, so there's no
-  // separate "consumed" bookkeeping needed.
-  await Repo.replaceTrustedDevice(userId, companyId, deviceId, deviceName, deviceType);
+  // Either there's no request on file for this device at all, or the only
+  // one is a STALE "approved" row from before trust moved to a different
+  // device since. (approveDeviceRequest promotes the trusted device
+  // directly as part of approval — if this were still the current trusted
+  // device, the "same device as trusted" branch above would already have
+  // returned. Reaching here at all means it isn't the current one anymore,
+  // e.g. device A -> approved, then device B -> approved supersedes it, and
+  // A is tried again later.) A past approval is not a standing grant that
+  // survives the device being superseded — treat this exactly like a device
+  // with no history and require a fresh admin decision. Previously this
+  // fell through to silently re-trusting device A off its old approval,
+  // which let a revoked device walk back in with no new approval at all.
+  //
+  // The check above and this insert aren't atomic — two near-simultaneous
+  // punch attempts from the same unrecognized device (double-tap, client
+  // retry) can both reach here before either commits. The partial unique
+  // index (idx_adcr_one_pending_per_device, migration 0017) makes the
+  // second insert fail rather than create a duplicate PENDING row; when
+  // that happens, fall back to whichever row actually won the race and
+  // treat this call exactly like the "already pending" branch above — no
+  // second audit log, no second admin notification.
+  let created;
+  try {
+    created = await Repo.createDeviceChangeRequest(userId, companyId, deviceId, deviceName, deviceType, trusted.deviceId);
+  } catch (err) {
+    if (err instanceof UniqueConstraintError) {
+      const winner = await Repo.findLatestRequestForDevice(userId, deviceId);
+      if (winner) {
+        throw new ServiceError(
+          "This device is still awaiting admin approval. Please use your trusted device, or wait for approval.",
+          403,
+          { code: "DEVICE_CHANGE_PENDING", action: "REQUEST_DEVICE_APPROVAL", requestId: winner.id }
+        );
+      }
+    }
+    throw err;
+  }
+
+  logSecurityEvent({ userId, companyId, actorId: userId, eventType: "DEVICE_CHANGE_DETECTED", metadata: { deviceId } });
   logSecurityEvent({
     userId,
     companyId,
     actorId: userId,
-    eventType: "DEVICE_TRUSTED_PROMOTED",
-    deviceChangeRequestId: existing.id,
+    eventType: "DEVICE_CHANGE_REQUESTED",
+    deviceChangeRequestId: created.id,
   });
-  return { deviceStatus: "trusted_promoted" };
+  notifyDeviceChangeRequested(userId, companyId, created.id, deviceName);
+  throw new ServiceError(
+    "This device isn't recognized. A request to use it has been sent to your admin for approval.",
+    403,
+    { code: "DEVICE_CHANGE_PENDING", action: "REQUEST_DEVICE_APPROVAL", requestId: created.id }
+  );
 };
 
 // ── Settings: self / single-user / bulk ────────────────────────────────────
