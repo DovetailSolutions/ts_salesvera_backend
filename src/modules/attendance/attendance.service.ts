@@ -162,17 +162,31 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
     }
     existing.status = fields.status as any;
     existing.companyLeaveId = fields.companyLeaveId;
+    // FIX: dayType used to be updated only inside the "no real punch yet"
+    // branch below — so marking a too-short punch session "Present"
+    // correctly flipped `status` to "present" but silently left `dayType`
+    // stuck at whatever attendancePunchOut had classified it as (e.g.
+    // "short_leave"). The Attendance Register reads dayType with HIGHER
+    // display priority than status (a "short_leave"/"half_day" dayType
+    // renders "S"/"HD" regardless of status — see AttendanceRegister.jsx),
+    // so the UI kept showing "S" forever even though the record's status
+    // genuinely was "present" — looking exactly like Mark Present "didn't
+    // work". dayType is a classification of the day and must always follow
+    // the admin's explicit status choice. `overtime`, unlike dayType, is a
+    // computed FACT tied to actual hours worked (like working_hours) — it
+    // stays paired with the real-punch-preservation branch below rather
+    // than being reset to the shift-derived (always-zero) value.
+    existing.dayType = fields.dayType;
     // Never overwrite a real punch already on the record (e.g. the employee
     // already self-punched-in for real) — only fill in shift-derived times
     // when there's nothing there yet. Non-"showed up" outcomes (absent/
     // leave) always clear punch data — the day didn't happen that way.
     if (SHOWED_UP_STATUSES.includes(status) && existing.punch_in) {
-      // keep the existing real punch as-is
+      // keep the existing real punch_in/punch_out/working_hours/overtime as-is
     } else {
       existing.punch_in = fields.punchIn;
       existing.punch_out = fields.punchOut;
       existing.working_hours = fields.workingHours;
-      existing.dayType = fields.dayType;
       existing.overtime = fields.overtime;
     }
     await existing.save();

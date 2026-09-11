@@ -37,6 +37,29 @@ router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANA
 // get-leave/:id/update-leave/:id) now live in src/modules/leave/, mounted
 // in server.ts — same URL paths as before.
 // FIX: expense routes now require explicit permissions.
+router.post(
+  "/addexpance",
+  tokenCheck,
+  checkPermission("expense", "create"),
+  expense.any(),
+  UserController.CreateExpense
+);
+router.post(
+  "/addexpense",
+  tokenCheck,
+  checkPermission("expense", "create"),
+  expense.any(),
+  UserController.CreateExpense
+);
+router.post(
+  "/expense",
+  tokenCheck,
+  checkPermission("expense", "create"),
+  expense.any(),
+  UserController.CreateExpense
+);
+router.get("/getexpense",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
+router.get("/getexpance",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
 router.get("/get-expense",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
 router.get("/admin-manager",tokenCheck,AdminController.test);
 // User Management page: admin/super_admin toggle controlling whether a

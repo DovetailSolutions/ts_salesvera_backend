@@ -170,7 +170,22 @@ export const register = async (body: any, callerData?: { userId?: number | strin
   // unassigned. Silently no-ops (stays null) if the company has neither yet
   // (e.g. this is the very first user created, before Step 1/3 have run) or
   // no company context is resolvable at all.
-  if ((resolvedBranchId === null || resolvedShiftId === null) && creatorCompanyId) {
+  //
+  // FIX: this unconditionally applied to a new "admin" too — but when a
+  // "user" (tenant owner) registers a brand-new admin (Company Registration
+  // wizard's Step 1, always BEFORE that admin's own company/branch exist in
+  // Step 2), creatorCompanyId is the OWNER's currently-ACTIVE company (one
+  // of their existing, unrelated companies), not any company this new admin
+  // will ever belong to. Stamping the new admin with that other company's
+  // branchId/shiftId corrupted collectUserCompanyIds' company-membership
+  // signal for them (branchId said "old company", Company.adminId said "new
+  // company" once addcompany ran) — which showed the new admin (and their
+  // whole team) under BOTH companies in the owner's User Management list
+  // regardless of which was selected via the switcher. A brand-new admin
+  // genuinely has no branch/shift to default to yet; leave both null until
+  // their own company's Step 2/3 create real ones.
+  const skipBranchShiftDefault = role === "admin" && creator?.role === "user";
+  if ((resolvedBranchId === null || resolvedShiftId === null) && creatorCompanyId && !skipBranchShiftDefault) {
     const defaults = await resolveDefaultBranchAndShift(creatorCompanyId);
     if (resolvedBranchId === null) resolvedBranchId = defaults.branchId;
     if (resolvedShiftId === null) resolvedShiftId = defaults.shiftId;
@@ -343,6 +358,21 @@ export const resolveLoginCompanyId = async (
   } else if (userRole === "user") {
     const company = await AuthRepo.findCompanyByUserId(userId);
     companyId = company ? company.id : null;
+  } else if (userRole === "sale_person") {
+    // FIX: this branch was missing entirely — a sale_person with no
+    // UserPermission rows yet (e.g. freshly registered, before any
+    // permission was explicitly delegated to them) fell straight through to
+    // the Priority 2 fallback below, which also comes up empty with no
+    // permissions to look up, leaving companyId null on both login AND
+    // every subsequent /admin/refreshtoken (resolveLoginCompanyId is used
+    // by both). tokenCheck.ts's resolveCompanyId already implements the
+    // correct resolution for this role (walk the creator chain up to the
+    // root admin, then that admin's company) and silently papers over the
+    // gap on every individual request since a null/falsy JWT companyId
+    // makes it recompute from scratch — but the login/refresh RESPONSE
+    // itself still incorrectly reported companyId: null. Reuse the same,
+    // already-correct resolver instead of duplicating its logic.
+    companyId = await resolveCompanyId(userId, "sale_person", null);
   }
 
   // Priority 2: Fallback — find ANY company where this user has assigned permissions
@@ -352,7 +382,10 @@ export const resolveLoginCompanyId = async (
   }
 
   // ── Restore last active company (from previous logout/switch), if still accessible ──
-  if (lastLoginCompanyId && (userRole === "admin" || userRole === "manager" || userRole === "sale_person")) {
+  if (
+    lastLoginCompanyId &&
+    (userRole === "admin" || userRole === "manager" || userRole === "sale_person" || userRole === "user")
+  ) {
     let hasAccess = false;
 
     if (userRole === "admin") {
@@ -367,6 +400,9 @@ export const resolveLoginCompanyId = async (
       hasAccess = !!assignment;
     } else if (userRole === "sale_person") {
       const company = await AuthRepo.findCompanyByIdAndManagerOwner(lastLoginCompanyId, userId);
+      hasAccess = !!company;
+    } else if (userRole === "user") {
+      const company = await AuthRepo.findCompanyByIdAndUserOwner(lastLoginCompanyId, userId);
       hasAccess = !!company;
     }
 

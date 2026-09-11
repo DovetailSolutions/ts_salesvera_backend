@@ -2,7 +2,7 @@ import { buildSpacesUrl } from "../../config/spaces";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { createSuccess, badRequest } from "../../app/middlewear/errorMessage";
-import { ServiceError } from "../shared/serviceError";
+import { handleServiceError } from "../shared/handleServiceError";
 import * as CompanyService from "./company.service";
 
 // ============================================================
@@ -10,13 +10,14 @@ import * as CompanyService from "./company.service";
 // addCompany/getCompany/getCompanyById/updateCompany/assignCompanyManager/
 // removeCompanyManager/getCompanyManagers/getMyCompanies/switchCompany/
 // deleteCompany/getOwnCompany/addCompanyBank.
+//
+// FIX: this file used to define its own private handleServiceError that
+// always mapped to badRequest(400), silently discarding ServiceError.status
+// — so the existing `throw new ServiceError(..., 403)` in getCompanyPolicy
+// was never actually reaching callers as 403. Switched to the shared,
+// status-aware mapper already used by attendance/attendanceSecurity
+// controllers (badRequest for 400, forbidden for 403).
 // ============================================================
-
-const handleServiceError = (res: Response, error: unknown) => {
-  if (error instanceof ServiceError) return badRequest(res, error.message);
-  const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-  return badRequest(res, errorMessage);
-};
 
 export const addCompany = async (req: Request, res: Response): Promise<void> => {
   try {

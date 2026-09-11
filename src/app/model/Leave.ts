@@ -15,6 +15,12 @@ interface CompanyLeaveAttributes {
   compOffBalance?: number;
   casualLeaveBalance?: number;
   sickLeaveBalance?: number;
+  // Authoritative paid/unpaid classification for this leave type — drives
+  // whether approving a request deducts the paid leave balance and whether
+  // its approved days post to Attendance as "leaveApproved" (paid) or
+  // "absent" (unpaid). Defaults to true so every pre-existing leave type
+  // keeps behaving exactly as before.
+  isPaid?: boolean;
 
   created_at?: Date;
   updated_at?: Date;
@@ -22,7 +28,7 @@ interface CompanyLeaveAttributes {
 
 type CompanyLeaveCreationAttributes = Optional<
   CompanyLeaveAttributes,
-  "id" | "status" | "carryForward" | "carryForwardLimit" | "managerApproval"
+  "id" | "status" | "carryForward" | "carryForwardLimit" | "managerApproval" | "isPaid"
 >;
 
 
@@ -44,6 +50,7 @@ export class CompanyLeave
   public compOffBalance?: number;
   public casualLeaveBalance?: number;
   public sickLeaveBalance?: number;
+  public isPaid?: boolean;
 
   static initModel(sequelize: Sequelize): typeof CompanyLeave {
     CompanyLeave.init(
@@ -112,6 +119,11 @@ export class CompanyLeave
           type: DataTypes.INTEGER,
           allowNull: true,
           defaultValue: 0,
+        },
+        isPaid: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: true,
         },
 
       },

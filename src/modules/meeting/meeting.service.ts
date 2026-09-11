@@ -1,6 +1,7 @@
+import * as XLSX from "xlsx";
 import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds, getCompanyScopedChildUserIds, getCompanyScopedOrgWideUserIds, getDirectCreator } from "../shared/userHierarchy";
-import { getISTDateString } from "../shared/dateUtils";
+import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
 import * as MeetingRepo from "./meeting.repository";
 
 // ============================================================
@@ -500,4 +501,249 @@ export const getNewClientsDetails = async (
       limit,
     },
   };
+};
+
+// ============================================================
+// Admin Meeting Excel Export — additive, read-only reporting feature.
+// Never creates/updates/deletes a Meeting/User/Company record; only reads
+// already-authorized data (see meeting.repository.ts's findMeetingsForExport)
+// and produces an .xlsx buffer. The route (meeting.routes.ts) already gates
+// this to admin/super_admin/user via authorizeRoles(ADMIN_ONLY) — this
+// function independently re-derives and re-checks the caller's own
+// authorized scope too rather than trusting the route layer alone.
+// ============================================================
+
+const MEETING_STATUSES = ["scheduled", "pending", "in", "out", "completed", "cancelled"] as const;
+
+// Same "IST calendar day -> UTC instant" boundary formula admin.ts's private
+// getISTDayBoundary already uses for this exact getMeeting/getUserMeetings
+// meetingTimeIn filter — reimplemented here (that helper isn't exported) off
+// the same shared getISTDateString/parseISTTime primitives, not a new
+// timezone convention.
+const istDayBoundary = (dateLike: string, edge: "start" | "end"): Date => {
+  const istDateStr = getISTDateString(new Date(String(dateLike)));
+  const start = parseISTTime(istDateStr, "00:00:00");
+  return edge === "start" ? start : new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+};
+
+export const exportMeetingReportExcel = async (
+  loggedInId: number,
+  callerCompanyId: number | null,
+  query: { fromDate?: string; toDate?: string; userIds?: string }
+) => {
+  const { fromDate, toDate, userIds } = query;
+
+  if (!fromDate || !toDate) {
+    throw new ServiceError("fromDate and toDate are required");
+  }
+  if (isNaN(new Date(String(fromDate)).getTime()) || isNaN(new Date(String(toDate)).getTime())) {
+    throw new ServiceError("Invalid fromDate or toDate");
+  }
+
+  const from = istDayBoundary(String(fromDate), "start");
+  const to = istDayBoundary(String(toDate), "end");
+  if (from > to) {
+    throw new ServiceError("fromDate must be on or before toDate");
+  }
+
+  // Admin's own authorized company scope — every root admin the company has
+  // plus their whole descendant tree, exactly what the Meeting Dashboard
+  // already uses for an admin (getMeetingDashboard above). Never derived
+  // from anything the client sends.
+  const authorizedIds = await getCompanyScopedOrgWideUserIds(loggedInId, callerCompanyId);
+  const authorizedSet = new Set(authorizedIds);
+
+  let targetIds: number[];
+  let isAllUsers = true;
+  if (userIds != null && String(userIds).trim().length > 0) {
+    isAllUsers = false;
+    const requested = String(userIds).split(",").map((s) => s.trim()).filter(Boolean);
+    const parsed = requested.map((s) => Number(s));
+    if (parsed.length === 0 || parsed.some((id) => !Number.isInteger(id) || id <= 0)) {
+      throw new ServiceError("userIds must be a comma-separated list of numeric user IDs");
+    }
+    const unauthorized = [...new Set(parsed)].filter((id) => !authorizedSet.has(id));
+    if (unauthorized.length > 0) {
+      throw new ServiceError(
+        `You are not authorized to export meetings for user ID(s): ${unauthorized.join(", ")}`,
+        403
+      );
+    }
+    targetIds = [...new Set(parsed)];
+  } else {
+    targetIds = authorizedIds;
+  }
+
+  // No authorized users at all (e.g. a brand-new admin with no team yet) —
+  // not an error, just an empty report (see the "no data" handling below).
+  const [meetingsRaw, targetUsersRaw] =
+    targetIds.length > 0
+      ? await Promise.all([
+          MeetingRepo.findMeetingsForExport(targetIds, from, to),
+          MeetingRepo.findEmployeesByIds(targetIds),
+        ])
+      : [[], []];
+
+  const meetings = (meetingsRaw as any[]).map((m) => (m.get ? m.get({ plain: true }) : m));
+  const targetUsers = (targetUsersRaw as any[]).map((u) => (u.get ? u.get({ plain: true }) : u));
+  const userById = new Map(targetUsers.map((u: any) => [u.id, u]));
+
+  const formatISTDateTime = (d: any): string => {
+    if (!d) return "";
+    const date = new Date(d);
+    if (isNaN(date.getTime())) return "";
+    return `${getISTDateString(date)} ${formatISTTime(date)}`;
+  };
+  const formatISTDateOnly = (d: any): string => {
+    if (!d) return "";
+    const date = new Date(d);
+    return isNaN(date.getTime()) ? "" : getISTDateString(date);
+  };
+
+  const meetingsByUser = new Map<number, any[]>();
+  for (const m of meetings) {
+    if (!meetingsByUser.has(m.userId)) meetingsByUser.set(m.userId, []);
+    meetingsByUser.get(m.userId)!.push(m);
+  }
+
+  const emptyDetailRow = (employeeName: string, employeeEmail: string, employeeRole: string) => ({
+    "User Name": employeeName,
+    "User Email": employeeEmail,
+    "Role": employeeRole,
+    "Meeting ID": "",
+    "Meeting Date": "",
+    "Scheduled Time": "",
+    "Meeting In": "",
+    "Meeting Out": "",
+    "Status": "No meetings",
+    "Meeting Purpose": "",
+    "Client Name": "",
+    "Client Company": "",
+    "Client Email": "",
+    "Client Mobile": "",
+    "City": "",
+    "State": "",
+    "Pincode": "",
+    "Total Distance": "",
+    "Leg Distance": "",
+    "Latitude In": "",
+    "Longitude In": "",
+    "Latitude Out": "",
+    "Longitude Out": "",
+    "Created At": "",
+  });
+
+  const detailRows: Record<string, any>[] = [];
+  for (const uid of targetIds) {
+    const employee = userById.get(uid);
+    const employeeName = employee ? `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || employee.email : `#${uid}`;
+    const employeeEmail = employee?.email || "";
+    const employeeRole = employee?.role || "";
+    const userMeetings = meetingsByUser.get(uid) || [];
+
+    if (userMeetings.length === 0) {
+      detailRows.push(emptyDetailRow(employeeName, employeeEmail, employeeRole));
+      continue;
+    }
+
+    for (const m of userMeetings) {
+      const client = m.MeetingUser || {};
+      const clientCompany = m.MeetingCompany || {};
+      detailRows.push({
+        "User Name": employeeName,
+        "User Email": employeeEmail,
+        "Role": employeeRole,
+        "Meeting ID": m.id,
+        "Meeting Date": formatISTDateOnly(m.meetingTimeIn || m.scheduledTime),
+        "Scheduled Time": formatISTDateTime(m.scheduledTime),
+        "Meeting In": formatISTDateTime(m.meetingTimeIn),
+        "Meeting Out": formatISTDateTime(m.meetingTimeOut),
+        "Status": m.status || "",
+        "Meeting Purpose": m.meetingPurpose || "",
+        "Client Name": client.name || clientCompany.personName || "",
+        "Client Company": client.companyName || clientCompany.companyName || "",
+        "Client Email": client.email || clientCompany.companyEmail || "",
+        "Client Mobile": client.mobile || clientCompany.mobileNumber || "",
+        "City": client.city || clientCompany.city || "",
+        "State": client.state || clientCompany.state || "",
+        "Pincode": m.pincode || clientCompany.pincode || "",
+        "Total Distance": m.totalDistance || "",
+        "Leg Distance": m.legDistance || "",
+        "Latitude In": m.latitude_in || "",
+        "Longitude In": m.longitude_in || "",
+        "Latitude Out": m.latitude_out || "",
+        "Longitude Out": m.longitude_out || "",
+        "Created At": formatISTDateTime(m.createdAt),
+      });
+    }
+  }
+
+  // ── Summary sheet: one row per selected user, tallied off the SAME
+  // already-fetched meetings (no second query) — never invents a status
+  // category, just counts the real Meeting.status enum values.
+  const summaryRows = targetIds.map((uid) => {
+    const employee = userById.get(uid);
+    const employeeName = employee ? `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || employee.email : `#${uid}`;
+    const userMeetings = meetingsByUser.get(uid) || [];
+    const counts: Record<string, number> = Object.fromEntries(MEETING_STATUSES.map((s) => [s, 0]));
+    userMeetings.forEach((m) => {
+      if (m.status && counts[m.status] !== undefined) counts[m.status] += 1;
+    });
+    return {
+      "User Name": employeeName,
+      "User Email": employee?.email || "",
+      "Total Meetings": userMeetings.length,
+      "Scheduled": counts.scheduled,
+      "Pending": counts.pending,
+      "In Progress": counts.in,
+      "Out": counts.out,
+      "Completed": counts.completed,
+      "Cancelled": counts.cancelled,
+    };
+  });
+
+  const workbook = XLSX.utils.book_new();
+
+  const detailSheet = XLSX.utils.json_to_sheet(
+    detailRows.length > 0
+      ? detailRows
+      : [{ "No meeting data found for the selected date range and users": "" }]
+  );
+  detailSheet["!cols"] = [
+    { wch: 20 }, { wch: 26 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+    { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 14 },
+    { wch: 20 }, { wch: 22 }, { wch: 24 }, { wch: 14 }, { wch: 14 },
+    { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
+    { wch: 12 }, { wch: 12 }, { wch: 18 },
+  ];
+  detailSheet["!freeze"] = { xSplit: 0, ySplit: 1 };
+  if (detailSheet["!ref"]) {
+    detailSheet["!autofilter"] = { ref: detailSheet["!ref"] };
+  }
+  XLSX.utils.book_append_sheet(workbook, detailSheet, "Meeting Report");
+
+  const summarySheet = XLSX.utils.json_to_sheet(
+    summaryRows.length > 0 ? summaryRows : [{ "No authorized users to summarize": "" }]
+  );
+  summarySheet["!cols"] = [
+    { wch: 20 }, { wch: 26 }, { wch: 14 }, { wch: 11 }, { wch: 10 }, { wch: 12 }, { wch: 8 }, { wch: 11 }, { wch: 11 },
+  ];
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+  const rangeLabel = `${fromDate}-to-${toDate}`;
+  const filename = isAllUsers
+    ? `meeting-report-${rangeLabel}.xlsx`
+    : `meeting-report-selected-users-${rangeLabel}.xlsx`;
+
+  // Best-effort activity log — the project has no generic cross-module audit
+  // table (only attendance- and setup-tracking-specific ones), so this is a
+  // plain server log line rather than a new persisted audit system.
+  console.log(
+    `[meeting-export] admin=${loggedInId} company=${callerCompanyId} from=${fromDate} to=${toDate} ` +
+      `users=${isAllUsers ? "ALL" : targetIds.join(",")} meetings=${meetings.length}`
+  );
+
+  return { buffer, filename, meetingCount: meetings.length };
 };

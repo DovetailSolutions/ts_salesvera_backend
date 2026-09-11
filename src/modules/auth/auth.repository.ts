@@ -73,7 +73,7 @@ export const findCompanyManagerAssignment = (managerId: number) =>
   (CompanyManager as any).findOne({ where: { managerId }, attributes: ["companyId"] });
 
 export const findCompanyByUserId = (userId: number) =>
-  (Company as any).findOne({ where: { userId }, attributes: ["id"] });
+  (Company as any).findOne({ where: { userId }, attributes: ["id"], order: [["id", "ASC"]] });
 
 export const findFirstUserPermissionCompany = (userId: number) =>
   UserPermission.findOne({ where: { userId }, attributes: ["companyId"] });
@@ -86,6 +86,13 @@ export const findCompanyManagerAssignmentFor = (companyId: number, managerId: nu
 
 export const findCompanyByIdAndManagerOwner = (id: number, managerId: number) =>
   (Company as any).findOne({ where: { id, managerId }, attributes: ["id"] });
+
+// "user" is a tenant root — owns companies directly via Company.userId, no
+// junction/creator-chain involved. Mirrors findCompanyByIdAndAdmin/
+// findCompanyByIdAndManagerOwner above for resolveLoginCompanyId's
+// restore-last-active-company check.
+export const findCompanyByIdAndUserOwner = (id: number, userId: number) =>
+  (Company as any).findOne({ where: { id, userId }, attributes: ["id"] });
 
 // Multi-company admin support (mirrors the CompanyManager lookups above)
 export const findCompanyAdminAssignment = (adminId: number) =>

@@ -52,7 +52,7 @@ import * as Middleware from "../middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
-import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, collectUserCompanyIds } from "../../modules/shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
 
@@ -1457,11 +1457,54 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    let createdUsers = (result as any).createdUsers || [];
+    // .toJSON() up front (not after filtering) so every level of the tree is
+    // a plain object/array — mutating a nested `createdUsers` array on a
+    // still-live Sequelize instance below is unreliable (association data
+    // lives in the instance's dataValues, not a plain enumerable property),
+    // so operate on the fully-plain tree from the start.
+    const userJson = (result as any).toJSON();
+    let createdUsers = userJson.createdUsers || [];
+
+    // FIX: this endpoint (the "user"-role User Management team list) walked
+    // createdBy/createdUsers with NO company filtering at all — a "user"
+    // (tenant owner) who owns multiple companies saw every admin/manager
+    // they ever created merged into one list regardless of which company
+    // was currently selected via the switcher (Admin 1/Company 1 mixed
+    // together with Admin 2/Company 2). An "admin" caller's own team is
+    // inherently single-company already, so this is a no-op for them.
+    // Reuses the same fail-open-on-indeterminate company resolution already
+    // used by getCompanyScopedChildUserIds elsewhere, applied here instead
+    // of a raw Sequelize include (which can't express "same company as the
+    // branch/junction/ownership signals" in one WHERE clause) so the nested
+    // admin->manager tree shape callers already depend on is preserved.
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    if (callerCompanyId != null) {
+      const level1Ids = createdUsers.map((a: any) => Number(a.id));
+      const level2Ids = createdUsers.flatMap((a: any) =>
+        (a.createdUsers || []).map((m: any) => Number(m.id))
+      );
+      const companyIdsByUser = await collectUserCompanyIds([...level1Ids, ...level2Ids]);
+
+      const belongsToActiveCompany = (id: number) => {
+        const companies = companyIdsByUser.get(id);
+        // Indeterminate membership — keep (fail open), same as
+        // getCompanyScopedChildUserIds.
+        if (!companies || companies.size === 0) return true;
+        return companies.has(callerCompanyId);
+      };
+
+      createdUsers = createdUsers
+        .filter((a: any) => belongsToActiveCompany(Number(a.id)))
+        .map((a: any) => ({
+          ...a,
+          createdUsers: Array.isArray(a.createdUsers)
+            ? a.createdUsers.filter((m: any) => belongsToActiveCompany(Number(m.id)))
+            : a.createdUsers,
+        }));
+    }
+
     const total = createdUsers.length;
     createdUsers = createdUsers.slice(offset, offset + limitNum);
-
-    const userJson = (result as any).toJSON();
     userJson.createdUsers = createdUsers;
 
     createSuccess(res, "Users fetched successfully", {
@@ -1747,10 +1790,14 @@ export const GetExpense = async (
     }
 
     const allUserIds: number[] = [loggedInId, ...childIds];
-    const { approvedByAdmin, approvedBySuperAdmin } = req.query;
+    const { approvedByAdmin, approvedBySuperAdmin, self, userId: queryUserId } = req.query;
 
     const expenseWhere: any = {
-      userId: { [Op.in]: allUserIds },
+      userId: queryUserId
+        ? Number(queryUserId)
+        : (self === "true" || self === "1")
+        ? loggedInId
+        : { [Op.in]: allUserIds },
     };
     let userWhere: any = {};
 

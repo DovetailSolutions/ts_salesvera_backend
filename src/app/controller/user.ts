@@ -50,7 +50,7 @@ import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds } from "../../modules/shared/userHierarchy";
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
-import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum } from "../../modules/leave/leave.service";
+import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
 import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
@@ -1635,24 +1635,42 @@ export const requestLeave = async (
       resolvedCompanyLeaveId = leaveTypeRow.id;
       if (!leave_type) leave_type = inferLegacyLeaveTypeEnum((leaveTypeRow as any).leaveName);
 
-      // Same lazy carry-forward resolution used by the admin balance-assign/
-      // view endpoints (leave.service.ts) — the first time this employee's
-      // balance for this type/year is touched, any unused days from last
-      // year roll in (capped at the type's own carryForwardLimit) before the
-      // request is checked against it.
-      typeBalance = await resolveLeaveTypeBalance(finalUserId, leaveTypeRow as any, year, finalUserId);
+      // Unpaid leave has no paid balance to check against — it's never
+      // deducted (see approveLeave in leave.service.ts), so skip resolving/
+      // enforcing a balance for it entirely rather than blocking the request
+      // on a balance that was never meant to apply to it.
+      if (!isUnpaidLeaveType(leaveTypeRow as any, leave_type)) {
+        // Same lazy carry-forward resolution used by the admin balance-assign/
+        // view endpoints (leave.service.ts) — the first time this employee's
+        // balance for this type/year is touched, any unused days from last
+        // year roll in (capped at the type's own carryForwardLimit) before the
+        // request is checked against it.
+        typeBalance = await resolveLeaveTypeBalance(finalUserId, leaveTypeRow as any, year, finalUserId);
 
-      const allocated = (typeBalance as any).allocated || 0;
-      const carriedForward = (typeBalance as any).carriedForward || 0;
-      const used = (typeBalance as any).used || 0;
-      const remaining = allocated + carriedForward - used;
+        const allocated = (typeBalance as any).allocated || 0;
+        const carriedForward = (typeBalance as any).carriedForward || 0;
+        const used = (typeBalance as any).used || 0;
+        const remaining = allocated + carriedForward - used;
 
-      if (remaining < days) {
-        badRequest(
-          res,
-          `Insufficient ${(leaveTypeRow as any).leaveName} balance (requested ${days} day(s), remaining ${remaining})`
-        );
-        return
+        const pendingLeaves = await Leave.findAll({
+          where: {
+            employee_id: finalUserId,
+            status: "pending",
+            companyLeaveId: resolvedCompanyLeaveId,
+          },
+        });
+        const pendingDays = pendingLeaves.reduce((acc, pl: any) => {
+          const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
+          return plYear === year ? acc + countLeaveDays(pl.from_date, pl.to_date) : acc;
+        }, 0);
+
+        if (remaining - pendingDays < days) {
+          badRequest(
+            res,
+            `Insufficient ${(leaveTypeRow as any).leaveName} balance (requested ${days} day(s), available ${remaining - pendingDays})`
+          );
+          return;
+        }
       }
     } else {
       const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
@@ -1664,24 +1682,34 @@ export const requestLeave = async (
         const allocated = balance ? (balance as any)[balanceField.allocated] || 0 : 0;
         const used = balance ? (balance as any)[balanceField.used] || 0 : 0;
 
-        if (!balance || allocated - used < days) {
+        const pendingLeaves = await Leave.findAll({
+          where: {
+            employee_id: finalUserId,
+            status: "pending",
+            leave_type,
+          },
+        });
+        const pendingDays = pendingLeaves.reduce((acc, pl: any) => {
+          const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
+          return plYear === year ? acc + countLeaveDays(pl.from_date, pl.to_date) : acc;
+        }, 0);
+
+        if (!balance || (allocated - used - pendingDays) < days) {
           badRequest(
             res,
-            `Insufficient ${leave_type} leave balance (requested ${days} day(s), remaining ${allocated - used})`
+            `Insufficient ${leave_type} leave balance (requested ${days} day(s), available ${allocated - used - pendingDays})`
           );
-          return
+          return;
         }
       }
     }
 
     // --------------------
     // ✅ Half-day leave: only valid for a single day
-    // (leave_type is fully resolved by this point — explicit, or derived
-    // from companyLeaveId above)
     // --------------------
     if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
       badRequest(res, "half_day leave must have from_date equal to to_date");
-      return
+      return;
     }
 
     // --------------------
@@ -1697,48 +1725,10 @@ export const requestLeave = async (
       companyLeaveId: resolvedCompanyLeaveId,
     } as any);
 
-    // --------------------
-    // ✅ Deduct leave balance immediately upon request
-    // --------------------
-    if (typeBalance) {
-      (typeBalance as any).used = ((typeBalance as any).used || 0) + days;
-      await typeBalance.save();
-    } else if (balance) {
-      const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
-      const used = (balance as any)[balanceField.used] || 0;
-      (balance as any)[balanceField.used] = used + days;
-      await balance.save();
-    }
+    // Note: Balance is NOT permanently deducted while pending.
+    // Attendance is NOT inserted while pending.
+    // Both occur atomically upon approval.
 
-    // --------------------
-    // ✅ Insert one Attendance entry per day of the leave range
-    // half_day/short_leave are partial-day types — the employee still
-    // punches in/out normally, so no placeholder "leave" row is created
-    // for them (it would create a second, conflicting Attendance row for
-    // the same date and break the punch-in/punch-out flow).
-    // --------------------
-    if (leave && leave_type !== "half_day" && leave_type !== "short_leave") {
-      const leaveDates: Date[] = [];
-      // FIX: was cursor.getDate()/setDate() (OS-local getters/setters) to
-      // walk one day at a time from `from` to `to`. Those two Date values
-      // were parsed as UTC-midnight instants, so advancing them a local
-      // calendar day at a time only lines up with a real 24h step if the
-      // server process's OS timezone is UTC-based (not guaranteed on the
-      // production host). The UTC getter/setter pair advances by an actual
-      // day regardless of server OS timezone.
-      for (const cursor = new Date(from); cursor <= to; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-        leaveDates.push(new Date(cursor));
-      }
-
-      await Attendance.bulkCreate(
-        leaveDates.map((date) => ({
-          employee_id: finalUserId,
-          date,
-          status: "leave",
-          companyLeaveId: resolvedCompanyLeaveId,
-        })) as any
-      );
-    }
     createSuccess(res, "Leave requested successfully", leave);
   } catch (error: any) {
     badRequest(res, error?.message || "Something went wrong");
@@ -1751,38 +1741,22 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    // Role-based scope, same endpoint: a manager reviewing their team's leave
-    // requests is "the manager's functionality" for this route — delegate
-    // straight to the team-scoped, grouped-by-employee module handler
-    // (identical to /admin/get-leave-list) instead of duplicating that
-    // query here. Every other caller (sale_person) falls through to the
-    // original self-only behavior below, unchanged.
-    if (userData.role === "manager") {
-      await LeaveController.leaveList(req, res);
-      return;
-    }
-
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
-
     const offset = (page - 1) * limit;
 
+    const where: any = {
+      employee_id: finalUserId,
+    };
+
+    if (req.query.status && req.query.status !== "all") {
+      where.status = String(req.query.status).toLowerCase();
+    }
+
     const result = await Leave.findAndCountAll({
-      where: {
-        employee_id: finalUserId,
-      },
-      // MyLeave.jsx reads row.{id,leave_type,from_date,to_date,reason,status,
-      // leaveTypeRef} only — employee_id is redundant here (this list is
-      // always "my own" leaves) and createdAt isn't displayed, just used for
-      // sort order below (ORDER BY doesn't require the column in SELECT).
-      attributes: ["id", "leave_type", "from_date", "to_date", "reason", "status"],
-      // Additive — each row also carries its resolved leave type name/code
-      // (when the request was made against a company-configured type),
-      // same as the web admin's leave list, instead of just the bare
-      // companyLeaveId a mobile client would otherwise have to look up
-      // itself. Alias is "leaveTypeRef" — the Leave model's association
-      // (see dbConnection.ts), distinct from Attendance's "leaveType".
-      include: [{ model: CompanyLeave, as: "leaveTypeRef", attributes: ["id", "leaveName", "leaveCode"] }],
+      where,
+      attributes: ["id", "employee_id", "leave_type", "from_date", "to_date", "reason", "status", "companyLeaveId", "createdAt", "updatedAt"],
+      include: [{ model: CompanyLeave, as: "leaveTypeRef", attributes: ["id", "leaveName", "leaveCode", "isPaid"] }],
       limit,
       offset,
       order: [["createdAt", "DESC"]],
@@ -1790,7 +1764,7 @@ export const LeaveList = async (req: Request, res: Response): Promise<void> => {
 
     const response = {
       totalRecords: result.count,
-      totalPages: Math.ceil(result.count / limit),
+      totalPages: Math.ceil(result.count / limit) || 1,
       currentPage: page,
       data: result.rows,
     };
@@ -1828,9 +1802,16 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
 
     let leaveTypeBalances: {
       companyLeaveId: number; leaveName: string; leaveCode: string; leavesPerYear: number;
-      carryForwardAllowed: boolean; carryForwardLimit: number;
-      allocated: number; carriedForward: number; used: number; remaining: number;
+      carryForwardAllowed: boolean; carryForwardLimit: number; isPaid: boolean;
+      allocated: number; carriedForward: number; used: number; pending: number; remaining: number;
     }[] = [];
+
+    const pendingLeaves = await Leave.findAll({
+      where: {
+        employee_id: finalUserId,
+        status: "pending",
+      },
+    });
 
     if (leaveTypes.length > 0) {
       const balanceRows = await Promise.all(
@@ -1841,6 +1822,15 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
         const allocated = b?.allocated || 0;
         const carriedForward = b?.carriedForward || 0;
         const used = b?.used || 0;
+
+        const typePendingDays = pendingLeaves
+          .filter((pl: any) => {
+            const matchesType = pl.companyLeaveId === lt.id || (!pl.companyLeaveId && inferLegacyLeaveTypeEnum(lt.leaveName) === pl.leave_type);
+            const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
+            return matchesType && plYear === year;
+          })
+          .reduce((acc: number, pl: any) => acc + countLeaveDays(pl.from_date, pl.to_date), 0);
+
         return {
           companyLeaveId: lt.id,
           leaveName: lt.leaveName,
@@ -1848,9 +1838,11 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
           leavesPerYear: lt.leavesPerYear,
           carryForwardAllowed: !!lt.carryForward,
           carryForwardLimit: lt.carryForwardLimit || 0,
+          isPaid: lt.isPaid !== false,
           allocated,
           carriedForward,
           used,
+          pending: typePendingDays,
           remaining: allocated + carriedForward - used,
         };
       });
@@ -1897,9 +1889,22 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
       };
     }
 
+    const totalAllocated = leaveTypeBalances.reduce((acc, t) => acc + t.allocated + t.carriedForward, 0);
+    const totalUsed = leaveTypeBalances.reduce((acc, t) => acc + t.used, 0);
+    const totalPending = leaveTypeBalances.reduce((acc, t) => acc + t.pending, 0);
+    const totalAvailable = totalAllocated - totalUsed;
+
+    const summary = {
+      available: totalAvailable,
+      used: totalUsed,
+      pending: totalPending,
+      totalAllowed: totalAllocated,
+    };
+
     createSuccess(res, "Leave balance fetched successfully", {
       year,
       ...legacy,
+      summary,
       // NEW — the full per-type breakdown, additive alongside the legacy
       // fields above so existing clients keep working unchanged.
       leaveTypes: leaveTypeBalances,
@@ -1923,7 +1928,11 @@ export const CreateExpense = async (req: Request, res: Response) => {
     }
 
     if (!Array.isArray(expenses)) {
-      throw new Error("Expenses must be an array");
+      if (typeof expenses === "object" && expenses !== null && (expenses.amount !== undefined || expenses.total_amount !== undefined || expenses.title !== undefined)) {
+        expenses = [expenses];
+      } else {
+        throw new Error("Expenses must be an array");
+      }
     }
 
     const files = req.files as Express.MulterS3.File[];
@@ -1932,6 +1941,7 @@ export const CreateExpense = async (req: Request, res: Response) => {
 
     if (files && files.length > 0) {
       files.forEach((file) => {
+        const fileUrl = file.location || (file as any).path || (file as any).filename;
         const match = file.fieldname.match(/expenses\[(\d+)\]\[billImage\]/);
 
         if (match) {
@@ -1941,7 +1951,12 @@ export const CreateExpense = async (req: Request, res: Response) => {
             imageMap[index] = [];
           }
 
-          imageMap[index].push(file.location);
+          imageMap[index].push(fileUrl);
+        } else if (file.fieldname === "billImage" || file.fieldname === "image" || file.fieldname === "file") {
+          if (!imageMap[0]) {
+            imageMap[0] = [];
+          }
+          imageMap[0].push(fileUrl);
         }
       });
     }
@@ -1955,9 +1970,9 @@ export const CreateExpense = async (req: Request, res: Response) => {
         {
           userId,
           title: item.title,
-          total_amount: item.total_amount,
-          amount: item.amount,
-          date: item.date,
+          total_amount: item.total_amount || item.amount,
+          amount: item.amount || item.total_amount,
+          date: item.date || new Date().toISOString().split("T")[0],
           category: item.category,
           description: item.description,
           location: item.location

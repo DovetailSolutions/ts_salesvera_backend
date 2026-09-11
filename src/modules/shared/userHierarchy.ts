@@ -319,6 +319,35 @@ export async function getCompanyScopedOrgWideUserIds(
   return Array.from(merged);
 }
 
+// getCompanyScopedOrgWideUserIds above resolves against exactly ONE company
+// (callerCompanyId — for everyone except "user" that's genuinely all they
+// have). A "user" is a tenant root who can own MULTIPLE companies, but
+// req.userData.companyId only ever reflects whichever one is currently
+// "active" in their JWT (see tokenCheck.ts's resolveCompanyId) — so
+// permission.ts's org-membership checks were rejecting a "user" managing an
+// admin/manager/sale_person in any of their OTHER owned companies (e.g.
+// immediately after creating a second company via the registration wizard,
+// before ever calling switch-company). This is the fix: for role "user",
+// union the org across every company they own instead of just the active
+// one; every other role's behavior is unchanged.
+export async function getOrgWideUserIdsForCaller(
+  callerId: number,
+  role: string,
+  callerCompanyId: number | null | undefined
+): Promise<number[]> {
+  if (role !== "user") {
+    return getCompanyScopedOrgWideUserIds(callerId, callerCompanyId ?? null);
+  }
+
+  const ownedCompanies = await Company.findAll({ where: { userId: callerId }, attributes: ["id"] });
+  if (ownedCompanies.length === 0) return getCompanyScopedOrgWideUserIds(callerId, callerCompanyId ?? null);
+
+  const idSets = await Promise.all(
+    ownedCompanies.map((c: any) => getCompanyScopedOrgWideUserIds(callerId, c.id))
+  );
+  return Array.from(new Set(idSets.flat()));
+}
+
 // Returns the given user's immediate creator (one level up the createdBy
 // chain) — e.g. a sale_person's direct manager, or a manager's direct
 // admin. Used to route "task completed" / other escalation notifications

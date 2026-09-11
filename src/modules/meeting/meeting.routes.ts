@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { tokenCheck } from "../../config/jwtVerify";
 import { checkPermission } from "../../config/checkPermission";
+import { authorizeRoles, ADMIN_ONLY } from "../../app/middlewear/rbac";
 import * as MeetingController from "./meeting.controller";
 
 // ============================================================
@@ -25,6 +26,18 @@ router.get(
   tokenCheck,
   checkPermission("meeting", "view"),
   MeetingController.getNewClientsDashboardDetails
+);
+
+// Admin Meeting Excel Export — new, additive, read-only. Admin-only by role
+// (authorizeRoles), not just by a hidden button: a manager calling this
+// directly gets a 403 even though managers otherwise hold meeting:view.
+// Query: fromDate, toDate (required, YYYY-MM-DD), userIds (optional,
+// comma-separated — omitted/empty means every authorized user).
+router.get(
+  "/meetings/export",
+  tokenCheck,
+  authorizeRoles(...ADMIN_ONLY),
+  MeetingController.exportMeetingReport
 );
 
 export default router;

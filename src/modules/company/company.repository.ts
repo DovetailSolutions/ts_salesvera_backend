@@ -235,6 +235,17 @@ export const findAdminCompanyAssignment = (companyId: number, adminId: number) =
     include: [{ model: Company, as: "company", attributes: ["id", "companyName"] }],
   });
 
+// A "user" is a tenant root — owns companies outright via Company.userId with
+// no junction table involved (unlike admin/manager). Lightweight projection
+// for the header switcher list; NOT findCompaniesWithFullDetail below (that
+// one's for the /my-companies management page, getOwnCompany).
+export const findOwnedCompaniesByUserId = (userId: number) =>
+  Company.findAll({
+    where: { userId },
+    attributes: ["id", "companyName", "legalName", "companyEmail", "companyPhone", "city"],
+    order: [["id", "ASC"]],
+  });
+
 export const findCompaniesWithFullDetail = (userId: number) =>
   Company.findAll({
     where: { userId },

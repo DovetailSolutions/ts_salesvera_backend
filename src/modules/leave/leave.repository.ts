@@ -19,6 +19,15 @@ export const setLeaveStatus = async (leave: any, status: string) => {
   return leave;
 };
 
+export const findPendingLeavesForEmployee = (employeeId: number | string, companyLeaveId?: number | null) =>
+  Leave.findAll({
+    where: {
+      employee_id: employeeId,
+      status: "pending",
+      ...(companyLeaveId ? { companyLeaveId } : {}),
+    },
+  });
+
 export const markAttendanceForLeaveRange = (
   employeeId: number | string,
   fromDate: string | Date,

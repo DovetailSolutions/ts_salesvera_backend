@@ -39,6 +39,7 @@ import { contactPublicRoutes, contactAdminRoutes } from "./modules/contact/conta
 import superAdminRoutes from "./modules/superAdmin/superAdmin.routes";
 import setupTrackingRoutes from "./modules/setupTracking/setupTracking.routes";
 import announcementRoutes from "./modules/announcement/announcement.routes";
+import managerCapabilitiesRoutes from "./modules/managerCapabilities/managerCapabilities.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -116,6 +117,7 @@ app.use("/admin", preferencesRoutes);
 app.use("/admin", reportsRoutes);
 app.use("/admin", meetingRoutes);
 app.use("/admin", announcementRoutes);
+app.use("/admin", managerCapabilitiesRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
 // setupTrackingRoutes is mounted BEFORE superAdminRoutes on purpose — see

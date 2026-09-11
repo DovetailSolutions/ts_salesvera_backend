@@ -280,6 +280,13 @@ export const getMyCompanies = async (userId: number, role: any) => {
     });
   }
 
+  // A "user" (tenant root) owns companies directly via Company.userId — no
+  // junction table involved, unlike admin (CompanyAdmin) or manager
+  // (CompanyManager).
+  if (role === "user") {
+    return CompanyRepo.findOwnedCompaniesByUserId(userId);
+  }
+
   const assignments = await CompanyRepo.findManagerCompanyAssignments(userId);
   return assignments.map((a: any) => a.company);
 };
@@ -289,21 +296,28 @@ export const switchCompany = async (userId: number, role: any, body: any) => {
   if (!companyId) throw new ServiceError("companyId is required");
   if (isNaN(Number(companyId))) throw new ServiceError("companyId must be a number");
 
-  if (role !== "admin" && role !== "manager") {
-    throw new ServiceError("Only admin or manager accounts can switch companies");
+  if (role !== "admin" && role !== "manager" && role !== "user") {
+    throw new ServiceError("Only admin, manager, or owner accounts can switch companies");
   }
 
   const targetCompanyId = Number(companyId);
   const callerId = Number(userId);
 
-  // Verify this admin/manager is actually assigned to the target company via junction table
-  const assignment =
-    role === "admin"
-      ? await CompanyRepo.findAdminCompanyAssignment(targetCompanyId, callerId)
-      : await CompanyRepo.findManagerCompanyAssignment(targetCompanyId, callerId);
-  if (!assignment) throw new ServiceError("You are not assigned to this company");
-
-  const company = (assignment as any).company;
+  let company: any;
+  if (role === "user") {
+    // Ownership check, not junction membership — a "user" is a tenant root,
+    // never a CompanyAdmin/CompanyManager assignee of their own company.
+    company = await CompanyRepo.findCompanyOwnedBy(targetCompanyId, callerId);
+    if (!company) throw new ServiceError("You do not own this company", 403);
+  } else {
+    // Verify this admin/manager is actually assigned to the target company via junction table
+    const assignment =
+      role === "admin"
+        ? await CompanyRepo.findAdminCompanyAssignment(targetCompanyId, callerId)
+        : await CompanyRepo.findManagerCompanyAssignment(targetCompanyId, callerId);
+    if (!assignment) throw new ServiceError("You are not assigned to this company");
+    company = (assignment as any).company;
+  }
 
   // Issue a new token scoped to the target company
   const { accessToken, refreshToken } = Middleware.CreateToken(String(callerId), role, targetCompanyId);

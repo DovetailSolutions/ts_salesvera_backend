@@ -1,4 +1,4 @@
-import { User, CompanyLeave } from "../../config/dbConnection";
+import { User, CompanyLeave, Leave, Attendance, EmployeeLeaveTypeBalance, EmployeeLeaveBalance, sequelize } from "../../config/dbConnection";
 import { Op } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
@@ -31,7 +31,7 @@ export const countLeaveDays = (from_date: string | Date, to_date: string | Date)
 // restores the balance consumed at request time and flips every Attendance
 // row in the leave's date range from leave/leaveApproved to leaveReject.
 const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
-  if (leave.status !== "rejected") {
+  if (leave.status === "approved") {
     const days = countLeaveDays(leave.from_date, leave.to_date);
     // FIX: was `new Date(leave.from_date).getFullYear()` — from_date is a
     // DATEONLY column (a plain "YYYY-MM-DD" string), so `new Date(...)`
@@ -43,25 +43,34 @@ const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
     // offset arithmetic instead, correct regardless of server OS timezone.
     const year = Number(getISTDateString(new Date(leave.from_date)).slice(0, 4));
 
+    let leaveTypeRow: any = null;
     if (leave.companyLeaveId) {
-      // Dynamic per-type balance — this request was deducted against a
-      // specific company-configured leave type.
-      const balanceRows = await LeaveRepo.findEmployeeLeaveTypeBalances(leave.employee_id, year);
-      const balance = balanceRows.find((b: any) => b.companyLeaveId === leave.companyLeaveId);
-      if (balance) {
-        (balance as any).used = Math.max(0, (balance as any).used - days);
-        await (balance as any).save();
-      }
-    } else {
-      // Legacy request with only the fixed leave_type enum, no companyLeaveId
-      // (e.g. an older mobile client) — restore against the old 3-field table.
-      const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
-      if (balanceField) {
-        const balance = await LeaveRepo.findLeaveBalance(leave.employee_id, year);
+      leaveTypeRow = await CompanyLeave.findByPk(leave.companyLeaveId);
+    }
+    // Unpaid leave never touched the paid balance at approval time (see
+    // approveLeave below) — nothing to restore here, and doing so anyway
+    // would hand the employee phantom extra paid days.
+    if (!isUnpaidLeaveType(leaveTypeRow, leave.leave_type)) {
+      if (leave.companyLeaveId) {
+        // Dynamic per-type balance — this request was deducted against a
+        // specific company-configured leave type.
+        const balanceRows = await LeaveRepo.findEmployeeLeaveTypeBalances(leave.employee_id, year);
+        const balance = balanceRows.find((b: any) => b.companyLeaveId === leave.companyLeaveId);
         if (balance) {
-          const used = (balance as any)[balanceField.used] || 0;
-          (balance as any)[balanceField.used] = Math.max(0, used - days);
-          await balance.save();
+          (balance as any).used = Math.max(0, (balance as any).used - days);
+          await (balance as any).save();
+        }
+      } else {
+        // Legacy request with only the fixed leave_type enum, no companyLeaveId
+        // (e.g. an older mobile client) — restore against the old 3-field table.
+        const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
+        if (balanceField) {
+          const balance = await LeaveRepo.findLeaveBalance(leave.employee_id, year);
+          if (balance) {
+            const used = (balance as any)[balanceField.used] || 0;
+            (balance as any)[balanceField.used] = Math.max(0, used - days);
+            await balance.save();
+          }
         }
       }
     }
@@ -70,11 +79,15 @@ const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
   leave.status = "rejected";
   await leave.save();
 
+  // "absent" is included here so an approved UNPAID leave's days (posted as
+  // absent by approveLeave, not leaveApproved) get flipped back to
+  // leaveReject on cancellation too — same restoration marker paid leave
+  // already uses, just reachable from either starting status.
   await LeaveRepo.markAttendanceForLeaveRange(
     leave.employee_id,
     leave.from_date,
     leave.to_date,
-    ["leave", "leaveApproved"],
+    ["leave", "leaveApproved", "absent"],
     "leaveReject"
   );
 };
@@ -92,6 +105,22 @@ export const inferLegacyLeaveTypeEnum = (leaveName: string): string => {
   if (n.includes("unpaid") || n.includes("loss of pay") || n.includes("lop")) return "unpaid";
   if (n.includes("paid") || n.includes("earned")) return "paid";
   return "casual";
+};
+
+// Authoritative paid/unpaid classification for a leave request. Prefers the
+// leave type's own configured CompanyLeave.isPaid flag (set by the admin in
+// Step5's leave-type form) — the real source of truth — and only falls back
+// to the fixed legacy leave_type enum ("unpaid") for the rare request that
+// has no companyLeaveId at all (an old mobile client that only ever sent the
+// enum value, never a resolved company-configured type).
+export const isUnpaidLeaveType = (
+  leaveTypeRow?: { isPaid?: boolean } | null,
+  legacyLeaveType?: string | null
+): boolean => {
+  if (leaveTypeRow && typeof leaveTypeRow.isPaid === "boolean") {
+    return leaveTypeRow.isPaid === false;
+  }
+  return legacyLeaveType === "unpaid";
 };
 
 // Web-app counterpart to the mobile-only self-service requestLeave in
@@ -158,15 +187,25 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
   // offset arithmetic instead.
   const year = Number(getISTDateString(from).slice(0, 4));
 
-  const typeBalance: any = await resolveLeaveTypeBalance(targetEmployeeId, leaveTypeRow, year, loggedInId);
-  const allocated = typeBalance.allocated || 0;
-  const carriedForward = typeBalance.carriedForward || 0;
-  const used = typeBalance.used || 0;
-  const remaining = allocated + carriedForward - used;
-  if (remaining < days) {
-    throw new ServiceError(
-      `Insufficient ${leaveTypeRow.leaveName} balance (requested ${days} day(s), remaining ${remaining})`
-    );
+  // Unpaid leave has no paid balance to check against — it never deducts and
+  // never gets reserved, so there's nothing here to enforce (see
+  // approveLeave/rejectLeaveAndRestoreBalance for the matching no-deduction
+  // behavior at approval/cancellation time).
+  if (!isUnpaidLeaveType(leaveTypeRow, leave_type)) {
+    const typeBalance: any = await resolveLeaveTypeBalance(targetEmployeeId, leaveTypeRow, year, loggedInId);
+    const allocated = typeBalance.allocated || 0;
+    const carriedForward = typeBalance.carriedForward || 0;
+    const used = typeBalance.used || 0;
+    const remaining = allocated + carriedForward - used;
+
+    const pendingLeaves = await LeaveRepo.findPendingLeavesForEmployee(targetEmployeeId, leaveTypeRow.id);
+    const pendingDays = pendingLeaves.reduce((sum: number, pl: any) => sum + countLeaveDays(pl.from_date, pl.to_date), 0);
+
+    if (remaining - pendingDays < days) {
+      throw new ServiceError(
+        `Insufficient ${leaveTypeRow.leaveName} balance (requested ${days} day(s), available ${remaining - pendingDays})`
+      );
+    }
   }
 
   const leave = await LeaveRepo.createLeaveRequest({
@@ -179,32 +218,6 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     companyLeaveId: leaveTypeRow.id,
   });
 
-  typeBalance.used = used + days;
-  await typeBalance.save();
-
-  if (leave_type !== "half_day" && leave_type !== "short_leave") {
-    // FIX: was `cursor.setDate(cursor.getDate() + 1)` — local getter/setter
-    // pair stepping a UTC-midnight instant one calendar day at a time only
-    // stays aligned to real day boundaries if the server's OS timezone has
-    // a non-negative offset (true for IST and UTC, the two realistic
-    // deployment configs here, but still an OS-timezone-dependent local
-    // getter in principle). Stepping by a fixed 24h in milliseconds instead
-    // is not OS-timezone-dependent at all — IST has no DST, so a real day is
-    // always exactly 86,400,000 ms.
-    const leaveDates: Date[] = [];
-    for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += 86400000) {
-      leaveDates.push(new Date(cursor));
-    }
-    await LeaveRepo.bulkCreateLeaveAttendance(
-      leaveDates.map((date) => ({
-        employee_id: targetEmployeeId,
-        date,
-        status: "leave",
-        companyLeaveId: leaveTypeRow.id,
-      }))
-    );
-  }
-
   return leave;
 };
 
@@ -214,62 +227,140 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
   if (!employee_id) throw new ServiceError("Employee id is missing");
   if (!leaveID) throw new ServiceError("leaveID id is missing");
 
-  // FIX: previously trusted employee_id straight from the request body with
-  // no check that the employee is on the caller's own team, letting any
-  // admin approve/reject another company's leave requests by ID.
-  // FIX: the team check itself was getAllChildUserIds (company-blind), so a
-  // multi-company admin/manager could still approve/reject the OTHER
-  // company's leave after switching. Scoped to the active company now.
+  // Prevent self-approval: A manager (or non-admin user) cannot approve their own leave request.
+  if (Number(employee_id) === loggedInId) {
+    const callerUser = await User.findByPk(loggedInId);
+    if (callerUser?.role !== "admin" && callerUser?.role !== "super_admin") {
+      throw new ServiceError("You cannot approve your own leave request", 403);
+    }
+  }
+
   const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (Number(employee_id) !== loggedInId && !childIds.includes(Number(employee_id))) {
     throw new ServiceError("You can only manage leave requests of your own team members", 403);
   }
 
-  const leave = await LeaveRepo.findLeaveForEmployee(employee_id, leaveID);
-  if (!leave) throw new ServiceError("Leave not found");
+  return await sequelize.transaction(async (t) => {
+    const leave: any = await Leave.findOne({
+      where: { id: leaveID, employee_id },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!leave) throw new ServiceError("Leave not found", 404);
 
-  // Balance is deducted upfront when the employee requests leave (see
-  // requestLeave in user.ts). Approval keeps it as-is; only a rejection
-  // restores it below.
-  if (status === "rejected") {
-    await rejectLeaveAndRestoreBalance(leave);
-  } else if (status) {
-    await LeaveRepo.setLeaveStatus(leave, status);
-  }
+    if (status === "approved") {
+      if (leave.status === "approved") {
+        throw new ServiceError("Leave already approved", 400);
+      }
+      if (leave.status === "rejected") {
+        throw new ServiceError("Leave is already rejected", 400);
+      }
+      if (leave.status !== "pending") {
+        throw new ServiceError(`Cannot approve leave with status "${leave.status}"`, 400);
+      }
 
-  if (status === "approved") {
-    await LeaveRepo.markAttendanceForLeaveRange(
-      employee_id,
-      leave.from_date,
-      leave.to_date,
-      ["leave"],
-      "leaveApproved",
-      (leave as any).companyLeaveId ?? null
-    );
+      const days = countLeaveDays(leave.from_date, leave.to_date);
+      const year = Number(getISTDateString(new Date(leave.from_date)).slice(0, 4));
 
-    // FIX (ATT-001): half_day/short_leave never had a placeholder "leave"
-    // row created at request time (see inferLegacyLeaveTypeEnum's comment
-    // in createLeaveRequest), so the update above has nothing to flip and
-    // the day was left with NO attendance record at all. Backfill it now —
-    // findOrCreate is a no-op wherever the employee already punched in.
-    const leaveTypeEnum = (leave as any).leave_type;
-    if (leaveTypeEnum === "half_day" || leaveTypeEnum === "short_leave") {
+      // Paid/unpaid classification is resolved once, off the leave type's
+      // own configured CompanyLeave.isPaid flag (falls back to the legacy
+      // leave_type enum only when there's no companyLeaveId at all) — the
+      // single fork point for both the balance deduction below and the
+      // Attendance status it results in.
+      const leaveTypeRow: any = leave.companyLeaveId
+        ? await CompanyLeave.findByPk(leave.companyLeaveId, { transaction: t })
+        : null;
+      const unpaid = isUnpaidLeaveType(leaveTypeRow, leave.leave_type);
+
+      if (!unpaid) {
+        if (leave.companyLeaveId) {
+          let balance: any = await EmployeeLeaveTypeBalance.findOne({
+            where: { employeeId: leave.employee_id, companyLeaveId: leave.companyLeaveId, year },
+            transaction: t,
+            lock: t.LOCK.UPDATE,
+          });
+          if (!balance && leaveTypeRow) {
+            balance = await resolveLeaveTypeBalance(leave.employee_id, leaveTypeRow, year, loggedInId);
+          }
+          if (balance) {
+            balance.used = (balance.used || 0) + days;
+            await balance.save({ transaction: t });
+          }
+        } else {
+          const balanceField = LEAVE_BALANCE_FIELDS[leave.leave_type];
+          if (balanceField) {
+            const balance: any = await LeaveRepo.findLeaveBalance(leave.employee_id, year);
+            if (balance) {
+              balance[balanceField.used] = (balance[balanceField.used] || 0) + days;
+              await balance.save({ transaction: t });
+            }
+          }
+        }
+      }
+      // Unpaid: no balance touched at all — no deduction, no reservation.
+
+      leave.status = "approved";
+      await leave.save({ transaction: t });
+
+      // Mark / create Attendance for each day of approved leave. Unpaid
+      // leave posts as the existing canonical "absent" status (never a new
+      // status, never "leaveApproved") so it counts against attendance
+      // exactly like a plain absence, per the unpaid-leave business rule;
+      // paid leave keeps the existing "leaveApproved" behavior unchanged.
+      const attendanceStatus = unpaid ? "absent" : "leaveApproved";
       const from = new Date(leave.from_date);
       const to = new Date(leave.to_date);
-      const dates: Date[] = [];
-      for (let cursor = from.getTime(); cursor <= to.getTime(); cursor += 86400000) {
-        dates.push(new Date(cursor));
+      for (let cur = new Date(from); cur <= to; cur.setUTCDate(cur.getUTCDate() + 1)) {
+        const dateStr = cur.toISOString().slice(0, 10);
+        const [attRecord, created] = await Attendance.findOrCreate({
+          where: { employee_id: leave.employee_id, date: dateStr },
+          defaults: {
+            employee_id: leave.employee_id,
+            date: dateStr,
+            status: attendanceStatus,
+            companyLeaveId: leave.companyLeaveId ?? null,
+            dayType: leave.leave_type === "half_day" ? "half_day" : (leave.leave_type === "short_leave" ? "short_leave" : undefined),
+          } as any,
+          transaction: t,
+        });
+        if (!created && attRecord.status !== "present") {
+          attRecord.status = attendanceStatus as any;
+          if (leave.companyLeaveId) attRecord.companyLeaveId = leave.companyLeaveId;
+          await attRecord.save({ transaction: t });
+        }
       }
-      await LeaveRepo.fillMissingLeaveAttendance(
-        employee_id,
-        dates,
-        (leave as any).companyLeaveId ?? null,
-        leaveTypeEnum
-      );
-    }
-  }
+    } else if (status === "rejected") {
+      if (leave.status === "rejected") {
+        throw new ServiceError("Leave already rejected", 400);
+      }
+      if (leave.status === "approved") {
+        throw new ServiceError("Leave is already approved", 400);
+      }
+      if (leave.status !== "pending") {
+        throw new ServiceError(`Cannot reject leave with status "${leave.status}"`, 400);
+      }
 
-  return leave;
+      leave.status = "rejected";
+      await leave.save({ transaction: t });
+
+      // Ensure any temporary attendance records are updated to leaveReject
+      await Attendance.update(
+        { status: "leaveReject" as any },
+        {
+          where: {
+            employee_id: leave.employee_id,
+            date: { [Op.between]: [leave.from_date, leave.to_date] },
+            status: { [Op.in]: ["leave", "leaveApproved"] },
+          },
+          transaction: t,
+        }
+      );
+    } else {
+      throw new ServiceError("Invalid status. Expected 'approved' or 'rejected'", 400);
+    }
+
+    return leave;
+  });
 };
 
 // Formats one employee's dynamic per-type balances against the FULL list of
@@ -290,6 +381,7 @@ const formatDynamicBalances = (leaveTypes: any[], balanceRows: any[]) => {
       leavesPerYear: lt.leavesPerYear,
       carryForwardAllowed: !!lt.carryForward,
       carryForwardLimit: lt.carryForwardLimit ?? 0,
+      isPaid: lt.isPaid !== false,
       allocated,
       carriedForward,
       used,
@@ -698,6 +790,7 @@ export const addLeave = async (userId: number, body: any) => {
       compOffBalance: Number(leave.compOffBalance || 0),
       casualLeaveBalance: Number(leave.casualLeaveBalance || 0),
       sickLeaveBalance: Number(leave.sickLeaveBalance || 0),
+      isPaid: leave.isPaid === undefined ? true : Boolean(leave.isPaid),
     };
   });
 
@@ -769,7 +862,7 @@ export const updateLeave = async (id: string, userId: number, role: string | und
 
   const {
     leaveName, leaveCode, leavesPerYear, carryForward, carryForwardLimit,
-    managerApproval, compOffBalance, casualLeaveBalance, sickLeaveBalance,
+    managerApproval, compOffBalance, casualLeaveBalance, sickLeaveBalance, isPaid,
   } = body;
 
   const l = leave as any;
@@ -782,6 +875,7 @@ export const updateLeave = async (id: string, userId: number, role: string | und
   if (compOffBalance !== undefined) l.compOffBalance = Number(compOffBalance);
   if (casualLeaveBalance !== undefined) l.casualLeaveBalance = Number(casualLeaveBalance);
   if (sickLeaveBalance !== undefined) l.sickLeaveBalance = Number(sickLeaveBalance);
+  if (isPaid !== undefined) l.isPaid = Boolean(isPaid);
 
   await leave.save();
   return leave;
