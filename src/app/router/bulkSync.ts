@@ -14,6 +14,7 @@ router.post("/invoices",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), B
 router.post("/quotations",   tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), BulkSyncController.bulkQuotations);
 router.post("/clients",      tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), BulkSyncController.bulkClients);
 router.post("/stock-items",  tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), BulkSyncController.bulkStockItems);
+router.post("/masters",      tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), BulkSyncController.bulkMasters);
 
 export default router;
  

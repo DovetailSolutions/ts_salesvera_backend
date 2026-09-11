@@ -157,3 +157,32 @@ export const ensureUserGeoFencingColumns = async (sequelize: Sequelize): Promise
 
   console.log("User geo-fencing human-readable columns ensured (locationName, landmark, address, city)");
 };
+
+// ============================================================
+// Single Tally masters table for all master types (ledgers, groups,
+// stock groups, units, godowns, voucher types, cost centres, currencies).
+// Enforces UNIQUE ("user_id", "company_guid", "master_type", "tally_guid")
+// at the database level for idempotency.
+// ============================================================
+export const ensureTallyMastersSchema = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS "tally_masters" (
+      "id" SERIAL PRIMARY KEY,
+      "user_id" INTEGER NOT NULL,
+      "company_guid" VARCHAR(255) NOT NULL,
+      "master_type" VARCHAR(100) NOT NULL,
+      "tally_guid" VARCHAR(255) NOT NULL,
+      "name" VARCHAR(255) NOT NULL,
+      "parent" VARCHAR(255),
+      "alter_id" INTEGER,
+      "attributes" JSONB,
+      "status" VARCHAR(50) DEFAULT 'active',
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT "idx_tally_masters_unique_user_company_type_guid" UNIQUE ("user_id", "company_guid", "master_type", "tally_guid")
+    );
+  `);
+
+  console.log("Tally masters schema ensured (tally_masters table with UNIQUE (user_id, company_guid, master_type, tally_guid))");
+};
+
