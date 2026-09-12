@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
-import { Attendance, Meeting, MeetingUser, MeetingCompany, Company, SalesPersonTravelLog, User } from "../../config/dbConnection";
+import { Attendance, Meeting, MeetingUser, MeetingCompany, SalesPersonTravelLog, User } from "../../config/dbConnection";
 import { calculateDrivingDistance, isValidCoordinate, DrivingDistanceResult } from "../../services/googleRoutes.service";
+import { findEffectiveVehicleAllowanceRateForDate } from "../company/company.service";
 
 export { isValidCoordinate, calculateDrivingDistance, DrivingDistanceResult };
 
@@ -193,20 +194,37 @@ export const getSalesPersonTravelSummary = async (userId: number, date: string) 
     totalDistanceKm = attendance.totalTravelDistanceKm;
   }
 
-  // Fetch company vehicle allowance rate
-  let vehicleAllowanceRateApplied = attendance?.vehicleAllowanceRateApplied ?? 10;
-  if (attendance) {
+  // Resolve the vehicle allowance rate for this day.
+  //
+  // FIX: this used to unconditionally overwrite vehicleAllowanceRateApplied
+  // with today's live Company.vehicleAllowanceRatePerKm on every read of
+  // this function — including for a day that had ALREADY been finalized at
+  // punch-out with its own locked-in rate. Since this same function backs
+  // every "view a day's travel" call (self-service, admin, Fuel Expenses),
+  // simply reopening an old day after the company rate changed silently
+  // replaced its historical rate/allowance with today's rate — exactly the
+  // "old travel recalculated with the new rate" bug this must not do.
+  //
+  // A day that's already been finalized (vehicleAllowanceRateApplied set at
+  // punch-out — see attendance.service.ts's applyTravelSummaryOnPunchOut)
+  // ALWAYS keeps that stored rate. Only an unfinalized day (still in
+  // progress today, or an old day that was never finalized) resolves a
+  // rate — and even then, the rate effective ON THAT DAY (via the
+  // effective-dated company_vehicle_allowance_rates history), never
+  // whatever is effective today.
+  let vehicleAllowanceRateApplied = attendance?.vehicleAllowanceRateApplied;
+  if (vehicleAllowanceRateApplied == null) {
     const user = await User.findByPk(userId, { attributes: ["tenantId"] });
     const companyId = (user as any)?.tenantId;
-    if (companyId) {
-      const company = await Company.findByPk(companyId, { attributes: ["vehicleAllowanceRatePerKm"] });
-      if (company?.vehicleAllowanceRatePerKm != null) {
-        vehicleAllowanceRateApplied = company.vehicleAllowanceRatePerKm;
-      }
-    }
+    vehicleAllowanceRateApplied = companyId
+      ? await findEffectiveVehicleAllowanceRateForDate(companyId, date, userId)
+      : 10;
   }
 
-  const vehicleAllowance = Number((totalDistanceKm * vehicleAllowanceRateApplied).toFixed(2));
+  const vehicleAllowance =
+    attendance?.vehicleAllowance != null
+      ? Number(attendance.vehicleAllowance)
+      : Number((totalDistanceKm * vehicleAllowanceRateApplied).toFixed(2));
 
   // ── Human-readable labels (spec items 38/40/57) ───────────────────────
   // Meeting: customer/company name first, "Industrial Area, Mohali"-style

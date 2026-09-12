@@ -11,6 +11,7 @@ import * as AuthRepo from "./auth.repository";
 import * as SetupTracking from "../setupTracking/setupTracking.service";
 import { issueAccessToken, issueRefreshToken } from "./webToken.service";
 import { createSession, rotateSession, revokeSession, revokeAllSessionsForUser } from "./refreshSession.service";
+import { userHasPermission } from "../../config/checkPermission";
 
 // ============================================================
 // Auth service — validation + orchestration. Byte-for-byte port of the
@@ -56,6 +57,19 @@ export const register = async (body: any, callerData?: { userId?: number | strin
           ? `${callerRole} is not authorized to register a '${role}' account`
           : "Authentication is required to register this account"
       );
+    }
+
+    // Admin-configurable, per-manager: a manager's ability to add sale
+    // persons is otherwise unconditional (REGISTER_ALLOWED_ROLES above), so
+    // this only tightens the "manager creating sale_person" path — every
+    // other caller (admin/super_admin/user) is completely unaffected.
+    // Managers created before this shipped are backfilled with this grant
+    // in seedPermissions.ts so nobody loses access on deploy.
+    if (callerRole === "manager" && role === "sale_person") {
+      const allowed = await userHasPermission(callerId, callerRole, "sale-person", "create");
+      if (!allowed) {
+        throw new ServiceError("You do not have permission to add a Sale Person. Contact your admin.", 403);
+      }
     }
   }
 

@@ -10,13 +10,14 @@ import pdfParse from "pdf-parse";
 import bcrypt from "bcrypt";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { Request, Response } from "express-serve-static-core";
+import { NextFunction } from "express";
 import {
   createSuccess,
   getSuccess,
   badRequest,
 } from "../middlewear/errorMessage";
 import { sendEmail, forgotpassword } from "../../config/email";
-import { userHasPermission } from "../../config/checkPermission";
+import { userHasPermission, checkPermission } from "../../config/checkPermission";
 import {
   User,
   Category,
@@ -1915,6 +1916,39 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
 };
 
 
+
+// ============================================================
+// authorizeCreateExpense — dedicated role gate for POST create routes.
+//
+// Same shape as authorizeCreateRegularization (attendanceRegularization.
+// controller.ts): admin/super_admin review and approve team expense claims
+// but never submit their own — only manager (and sale_person, elsewhere)
+// create expense claims. This used to be governed purely by
+// checkPermission("expense", "create"), so a company that had granted an
+// admin account that permission (e.g. copied from another role's template)
+// could let that admin submit "their own" expense claims — a shape the
+// approval chain (admin/super_admin review) isn't designed to catch, since
+// nobody sits above admin to approve it. This is a hard, non-configurable
+// role rule enforced here rather than via checkPermission.
+// ============================================================
+export const authorizeCreateExpense = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<any> => {
+  const userData = req.userData as JwtPayload;
+  const role = (userData as any)?.role as string | undefined;
+
+  if (role === "admin" || role === "super_admin") {
+    return res.status(403).json({
+      success: false,
+      message:
+        "Admins cannot submit their own expense claims. Admins review and approve team expense claims instead.",
+    });
+  }
+
+  return checkPermission("expense", "create")(req, res, next);
+};
 
 export const CreateExpense = async (req: Request, res: Response) => {
   const transaction = await sequelize.transaction();

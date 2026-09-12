@@ -29,71 +29,19 @@ export interface RoleCapability {
 }
 
 export const ROLE_CAPABILITY_CATALOG: RoleCapability[] = [
-  {
-    key: "role:sale_person:add",
-    module: "Sale Person",
-    label: "Add Sale Person",
-    description: "Register a new Sale Person account reporting to this Manager",
-    allowedRoles: ["super_admin", "user", "admin", "manager"],
-    evidence:
-      'auth.service.ts ROLE_CREATABLE (mirrors permission.ts ASSIGNABLE_ROLES) — manager: ["sale_person"]',
-    api: "POST /admin/register or POST /api/register",
-  },
-  {
-    key: "role:sale_person:bulk_add",
-    module: "Sale Person",
-    label: "Bulk Add Sale Person (CSV)",
-    description: "Register multiple Sale Persons at once via CSV upload",
-    allowedRoles: ["super_admin", "admin", "manager"],
-    evidence: "app/router/admin.ts POST /bulk-add-saleperson — authorizeRoles(...ADMIN_AND_MANAGER)",
-    api: "POST /admin/bulk-add-saleperson",
-  },
-  {
-    key: "role:sale_person:view_team",
-    module: "Sale Person",
-    label: "View My Sale Persons / Team",
-    description: "View the list of Sale Persons reporting to this Manager",
-    allowedRoles: ["super_admin", "user", "admin", "manager", "sale_person"],
-    evidence:
-      "app/router/admin.ts GET /mysaleperson — tokenCheck only (self-scoped by hierarchy inside the controller)",
-    api: "GET /admin/mysaleperson",
-  },
-  {
-    key: "role:sale_person:view_details",
-    module: "Sale Person",
-    label: "View Sale Person Details",
-    description: "View individual Sale Person profile, assignment, and status",
-    allowedRoles: ["super_admin", "user", "admin", "manager"],
-    evidence: "app/router/admin.ts GET /mysaleperson and GET /client-details/:id",
-    api: "GET /admin/mysaleperson",
-  },
-  {
-    key: "role:sale_person:manage_attendance",
-    module: "Sale Person",
-    label: "Manage Sale Person Attendance",
-    description: "Oversee, mark present, and review attendance for assigned Sale Persons",
-    allowedRoles: ["super_admin", "admin", "manager"],
-    evidence: "modules/attendance/attendance.routes.ts team attendance APIs (scoped by manager hierarchy)",
-    api: "GET /admin/user-attendance, POST /admin/bulk-mark-attendance",
-  },
-  {
-    key: "role:sale_person:manage_leave",
-    module: "Sale Person",
-    label: "Manage Sale Person Leave",
-    description: "Review, approve/reject, and allocate leave balance for assigned Sale Persons",
-    allowedRoles: ["super_admin", "admin", "manager"],
-    evidence: "modules/leave/leave.routes.ts team leave APIs (scoped by manager hierarchy)",
-    api: "GET /admin/get-leave-list, POST /admin/assign-leave-balance",
-  },
-  {
-    key: "role:sale_person:reports",
-    module: "Sale Person",
-    label: "View Sale Person Reports",
-    description: "View performance, visits, and activity reports for assigned Sale Persons",
-    allowedRoles: ["super_admin", "admin", "manager"],
-    evidence: "app/controller/report.ts scoped by user hierarchy for managers",
-    api: "GET /admin/reports",
-  },
+  // NOTE: "Add Sale Person", "Bulk Add Sale Person (CSV)", and "View My
+  // Sale Persons / View Sale Person Details" used to be listed here as
+  // pure, unenforced role gates. They are now real, individually-editable
+  // permissions (module "sale-person" — see config/seedPermissions.ts and
+  // authorizeManagerSalePersonAction in app/controller/admin.ts), so they
+  // show up automatically via the Permission-table loop below instead of
+  // this static catalog. "Manage Sale Person Attendance/Leave" and "View
+  // Sale Person Reports" were removed outright — they were stale
+  // duplicates of already-real, already-editable permissions shown
+  // elsewhere on this same page (attendance:view/create/update via
+  // CAPABILITY_ALIASES, leave:view/approve/reject/manage via
+  // CAPABILITY_ALIASES, and report:view/insights:view directly) — verified
+  // against the actual route files, not assumed.
   {
     key: "role:sale_person:edit",
     module: "Sale Person",

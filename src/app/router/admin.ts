@@ -18,7 +18,12 @@ const csv = getUploadMiddleware("csv")
 // router) now serve the exact same handler — they used to be two
 // independently-maintained copies that drifted apart (this one had no
 // company scoping and no ownership check on an arbitrary managerId).
-router.get("/mysaleperson", tokenCheck, UserController.MySalePerson);
+router.get(
+  "/mysaleperson",
+  tokenCheck,
+  AdminController.authorizeManagerSalePersonAction("view"),
+  UserController.MySalePerson
+);
 router.post('/assign-salesman',tokenCheck, AdminController.assignSalesman);
 router.post("/addcategory", tokenCheck, AdminController.AddCategory);
 router.get("/getcategory", tokenCheck, AdminController.getcategory);
@@ -27,7 +32,14 @@ router.get("/getcategoy/:id", tokenCheck, AdminController.categoryDetails);
 router.patch("/updatecategory/:id", tokenCheck, AdminController.UpdateCategory);
 router.delete("/deletecategory/:id", tokenCheck, AdminController.DeleteCategory);
 router.post("/bulk-upload",tokenCheck,csv.single("csv"),AdminController.BulkUploads)
-router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), csv.single("csv"), AdminController.BulkAddSalePerson)
+router.post(
+  "/bulk-add-saleperson",
+  tokenCheck,
+  authorizeRoles(...ADMIN_AND_MANAGER),
+  AdminController.authorizeManagerSalePersonAction("bulk_create"),
+  csv.single("csv"),
+  AdminController.BulkAddSalePerson
+)
 // Attendance routes (get-attendance/mark-attendance-present/
 // bulk-mark-attendance/user-attendance/attendance-book) now live in
 // src/modules/attendance/, mounted in server.ts — same URL paths as before.
@@ -37,24 +49,28 @@ router.post("/bulk-add-saleperson", tokenCheck, authorizeRoles(...ADMIN_AND_MANA
 // get-leave/:id/update-leave/:id) now live in src/modules/leave/, mounted
 // in server.ts — same URL paths as before.
 // FIX: expense routes now require explicit permissions.
+// FIX: create routes now gated by authorizeCreateExpense — admin/super_admin
+// hard-blocked from submitting their own expense claims (see that function
+// in user.ts controller), same shape as attendance regularization's
+// authorizeCreateRegularization.
 router.post(
   "/addexpance",
   tokenCheck,
-  checkPermission("expense", "create"),
+  UserController.authorizeCreateExpense,
   expense.any(),
   UserController.CreateExpense
 );
 router.post(
   "/addexpense",
   tokenCheck,
-  checkPermission("expense", "create"),
+  UserController.authorizeCreateExpense,
   expense.any(),
   UserController.CreateExpense
 );
 router.post(
   "/expense",
   tokenCheck,
-  checkPermission("expense", "create"),
+  UserController.authorizeCreateExpense,
   expense.any(),
   UserController.CreateExpense
 );
@@ -155,6 +171,8 @@ router.get('/getusermeeting',tokenCheck,AdminController.getMeeting)
 router.get('/getmeetingdetails/:id',tokenCheck,AdminController.getMeetingDetails)
 router.get("/dashboard-summary", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getDashboardSummary);
 router.get("/top-performers", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getTopPerformers);
+router.get("/monthly-revenue", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getMonthlyRevenue);
+router.get("/client-type-breakdown", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), AdminController.getClientTypeBreakdown);
 
 // ── Notifications (admin-surface) ───────────────────────────────────────
 // Same controller as /api/notifications (user.ts) — that surface's

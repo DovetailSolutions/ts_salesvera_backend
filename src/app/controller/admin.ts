@@ -13,6 +13,7 @@ import path from "path";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import crypto from "crypto";
 import { Request, Response } from "express-serve-static-core";
+import { NextFunction } from "express";
 import {
   createSuccess,
   getSuccess,
@@ -951,6 +952,35 @@ export const getMeetingDetails = async (
 
     badRequest(res, errorMessage);
   }
+};
+
+// ============================================================
+// authorizeManagerSalePersonAction — dedicated gate for the two Sale-Person
+// management actions that were previously role-gated only (any manager
+// could always do these, unconditionally, via authorizeRoles/no gate at
+// all — see modules/managerCapabilities/roleCapabilityCatalog.ts's former
+// "role:sale_person:add"/"role:sale_person:bulk_add" entries). Admin/
+// super_admin/user are completely unaffected — this only ever narrows a
+// MANAGER's access, and only for the specific action passed in. Existing
+// managers are backfilled with both grants in seedPermissions.ts so this
+// change doesn't remove access anyone already had on deploy.
+// ============================================================
+export const authorizeManagerSalePersonAction = (action: "create" | "bulk_create" | "view") => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+    const userData = req.userData as JwtPayload;
+    const role = (userData as any)?.role as string | undefined;
+
+    if (role !== "manager") return next();
+
+    const allowed = await userHasPermission(Number(userData.userId), role, "sale-person", action);
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to perform this action on Sale Persons. Contact your admin.",
+      });
+    }
+    return next();
+  };
 };
 
 export const BulkAddSalePerson = async (
@@ -2356,6 +2386,135 @@ export const getTopPerformers = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// ============================================================
+// Monthly Revenue — replaces UserDashboard.jsx's MOCK_MONTHLY_REVENUE.
+//
+// Revenue per month = SUM of Invoices.invoice->>'totalValue' (the invoice's
+// real grand total, stored inside the JSON `invoice` blob column — same
+// field getInvoice's list already reads as `inv.invoice.totalValue`) for
+// non-cancelled/deleted invoices created that month, scoped to the
+// caller's own company-scoped team (same getCompanyScopedChildUserIdsFast
+// convention as getDashboardSummary/getTopPerformers above).
+//
+// Deliberately NOT split into "Revenue vs Collections" the way the old
+// mock data was: every invoice status this app actually has is
+// draft/sent/accepted/imported/rejected/cancelled/deleted — there is no
+// "paid" status anywhere in the schema (the mock's "collections" line, and
+// both dashboards' now-removed `status === "paid"` filters, were checking
+// a value that can never be true against real data). Rather than invent a
+// second, guessed definition of "collected", this reports the one number
+// the data actually supports.
+// ============================================================
+export const getMonthlyRevenue = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const loggedInId = Number(userData.userId);
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const months = Math.min(Number(req.query.months) || 6, 12);
+
+    const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+    const scopedIds = Array.from(new Set([loggedInId, ...childIds]));
+
+    const startDate = new Date();
+    startDate.setDate(1);
+    startDate.setMonth(startDate.getMonth() - (months - 1));
+    startDate.setHours(0, 0, 0, 0);
+
+    const where: any = {
+      userId: { [Op.in]: scopedIds },
+      status: { [Op.notIn]: ["cancelled", "deleted"] },
+      createdAt: { [Op.gte]: startDate },
+    };
+    if (callerCompanyId) {
+      where.companyId = { [Op.or]: [callerCompanyId, null] };
+    }
+
+    const rows: any[] = await Invoices.findAll({
+      where,
+      attributes: [
+        [fn("to_char", col("createdAt"), "YYYY-MM"), "month"],
+        [fn("SUM", literal(`CAST("invoice"->>'totalValue' AS DOUBLE PRECISION)`)), "revenue"],
+      ],
+      group: [fn("to_char", col("createdAt"), "YYYY-MM") as any],
+      raw: true,
+    });
+
+    const revenueByMonth = new Map<string, number>();
+    rows.forEach((r: any) => revenueByMonth.set(r.month, Number(r.revenue) || 0));
+
+    // Fill every month in the window, even ones with zero invoices — a real
+    // empty month must show as 0, not silently disappear from the chart.
+    const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const data = [];
+    const cursor = new Date(startDate);
+    for (let i = 0; i < months; i++) {
+      const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+      data.push({
+        month: key,
+        label: monthLabels[cursor.getMonth()],
+        revenue: Math.round((revenueByMonth.get(key) ?? 0) * 100) / 100,
+      });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    createSuccess(res, "Monthly revenue fetched successfully", data);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// ============================================================
+// Client Type Breakdown — replaces UserDashboard.jsx's MOCK_CLIENT_STAGES.
+//
+// The original mock modeled a CRM pipeline stage (Prospect/Qualified/
+// Proposal/Negotiation/Won/Lost) — that concept does not exist anywhere in
+// this schema (MeetingUser, the model actually backing "Client" — see
+// createClient/getClient above — has no stage column, and nothing in the
+// app ever sets one). Rather than add a new column that would start out
+// meaningless (every row would default to the same value with no UI to
+// ever change it), this reports customerType, a real column already set
+// at client creation and already exposed on every client record.
+// ============================================================
+export const getClientTypeBreakdown = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const loggedInId = Number(userData.userId);
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+
+    const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+    const scopedIds = Array.from(new Set([loggedInId, ...childIds]));
+
+    // customerType's DB column is "customer_type" (see MeetingUser model's
+    // `field: "customer_type"`) — col() with a raw aggregate bypasses the
+    // model's camelCase-attribute-to-snake_case-column mapping, so the
+    // physical column name is needed here, not the JS attribute name.
+    const rows: any[] = await MeetingUser.findAll({
+      where: { userId: { [Op.in]: scopedIds } },
+      attributes: [
+        [fn("COALESCE", col("customer_type"), "unspecified"), "name"],
+        [fn("COUNT", col("id")), "value"],
+      ],
+      group: [fn("COALESCE", col("customer_type"), "unspecified") as any],
+      raw: true,
+    });
+
+    const data = rows.map((r: any) => ({ name: r.name, value: Number(r.value) || 0 }));
+    createSuccess(res, "Client type breakdown fetched successfully", data);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };

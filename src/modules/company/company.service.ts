@@ -2,6 +2,8 @@ import { ServiceError } from "../shared/serviceError";
 import * as Middleware from "../../app/middlewear/comman";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { hasCompanyAccess } from "../shared/companyAccess";
+import { getISTDateString } from "../shared/dateUtils";
+import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import * as CompanyRepo from "./company.repository";
 import * as SetupTracking from "../setupTracking/setupTracking.service";
 
@@ -536,4 +538,216 @@ export const deleteCompanyBank = async (id: number, userCompanyId?: number, role
 
   await CompanyRepo.deleteCompanyBank(Number(id));
   return { success: true, id: Number(id) };
+};
+
+// ============================================================
+// Vehicle Allowance Rate — effective-dated history (migration 0023).
+//
+// Company.vehicleAllowanceRatePerKm alone can't answer "what rate applied
+// on this specific past travel date" once it's been changed more than
+// once — this is the fix. It stays company-scoped (never per-vehicle-type,
+// never per-staff-member — the database has no such concepts) and reuses
+// the exact same hasCompanyAccess() ownership check and callerCompanyId
+// resolution getCompanyPolicy/updateCompany already use above, so
+// authorization/company-isolation behaves identically to every other
+// Company settings endpoint.
+// ============================================================
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+const toPublicRate = (row: any) => {
+  const plain = row.get ? row.get({ plain: true }) : row;
+  return { id: plain.id, ratePerKm: plain.ratePerKm, effectiveFrom: plain.effectiveFrom, createdBy: plain.createdBy };
+};
+
+// The single reusable lookup every payout calculation should go through —
+// never Company.vehicleAllowanceRatePerKm directly — so a historical travel
+// date always resolves to the rate that was actually in force on it.
+//
+// When a userId is given, that user's own override (user_vehicle_allowance_rates
+// — a simple current value, not effective-dated, see migration 0024) always
+// wins over the company-wide history, including a deliberately-set ₹0.
+// Falls back to Company.vehicleAllowanceRatePerKm (then 10) only when
+// neither a user override nor any company history row exists yet.
+export const findEffectiveVehicleAllowanceRateForDate = async (
+  companyId: number,
+  onOrBeforeDate: string,
+  userId?: number | null
+): Promise<number> => {
+  if (userId != null) {
+    const userOverride = await CompanyRepo.findUserVehicleAllowanceRate(userId);
+    if (userOverride) return Number((userOverride as any).ratePerKm);
+  }
+
+  const row = await CompanyRepo.findEffectiveVehicleAllowanceRate(companyId, onOrBeforeDate);
+  if (row) return Number((row as any).ratePerKm);
+
+  const company = await CompanyRepo.findCompanyByIdOnly(String(companyId));
+  return (company as any)?.vehicleAllowanceRatePerKm ?? 10;
+};
+
+// Recomputes "the rate effective right now" from history and keeps
+// Company.vehicleAllowanceRatePerKm in sync with it — so any existing code
+// that still reads that column directly (e.g. as a last-resort fallback
+// above) sees the current rate, never a future-scheduled one that hasn't
+// taken effect yet.
+const syncCurrentRateOntoCompany = async (companyId: number) => {
+  const effectiveRow = await CompanyRepo.findEffectiveVehicleAllowanceRate(companyId, getISTDateString());
+  if (!effectiveRow) return;
+  const company = await CompanyRepo.findCompanyByIdOnly(String(companyId));
+  if (company) {
+    (company as any).vehicleAllowanceRatePerKm = Number((effectiveRow as any).ratePerKm);
+    await (company as any).save();
+  }
+};
+
+export const getVehicleAllowanceRateInfo = async (
+  userId: number,
+  role: string | undefined,
+  callerCompanyId: number | null
+) => {
+  if (!callerCompanyId) throw new ServiceError("No company context — cannot resolve your company's vehicle allowance rate");
+
+  const allowed = await hasCompanyAccess(callerCompanyId, userId, role);
+  if (!allowed) throw new ServiceError("You do not have access to this company", 403);
+
+  const today = getISTDateString();
+  const [currentRow, scheduledRow, historyRows] = await Promise.all([
+    CompanyRepo.findEffectiveVehicleAllowanceRate(callerCompanyId, today),
+    CompanyRepo.findNextScheduledVehicleAllowanceRate(callerCompanyId, today),
+    CompanyRepo.findVehicleAllowanceRateHistory(callerCompanyId),
+  ]);
+
+  return {
+    currentRate: currentRow ? toPublicRate(currentRow) : null,
+    scheduledRate: scheduledRow ? toPublicRate(scheduledRow) : null,
+    history: historyRows.map(toPublicRate),
+  };
+};
+
+export const addVehicleAllowanceRate = async (
+  userId: number,
+  role: string | undefined,
+  callerCompanyId: number | null,
+  body: any
+) => {
+  if (!callerCompanyId) throw new ServiceError("No company context — cannot set a vehicle allowance rate");
+
+  const allowed = await hasCompanyAccess(callerCompanyId, userId, role);
+  if (!allowed) throw new ServiceError("You do not have access to this company", 403);
+
+  const rateNum = Number(body?.ratePerKm);
+  if (body?.ratePerKm === undefined || body?.ratePerKm === null || body?.ratePerKm === "") {
+    throw new ServiceError("ratePerKm is required");
+  }
+  if (!Number.isFinite(rateNum) || rateNum < 0) {
+    throw new ServiceError("ratePerKm must be a valid number of 0 or more");
+  }
+
+  const effectiveFrom = String(body?.effectiveFrom || "").trim() || getISTDateString();
+  if (!DATE_ONLY.test(effectiveFrom) || Number.isNaN(new Date(`${effectiveFrom}T00:00:00`).getTime())) {
+    throw new ServiceError("effectiveFrom must be a valid date (YYYY-MM-DD)");
+  }
+
+  const saved = await CompanyRepo.upsertVehicleAllowanceRate({
+    companyId: callerCompanyId,
+    ratePerKm: rateNum,
+    effectiveFrom,
+    createdBy: userId,
+  });
+
+  // Only actually changes anything when this rate is now (or already) in
+  // effect — a future-dated rate leaves Company.vehicleAllowanceRatePerKm
+  // pointing at whatever is genuinely effective today.
+  await syncCurrentRateOntoCompany(callerCompanyId);
+
+  return getVehicleAllowanceRateInfo(userId, role, callerCompanyId).then((info) => ({
+    saved: toPublicRate(saved),
+    ...info,
+  }));
+};
+
+// ============================================================
+// Per-user Vehicle Allowance Rate override (migration 0024) — a simple
+// current-value override per staff member, not effective-dated. Presence
+// of a row is the override; 0 is a valid, deliberate value (e.g. a user
+// who gets no travel allowance at all). Editing is admin-only, same as the
+// company-wide rate; viewing reuses the same ADMIN_AND_MANAGER route gate.
+//
+// Authorization mirrors assertCanAct's admin/manager branch elsewhere
+// (geoFencing.service.ts, attendanceRegularization.service.ts): the target
+// user must be inside the caller's own company-scoped hierarchy — never
+// just "any user whose id was supplied."
+// ============================================================
+
+const toPublicUserRate = (row: any) => {
+  const plain = row.get ? row.get({ plain: true }) : row;
+  return { userId: plain.userId, ratePerKm: plain.ratePerKm };
+};
+
+const assertTargetUserInCallerOrg = async (callerId: number, role: string | undefined, callerCompanyId: number | null, targetUserId: number) => {
+  if (role === "super_admin") return;
+  const orgIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
+  if (!orgIds.includes(targetUserId)) {
+    throw new ServiceError("This user is not on your team, or belongs to another company", 403);
+  }
+};
+
+// All per-user overrides for the caller's company, keyed by userId — the
+// settings page merges this with its own staff list in one extra call
+// instead of one request per staff member.
+export const getUserVehicleAllowanceOverrides = async (
+  userId: number,
+  role: string | undefined,
+  callerCompanyId: number | null
+) => {
+  if (!callerCompanyId) return [];
+  const allowed = await hasCompanyAccess(callerCompanyId, userId, role);
+  if (!allowed) throw new ServiceError("You do not have access to this company", 403);
+
+  const rows = await CompanyRepo.findUserVehicleAllowanceRatesByCompany(callerCompanyId);
+  return rows.map(toPublicUserRate);
+};
+
+export const setUserVehicleAllowanceRate = async (
+  callerId: number,
+  role: string | undefined,
+  callerCompanyId: number | null,
+  targetUserId: number,
+  body: any
+) => {
+  if (!targetUserId || Number.isNaN(targetUserId)) throw new ServiceError("A valid userId is required");
+  if (!callerCompanyId) throw new ServiceError("No company context — cannot set a vehicle allowance rate");
+
+  await assertTargetUserInCallerOrg(callerId, role, callerCompanyId, targetUserId);
+
+  if (body?.ratePerKm === undefined || body?.ratePerKm === null || body?.ratePerKm === "") {
+    throw new ServiceError("ratePerKm is required");
+  }
+  const rateNum = Number(body.ratePerKm);
+  if (!Number.isFinite(rateNum) || rateNum < 0) {
+    throw new ServiceError("ratePerKm must be a valid number of 0 or more");
+  }
+
+  const saved = await CompanyRepo.upsertUserVehicleAllowanceRate({
+    userId: targetUserId,
+    companyId: callerCompanyId,
+    ratePerKm: rateNum,
+    createdBy: callerId,
+  });
+
+  return toPublicUserRate(saved);
+};
+
+export const clearUserVehicleAllowanceRate = async (
+  callerId: number,
+  role: string | undefined,
+  callerCompanyId: number | null,
+  targetUserId: number
+) => {
+  if (!targetUserId || Number.isNaN(targetUserId)) throw new ServiceError("A valid userId is required");
+  await assertTargetUserInCallerOrg(callerId, role, callerCompanyId, targetUserId);
+
+  await CompanyRepo.deleteUserVehicleAllowanceRate(targetUserId);
+  return { userId: targetUserId, cleared: true };
 };

@@ -118,16 +118,17 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
     };
 
         // 2️⃣ Real-time delivery via socket.io
+    // FIX: every connecting socket already joins `user_${userId}` (see
+    // Notigication/chat.ts's connection handler, right next to the
+    // setUserSocket() call that populates userSocketMap) — emitting to the
+    // room already reaches every one of that user's sockets/tabs/devices.
+    // Also emitting directly to each socket id from userSocketMap sent the
+    // exact same event a second time to the exact same sockets, which was
+    // the source of duplicate notifications (e.g. a regularization
+    // create/approve/reject notification arriving twice) whenever a
+    // receiver had an active connection. The room emit alone is sufficient.
     if (_io) {
-      // Deliver to user room (covers all user connections)
       _io.to(`user_${receiverId}`).emit("notification", eventPayload);
-
-      const receiverSockets = userSocketMap.get(receiverId);
-      if (receiverSockets) {
-        receiverSockets.forEach((sid) => {
-          _io?.to(sid).emit("notification", eventPayload);
-        });
-      }
     }
 
     // 3️⃣ Real-time delivery via Firebase

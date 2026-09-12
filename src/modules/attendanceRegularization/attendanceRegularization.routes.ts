@@ -16,7 +16,7 @@ router.get("/attendance-regularization/types", tokenCheck, Controller.getRequest
 router.post(
   "/attendance-regularization",
   tokenCheck,
-  checkPermission("attendance", "create"),
+  Controller.authorizeCreateRegularization,
   handleRegularizationAttachment,
   Controller.createRequest
 );

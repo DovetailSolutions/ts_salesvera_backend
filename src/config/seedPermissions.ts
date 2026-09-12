@@ -1,4 +1,6 @@
 import { Permission } from "../app/model/permission";
+import { User, UserPermission, sequelize } from "./dbConnection";
+import { Op } from "sequelize";
 
 // ============================================================
 // Permission Seeder
@@ -115,6 +117,31 @@ export const PERMISSION_SEEDS = [
   // correction requests — see modules/attendanceRegularization) ─────
   { module: "attendance-regularization", action: "view", description: "View attendance regularization requests and their audit trail" },
   { module: "attendance-regularization", action: "review", description: "Approve or reject attendance regularization requests" },
+
+  // ── Employee Profile (SalaryBox-derived additional details — job title,
+  // addresses, government IDs, emergency contact, education, etc. — see
+  // modules/employeeProfile). Editing your OWN record needs no permission
+  // (self-service, same as attendance-regularization's /my routes); these
+  // gate viewing/editing SOMEONE ELSE's record. ─────
+  { module: "employee-profile", action: "view",   description: "View another team member's additional employee details" },
+  { module: "employee-profile", action: "update", description: "Edit another team member's additional employee details" },
+
+  // ── Bank Account (per-employee bank accounts — see
+  // modules/employeeProfile). Kept separate from employee-profile so a
+  // company can grant profile access without exposing bank data. ─────
+  { module: "bank-account", action: "view",   description: "View another team member's bank accounts (masked)" },
+  { module: "bank-account", action: "manage", description: "Add, edit, deactivate, or reveal another team member's bank accounts" },
+
+  // ── Sale Person (manager managing their own team roster) — previously
+  // role-gated only (every manager could always do this, unconditionally,
+  // with no way for admin to revoke it per manager). "view" covers both
+  // listing the team and viewing one member's details — they are the same
+  // underlying endpoint (GET /admin/mysaleperson), not two separate
+  // features. Admin/super_admin/user are never gated by this — see
+  // authorizeManagerSalePersonAction in app/controller/admin.ts.
+  { module: "sale-person", action: "create",      description: "Register a new Sale Person account reporting to this Manager" },
+  { module: "sale-person", action: "bulk_create", description: "Register multiple Sale Persons at once via CSV upload" },
+  { module: "sale-person", action: "view",        description: "View the list and details of Sale Persons reporting to this Manager" },
 ];
 
 export const seedPermissions = async (): Promise<void> => {
@@ -132,5 +159,91 @@ export const seedPermissions = async (): Promise<void> => {
 
   console.log(
     `✅ Permissions seeded: ${created} new, ${existing} already existed (total=${PERMISSION_SEEDS.length})`
+  );
+};
+
+// ============================================================
+// One-time backfill: "sale-person" create/bulk_create/view used to be pure
+// role gates (every manager could always do these, unconditionally — see
+// the former roleCapabilityCatalog.ts entries). Now that
+// authorizeManagerSalePersonAction actually checks these permissions,
+// every EXISTING manager needs them granted here so nobody loses access
+// they already had on deploy — only NEW managers created after this ships
+// start with a clean slate an admin can configure via Manager
+// Capabilities.
+//
+// Also backfills every existing admin/super_admin/user account — their OWN
+// create/bulk_create/view access was never gated by this permission (see
+// authorizeManagerSalePersonAction — it only ever checks role==="manager"),
+// but the permission-assign endpoint refuses to let anyone delegate a
+// permission they don't hold themselves, so without this an admin could
+// never grant/revoke these for a manager via Manager Capabilities at all.
+//
+// Runs at most ONCE per installation, tracked via "permission_backfills"
+// (not "on every boot" — unlike this file's idempotent-by-construction
+// PERMISSION_SEEDS loop above, this is a one-time DATA migration, not a
+// standing invariant. If it re-ran on every boot it would silently UNDO
+// any admin's later, deliberate revoke of these permissions the next time
+// the server restarts — the exact opposite of making them revocable).
+// ============================================================
+const BACKFILL_KEY = "sale-person-v1";
+
+export const backfillManagerSalePersonPermissions = async (): Promise<void> => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS "permission_backfills" (
+      "key" VARCHAR(100) PRIMARY KEY,
+      "ranAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  const [alreadyRan] = await sequelize.query(
+    `SELECT 1 FROM "permission_backfills" WHERE "key" = :key`,
+    { replacements: { key: BACKFILL_KEY } }
+  );
+  if ((alreadyRan as any[]).length > 0) return;
+
+  const perms = await Permission.findAll({ where: { module: "sale-person" } });
+  if (perms.length === 0) return;
+
+  const users = await User.findAll({
+    where: { role: { [Op.in]: ["manager", "admin", "super_admin", "user"] } },
+    attributes: ["id"],
+  });
+  if (users.length === 0) return;
+
+  const userIds = users.map((u: any) => u.id);
+  const permIds = perms.map((p: any) => p.id);
+
+  const existing = await UserPermission.findAll({
+    where: { userId: { [Op.in]: userIds }, permissionId: { [Op.in]: permIds } },
+    attributes: ["userId", "permissionId"],
+  });
+  const existingKeys = new Set((existing as any[]).map((r) => `${r.userId}:${r.permissionId}`));
+
+  // grantedBy is NOT NULL at the DB level despite the model's allowNull:
+  // true (schema drift) — self-referential (each user "grants it to
+  // themselves") is a reasonable audit value for a system backfill; it's
+  // never read by enforcement (loadUserPermissionsFromDB doesn't select
+  // it), only shown in permission-management UI history.
+  const rows: any[] = [];
+  for (const userId of userIds) {
+    for (const permId of permIds) {
+      if (!existingKeys.has(`${userId}:${permId}`)) {
+        rows.push({ userId, permissionId: permId, companyId: null, grantedBy: userId });
+      }
+    }
+  }
+
+  if (rows.length > 0) {
+    await UserPermission.bulkCreate(rows);
+  }
+
+  await sequelize.query(
+    `INSERT INTO "permission_backfills" ("key") VALUES (:key) ON CONFLICT DO NOTHING`,
+    { replacements: { key: BACKFILL_KEY } }
+  );
+
+  console.log(
+    `✅ Sale Person permissions backfilled (one-time): ${rows.length} grant(s) added for ${userIds.length} existing manager/admin/super_admin/user account(s)`
   );
 };

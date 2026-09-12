@@ -7,6 +7,7 @@ import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "
 import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
 import { haversineMeters } from "../shared/geo";
 import { checkUserGeoFencing } from "../geoFencing/geoFencing.service";
+import { findEffectiveVehicleAllowanceRateForDate } from "../company/company.service";
 import * as AttendanceRepo from "./attendance.repository";
 import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary, isPlausibleLeg } from "./travelDistance.service";
 import { resolveAttendanceLocationName } from "./locationName.service";
@@ -1687,7 +1688,7 @@ export const applyTravelSummaryOnPunchOut = async (
   attendance: any,
   finalUserId: number,
   today: string,
-  company: { vehicleAllowanceRatePerKm?: number | null } | null | undefined
+  company: { id?: number; vehicleAllowanceRatePerKm?: number | null } | null | undefined
 ) => {
   if (!isValidCoordinate(attendance.latitude_out, attendance.longitude_out)) {
     // No usable Attendance-Out location — nothing to measure the closing leg
@@ -1762,7 +1763,16 @@ export const applyTravelSummaryOnPunchOut = async (
     }
   }
 
-  const rate = company?.vehicleAllowanceRatePerKm;
+  // The rate effective ON `today` (this attendance row's own date) —
+  // never blindly the company's current rate — is what gets permanently
+  // locked onto the row here. In the common case (punch-out happens same
+  // day) these are the same value; this only matters if this finalization
+  // is ever re-run for a date other than today (e.g. a regularization
+  // reapplying it), where using "today's" rate would misattribute a since-
+  // changed rate to an old day.
+  const rate = company?.id != null
+    ? await findEffectiveVehicleAllowanceRateForDate(company.id, today, finalUserId)
+    : company?.vehicleAllowanceRatePerKm;
   if (rate != null && attendance.totalTravelDistanceKm != null) {
     attendance.vehicleAllowanceRateApplied = rate;
     attendance.vehicleAllowance = Number((attendance.totalTravelDistanceKm * rate).toFixed(2));

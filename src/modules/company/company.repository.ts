@@ -10,6 +10,8 @@ import {
   CompanyLeave,
   User,
   UserPermission,
+  CompanyVehicleAllowanceRate,
+  UserVehicleAllowanceRate,
 } from "../../config/dbConnection";
 
 // ============================================================
@@ -276,3 +278,78 @@ export const updateCompanyBank = (id: number, fields: any) =>
 
 export const deleteCompanyBank = (id: number) =>
   CompanyBank.destroy({ where: { id } });
+
+// ── Vehicle Allowance Rate history ──────────────────────────────────────
+// See migration 0023 + companyVehicleAllowanceRate model comments.
+
+export const findVehicleAllowanceRateHistory = (companyId: number) =>
+  (CompanyVehicleAllowanceRate as any).findAll({
+    where: { companyId },
+    order: [["effectiveFrom", "DESC"]],
+  });
+
+// The single row that governs a specific date: the most recent rate whose
+// effectiveFrom is on or before that date. Used both by the settings page
+// (current/scheduled rate) and by the real payout calculation (the rate
+// effective on a specific travel date) — one lookup, one source of truth,
+// never duplicated.
+export const findEffectiveVehicleAllowanceRate = (companyId: number, onOrBeforeDate: string) =>
+  (CompanyVehicleAllowanceRate as any).findOne({
+    where: { companyId, effectiveFrom: { [Op.lte]: onOrBeforeDate } },
+    order: [["effectiveFrom", "DESC"]],
+  });
+
+// The earliest still-future rate — shown as "scheduled" on the settings page.
+export const findNextScheduledVehicleAllowanceRate = (companyId: number, afterDate: string) =>
+  (CompanyVehicleAllowanceRate as any).findOne({
+    where: { companyId, effectiveFrom: { [Op.gt]: afterDate } },
+    order: [["effectiveFrom", "ASC"]],
+  });
+
+export const findVehicleAllowanceRateByCompanyAndDate = (companyId: number, effectiveFrom: string) =>
+  (CompanyVehicleAllowanceRate as any).findOne({ where: { companyId, effectiveFrom } });
+
+export const upsertVehicleAllowanceRate = async (row: {
+  companyId: number;
+  ratePerKm: number;
+  effectiveFrom: string;
+  createdBy: number | null;
+}) => {
+  const existing = await findVehicleAllowanceRateByCompanyAndDate(row.companyId, row.effectiveFrom);
+  if (existing) {
+    existing.ratePerKm = row.ratePerKm;
+    await existing.save();
+    return existing;
+  }
+  return (CompanyVehicleAllowanceRate as any).create(row);
+};
+
+// ── Per-user Vehicle Allowance Rate override ────────────────────────────
+// See migration 0024 + userVehicleAllowanceRate model comments. A simple
+// current-value override, not effective-dated — presence of the row IS the
+// override (0 is a valid, meaningful value: "no allowance for this user").
+
+export const findUserVehicleAllowanceRate = (userId: number) =>
+  (UserVehicleAllowanceRate as any).findOne({ where: { userId } });
+
+export const findUserVehicleAllowanceRatesByCompany = (companyId: number) =>
+  (UserVehicleAllowanceRate as any).findAll({ where: { companyId } });
+
+export const upsertUserVehicleAllowanceRate = async (row: {
+  userId: number;
+  companyId: number | null;
+  ratePerKm: number;
+  createdBy: number | null;
+}) => {
+  const existing = await findUserVehicleAllowanceRate(row.userId);
+  if (existing) {
+    existing.ratePerKm = row.ratePerKm;
+    (existing as any).updatedBy = row.createdBy;
+    await existing.save();
+    return existing;
+  }
+  return (UserVehicleAllowanceRate as any).create(row);
+};
+
+export const deleteUserVehicleAllowanceRate = (userId: number) =>
+  (UserVehicleAllowanceRate as any).destroy({ where: { userId } });

@@ -75,12 +75,16 @@ import { AttendanceDeviceChangeRequest } from "../app/model/attendanceDeviceChan
 import { AttendanceAuditLog } from "../app/model/attendanceAuditLog";
 import { RefreshSession } from "../app/model/refreshSession";
 import { AttendanceRegularization } from "../app/model/attendanceRegularization";
+import { CompanyVehicleAllowanceRate } from "../app/model/companyVehicleAllowanceRate";
+import { UserVehicleAllowanceRate } from "../app/model/userVehicleAllowanceRate";
 import { TenantSetupStatus, CompanySetupStatus } from "../app/model/setupStatus";
 import { SetupAuditLog } from "../app/model/setupAuditLog";
 import { SubscriptionPlan } from "../app/model/subscriptionPlan";
 import { Subscription } from "../app/model/subscription";
 import { Payment } from "../app/model/payment";
 import { TallyMaster } from "../app/model/tallyMaster";
+import { EmployeeExtraDetails } from "../app/model/employeeExtraDetails";
+import { EmployeeBankAccount } from "../app/model/employeeBankAccount";
 
 // ===== SEQUELIZE INIT =====
 // DB_NAME/DB_USER_NAME/DB_PASSWORD/DB_HOST/DB_PORT are guaranteed set at
@@ -137,12 +141,16 @@ AttendanceDeviceChangeRequest.initModel(sequelize);
 AttendanceAuditLog.initModel(sequelize);
 RefreshSession.initModel(sequelize);
 AttendanceRegularization.initModel(sequelize);
+CompanyVehicleAllowanceRate.initModel(sequelize);
+UserVehicleAllowanceRate.initModel(sequelize);
 TenantSetupStatus.initModel(sequelize);
 CompanySetupStatus.initModel(sequelize);
 SetupAuditLog.initModel(sequelize);
 SubscriptionPlan.initModel(sequelize);
 Subscription.initModel(sequelize);
 Payment.initModel(sequelize);
+EmployeeExtraDetails.initModel(sequelize);
+EmployeeBankAccount.initModel(sequelize);
 
 // Expense
 Expense.initModel(sequelize);
@@ -246,6 +254,13 @@ Expense.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 Expense.hasMany(ExpenseImage, { foreignKey: "expenseId", as: "images" });
 ExpenseImage.belongsTo(Expense, { foreignKey: "expenseId" });
+
+// Employee profile (extra details + bank accounts) — see modules/employeeProfile
+User.hasOne(EmployeeExtraDetails, { foreignKey: "userId", as: "extraDetails" });
+EmployeeExtraDetails.belongsTo(User, { foreignKey: "userId", as: "user" });
+
+User.hasMany(EmployeeBankAccount, { foreignKey: "userId", as: "bankAccounts" });
+EmployeeBankAccount.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 // Chat
 ChatRoom.hasMany(ChatParticipant, {
@@ -1241,8 +1256,9 @@ export const connectDB = async () => {
     // await sequelize.sync({ alter: true });
 
     // 5️⃣ Seed RBAC permissions table (idempotent — safe every boot)
-    const { seedPermissions } = await import("./seedPermissions");
+    const { seedPermissions, backfillManagerSalePersonPermissions } = await import("./seedPermissions");
     await seedPermissions();
+    await backfillManagerSalePersonPermissions();
 
   } catch (err) {
     console.error("❌ DB error:", err);
@@ -1298,9 +1314,13 @@ export {
   AttendanceAuditLog,
   RefreshSession,
   AttendanceRegularization,
+  CompanyVehicleAllowanceRate,
+  UserVehicleAllowanceRate,
   TenantSetupStatus,
   CompanySetupStatus,
   SetupAuditLog,
+  EmployeeExtraDetails,
+  EmployeeBankAccount,
   Announcement,
   AnnouncementRecipient,
   SubscriptionPlan,

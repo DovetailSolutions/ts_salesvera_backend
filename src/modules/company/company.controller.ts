@@ -362,3 +362,104 @@ export const deleteCompanyBank = async (req: Request, res: Response): Promise<vo
     handleServiceError(res, error);
   }
 };
+
+export const getVehicleAllowanceRates = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const info = await CompanyService.getVehicleAllowanceRateInfo(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId
+    );
+    createSuccess(res, "Vehicle allowance rate fetched successfully", info);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const addVehicleAllowanceRate = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const info = await CompanyService.addVehicleAllowanceRate(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      req.body
+    );
+    createSuccess(res, "Vehicle allowance rate saved successfully", info);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const getUserVehicleAllowanceOverrides = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const overrides = await CompanyService.getUserVehicleAllowanceOverrides(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId
+    );
+    createSuccess(res, "Staff vehicle allowance overrides fetched successfully", overrides);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const setUserVehicleAllowanceRate = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const targetUserId = Number(req.params.userId);
+    const saved = await CompanyService.setUserVehicleAllowanceRate(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      targetUserId,
+      req.body
+    );
+    createSuccess(res, "Staff vehicle allowance rate saved successfully", saved);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const clearUserVehicleAllowanceRate = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const targetUserId = Number(req.params.userId);
+    const result = await CompanyService.clearUserVehicleAllowanceRate(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      targetUserId
+    );
+    createSuccess(res, "Staff vehicle allowance rate reset to company default", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};

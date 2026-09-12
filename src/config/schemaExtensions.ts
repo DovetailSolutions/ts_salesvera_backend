@@ -164,6 +164,132 @@ export const ensureUserGeoFencingColumns = async (sequelize: Sequelize): Promise
 // Enforces UNIQUE ("user_id", "company_guid", "master_type", "tally_guid")
 // at the database level for idempotency.
 // ============================================================
+// ============================================================
+// Employee "Additional Details" — SalaryBox bulk-import spreadsheet fields
+// with no home anywhere else in the schema (job title, addresses, gender,
+// PF/ESI/UAN/Aadhaar/PAN, guardian, emergency contact, education, laptop/
+// asset info, etc.). One row per user, PK = userId. See
+// app/model/employeeExtraDetails.ts for the full column list/typing and
+// modules/employeeProfile for the API surface. Deliberately explicit typed
+// columns rather than a generic key-value table — see that model file's
+// header comment for the reasoning.
+// ============================================================
+export const ensureEmployeeExtraDetailsSchema = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS "employee_extra_details" (
+      "userId" INTEGER PRIMARY KEY REFERENCES "users"("id") ON DELETE CASCADE,
+      "companyId" INTEGER,
+      "countryCode" TEXT,
+      "personalEmail" TEXT,
+      "officialEmail" TEXT,
+      "dateOfJoining" DATE,
+      "employeeIdExternal" TEXT,
+      "jobTitle" TEXT,
+      "employeeType" TEXT,
+      "currentAddress" TEXT,
+      "permanentAddress" TEXT,
+      "gender" TEXT,
+      "maritalStatus" TEXT,
+      "bloodGroup" TEXT,
+      "pfAccountNumber" TEXT,
+      "esiAccountNumber" TEXT,
+      "uan" TEXT,
+      "aadhaarNumber" TEXT,
+      "panNumber" TEXT,
+      "guardianName" TEXT,
+      "emergencyContactName" TEXT,
+      "emergencyContactCountryCode" TEXT,
+      "emergencyContactPhone" TEXT,
+      "emergencyContactRelationship" TEXT,
+      "emergencyContactAddress" TEXT,
+      "educationalQualification" TEXT,
+      "incrementAmount" DECIMAL(12,2),
+      "grade" TEXT,
+      "maintenanceFee" DECIMAL(12,2),
+      "laptopSerialNumber" TEXT,
+      "mobileSerialNumber" TEXT,
+      "houseNumber" TEXT,
+      "lockerNumber" TEXT,
+      "staff" TEXT,
+      "stationary" TEXT,
+      "worker" TEXT,
+      "laptops" TEXT,
+      "juniorManager" TEXT,
+      "upiDetails" TEXT,
+      "contractVendorName" TEXT,
+      "businessUnit" TEXT,
+      "assets" TEXT,
+      "simOperatorName" TEXT,
+      "registrationNumber" TEXT,
+      "createdBy" INTEGER REFERENCES "users"("id"),
+      "updatedBy" INTEGER REFERENCES "users"("id"),
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await sequelize.query(`
+    CREATE INDEX IF NOT EXISTS "idx_employee_extra_details_company" ON "employee_extra_details" ("companyId");
+  `);
+
+  console.log("Employee extra-details schema ensured (employee_extra_details table)");
+};
+
+// ============================================================
+// Employee bank accounts — one-to-many per user (admin/manager/
+// sale_person), at most one PRIMARY+ACTIVE account per user enforced by the
+// partial unique index below. bankAccountNumberEncrypted holds the only
+// reversible copy of the account number (AES-256-GCM via
+// config/bankAccountCrypto.ts); bankAccountNumberLast4 is derived once at
+// write time so masked list/detail responses never touch the encrypted
+// value. See app/model/employeeBankAccount.ts and modules/employeeProfile.
+// ============================================================
+export const ensureEmployeeBankAccountsSchema = async (sequelize: Sequelize): Promise<void> => {
+  await sequelize.query(`
+    CREATE TABLE IF NOT EXISTS "employee_bank_accounts" (
+      "id" SERIAL PRIMARY KEY,
+      "userId" INTEGER NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+      "companyId" INTEGER,
+      "bankAccountHolder" TEXT NOT NULL,
+      "bankName" TEXT NOT NULL,
+      "bankAccountNumberEncrypted" TEXT NOT NULL,
+      "bankAccountNumberLast4" VARCHAR(4) NOT NULL,
+      "bankIfsc" VARCHAR(11) NOT NULL,
+      "bankBranchName" TEXT,
+      "bankAccountType" TEXT,
+      "upiId" TEXT,
+      "isPrimary" BOOLEAN NOT NULL DEFAULT false,
+      "status" VARCHAR(20) NOT NULL DEFAULT 'active',
+      "createdBy" INTEGER REFERENCES "users"("id"),
+      "updatedBy" INTEGER REFERENCES "users"("id"),
+      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await sequelize.query(`
+    CREATE INDEX IF NOT EXISTS "idx_employee_bank_accounts_user" ON "employee_bank_accounts" ("userId");
+  `);
+  await sequelize.query(`
+    CREATE INDEX IF NOT EXISTS "idx_employee_bank_accounts_company" ON "employee_bank_accounts" ("companyId");
+  `);
+  await sequelize.query(`
+    CREATE INDEX IF NOT EXISTS "idx_employee_bank_accounts_status" ON "employee_bank_accounts" ("status");
+  `);
+
+  // Enforces "at most one primary, active bank account per user" at the DB
+  // level — this is what actually prevents two concurrent set-primary
+  // requests from both succeeding; the service-layer transaction is
+  // defense in depth on top of this, not the primary guarantee.
+  await sequelize.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "idx_employee_bank_accounts_one_primary_per_user"
+      ON "employee_bank_accounts" ("userId")
+      WHERE "isPrimary" = true AND "status" = 'active';
+  `);
+
+  console.log("Employee bank accounts schema ensured (employee_bank_accounts table + one-primary-per-user index)");
+};
+
 export const ensureTallyMastersSchema = async (sequelize: Sequelize): Promise<void> => {
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS "tally_masters" (
