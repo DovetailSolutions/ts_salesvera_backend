@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { createTokenCheck } from "../../config/tokenCheck";
-import { checkPermission } from "../../config/checkPermission";
 import { handleRegularizationAttachment } from "./attendanceRegularizationUpload";
 import * as Controller from "./attendanceRegularization.controller";
 
@@ -28,7 +27,7 @@ router.get("/attendance-regularization/types", tokenCheck, Controller.getRequest
 router.post(
   "/attendance-regularization",
   tokenCheck,
-  checkPermission("attendance", "create"),
+  Controller.authorizeCreateRegularization,
   handleRegularizationAttachment,
   Controller.createRequest
 );

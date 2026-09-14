@@ -57,6 +57,7 @@ export const resolveCompanyId = async (
     const company = await (Company as any).findOne({
       where: { userId: id },
       attributes: ["id"],
+      order: [["id", "ASC"]],
     });
     return company ? company.id : null;
   }

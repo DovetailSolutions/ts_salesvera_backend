@@ -24,7 +24,12 @@ router.patch(
   profile.single("profile"),
   Controller.UpdateProfile
 );
-router.get("/mysaleperson", tokenCheck, Controller.MySalePerson);
+router.get(
+  "/mysaleperson",
+  tokenCheck,
+  AdminController.authorizeManagerSalePersonAction("view"),
+  Controller.MySalePerson
+);
 router.post(
   "/createmeeting",
   tokenCheck,

@@ -1,10 +1,10 @@
-import { UniqueConstraintError } from "sequelize";
+import { Op, UniqueConstraintError } from "sequelize";
 import { sequelize } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { assertCanAct } from "../geoFencing/geoFencing.service";
 import { sendNotification } from "../../config/notificationService";
 import { NotificationType } from "../../app/model/Notification";
-import { getCompanyAdminIds } from "../shared/userHierarchy";
+import { getCompanyAdminIds, getCompanyScopedChildUserIdsFast, getDirectCreator } from "../shared/userHierarchy";
 import { getISTDateString, parseISTTime } from "../shared/dateUtils";
 import { ATTENDANCE_REGULARIZATION_DAYS } from "../../config/env";
 import * as Repo from "./attendanceRegularization.repository";
@@ -52,7 +52,11 @@ export const REQUEST_TYPE_LABELS: Record<string, string> = {
 
 const MAX_REASON_LENGTH = 255;
 const MAX_DESCRIPTION_LENGTH = 2000;
-const ELIGIBLE_ROLES = ["sale_person", "manager", "admin"];
+// Fixed business rule — admin reviews/manages requests but never creates
+// one; enforced here too (defense in depth) alongside the route-level
+// authorizeCreateRegularization gate. super_admin is intentionally not
+// listed either — same as before this fix, unchanged.
+const ELIGIBLE_ROLES = ["sale_person", "manager"];
 
 const toPublicRequest = (row: any) => {
   const plain = row.get ? row.get({ plain: true }) : row;
@@ -222,7 +226,7 @@ export const createRequest = async (
     metadata: { requestType: normalized.requestType, attendanceDate: normalized.attendanceDate },
   });
 
-  notifyRegularizationCreated(callerId, callerCompanyId, created.id, normalized.requestType, normalized.attendanceDate);
+  notifyRegularizationCreated(callerId, callerRole, callerCompanyId, created.id, normalized.requestType, normalized.attendanceDate);
 
   return toPublicRequest(created);
 };
@@ -252,19 +256,60 @@ export const getMyRequests = async (userId: number, opts: { page?: number; limit
 };
 
 // ── Admin/Manager list — company-scoped, same pattern as
-// attendanceSecurity.service.ts's getDeviceRequests ─────────────────────
+// attendanceSecurity.service.ts's getDeviceRequests, EXCEPT for the
+// manager branch below, which is deliberately narrower.
+//
+// attendanceSecurity's getDeviceRequests scopes "everyone but super_admin"
+// to companyId alone — i.e. a manager sees the whole company. That's a
+// legitimate, deliberate, existing convention for that module, but the
+// Regularization feature spec explicitly requires a Manager's list to be
+// "My + My Team" only (never another manager's team), with M4/M5 as
+// acceptance tests — so this function additionally scopes the manager
+// case to their own company-scoped hierarchy (reusing the exact same
+// getCompanyScopedChildUserIdsFast helper assertCanAct already uses to
+// authorize approve/reject), rather than the whole company. Admin and
+// super_admin are unchanged.
+// ─────────────────────────────────────────────────────────────────────────
 export const getRequests = async (
   callerId: number,
   callerRole: string | undefined,
   callerCompanyId: number | null,
   opts: { status?: string; requestType?: string; userId?: number; dateFrom?: string; dateTo?: string; page?: number; limit?: number }
 ) => {
-  const companyId = callerRole === "super_admin" ? undefined : callerCompanyId;
+  let companyId: number | undefined = callerRole === "super_admin" ? undefined : (callerCompanyId ?? undefined);
+  let userIdFilter: any = opts.userId;
+
+  if (callerRole === "manager") {
+    // Own company-scoped team (sale persons, and any managers under this
+    // manager) — never another manager's team, never another company's.
+    const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
+
+    if (opts.userId != null) {
+      // A specific user was requested — never trust it blindly (client-
+      // supplied userId is exactly the IDOR vector §37 calls out). Only
+      // allow it if that user is actually on this manager's team.
+      if (!teamIds.includes(opts.userId)) {
+        throw new ServiceError("You are not authorized to view this user's regularization requests", 403);
+      }
+      userIdFilter = opts.userId;
+    } else {
+      // No specific user requested — "Team Requests" means the manager's
+      // own subordinates, NOT the manager's own submissions (those are
+      // covered separately by /attendance-regularization/my, matching the
+      // UI's distinct "My Regularizations" vs "Team Regularizations"
+      // sections). An empty team correctly yields an empty Op.in (no rows).
+      userIdFilter = { [Op.in]: teamIds };
+    }
+    // companyId is still applied too (defense in depth) — teamIds is
+    // already company-scoped, but keeping both narrows the query to the
+    // exact same guarantee attendanceSecurity relies on.
+  }
+
   const { rows, count } = await Repo.findRequests({
-    companyId: companyId ?? undefined,
+    companyId,
     status: opts.status,
     requestType: opts.requestType,
-    userId: opts.userId,
+    userId: userIdFilter,
     dateFrom: opts.dateFrom,
     dateTo: opts.dateTo,
     page: opts.page,
@@ -459,22 +504,37 @@ export const rejectRequest = async (
 // Socket.IO "notification" event), same as attendanceSecurity.service.ts.
 // Fire-and-forget: a notification failure must never block the request
 // that triggered it. ─────────────────────────────────────────────────────
+// Recipients: company admins always (existing behavior, unchanged) — PLUS,
+// when the requester is a sale_person, their direct manager too (§22's
+// "Sale Person → Manager → Admin" hierarchy), reusing getDirectCreator
+// (userHierarchy.ts) rather than inventing a second hierarchy lookup. A
+// Set dedupes the rare case where the direct creator IS the admin (no
+// manager in between) so that admin isn't notified twice.
 const notifyRegularizationCreated = (
   userId: number,
+  requesterRole: string | undefined,
   companyId: number | null,
   requestId: number,
   requestType: string,
   attendanceDate: string
 ): void => {
   (async () => {
-    const [user, adminIds] = await Promise.all([Repo.findUserById(userId), getCompanyAdminIds(companyId)]);
-    if (adminIds.length === 0) return;
+    const [user, adminIds, directCreator] = await Promise.all([
+      Repo.findUserById(userId),
+      getCompanyAdminIds(companyId),
+      requesterRole === "sale_person" ? getDirectCreator(userId) : Promise.resolve(null),
+    ]);
+
+    const receiverIds = new Set<number>(adminIds);
+    if (directCreator) receiverIds.add(directCreator.id);
+    if (receiverIds.size === 0) return;
+
     const userLabel = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email : `User #${userId}`;
     const label = REQUEST_TYPE_LABELS[requestType] ?? requestType;
     await Promise.all(
-      adminIds.map((adminId) =>
+      Array.from(receiverIds).map((receiverId) =>
         sendNotification({
-          receiverId: adminId,
+          receiverId,
           senderId: userId,
           type: NotificationType.SYSTEM,
           title: "Attendance Regularization Request",

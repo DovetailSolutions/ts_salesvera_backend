@@ -2,7 +2,7 @@ import { buildSpacesUrl } from "../../config/spaces";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { createSuccess, badRequest } from "../../app/middlewear/errorMessage";
-import { ServiceError } from "../shared/serviceError";
+import { handleServiceError } from "../shared/handleServiceError";
 import * as CompanyService from "./company.service";
 
 // ============================================================
@@ -10,13 +10,14 @@ import * as CompanyService from "./company.service";
 // addCompany/getCompany/getCompanyById/updateCompany/assignCompanyManager/
 // removeCompanyManager/getCompanyManagers/getMyCompanies/switchCompany/
 // deleteCompany/getOwnCompany/addCompanyBank.
+//
+// FIX: this file used to define its own private handleServiceError that
+// always mapped to badRequest(400), silently discarding ServiceError.status
+// — so the existing `throw new ServiceError(..., 403)` in getCompanyPolicy
+// was never actually reaching callers as 403. Switched to the shared,
+// status-aware mapper already used by attendance/attendanceSecurity
+// controllers (badRequest for 400, forbidden for 403).
 // ============================================================
-
-const handleServiceError = (res: Response, error: unknown) => {
-  if (error instanceof ServiceError) return badRequest(res, error.message);
-  const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-  return badRequest(res, errorMessage);
-};
 
 export const addCompany = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -357,6 +358,107 @@ export const deleteCompanyBank = async (req: Request, res: Response): Promise<vo
     const userCompanyId = userData.companyId ? Number(userData.companyId) : undefined;
     const result = await CompanyService.deleteCompanyBank(bankId, userCompanyId, userData.role as string);
     createSuccess(res, "Bank details deleted successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const getVehicleAllowanceRates = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const info = await CompanyService.getVehicleAllowanceRateInfo(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId
+    );
+    createSuccess(res, "Vehicle allowance rate fetched successfully", info);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const addVehicleAllowanceRate = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const info = await CompanyService.addVehicleAllowanceRate(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      req.body
+    );
+    createSuccess(res, "Vehicle allowance rate saved successfully", info);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const getUserVehicleAllowanceOverrides = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const overrides = await CompanyService.getUserVehicleAllowanceOverrides(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId
+    );
+    createSuccess(res, "Staff vehicle allowance overrides fetched successfully", overrides);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const setUserVehicleAllowanceRate = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const targetUserId = Number(req.params.userId);
+    const saved = await CompanyService.setUserVehicleAllowanceRate(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      targetUserId,
+      req.body
+    );
+    createSuccess(res, "Staff vehicle allowance rate saved successfully", saved);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const clearUserVehicleAllowanceRate = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+    const callerCompanyId = (userData as any).companyId ? Number((userData as any).companyId) : null;
+    const targetUserId = Number(req.params.userId);
+    const result = await CompanyService.clearUserVehicleAllowanceRate(
+      Number(userData.userId),
+      userData.role as string | undefined,
+      callerCompanyId,
+      targetUserId
+    );
+    createSuccess(res, "Staff vehicle allowance rate reset to company default", result);
   } catch (error) {
     handleServiceError(res, error);
   }

@@ -7,7 +7,7 @@ import { User, Company, CompanyAdmin } from "../../config/dbConnection";
 import { invalidatePermissionCache, invalidateCompanyPermissionCache } from "../../config/permissionCache";
 import { PERMISSION_TEMPLATES } from "../../config/permissionTemplates";
 import { hasCompanyAccess } from "../../modules/shared/companyAccess";
-import { getCompanyScopedOrgWideUserIds, getCompanyScopedChildUserIds } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getOrgWideUserIdsForCaller } from "../../modules/shared/userHierarchy";
 
 // ============================================================
 // Permission Controller
@@ -291,8 +291,9 @@ export const getUserPermissions = async (req: AuthRequest, res: Response): Promi
     // inside the caller's own company-scoped org (super_admin exempt, same
     // as every other permission-management action in this file).
     if (role !== "super_admin" && targetUserId !== Number(callerId)) {
-      const orgIds = await getCompanyScopedOrgWideUserIds(
+      const orgIds = await getOrgWideUserIdsForCaller(
         Number(callerId),
+        String(role),
         companyId ? Number(companyId) : null
       );
       if (!orgIds.includes(targetUserId)) {
@@ -390,8 +391,9 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
     // never fired. Mirrors the already-correct check in getUserPermissions
     // above.
     if (role !== "super_admin" && Number(targetUserId) !== Number(callerId)) {
-      const orgIds = await getCompanyScopedOrgWideUserIds(
+      const orgIds = await getOrgWideUserIdsForCaller(
         Number(callerId),
+        String(role),
         callerCompanyId ? Number(callerCompanyId) : null
       );
       if (!orgIds.includes(Number(targetUserId))) {
@@ -554,8 +556,9 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
     // FIX: see identical note in assignPermissions above — tenantId alone
     // is too coarse (shared across every company under the same Owner).
     if (role !== "super_admin" && Number(targetUserId) !== Number(callerId)) {
-      const orgIds = await getCompanyScopedOrgWideUserIds(
+      const orgIds = await getOrgWideUserIdsForCaller(
         Number(callerId),
+        String(role),
         callerCompanyId ? Number(callerCompanyId) : null
       );
       if (!orgIds.includes(Number(targetUserId))) {

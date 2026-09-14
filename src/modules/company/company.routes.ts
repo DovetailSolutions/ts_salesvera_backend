@@ -42,4 +42,18 @@ router.patch("/update-bank/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), Comp
 router.delete("/delete-bank/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.deleteCompanyBank);
 router.get("/getowncompany", tokenCheck, CompanyController.getOwnCompany);
 
+// Vehicle Allowance Rate — effective-dated history (migration 0023). Same
+// admin-edits/manager-views split as the rest of Company settings above.
+router.get("/vehicle-allowance-rates", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), CompanyController.getVehicleAllowanceRates);
+router.post("/vehicle-allowance-rates", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.addVehicleAllowanceRate);
+
+// Per-user override — a simple current-value rate for one staff member
+// (including ₹0), taking priority over the company-wide rate above. View:
+// admin+manager (matches the company rate's own view gate); edit: admin
+// only. Registered AFTER the plain "/vehicle-allowance-rates" routes so
+// Express doesn't try to match "/users" against a param route first.
+router.get("/vehicle-allowance-rates/users", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), CompanyController.getUserVehicleAllowanceOverrides);
+router.post("/vehicle-allowance-rates/users/:userId", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.setUserVehicleAllowanceRate);
+router.delete("/vehicle-allowance-rates/users/:userId", tokenCheck, authorizeRoles(...ADMIN_ONLY), CompanyController.clearUserVehicleAllowanceRate);
+
 export default router;

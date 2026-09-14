@@ -114,6 +114,36 @@ export const findEmployeesByIds = (employeeIds: number[]) =>
     attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
   });
 
+// ── Admin Meeting Excel Export (read-only reporting query) ──
+// One row per Meeting, scoped to an already-authorized set of userIds and an
+// IST-boundary meetingTimeIn range. No User include here — the caller
+// (meeting.service.ts's exportMeetingReportExcel) already fetches employee
+// info separately via findEmployeesByIds, since it needs that same lookup
+// for users who have ZERO meetings in range (nothing to join from for
+// those), so joining User here again would just be a redundant extra join.
+export const findMeetingsForExport = (employeeIds: number[], fromDate: Date, toDate: Date) =>
+  Meeting.findAll({
+    where: {
+      userId: { [Op.in]: employeeIds },
+      meetingTimeIn: { [Op.between]: [fromDate, toDate] },
+    },
+    attributes: [
+      "id", "userId", "status", "meetingPurpose", "scheduledTime",
+      "meetingTimeIn", "meetingTimeOut",
+      "latitude_in", "longitude_in", "latitude_out", "longitude_out",
+      "legDistance", "totalDistance", "pincode", "createdAt",
+    ],
+    include: [
+      { model: MeetingUser, attributes: ["id", "name", "email", "mobile", "companyName", "city", "state"], required: false },
+      {
+        model: MeetingCompany,
+        attributes: ["id", "companyName", "personName", "mobileNumber", "companyEmail", "city", "state", "pincode"],
+        required: false,
+      },
+    ],
+    order: [["userId", "ASC"], ["meetingTimeIn", "ASC"]],
+  });
+
 // ── Dashboard drill-down (click a stat tile -> list the meetings behind it) ──
 export const findMeetingsByScopePaginated = (
   employeeIds: number[],

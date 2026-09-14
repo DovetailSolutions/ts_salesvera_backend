@@ -1,12 +1,56 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { createSuccess } from "../../app/middlewear/errorMessage";
 import { handleServiceError } from "../shared/handleServiceError";
+import { checkPermission } from "../../config/checkPermission";
 import * as Service from "./attendanceRegularization.service";
 
 // ============================================================
 // Thin HTTP layer — mirrors attendanceSecurity.controller.ts's shape.
 // ============================================================
+
+// ============================================================
+// authorizeCreateRegularization — dedicated role gate for POST create.
+//
+// ROOT CAUSE this replaces: the create route used to be gated purely by
+// checkPermission("attendance", "create") — the SAME permission flag used
+// for "Mark Team Attendance" (admin/manager marking someone present).
+// Because those are two conceptually different actions sharing one
+// permission, whichever users happened to hold attendance:create governed
+// who could create a regularization — backwards from the fixed business
+// rule (sale_person/manager: always allowed, admin: never allowed): an
+// admin commonly holds attendance:create (for marking team attendance) and
+// could therefore create regularizations, while a manager commonly does
+// NOT hold it and was wrongly blocked.
+//
+// This is a hard, non-configurable role rule (not something a company
+// should be able to grant/revoke via the permissions table), so it is
+// enforced by role here rather than via checkPermission. Any role this
+// gate doesn't have an opinion on (e.g. "user") falls back to the exact
+// previous checkPermission("attendance","create") behavior, unchanged.
+// ============================================================
+export const authorizeCreateRegularization = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<any> => {
+  const userData = req.userData as JwtPayload;
+  const role = (userData as any)?.role as string | undefined;
+
+  if (role === "admin") {
+    return res.status(403).json({
+      success: false,
+      message:
+        "Admins cannot create attendance regularization requests. Admins review and manage existing requests instead.",
+    });
+  }
+
+  if (role === "super_admin" || role === "manager" || role === "sale_person") {
+    return next();
+  }
+
+  return checkPermission("attendance", "create")(req, res, next);
+};
 
 const callerContext = (req: Request) => {
   const userData = req.userData as JwtPayload;
