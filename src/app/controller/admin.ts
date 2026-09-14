@@ -2157,7 +2157,7 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
       Meeting.count({
         where: {
           userId: { [Op.in]: allUserIds },
-          scheduledTime: { [Op.between]: [weekStart, weekEnd] },
+          // scheduledTime: { [Op.between]: [weekStart, weekEnd] },
           // A cancelled meeting isn't a real meeting from the caller's point
           // of view — counting it made "Meetings (Week)" show a number the
           // Meetings module itself wouldn't reasonably back up.
