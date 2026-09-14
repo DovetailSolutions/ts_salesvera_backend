@@ -3298,7 +3298,7 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       }
     }
 
-    // const allUserIds = await Middleware.getAllSubordinateIds(hierarchyRootId);
+    const allUserIds = await Middleware.getAllSubordinateIds(hierarchyRootId);
 
     // console.log(">>>>>>>>>>>>>allUserIds>",allUserIds)
 
@@ -3322,7 +3322,9 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     // };
 
     const whereCondition: any = {
-      userId: userData.userId,
+      userId: {
+        [Op.in]: allUserIds
+      },
       status: {
         [Op.notIn]: ["cancelled", "deleted"],
       },
@@ -3971,10 +3973,10 @@ export const getDashboardMobile = async (
         hierarchyRootId = company.adminId;
       }
     }
-    // const allUserIds = await getAllSubordinateIds(hierarchyRootId);
+    const allUserIds = await getAllSubordinateIds(hierarchyRootId);
 
     const commonFilter = {
-      userId: userId,
+      userId: { [Op.in]: allUserIds },
       status: { [Op.notIn]: ["cancelled", "deleted"] },
     };
 
@@ -3984,7 +3986,7 @@ export const getDashboardMobile = async (
 
     const perfomaInvoice = await Invoices.count({
       where: {
-        userId  : userId,
+        userId: { [Op.in]: allUserIds },
         [Op.and]: [
           { status: { [Op.in]: ["draft", "imported"] } },
           { status: { [Op.notIn]: ["cancelled", "deleted"] } },
@@ -3994,7 +3996,7 @@ export const getDashboardMobile = async (
 
     const invoice = await Invoices.count({
       where: {
-        userId: userId,
+        userId: { [Op.in]: allUserIds },
         [Op.and]: [
           { status: "accepted" },
           { status: { [Op.notIn]: ["cancelled", "deleted"] } },

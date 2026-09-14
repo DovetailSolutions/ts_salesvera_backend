@@ -1837,7 +1837,7 @@ export const getTeamTravelSummary = async (
 
   const attendanceRows = await Attendance.findAll({
     where: { employee_id: { [Op.in]: salesPersonIds }, date },
-    attributes: ["employee_id", "punch_in", "punch_out", "totalTravelDistanceKm", "vehicleAllowance", "distanceCalculationStatus"],
+    attributes: ["employee_id", "punch_in", "punch_out", "totalTravelDistanceKm", "vehicleAllowance", "vehicleAllowanceRateApplied", "distanceCalculationStatus"],
   });
   const attendanceByUser = new Map(attendanceRows.map((a: any) => [a.employee_id, a]));
 
@@ -1865,6 +1865,8 @@ export const getTeamTravelSummary = async (
       meetingsCount: meetingCountByUser.get(u.id) || 0,
       totalDistanceKm: att?.totalTravelDistanceKm ?? null,
       vehicleAllowance: att?.vehicleAllowance ?? null,
+      vehicleAllowanceRateApplied: att?.vehicleAllowanceRateApplied ?? null,
+      allowanceRate: att?.vehicleAllowanceRateApplied ?? null,
       distanceCalculationStatus: att?.distanceCalculationStatus ?? null,
       hasAttendance: !!att,
     };
