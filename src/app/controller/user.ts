@@ -1822,7 +1822,7 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
     let leaveTypeBalances: {
       companyLeaveId: number; leaveName: string; leaveCode: string; leavesPerYear: number;
       carryForwardAllowed: boolean; carryForwardLimit: number; isPaid: boolean;
-      allocated: number; carriedForward: number; used: number; pending: number; remaining: number;
+      allocated: number; carriedForward: number; used: number; pending: number; remaining: number; available: number;
     }[] = [];
 
     const pendingLeaves = await Leave.findAll({
@@ -1863,6 +1863,8 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
           used,
           pending: typePendingDays,
           remaining: allocated + carriedForward - used,
+          // What POST /leave will actually allow: pending requests already hold days.
+          available: Math.max(0, allocated + carriedForward - used - typePendingDays),
         };
       });
     }
@@ -1874,8 +1876,8 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
     const legacyBucket = (keyword: string) => {
       const match = matchLegacy(keyword);
       return match
-        ? { allocated: match.allocated + match.carriedForward, used: match.used, remaining: match.remaining }
-        : { allocated: 0, used: 0, remaining: 0 };
+        ? { allocated: match.allocated + match.carriedForward, used: match.used, pending: match.pending, remaining: match.remaining, available: match.available }
+        : { allocated: 0, used: 0, pending: 0, remaining: 0, available: 0 };
     };
 
     const legacy = {
@@ -1887,7 +1889,7 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
     const totalAllocated = leaveTypeBalances.reduce((acc, t) => acc + t.allocated + t.carriedForward, 0);
     const totalUsed = leaveTypeBalances.reduce((acc, t) => acc + t.used, 0);
     const totalPending = leaveTypeBalances.reduce((acc, t) => acc + t.pending, 0);
-    const totalAvailable = totalAllocated - totalUsed;
+    const totalAvailable = leaveTypeBalances.reduce((acc, t) => acc + t.available, 0);
 
     const summary = {
       available: totalAvailable,
