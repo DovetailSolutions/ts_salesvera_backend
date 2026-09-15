@@ -11,7 +11,7 @@ import { findEffectiveVehicleAllowanceRateForDate } from "../company/company.ser
 import * as AttendanceRepo from "./attendance.repository";
 import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary, getSalesPersonTravelSummaryRange, isPlausibleLeg } from "./travelDistance.service";
 import { resolveAttendanceLocationName } from "./locationName.service";
-import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User } from "../../config/dbConnection";
+import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User, Leave, CompanyLeave } from "../../config/dbConnection";
 import * as AttendanceSecurity from "../attendanceSecurity/attendanceSecurity.service";
 
 // ============================================================
@@ -1898,7 +1898,33 @@ export const getTodayAttendance = async (finalUserId: number) => {
   // via explicit +5:30 offset arithmetic, deployment-proof regardless of
   // the server's OS timezone.
   const today = getISTDateString();
-  const record = await AttendanceRepo.findLatestAttendanceForDate(finalUserId, today);
-  if (!record) throw new ServiceError("No attendance found for today");
-  return record;
+  const [record, todayLeaveRows] = await Promise.all([
+    AttendanceRepo.findLatestAttendanceForDate(finalUserId, today),
+    Leave.findAll({
+      where: {
+        employee_id: finalUserId,
+        status: { [Op.in]: ["pending", "approved", "rejected"] },
+        from_date: { [Op.lte]: today },
+        to_date: { [Op.gte]: today },
+      },
+      attributes: ["id", "leave_type", "from_date", "to_date", "reason", "status", "companyLeaveId", "updatedAt"],
+      include: [{ model: CompanyLeave, as: "leaveTypeRef", attributes: ["id", "leaveName", "leaveCode", "isPaid"] }],
+      order: [["updatedAt", "DESC"]],
+    }),
+  ]);
+
+  // An active (approved/pending) leave wins over an older rejected one for the same day.
+  const statusRank: Record<string, number> = { approved: 0, pending: 1, rejected: 2 };
+  const todayLeaveRow = [...todayLeaveRows].sort(
+    (a: any, b: any) => (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9)
+  )[0];
+  const todayLeave = todayLeaveRow ? todayLeaveRow.get({ plain: true }) : null;
+
+  // A leave applied for today still shows, even before any punch-in.
+  if (!record) {
+    if (!todayLeave) throw new ServiceError("No attendance found for today");
+    return { punch_in: null, punch_out: null, todayLeave };
+  }
+  const plain = typeof (record as any).get === "function" ? (record as any).get({ plain: true }) : record;
+  return { ...plain, todayLeave };
 };
