@@ -38,7 +38,6 @@ import {
   Department,
   Holiday,
   CompanyLeave,
-  EmployeeLeaveBalance,
   CompanyBank,
   Invoices,
   RecordSales,
@@ -51,7 +50,7 @@ import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds } from "../../modules/shared/userHierarchy";
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
-import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType } from "../../modules/leave/leave.service";
+import { BALANCE_LEAVE_TYPES, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
 import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
@@ -425,6 +424,27 @@ export const GetProfile = async (
         description: p.permission.description,
       }));
     }
+
+    // Company-configured leave types (not a fixed list) — the app should send
+    // companyLeaveId from here when applying leave via POST /leave.
+    const leaveCompanyId = profile.company?.id ?? (userData?.companyId ? Number(userData.companyId) : null);
+    const companyLeaves = leaveCompanyId
+      ? await CompanyLeave.findAll({
+          where: { companyId: leaveCompanyId },
+          attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "carryForwardLimit", "isPaid"],
+          order: [["leaveName", "ASC"]],
+        })
+      : [];
+    profile.companyLeaves = companyLeaves.map((lt: any) => ({
+      companyLeaveId: lt.id,
+      leaveName: lt.leaveName,
+      leaveCode: lt.leaveCode,
+      leavesPerYear: lt.leavesPerYear,
+      carryForward: !!lt.carryForward,
+      carryForwardLimit: lt.carryForwardLimit || 0,
+      isPaid: lt.isPaid !== false,
+      leave_type: inferLegacyLeaveTypeEnum(lt.leaveName),
+    }));
 
     createSuccess(res, "user details", profile);
   } catch (error) {
@@ -1564,8 +1584,8 @@ export const requestLeave = async (
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
 
-    const { from_date, to_date, reason, companyLeaveId } = req.body || {};
-    let { leave_type } = req.body || {};
+    const { from_date, to_date, reason } = req.body || {};
+    let { leave_type, companyLeaveId } = req.body || {};
 
     // --------------------
     // ✅ Basic Validation
@@ -1637,9 +1657,15 @@ export const requestLeave = async (
     // shifts by the explicit IST offset first, matching the same year this
     // endpoint's balance lookups (and myLeaveBalance) already key off.
     const year = Number(getISTDateString(from).slice(0, 4));
-    let balance: any = null;
     let typeBalance: any = null;
     let resolvedCompanyLeaveId: number | null = null;
+
+    // Clients that send only leave_type (no companyLeaveId) are checked
+    // against the same company-configured balance my-leave-balance shows.
+    if (!companyLeaveId && leave_type) {
+      const match = await findCompanyLeaveForLegacyType(userData?.companyId, leave_type);
+      if (match) companyLeaveId = match.id;
+    }
 
     if (companyLeaveId) {
       const leaveTypeRow = await CompanyLeave.findOne({
@@ -1669,11 +1695,16 @@ export const requestLeave = async (
         const used = (typeBalance as any).used || 0;
         const remaining = allocated + carriedForward - used;
 
+        // Old pending requests saved with only leave_type still hold this
+        // type's days, same as my-leave-balance counts them.
         const pendingLeaves = await Leave.findAll({
           where: {
             employee_id: finalUserId,
             status: "pending",
-            companyLeaveId: resolvedCompanyLeaveId,
+            [Op.or]: [
+              { companyLeaveId: resolvedCompanyLeaveId },
+              { companyLeaveId: null, leave_type },
+            ],
           },
         });
         const pendingDays = pendingLeaves.reduce((acc, pl: any) => {
@@ -1689,36 +1720,9 @@ export const requestLeave = async (
           return;
         }
       }
-    } else {
-      const balanceField = LEAVE_BALANCE_FIELDS[leave_type];
-      if (balanceField) {
-        balance = await EmployeeLeaveBalance.findOne({
-          where: { employeeId: finalUserId, year },
-        });
-
-        const allocated = balance ? (balance as any)[balanceField.allocated] || 0 : 0;
-        const used = balance ? (balance as any)[balanceField.used] || 0 : 0;
-
-        const pendingLeaves = await Leave.findAll({
-          where: {
-            employee_id: finalUserId,
-            status: "pending",
-            leave_type,
-          },
-        });
-        const pendingDays = pendingLeaves.reduce((acc, pl: any) => {
-          const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
-          return plYear === year ? acc + countLeaveDays(pl.from_date, pl.to_date) : acc;
-        }, 0);
-
-        if (!balance || (allocated - used - pendingDays) < days) {
-          badRequest(
-            res,
-            `Insufficient ${leave_type} leave balance (requested ${days} day(s), available ${allocated - used - pendingDays})`
-          );
-          return;
-        }
-      }
+    } else if (BALANCE_LEAVE_TYPES.includes(leave_type)) {
+      badRequest(res, `No "${leave_type}" leave type is configured for your company — send companyLeaveId`);
+      return;
     }
 
     // --------------------
@@ -1808,11 +1812,9 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
     // Dynamic per-company-configured leave types (Sick Leave, Casual Leave,
     // Comp Off, or any custom type) — same source the web admin's Leave
     // Balances tab and Mark Attendance's leave-type picker already read
-    // from. Balance is assigned against THIS system now (assignLeaveBalance
-    // in modules/leave), not the old fixed EmployeeLeaveBalance table below
-    // — that table hasn't been written to by anything all session, so the
-    // legacy casual/sick/paid fields below are now derived from here too
-    // instead of always coming back 0.
+    // from. Balance is assigned against THIS system (assignLeaveBalance
+    // in modules/leave), so the legacy casual/sick/paid fields below are
+    // derived from here too.
     const leaveTypes = callerCompanyId
       ? await CompanyLeave.findAll({ where: { companyId: callerCompanyId }, order: [["leaveName", "ASC"]] })
       : [];
@@ -1865,12 +1867,9 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
       });
     }
 
-    // Legacy casual/sick/paid fields — kept as-is for older mobile clients
-    // that only ever read these three top-level keys. Best-effort matched
-    // by name against the company's own configured types so they show real
-    // numbers instead of always 0; only falls back to the old fixed table
-    // when this company has no dynamic leave types configured at all (an
-    // account that predates this feature).
+    // Legacy casual/sick/paid fields — kept for older mobile clients that
+    // only read these three top-level keys. Matched by name against the
+    // company's configured types; 0 when the company has no such type.
     const matchLegacy = (keyword: string) => leaveTypeBalances.find((b) => b.leaveName.toLowerCase().includes(keyword));
     const legacyBucket = (keyword: string) => {
       const match = matchLegacy(keyword);
@@ -1879,32 +1878,11 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
         : { allocated: 0, used: 0, remaining: 0 };
     };
 
-    let legacy = {
+    const legacy = {
       casual: legacyBucket("casual"),
       sick: legacyBucket("sick"),
       paid: legacyBucket("paid"),
     };
-
-    if (leaveTypes.length === 0) {
-      const balance = await EmployeeLeaveBalance.findOne({ where: { employeeId: finalUserId, year } });
-      legacy = {
-        casual: {
-          allocated: balance?.casualLeaveAllocated || 0,
-          used: balance?.casualLeaveUsed || 0,
-          remaining: (balance?.casualLeaveAllocated || 0) - (balance?.casualLeaveUsed || 0),
-        },
-        sick: {
-          allocated: balance?.sickLeaveAllocated || 0,
-          used: balance?.sickLeaveUsed || 0,
-          remaining: (balance?.sickLeaveAllocated || 0) - (balance?.sickLeaveUsed || 0),
-        },
-        paid: {
-          allocated: balance?.paidLeaveAllocated || 0,
-          used: balance?.paidLeaveUsed || 0,
-          remaining: (balance?.paidLeaveAllocated || 0) - (balance?.paidLeaveUsed || 0),
-        },
-      };
-    }
 
     const totalAllocated = leaveTypeBalances.reduce((acc, t) => acc + t.allocated + t.carriedForward, 0);
     const totalUsed = leaveTypeBalances.reduce((acc, t) => acc + t.used, 0);
@@ -4065,20 +4043,15 @@ export const getDashboardMobile = async (
       },
     });
 
-    // 3. Casual leave balance for the current year
-    const leaveBalance = await EmployeeLeaveBalance.findOne({
-      where: {
-        employeeId: Number(userId),
-        year: istYear,
-      },
-    });
-    const casualLeaves = leaveBalance
-      ? {
-          allocated: leaveBalance.casualLeaveAllocated,
-          used: leaveBalance.casualLeaveUsed,
-          remaining: leaveBalance.casualLeaveAllocated - leaveBalance.casualLeaveUsed,
-        }
-      : { allocated: 0, used: 0, remaining: 0 };
+    // 3. Casual leave balance for the current year (company's casual leave type)
+    let casualLeaves = { allocated: 0, used: 0, remaining: 0 };
+    const casualType = await findCompanyLeaveForLegacyType(callerCompanyId, "casual");
+    if (casualType) {
+      const b: any = await resolveLeaveTypeBalance(Number(userId), casualType, istYear, Number(userId));
+      const allocated = (b.allocated || 0) + (b.carriedForward || 0);
+      const used = b.used || 0;
+      casualLeaves = { allocated, used, remaining: allocated - used };
+    }
 
     // Same endpoint, same field names, richer scope for a manager — the
     // pattern every role-aware /api route here follows: a sale_person gets

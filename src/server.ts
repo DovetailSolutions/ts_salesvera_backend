@@ -65,24 +65,17 @@ const PORT = process.env.PORT || 5000;
 // all (curl, Postman, server-to-server, the mobile app) are still allowed
 // through — CORS only ever governs browser-enforced cross-origin reads,
 // it was never what protected non-browser callers.
-// const allowedOrigins = FRONTEND_URL.split(",").map((o) => o.trim()).filter(Boolean);
-// app.use(
-//   cors({
-//     origin: (origin, callback) => {
-//       if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-//       console.warn(`CORS: rejected request from unlisted origin "${origin}" — add it to FRONTEND_URL if legitimate.`);
-//       return callback(null, false);
-//     },
-//     credentials: true,
-//   })
-// );
-
+const allowedOrigins = FRONTEND_URL.split(",").map((o) => o.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: "*",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      console.warn(`CORS: rejected request from unlisted origin "${origin}" — add it to FRONTEND_URL if legitimate.`);
+      return callback(null, false);
+    },
     credentials: true,
   })
-)
+);
 app.use(cookieParser());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
