@@ -1,11 +1,11 @@
 import { Op } from "sequelize";
-import { Leave, CompanyLeave, EmployeeLeaveBalance, EmployeeLeaveTypeBalance, Attendance, User } from "../../config/dbConnection";
+import { Leave, CompanyLeave, EmployeeLeaveTypeBalance, Attendance, User } from "../../config/dbConnection";
 import { getISTDateString } from "../shared/dateUtils";
 
 // ============================================================
 // Leave repository — wraps all direct Sequelize access for this domain.
-// Covers three sub-models: Leave (requests), EmployeeLeaveBalance
-// (per-employee/year allocations), CompanyLeave (leave-type policies).
+// Covers three sub-models: Leave (requests), EmployeeLeaveTypeBalance
+// (per-employee/leave-type/year allocations), CompanyLeave (leave-type policies).
 // ============================================================
 
 // ---- Leave (requests) ----
@@ -189,51 +189,6 @@ export const findOwnLeavesPaginated = (employeeId: number, limit: number, offset
     limit,
     offset,
     order: [["id", "DESC"]],
-  });
-
-// ---- EmployeeLeaveBalance ----
-
-export const findOrCreateLeaveBalance = (params: {
-  employeeId: number;
-  year: number;
-  companyId: number | null;
-  branchId: number | null;
-  assignedBy: number;
-}) =>
-  EmployeeLeaveBalance.findOrCreate({
-    where: { employeeId: params.employeeId, year: params.year },
-    defaults: {
-      employeeId: params.employeeId,
-      year: params.year,
-      companyId: params.companyId,
-      branchId: params.branchId,
-      assignedBy: params.assignedBy,
-    },
-  });
-
-export const findLeaveBalance = (employeeId: number, year: number) =>
-  EmployeeLeaveBalance.findOne({ where: { employeeId, year } });
-
-export const findTeamLeaveBalances = (params: {
-  childIds: number[];
-  year: number;
-  limit: number;
-  offset: number;
-}) =>
-  User.findAndCountAll({
-    where: { id: { [Op.in]: params.childIds } },
-    attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "createdAt"],
-    include: [
-      {
-        model: EmployeeLeaveBalance,
-        as: "leaveBalances",
-        required: false,
-        where: { year: params.year },
-      },
-    ],
-    limit: params.limit,
-    offset: params.offset,
-    order: [["createdAt", "DESC"]],
   });
 
 // ---- CompanyLeave (leave-type policy) ----

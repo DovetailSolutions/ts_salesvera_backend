@@ -40,7 +40,7 @@ import {
   Department,
   Holiday,
   CompanyLeave,
-  EmployeeLeaveBalance,
+  EmployeeLeaveTypeBalance,
   CompanyBank,
   Invoices,
   RecordSales,
@@ -1370,15 +1370,10 @@ export const BulkUploads = async (
   }
 };
 
-// Maps a leave_type to the EmployeeLeaveBalance columns it draws from.
-// unpaid/short_leave/half_day are not balance-tracked — always approvable.
-// Exported so user.ts can run the same balance check at request time (not just on approval).
-// LEAVE_BALANCE_FIELDS/countLeaveDays/rejectLeaveAndRestoreBalance/
-// approveLeave/assignLeaveBalance/formatLeaveBalance/getEmployeeLeaveBalance/
-// getTeamLeaveBalances have moved to src/modules/leave/ — see
-// leave.controller.ts/service.ts/repository.ts. Routes are mounted from
-// server.ts, same URL paths as before. (user.ts imports
-// LEAVE_BALANCE_FIELDS/countLeaveDays from leave.service now.)
+// countLeaveDays/rejectLeaveAndRestoreBalance/approveLeave/
+// assignLeaveBalance/getEmployeeLeaveBalance/getTeamLeaveBalances live in
+// src/modules/leave/ — see leave.controller.ts/service.ts/repository.ts.
+// Routes are mounted from server.ts, same URL paths as before.
 
 export const test = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -2211,14 +2206,10 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
           dueDate: { [Op.lt]: now },
         },
       }),
-      // Leave utilization (current year) — only the 6 allocated/used columns
-      // actually get summed below; the rest of the row is dead weight.
-      EmployeeLeaveBalance.findAll({
+      // Leave utilization (current year), across every company leave type.
+      EmployeeLeaveTypeBalance.findAll({
         where: { employeeId: { [Op.in]: allUserIds }, year: currentYear },
-        attributes: [
-          "casualLeaveAllocated", "sickLeaveAllocated", "paidLeaveAllocated",
-          "casualLeaveUsed", "sickLeaveUsed", "paidLeaveUsed",
-        ],
+        attributes: ["allocated", "carriedForward", "used"],
         raw: true,
       }),
       // Headcount by branch
@@ -2238,13 +2229,10 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
         : null;
 
     const leaveAllocated = (leaveBalances as any[]).reduce(
-      (sum, b) => sum + (b.casualLeaveAllocated || 0) + (b.sickLeaveAllocated || 0) + (b.paidLeaveAllocated || 0),
+      (sum, b) => sum + (b.allocated || 0) + (b.carriedForward || 0),
       0
     );
-    const leaveUsed = (leaveBalances as any[]).reduce(
-      (sum, b) => sum + (b.casualLeaveUsed || 0) + (b.sickLeaveUsed || 0) + (b.paidLeaveUsed || 0),
-      0
-    );
+    const leaveUsed = (leaveBalances as any[]).reduce((sum, b) => sum + (b.used || 0), 0);
     const leaveUtilizationRate = leaveAllocated > 0 ? Math.round((leaveUsed / leaveAllocated) * 1000) / 10 : null;
 
     const headcountByBranch = (headcountByBranchRaw as any[]).map((r) => ({
