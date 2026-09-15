@@ -38,3 +38,31 @@ export const handleAttendancePhoto = (req: Request, res: Response, next: NextFun
     next();
   });
 };
+
+// ============================================================
+// Punch-out photo upload — same validation as punch-in above, but accepts
+// multiple images (field name "photos") stored on Attendance.attendancePhotoOut
+// as an array, since punch-out may need more than one photo (e.g. odometer +
+// selfie). Punch-in's own single-photo field/behavior is untouched.
+// ============================================================
+const uploadOut = getUploadMiddleware("attendance-photo", 5, 5, {
+  allowedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
+}).array("photos", 5);
+
+export const handleAttendancePunchOutPhoto = (req: Request, res: Response, next: NextFunction): void => {
+  uploadOut(req, res, (err: any) => {
+    if (err) {
+      if (err.message === "UNSUPPORTED_FILE_TYPE") {
+        badRequest(res, "Only JPG, PNG or WEBP images are allowed for attendance photos.");
+      } else if (err.code === "LIMIT_FILE_SIZE") {
+        badRequest(res, "Photo is too large — please retake or choose a file under 5MB.");
+      } else if (err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE") {
+        badRequest(res, "You can upload up to 5 photos for punch-out.");
+      } else {
+        badRequest(res, "Photo upload failed. Please retry.");
+      }
+      return;
+    }
+    next();
+  });
+};

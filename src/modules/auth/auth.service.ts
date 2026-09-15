@@ -559,8 +559,30 @@ export const logoutAllSessions = async (userId: number) => {
 export const getProfile = async (userId: number, role: string, companyId: number | undefined) => {
   const user = await AuthRepo.findUserWithProfileIncludes(Number(userId), role, role !== "manager");
 
-  // For managers: attach active company (from JWT companyId) onto user.company
-  if (role === "manager" && companyId) {
+  // Attach the ACTIVE company (from the verified JWT's companyId, already
+  // correctly resolved at login/refresh by resolveLoginCompanyId — including
+  // its lastLoginCompanyId-aware "user" and junction-table-assigned "admin"
+  // cases) onto user.company.
+  //
+  // FIX: this override used to run for role === "manager" only. Every other
+  // role relied solely on the static User.hasOne(Company, { foreignKey:
+  // "adminId" }) association (dbConnection.ts) baked into
+  // findUserWithProfileIncludes above — which can only ever match a company
+  // where this exact user is its primary adminId. That association can
+  // NEVER match a "user" role: a tenant owner (companies.userId) is never a
+  // company's own adminId (that FK names a separate admin account), so
+  // user.company came back completely empty for every "user"-role account —
+  // not just its working-day count: companyWorkingDays, departments,
+  // shifts, leave types and holidays all silently fell back to the
+  // frontend's empty defaults (e.g. Settings > Departments showing
+  // "Inheriting company-wide working days (0 days)") even though the real,
+  // correctly-configured company existed in the database. It also missed an
+  // "admin" who only has access to a company via the assign-company-admin
+  // junction table rather than being its primary adminId. Both cases are
+  // exactly what resolveLoginCompanyId already computes correctly into the
+  // JWT's companyId — reuse that here the same way the manager branch
+  // already did, instead of trusting the narrower static association.
+  if ((role === "manager" || role === "admin" || role === "user") && companyId) {
     const activeCompany = await AuthRepo.findCompanyWithFullDetail(Number(companyId));
     if (user && activeCompany) {
       (user as any).dataValues.company = activeCompany;
