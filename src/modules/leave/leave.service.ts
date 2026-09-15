@@ -242,6 +242,16 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
     throw new ServiceError("You can only manage leave requests of your own team members", 403);
   }
 
+  // Rejecting an already-approved leave gives its days back to the balance
+  // and flips its attendance days to leaveReject, so they can be used again.
+  if (status === "rejected") {
+    const existing: any = await LeaveRepo.findLeaveForEmployee(employee_id, leaveID);
+    if (existing?.status === "approved") {
+      await rejectLeaveAndRestoreBalance(existing);
+      return existing;
+    }
+  }
+
   return await sequelize.transaction(async (t) => {
     const leave: any = await Leave.findOne({
       where: { id: leaveID, employee_id },
