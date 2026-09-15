@@ -55,6 +55,7 @@ import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLeg
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
 import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
+import { haversineMeters } from "../../modules/shared/geo";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -1199,11 +1200,49 @@ export const EndMeeting = async (
     let legDistanceKm = 0;      // used for arithmetic
     let legDistanceDisplay = "0 m"; // used for saving / response
 
+    // ── GPS sanity check on THIS MEETING'S OWN check-in -> check-out points ──
+    // FIX: a real in-person meeting doesn't involve driving between arriving
+    // and leaving — a meaningful distance between a meeting's own
+    // latitude_in/longitude_in and latitude_out/longitude_out means the
+    // checkout GPS fix itself is bad (e.g. a coarse network-location
+    // fallback), not that the rep actually traveled that far mid-meeting.
+    // The waypoint-to-waypoint isPlausibleLeg() checks below only catch an
+    // implausible jump relative to the PREVIOUS checkpoint (attendance
+    // punch-in, or the previous meeting's checkout) — when that checkpoint
+    // was hours earlier, the same bad distance can average out to a
+    // perfectly plausible speed and slip through uncaught (e.g. 250km
+    // against a checkout 3 hours after punch-in reads as ~80 km/h — fine by
+    // that check alone — even though the meeting's own 3-minute check-in ->
+    // check-out window makes the same 250km obviously impossible). Computed
+    // with a fast, local Haversine straight-line distance — no Google Maps
+    // API call/cost for a point already known to be unreliable.
+    let ownPointsUnreliable = false;
+    if (isExist.latitude_in && isExist.longitude_in && isExist.latitude_out && isExist.longitude_out) {
+      const ownLat1 = parseFloat(isExist.latitude_in);
+      const ownLon1 = parseFloat(isExist.longitude_in);
+      const ownLat2 = parseFloat(isExist.latitude_out);
+      const ownLon2 = parseFloat(isExist.longitude_out);
+      if (!isNaN(ownLat1) && !isNaN(ownLon1) && !isNaN(ownLat2) && !isNaN(ownLon2)) {
+        const ownDistanceKm = haversineMeters(ownLat1, ownLon1, ownLat2, ownLon2) / 1000;
+        const ownElapsedMs = isExist.meetingTimeIn
+          ? isExist.meetingTimeOut.getTime() - new Date(isExist.meetingTimeIn).getTime()
+          : null;
+        if (ownElapsedMs != null && !isPlausibleLeg(ownDistanceKm, ownElapsedMs)) {
+          console.warn(
+            `EndMeeting: implausible check-in -> check-out distance for meeting ${isExist.id}: ${ownDistanceKm.toFixed(1)} km in ${(ownElapsedMs / 60000).toFixed(1)} min — checkout GPS fix looks unreliable, skipping leg-distance calculation.`
+          );
+          ownPointsUnreliable = true;
+          legDistanceDisplay = "GPS unavailable";
+        }
+      }
+    }
+
     // =========================================================
     // ✅ FIRST MEETING
     // =========================================================
     if (previousMeetings.length === 0) {
       if (
+        !ownPointsUnreliable &&
         attendance?.latitude_in &&
         attendance?.longitude_in &&
         isExist.latitude_out &&
@@ -1248,6 +1287,7 @@ export const EndMeeting = async (
       const lastMeeting = previousMeetings[previousMeetings.length - 1];
 
       if (
+        !ownPointsUnreliable &&
         lastMeeting.latitude_out &&
         lastMeeting.longitude_out &&
         isExist.latitude_out &&
