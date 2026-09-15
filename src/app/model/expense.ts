@@ -14,6 +14,9 @@ interface ExpenseAttributes {
   amount?: string;
   description?: string;
   location?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  totalDistance?: number | null;
 }
 
 interface ExpenseCreationAttributes
@@ -40,6 +43,9 @@ export class Expense
   public amount?: string;
   public description?: string;
   public location?: string;
+  public startDate?: string | null;
+  public endDate?: string | null;
+  public totalDistance?: number | null;
 
   static initModel(sequelize: Sequelize) {
     Expense.init(
@@ -97,6 +103,21 @@ export class Expense
 
         location: {
           type: DataTypes.STRING,
+          allowNull: true
+        },
+
+        startDate: {
+          type: DataTypes.DATEONLY,
+          allowNull: true
+        },
+
+        endDate: {
+          type: DataTypes.DATEONLY,
+          allowNull: true
+        },
+
+        totalDistance: {
+          type: DataTypes.FLOAT,
           allowNull: true
         }
       },
