@@ -2016,6 +2016,18 @@ export const CreateExpense = async (req: Request, res: Response) => {
     for (let i = 0; i < expenses.length; i++) {
       const item = expenses[i];
 
+      if (item.startDate || item.endDate) {
+        if (!item.startDate || !item.endDate) {
+          throw new Error("startDate and endDate are both required for a travel-range expense");
+        }
+        if (String(item.endDate) < String(item.startDate)) {
+          throw new Error("endDate must be on or after startDate");
+        }
+      }
+      if (item.totalDistance !== undefined && item.totalDistance !== null && item.totalDistance !== "" && Number.isNaN(Number(item.totalDistance))) {
+        throw new Error("totalDistance must be a number");
+      }
+
       const expense = await Expense.create(
         {
           userId,
@@ -2025,7 +2037,10 @@ export const CreateExpense = async (req: Request, res: Response) => {
           date: item.date || new Date().toISOString().split("T")[0],
           category: item.category,
           description: item.description,
-          location: item.location
+          location: item.location,
+          startDate: item.startDate || null,
+          endDate: item.endDate || null,
+          totalDistance: item.totalDistance !== undefined && item.totalDistance !== null && item.totalDistance !== "" ? Number(item.totalDistance) : null
         },
         { transaction }
       );
