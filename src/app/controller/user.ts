@@ -1862,8 +1862,9 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
           carriedForward,
           used,
           pending: typePendingDays,
-          remaining: allocated + carriedForward - used,
-          // What POST /leave will actually allow: pending requests already hold days.
+          // Deducted at apply time: pending requests already hold their days,
+          // and a rejection releases them again. Same number POST /leave allows.
+          remaining: Math.max(0, allocated + carriedForward - used - typePendingDays),
           available: Math.max(0, allocated + carriedForward - used - typePendingDays),
         };
       });
@@ -4052,7 +4053,19 @@ export const getDashboardMobile = async (
       const b: any = await resolveLeaveTypeBalance(Number(userId), casualType, istYear, Number(userId));
       const allocated = (b.allocated || 0) + (b.carriedForward || 0);
       const used = b.used || 0;
-      casualLeaves = { allocated, used, remaining: allocated - used };
+      const pendingCasual = await Leave.findAll({
+        where: {
+          employee_id: Number(userId),
+          status: "pending",
+          [Op.or]: [{ companyLeaveId: casualType.id }, { companyLeaveId: null, leave_type: "casual" }],
+        },
+        attributes: ["from_date", "to_date"],
+      });
+      const pending = pendingCasual.reduce((acc: number, pl: any) => {
+        const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
+        return plYear === istYear ? acc + countLeaveDays(pl.from_date, pl.to_date) : acc;
+      }, 0);
+      casualLeaves = { allocated, used, remaining: Math.max(0, allocated - used - pending) };
     }
 
     // Same endpoint, same field names, richer scope for a manager — the
