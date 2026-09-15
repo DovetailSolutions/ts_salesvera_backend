@@ -38,6 +38,7 @@ router.get("/attendance/today", tokenCheck, checkPermission("attendance", "view"
 router.get("/attendancelist", tokenCheck, checkPermission("attendance", "view"), AttendanceController.AttendanceList);
 
 // Sale Person's own daily travel: Attendance In -> each meeting leg -> Attendance Out, total distance + vehicle allowance.
+router.get("/travel-range", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummaryRange);
 router.get("/travel/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummary);
 router.get("/travel/:date", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummary);
 

@@ -2,6 +2,7 @@ import { Op } from "sequelize";
 import { Attendance, Meeting, MeetingUser, MeetingCompany, SalesPersonTravelLog, User } from "../../config/dbConnection";
 import { calculateDrivingDistance, isValidCoordinate, DrivingDistanceResult } from "../../services/googleRoutes.service";
 import { findEffectiveVehicleAllowanceRateForDate } from "../company/company.service";
+import { ServiceError } from "../shared/serviceError";
 
 export { isValidCoordinate, calculateDrivingDistance, DrivingDistanceResult };
 
@@ -279,6 +280,62 @@ export const getSalesPersonTravelSummary = async (userId: number, date: string) 
     vehicleAllowanceRateApplied,
     vehicleAllowance,
     distanceCalculationStatus: attendance?.distanceCalculationStatus || (segments.length > 0 ? "calculated" : "no_meetings"),
+  };
+};
+
+// Cap how many days a single range request can span — each day is a handful
+// of plain DB reads (no external API calls), so this is a sanity/abuse guard
+// rather than a real performance limit.
+const MAX_TRAVEL_RANGE_DAYS = 62;
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Every date in [startDate, endDate] as "YYYY-MM-DD" strings, walked via
+// UTC-midnight instants so DST-less plain date arithmetic can't skip/repeat
+// a day regardless of the server's OS timezone.
+const enumerateDateRange = (startDate: string, endDate: string): string[] => {
+  const dates: string[] = [];
+  const cursor = new Date(`${startDate}T00:00:00.000Z`);
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  while (cursor.getTime() <= end.getTime()) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+};
+
+// Multi-day travel summary — same per-day shape as getSalesPersonTravelSummary,
+// returned as one entry per date in [startDate, endDate] (inclusive), plus a
+// range-wide distance/allowance total. Self-service and admin per-user views
+// share this, same as the single-date version above.
+export const getSalesPersonTravelSummaryRange = async (
+  userId: number,
+  startDate: string,
+  endDate: string
+) => {
+  if (!DATE_ONLY_RE.test(startDate) || !DATE_ONLY_RE.test(endDate)) {
+    throw new ServiceError("startDate and endDate must be in YYYY-MM-DD format");
+  }
+  if (endDate < startDate) {
+    throw new ServiceError("endDate must be on or after startDate");
+  }
+
+  const dates = enumerateDateRange(startDate, endDate);
+  if (dates.length > MAX_TRAVEL_RANGE_DAYS) {
+    throw new ServiceError(`Date range too large — max ${MAX_TRAVEL_RANGE_DAYS} days per request`);
+  }
+
+  const days = await Promise.all(dates.map((date) => getSalesPersonTravelSummary(userId, date)));
+
+  const totalDistanceKm = Number(days.reduce((acc, d) => acc + (d.totalDistanceKm || 0), 0).toFixed(3));
+  const totalVehicleAllowance = Number(days.reduce((acc, d) => acc + (d.vehicleAllowance || 0), 0).toFixed(2));
+
+  return {
+    startDate,
+    endDate,
+    days: days.map((d, idx) => ({ date: dates[idx], ...d })),
+    totalDistanceKm,
+    totalVehicleAllowance,
   };
 };
 

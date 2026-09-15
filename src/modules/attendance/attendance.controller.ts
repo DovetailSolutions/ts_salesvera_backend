@@ -170,6 +170,22 @@ export const getMyTravelSummary = async (req: Request, res: Response): Promise<v
   }
 };
 
+// GET /travel-range?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+export const getMyTravelSummaryRange = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+    if (!startDate || !endDate) {
+      badRequest(res, "startDate and endDate are required (YYYY-MM-DD)");
+      return;
+    }
+    const result = await AttendanceService.getMyTravelSummaryRange(Number(userData?.userId), startDate, endDate);
+    createSuccess(res, "Travel summary fetched successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 // ---- Admin/team-scoped travel view ----
 
 export const getTeamTravelSummary = async (req: Request, res: Response): Promise<void> => {

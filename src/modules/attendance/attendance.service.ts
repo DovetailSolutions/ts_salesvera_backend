@@ -9,7 +9,7 @@ import { haversineMeters } from "../shared/geo";
 import { checkUserGeoFencing } from "../geoFencing/geoFencing.service";
 import { findEffectiveVehicleAllowanceRateForDate } from "../company/company.service";
 import * as AttendanceRepo from "./attendance.repository";
-import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary, isPlausibleLeg } from "./travelDistance.service";
+import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary, getSalesPersonTravelSummaryRange, isPlausibleLeg } from "./travelDistance.service";
 import { resolveAttendanceLocationName } from "./locationName.service";
 import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User } from "../../config/dbConnection";
 import * as AttendanceSecurity from "../attendanceSecurity/attendanceSecurity.service";
@@ -1797,6 +1797,10 @@ export const applyTravelSummaryOnPunchOut = async (
 
 export const getMyTravelSummary = async (finalUserId: number, date: string) => {
   return getSalesPersonTravelSummary(finalUserId, date);
+};
+
+export const getMyTravelSummaryRange = async (finalUserId: number, startDate: string, endDate: string) => {
+  return getSalesPersonTravelSummaryRange(finalUserId, startDate, endDate);
 };
 
 // Admin/manager view — company-scoped: the target must actually be a member
