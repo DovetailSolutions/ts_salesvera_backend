@@ -3,7 +3,7 @@ import { tokenCheck } from "../../config/jwtVerify";
 import { checkPermission } from "../../config/checkPermission";
 import getUploadMiddleware from "../../config/fileUploads";
 import * as AttendanceController from "./attendance.controller";
-import { handleAttendancePhoto, handleAttendancePunchOutPhoto } from "./attendancePhotoUpload";
+import { handleAttendancePhoto } from "./attendancePhotoUpload";
 
 // ============================================================
 // Attendance routes (admin/team-scoped side) — mounted directly on the
@@ -69,14 +69,9 @@ router.post(
   handleAttendancePhoto,
   AttendanceController.AttendancePunchIn
 );
-router.post(
-  "/attendance/punch-out",
-  tokenCheck,
-  checkPermission("attendance", "update"),
-  handleAttendancePunchOutPhoto,
-  AttendanceController.AttendancePunchOut
-);
+router.post("/attendance/punch-out", tokenCheck, checkPermission("attendance", "update"), AttendanceController.AttendancePunchOut);
 router.get("/attendance/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getTodayAttendance);
+router.get("/travel-range", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummaryRange);
 router.get("/travel/today", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummary);
 router.get("/travel/:date", tokenCheck, checkPermission("attendance", "view"), AttendanceController.getMyTravelSummary);
 

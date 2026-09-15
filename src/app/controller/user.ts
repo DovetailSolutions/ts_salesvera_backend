@@ -55,7 +55,6 @@ import { LEAVE_BALANCE_FIELDS, countLeaveDays, resolveLeaveTypeBalance, inferLeg
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
 import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
-import { haversineMeters } from "../../modules/shared/geo";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -1188,8 +1187,9 @@ export const EndMeeting = async (
       },
       attributes: [
         "id",
-        "latitude_out",
-        "longitude_out",
+        "latitude_in",
+        "longitude_in",
+        "meetingTimeIn",
         "meetingTimeOut",
         "legDistance",
       ],
@@ -1200,58 +1200,35 @@ export const EndMeeting = async (
     let legDistanceKm = 0;      // used for arithmetic
     let legDistanceDisplay = "0 m"; // used for saving / response
 
-    // ── GPS sanity check on THIS MEETING'S OWN check-in -> check-out points ──
-    // FIX: a real in-person meeting doesn't involve driving between arriving
-    // and leaving — a meaningful distance between a meeting's own
-    // latitude_in/longitude_in and latitude_out/longitude_out means the
-    // checkout GPS fix itself is bad (e.g. a coarse network-location
-    // fallback), not that the rep actually traveled that far mid-meeting.
-    // The waypoint-to-waypoint isPlausibleLeg() checks below only catch an
-    // implausible jump relative to the PREVIOUS checkpoint (attendance
-    // punch-in, or the previous meeting's checkout) — when that checkpoint
-    // was hours earlier, the same bad distance can average out to a
-    // perfectly plausible speed and slip through uncaught (e.g. 250km
-    // against a checkout 3 hours after punch-in reads as ~80 km/h — fine by
-    // that check alone — even though the meeting's own 3-minute check-in ->
-    // check-out window makes the same 250km obviously impossible). Computed
-    // with a fast, local Haversine straight-line distance — no Google Maps
-    // API call/cost for a point already known to be unreliable.
-    let ownPointsUnreliable = false;
-    if (isExist.latitude_in && isExist.longitude_in && isExist.latitude_out && isExist.longitude_out) {
-      const ownLat1 = parseFloat(isExist.latitude_in);
-      const ownLon1 = parseFloat(isExist.longitude_in);
-      const ownLat2 = parseFloat(isExist.latitude_out);
-      const ownLon2 = parseFloat(isExist.longitude_out);
-      if (!isNaN(ownLat1) && !isNaN(ownLon1) && !isNaN(ownLat2) && !isNaN(ownLon2)) {
-        const ownDistanceKm = haversineMeters(ownLat1, ownLon1, ownLat2, ownLon2) / 1000;
-        const ownElapsedMs = isExist.meetingTimeIn
-          ? isExist.meetingTimeOut.getTime() - new Date(isExist.meetingTimeIn).getTime()
-          : null;
-        if (ownElapsedMs != null && !isPlausibleLeg(ownDistanceKm, ownElapsedMs)) {
-          console.warn(
-            `EndMeeting: implausible check-in -> check-out distance for meeting ${isExist.id}: ${ownDistanceKm.toFixed(1)} km in ${(ownElapsedMs / 60000).toFixed(1)} min — checkout GPS fix looks unreliable, skipping leg-distance calculation.`
-          );
-          ownPointsUnreliable = true;
-          legDistanceDisplay = "GPS unavailable";
-        }
-      }
-    }
-
+    // FIX: legs used to be computed CHECK-OUT -> CHECK-OUT (Attendance-In ->
+    // this meeting's checkout, or previous meeting's checkout -> this
+    // meeting's checkout). A checkout point is captured after however long
+    // the rep was stationary at that location, and in practice proved far
+    // less reliable than the check-in fix taken right on arrival — one bad
+    // checkout GPS fix (e.g. a coarse network-location fallback landing
+    // hundreds of km away) silently corrupted that meeting's own leg AND
+    // became the "previous point" poisoning the next meeting's leg too.
+    // Switched to CHECK-IN -> CHECK-IN instead: punch-in -> this meeting's
+    // check-in for the first meeting, previous meeting's check-in -> this
+    // meeting's check-in after that — check-in coordinates are already on
+    // file the moment a meeting starts, so this needs no change to when the
+    // calculation runs (still at checkout), only which stored points it
+    // reads. isPlausibleLeg() below still guards against a bad check-in fix
+    // the same way it always did.
     // =========================================================
     // ✅ FIRST MEETING
     // =========================================================
     if (previousMeetings.length === 0) {
       if (
-        !ownPointsUnreliable &&
         attendance?.latitude_in &&
         attendance?.longitude_in &&
-        isExist.latitude_out &&
-        isExist.longitude_out
+        isExist.latitude_in &&
+        isExist.longitude_in
       ) {
         const lat1 = parseFloat(attendance.latitude_in);
         const lon1 = parseFloat(attendance.longitude_in);
-        const lat2 = parseFloat(isExist.latitude_out);
-        const lon2 = parseFloat(isExist.longitude_out);
+        const lat2 = parseFloat(isExist.latitude_in);
+        const lon2 = parseFloat(isExist.longitude_in);
 
         if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
           // saves to DB if >= 1 meter
@@ -1260,18 +1237,18 @@ export const EndMeeting = async (
           legDistanceDisplay = result.display;
 
           // GPS sanity check: this leg is Attendance-In -> this meeting's
-          // checkout point, so it can't have covered more ground than the
-          // elapsed clock time allows for ordinary road travel. A violation
-          // means the checkout coordinate itself is bad (e.g. a coarse
-          // network-location fallback), not that the person actually drove
-          // that far — never let a bad GPS fix silently become a paid
-          // distance (same philosophy as the "never fake a 0km" rule below).
-          const elapsedMs = attendance?.punch_in
-            ? isExist.meetingTimeOut.getTime() - new Date(attendance.punch_in).getTime()
+          // OWN check-in point, so it can't have covered more ground than
+          // the elapsed clock time (punch-in -> this meeting's check-in,
+          // not its checkout) allows for ordinary road travel. A violation
+          // means the check-in coordinate itself is bad — never let a bad
+          // GPS fix silently become a paid distance (same philosophy as the
+          // "never fake a 0km" rule below).
+          const elapsedMs = attendance?.punch_in && isExist.meetingTimeIn
+            ? new Date(isExist.meetingTimeIn).getTime() - new Date(attendance.punch_in).getTime()
             : null;
           if (elapsedMs != null && !isPlausibleLeg(legDistanceKm, elapsedMs)) {
             console.warn(
-              `EndMeeting: implausible leg distance for meeting ${isExist.id} (Attendance-In -> Meeting-Out): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`
+              `EndMeeting: implausible leg distance for meeting ${isExist.id} (Attendance-In -> Meeting-In): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`
             );
             legDistanceKm = 0;
             legDistanceDisplay = "GPS unavailable";
@@ -1287,16 +1264,15 @@ export const EndMeeting = async (
       const lastMeeting = previousMeetings[previousMeetings.length - 1];
 
       if (
-        !ownPointsUnreliable &&
-        lastMeeting.latitude_out &&
-        lastMeeting.longitude_out &&
-        isExist.latitude_out &&
-        isExist.longitude_out
+        lastMeeting.latitude_in &&
+        lastMeeting.longitude_in &&
+        isExist.latitude_in &&
+        isExist.longitude_in
       ) {
-        const lat1 = parseFloat(lastMeeting.latitude_out);
-        const lon1 = parseFloat(lastMeeting.longitude_out);
-        const lat2 = parseFloat(isExist.latitude_out);
-        const lon2 = parseFloat(isExist.longitude_out);
+        const lat1 = parseFloat(lastMeeting.latitude_in);
+        const lon1 = parseFloat(lastMeeting.longitude_in);
+        const lat2 = parseFloat(isExist.latitude_in);
+        const lon2 = parseFloat(isExist.longitude_in);
 
         if (!isNaN(lat1) && !isNaN(lon1) && !isNaN(lat2) && !isNaN(lon2)) {
           // saves to DB if >= 1 meter
@@ -1305,13 +1281,13 @@ export const EndMeeting = async (
           legDistanceDisplay = result.display;
 
           // Same GPS sanity check as above, against the previous meeting's
-          // checkout timestamp instead of Attendance-In.
-          const elapsedMs = lastMeeting.meetingTimeOut
-            ? isExist.meetingTimeOut.getTime() - new Date(lastMeeting.meetingTimeOut).getTime()
+          // OWN check-in timestamp instead of Attendance-In.
+          const elapsedMs = lastMeeting.meetingTimeIn && isExist.meetingTimeIn
+            ? new Date(isExist.meetingTimeIn).getTime() - new Date(lastMeeting.meetingTimeIn).getTime()
             : null;
           if (elapsedMs != null && !isPlausibleLeg(legDistanceKm, elapsedMs)) {
             console.warn(
-              `EndMeeting: implausible leg distance for meeting ${isExist.id} (previous Meeting-Out -> this Meeting-Out): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`
+              `EndMeeting: implausible leg distance for meeting ${isExist.id} (previous Meeting-In -> this Meeting-In): ${legDistanceKm} km in ${(elapsedMs / 60000).toFixed(1)} min — flagging instead of saving.`
             );
             legDistanceKm = 0;
             legDistanceDisplay = "GPS unavailable";
