@@ -50,7 +50,7 @@ import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds } from "../../modules/shared/userHierarchy";
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
-import { BALANCE_LEAVE_TYPES, countLeaveDays, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType } from "../../modules/leave/leave.service";
+import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
 import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
@@ -1621,6 +1621,11 @@ export const requestLeave = async (
       return
     }
 
+    if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
+      badRequest(res, "half_day leave must have from_date equal to to_date");
+      return;
+    }
+
     // --------------------
     // ✅ Prevent duplicate leave requests overlapping the same day(s)
     // --------------------
@@ -1646,7 +1651,7 @@ export const requestLeave = async (
     // supplies one; falls back to the old fixed casual/sick/paid columns for
     // callers that only ever send the leave_type enum (e.g. older clients).
     // --------------------
-    const days = countLeaveDays(from, to);
+    let days = countLeaveRequestDays({ leave_type, from_date: from, to_date: to });
     // FIX: was from.getFullYear() (OS-local getter) — from_date is parsed
     // above as a UTC-midnight instant (new Date("YYYY-MM-DD")), so reading
     // its year back out via a server-OS-local getter only matches the IST
@@ -1676,7 +1681,10 @@ export const requestLeave = async (
         return
       }
       resolvedCompanyLeaveId = leaveTypeRow.id;
-      if (!leave_type) leave_type = inferLegacyLeaveTypeEnum((leaveTypeRow as any).leaveName);
+      if (!leave_type) {
+        leave_type = inferLegacyLeaveTypeEnum((leaveTypeRow as any).leaveName);
+        days = countLeaveRequestDays({ leave_type, from_date: from, to_date: to });
+      }
 
       // Unpaid leave has no paid balance to check against — it's never
       // deducted (see approveLeave in leave.service.ts), so skip resolving/
@@ -1703,13 +1711,16 @@ export const requestLeave = async (
             status: "pending",
             [Op.or]: [
               { companyLeaveId: resolvedCompanyLeaveId },
-              { companyLeaveId: null, leave_type },
+              {
+                companyLeaveId: null,
+                leave_type: { [Op.in]: legacyTypesDrawingFrom(inferLegacyLeaveTypeEnum((leaveTypeRow as any).leaveName)) },
+              },
             ],
           },
         });
         const pendingDays = pendingLeaves.reduce((acc, pl: any) => {
           const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
-          return plYear === year ? acc + countLeaveDays(pl.from_date, pl.to_date) : acc;
+          return plYear === year ? acc + countLeaveRequestDays(pl) : acc;
         }, 0);
 
         if (remaining - pendingDays < days) {
@@ -1720,16 +1731,9 @@ export const requestLeave = async (
           return;
         }
       }
-    } else if (BALANCE_LEAVE_TYPES.includes(leave_type)) {
-      badRequest(res, `No "${leave_type}" leave type is configured for your company — send companyLeaveId`);
-      return;
-    }
-
-    // --------------------
-    // ✅ Half-day leave: only valid for a single day
-    // --------------------
-    if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
-      badRequest(res, "half_day leave must have from_date equal to to_date");
+    } else if (BALANCE_LEAVE_TYPES.includes(leave_type) || leave_type === "half_day") {
+      const needed = leave_type === "half_day" ? "casual" : leave_type;
+      badRequest(res, `No "${needed}" leave type is configured for your company — send companyLeaveId`);
       return;
     }
 
@@ -1844,11 +1848,13 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
 
         const typePendingDays = pendingLeaves
           .filter((pl: any) => {
-            const matchesType = pl.companyLeaveId === lt.id || (!pl.companyLeaveId && inferLegacyLeaveTypeEnum(lt.leaveName) === pl.leave_type);
+            const matchesType =
+              pl.companyLeaveId === lt.id ||
+              (!pl.companyLeaveId && legacyTypesDrawingFrom(inferLegacyLeaveTypeEnum(lt.leaveName)).includes(pl.leave_type));
             const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
             return matchesType && plYear === year;
           })
-          .reduce((acc: number, pl: any) => acc + countLeaveDays(pl.from_date, pl.to_date), 0);
+          .reduce((acc: number, pl: any) => acc + countLeaveRequestDays(pl), 0);
 
         return {
           companyLeaveId: lt.id,
@@ -4057,13 +4063,16 @@ export const getDashboardMobile = async (
         where: {
           employee_id: Number(userId),
           status: "pending",
-          [Op.or]: [{ companyLeaveId: casualType.id }, { companyLeaveId: null, leave_type: "casual" }],
+          [Op.or]: [
+            { companyLeaveId: casualType.id },
+            { companyLeaveId: null, leave_type: { [Op.in]: legacyTypesDrawingFrom("casual") } },
+          ],
         },
-        attributes: ["from_date", "to_date"],
+        attributes: ["from_date", "to_date", "leave_type"],
       });
       const pending = pendingCasual.reduce((acc: number, pl: any) => {
         const plYear = Number(getISTDateString(new Date(pl.from_date)).slice(0, 4));
-        return plYear === istYear ? acc + countLeaveDays(pl.from_date, pl.to_date) : acc;
+        return plYear === istYear ? acc + countLeaveRequestDays(pl) : acc;
       }, 0);
       casualLeaves = { allocated, used, remaining: Math.max(0, allocated - used - pending) };
     }

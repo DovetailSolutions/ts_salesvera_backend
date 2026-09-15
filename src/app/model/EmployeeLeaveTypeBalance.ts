@@ -60,18 +60,19 @@ export class EmployeeLeaveTypeBalance
           type: DataTypes.INTEGER,
           allowNull: false,
         },
+        // FLOAT so a half-day leave can take 0.5 from the balance.
         allocated: {
-          type: DataTypes.INTEGER,
+          type: DataTypes.FLOAT,
           allowNull: false,
           defaultValue: 0,
         },
         used: {
-          type: DataTypes.INTEGER,
+          type: DataTypes.FLOAT,
           allowNull: false,
           defaultValue: 0,
         },
         carriedForward: {
-          type: DataTypes.INTEGER,
+          type: DataTypes.FLOAT,
           allowNull: false,
           defaultValue: 0,
         },
