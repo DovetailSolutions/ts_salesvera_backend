@@ -25,9 +25,11 @@ export const findCompanyLeaveForLegacyType = async (
   leaveType: string | null | undefined
 ): Promise<any | null> => {
   if (!companyId || !leaveType) return null;
+  // Company policy: a half-day leave is taken from the Casual Leave balance.
+  const target = leaveType === "half_day" ? "casual" : leaveType;
   const types = await CompanyLeave.findAll({ where: { companyId: Number(companyId) } });
-  const candidates = types.filter((lt: any) => inferLegacyLeaveTypeEnum(lt.leaveName) === leaveType);
-  const keyword = String(leaveType).replace("_", " ");
+  const candidates = types.filter((lt: any) => inferLegacyLeaveTypeEnum(lt.leaveName) === target);
+  const keyword = String(target).replace("_", " ");
   return (
     candidates.find((lt: any) => String(lt.leaveName).toLowerCase().includes(keyword)) ||
     (candidates.length === 1 ? candidates[0] : null)
@@ -40,13 +42,25 @@ export const countLeaveDays = (from_date: string | Date, to_date: string | Date)
   return Math.round((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 };
 
+// Days a leave request takes from its balance — a half-day leave is 0.5.
+export const countLeaveRequestDays = (leave: {
+  leave_type?: string | null;
+  from_date: string | Date;
+  to_date: string | Date;
+}): number => (leave.leave_type === "half_day" ? 0.5 : countLeaveDays(leave.from_date, leave.to_date));
+
+// Legacy leave_type values (on requests saved without companyLeaveId) that
+// draw from a leave type inferred as `inferredType`. Half-day comes out of casual.
+export const legacyTypesDrawingFrom = (inferredType: string): string[] =>
+  inferredType === "casual" ? ["casual", "half_day"] : [inferredType];
+
 
 // Shared by approveLeave (status: "rejected") and cancelLeaveAndMarkPresent —
 // restores the balance consumed at request time and flips every Attendance
 // row in the leave's date range from leave/leaveApproved to leaveReject.
 const rejectLeaveAndRestoreBalance = async (leave: any): Promise<void> => {
   if (leave.status === "approved") {
-    const days = countLeaveDays(leave.from_date, leave.to_date);
+    const days = countLeaveRequestDays(leave);
     // FIX: was `new Date(leave.from_date).getFullYear()` — from_date is a
     // DATEONLY column (a plain "YYYY-MM-DD" string), so `new Date(...)`
     // parses it as UTC midnight, and the local `.getFullYear()` getter then
@@ -180,7 +194,7 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     throw new ServiceError("This employee already has a leave request overlapping this date range");
   }
 
-  const days = countLeaveDays(from, to);
+  const days = countLeaveRequestDays({ leave_type, from_date: from, to_date: to });
   // FIX: was `from.getFullYear()` — same double-bug pattern as
   // rejectLeaveAndRestoreBalance above: `from` is a UTC-midnight instant
   // parsed from a caller-supplied "YYYY-MM-DD" date, and the local getter
@@ -201,7 +215,7 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     const remaining = allocated + carriedForward - used;
 
     const pendingLeaves = await LeaveRepo.findPendingLeavesForEmployee(targetEmployeeId, leaveTypeRow.id);
-    const pendingDays = pendingLeaves.reduce((sum: number, pl: any) => sum + countLeaveDays(pl.from_date, pl.to_date), 0);
+    const pendingDays = pendingLeaves.reduce((sum: number, pl: any) => sum + countLeaveRequestDays(pl), 0);
 
     if (remaining - pendingDays < days) {
       throw new ServiceError(
@@ -271,7 +285,7 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
         throw new ServiceError(`Cannot approve leave with status "${leave.status}"`, 400);
       }
 
-      const days = countLeaveDays(leave.from_date, leave.to_date);
+      const days = countLeaveRequestDays(leave);
       const year = Number(getISTDateString(new Date(leave.from_date)).slice(0, 4));
 
       // Paid/unpaid classification is resolved once, off the leave type's
