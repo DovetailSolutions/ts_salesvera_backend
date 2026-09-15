@@ -1533,7 +1533,7 @@ export const getDayTypeFromWorkingHours = (
   return "full_day";
 };
 
-export const attendancePunchOut = async (finalUserId: number, callerCompanyId: number | null, body: any) => {
+export const attendancePunchOut = async (finalUserId: number, callerCompanyId: number | null, body: any, files?: any[]) => {
   const { punch_out, AttendanceId, latitude_out, longitude_out } = body || {};
 
   if (!punch_out) throw new ServiceError("Punch-out time is required");
@@ -1629,6 +1629,20 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   attendance.locationNameOut = isValidCoordinate(latitude_out, longitude_out)
     ? await resolveAttendanceLocationName(latitude_out, longitude_out, company?.id ?? null)
     : null;
+
+  // Punch-out photo(s) — optional (no "required" toggle for punch-out, unlike
+  // punch-in's isAttendancePhotoRequired), stored as an array on
+  // attendancePhotoOut. Punch-in's attendancePhoto field/flow is untouched.
+  if (files && files.length > 0) {
+    attendance.attendancePhotoOut = files.map((f: any) => f.location).filter(Boolean);
+    AttendanceSecurity.logSecurityEvent({
+      userId: finalUserId,
+      companyId: callerCompanyId,
+      actorId: finalUserId,
+      eventType: "PHOTO_UPLOADED",
+    });
+  }
+
   if (userGeoFenceOut.enforced) {
     attendance.geoFencingEnabled = true;
     attendance.geoFencingVerified = !!userGeoFenceOut.verified;

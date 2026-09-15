@@ -65,6 +65,11 @@ interface AttendanceAttributes {
   // trusted device (if device security is enabled for this user) performed
   // each punch. All null when the corresponding control isn't enabled.
   attendancePhoto?: string | null;
+  // Punch-out photo(s) — unlike attendancePhoto (punch-in, single photo),
+  // punch-out accepts multiple images (see handleAttendancePunchOutPhoto),
+  // stored as an array of multer-s3 file.location URLs. Null/empty when no
+  // photo was captured at punch-out.
+  attendancePhotoOut?: string[] | null;
   punchInDeviceId?: string | null;
   punchOutDeviceId?: string | null;
 
@@ -108,6 +113,7 @@ type AttendanceCreationAttributes = Optional<
   | "locationNameIn"
   | "locationNameOut"
   | "attendancePhoto"
+  | "attendancePhotoOut"
   | "punchInDeviceId"
   | "punchOutDeviceId"
   | "businessCode"
@@ -153,6 +159,7 @@ export class Attendance
   public locationNameOut!: string | null;
 
   public attendancePhoto!: string | null;
+  public attendancePhotoOut!: string[] | null;
   public punchInDeviceId!: string | null;
   public punchOutDeviceId!: string | null;
 
@@ -277,6 +284,10 @@ export class Attendance
         },
         attendancePhoto: {
           type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        attendancePhotoOut: {
+          type: DataTypes.ARRAY(DataTypes.TEXT),
           allowNull: true,
         },
         punchInDeviceId: {

@@ -136,7 +136,13 @@ export const findUserWithProfileIncludes = (id: number, role: string, includeCom
   const companyIncludes = [
     { model: Branch, as: "branches", attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "addressLine2", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId"] },
     { model: Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
-    { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
+    // FIX: workingDays/customWorkingDays (migration 0003_department_working_
+    // days.ts) were missing from this attribute list, so every department
+    // reaching the frontend via GET /getprofile came back with both
+    // undefined — Settings > Departments then always rendered a department
+    // as "inheriting" (customWorkingDays undefined -> falsy) and, worse,
+    // silently discarded any department's real custom day selection.
+    { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId", "workingDays", "customWorkingDays"] },
     { model: CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
     { model: CompanyBank, as: "companyBanks" },
   ];
@@ -162,7 +168,9 @@ export const findCompanyWithFullDetail = (companyId: number) => {
   const companyIncludes = [
     { model: Branch, as: "branches", attributes: ["id", "branchName", "branchCode", "branchCity", "branchState", "branchCountry", "postalCode", "addressLine1", "addressLine2", "branchEmail", "branchPhone", "latitude", "longitude", "geoRadius", "companyId"] },
     { model: Shift, as: "shifts", attributes: ["id", "shiftName", "shiftCode", "startTime", "endTime", "fullDayHours", "nightShift", "breakMinutes", "workingHours", "lateMarkAfter", "halfDayAfter", "branchId", "companyId"] },
-    { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId"] },
+    // FIX: see the matching comment in findUserWithProfileIncludes above —
+    // workingDays/customWorkingDays were missing here too.
+    { model: Department, as: "departments", attributes: ["id", "deptName", "deptCode", "deptHead", "branchId", "shiftId", "maxHeadcount", "companyId", "workingDays", "customWorkingDays"] },
     { model: CompanyLeave, as: "companyLeaves", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear", "carryForward", "status", "companyId"] },
     { model: CompanyBank, as: "companyBanks" },
   ];

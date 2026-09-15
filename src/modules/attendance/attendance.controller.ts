@@ -140,7 +140,7 @@ export const AttendancePunchOut = async (req: Request, res: Response): Promise<v
   try {
     const userData = req.userData as JwtPayload;
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
-    const record = await AttendanceService.attendancePunchOut(Number(userData?.userId), callerCompanyId, req.body);
+    const record = await AttendanceService.attendancePunchOut(Number(userData?.userId), callerCompanyId, req.body, req.files as any);
     createSuccess(res, "Punch-out recorded successfully", record);
   } catch (error) {
     handleServiceError(res, error);
