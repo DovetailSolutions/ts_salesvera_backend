@@ -324,7 +324,7 @@ export const getcategory = async (
 
     let ll = loggedInId; // default (admin)
 
-    if (role === "manager" || role === "sale_person") {
+    if (role === "manager" || role === "employee") {
       // Walk up the creator chain until we find an admin
       let currentId = Number(loggedInId);
       while (true) {
@@ -375,7 +375,7 @@ export const getCategoryWithSubCategories = async (
 
     let adminId: any = loggedInId;
 
-    if (role === "manager" || role === "sale_person") {
+    if (role === "manager" || role === "employee") {
       let currentId = Number(loggedInId);
       while (true) {
         const currentUser = await User.findByPk(currentId, {
@@ -959,7 +959,7 @@ export const getMeetingDetails = async (
 // management actions that were previously role-gated only (any manager
 // could always do these, unconditionally, via authorizeRoles/no gate at
 // all — see modules/managerCapabilities/roleCapabilityCatalog.ts's former
-// "role:sale_person:add"/"role:sale_person:bulk_add" entries). Admin/
+// "role:employee:add"/"role:employee:bulk_add" entries). Admin/
 // super_admin/user are completely unaffected — this only ever narrows a
 // MANAGER's access, and only for the specific action passed in. Existing
 // managers are backfilled with both grants in seedPermissions.ts so this
@@ -972,7 +972,7 @@ export const authorizeManagerSalePersonAction = (action: "create" | "bulk_create
 
     if (role !== "manager") return next();
 
-    const allowed = await userHasPermission(Number(userData.userId), role, "sale-person", action);
+    const allowed = await userHasPermission(Number(userData.userId), role, "employee", action);
     if (!allowed) {
       return res.status(403).json({
         success: false,
@@ -1055,7 +1055,7 @@ export const BulkAddSalePerson = async (
       // FIX: previously createdBy was trusted straight from the request body
       // with no check that it's the caller themself or one of the caller's
       // own subordinates — an admin could attribute the bulk-created
-      // sale-persons to a user in a completely different tenant, linking new
+      // employees to a user in a completely different tenant, linking new
       // accounts into that other tenant's hierarchy.
       // Scoped to the caller's ACTIVE company for the same reason branchId/
       // shiftId above are: every row in this batch is stamped with this
@@ -1186,7 +1186,7 @@ export const BulkAddSalePerson = async (
             const existing = existingByEmail.get(r.email);
 
             if (existing) {
-              if (existing.getDataValue("role") !== "sale_person") {
+              if (existing.getDataValue("role") !== "employee") {
                 skippedRoleMismatch.push(r);
                 continue;
               }
@@ -1419,7 +1419,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
           // never selected here at all, so an admin's team table had no way
           // to show — or even know — where each manager/salesperson was
           // currently posted. Added at both nesting levels (manager row,
-          // and the sale_persons nested under each manager).
+          // and the employees nested under each manager).
           attributes: [
             "id",
             "employeeCode",
@@ -1547,7 +1547,7 @@ export const test = async (req: Request, res: Response): Promise<void> => {
 };
 
 // Admin/super_admin-only toggle (User Management page) — controls whether a
-// sale_person's own GET /api/getprofile includes the company's full branch
+// employee's own GET /api/getprofile includes the company's full branch
 // list. See schemaExtensions.ts's ensureBranchVisibilityToggle and
 // app/controller/user.ts's GetProfile for the read side.
 export const UpdateBranchVisibility = async (

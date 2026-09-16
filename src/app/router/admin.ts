@@ -79,7 +79,7 @@ router.get("/getexpance",       tokenCheck, checkPermission("expense", "view"), 
 router.get("/get-expense",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
 router.get("/admin-manager",tokenCheck,AdminController.test);
 // User Management page: admin/super_admin toggle controlling whether a
-// sale_person's own GET /api/getprofile includes the company's full branch
+// employee's own GET /api/getprofile includes the company's full branch
 // list (default off).
 router.patch("/users/:userId/branch-visibility", tokenCheck, authorizeRoles("super_admin", "admin"), AdminController.UpdateBranchVisibility);
 router.patch('/approved-expense', tokenCheck, checkPermission("expense", "approve"), AdminController.UpdateExpense)
@@ -176,7 +176,7 @@ router.get("/client-type-breakdown", tokenCheck, authorizeRoles(...ADMIN_AND_MAN
 
 // ── Notifications (admin-surface) ───────────────────────────────────────
 // Same controller as /api/notifications (user.ts) — that surface's
-// tokenCheck (jwtVerify2) only allows user/manager/sale_person, so admin
+// tokenCheck (jwtVerify2) only allows user/manager/employee, so admin
 // and super_admin accounts 401 on every call there. The web admin panel's
 // notification bell needs this to work for those two roles too.
 router.get("/notifications",                 tokenCheck, NotificationController.getNotifications);

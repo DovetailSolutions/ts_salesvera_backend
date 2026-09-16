@@ -23,7 +23,7 @@ const hasPermission = async (userId: number, companyId: number, role: string, ac
 };
 
 // ─── Shared "which tasks can this caller see" where-clause ───────────────────
-// admin/super_admin/user see the whole company; sale_person only ever sees
+// admin/super_admin/user see the whole company; employee only ever sees
 // tasks assigned to them; manager sees only their OWN hierarchy (themself +
 // their recursive team, company-scoped) — NOT the whole company. Centralized
 // so the visibility rule is defined once instead of drifting across
@@ -38,7 +38,7 @@ const buildTaskVisibilityWhere = async (companyId: number, role: string, uid: nu
   const where: any = {};
   if (taskId !== undefined) where.id = taskId;
   if (role !== "super_admin") where.companyId = Number(companyId);
-  if (role === "sale_person") {
+  if (role === "employee") {
     where.assignedTo = uid;
   } else if (role === "manager") {
     const teamIds = await getCompanyScopedChildUserIds(uid, companyId);
@@ -81,14 +81,14 @@ export const initTaskSocket = (io: Server): void => {
     // Join task rooms — prefixed so they never clash with chat room IDs
     socket.join(`task:user:${uid}`);
     // Company-wide room mirrors buildTaskVisibilityWhere/getAllTasks: every
-    // role except sale_person sees the whole company board, so every role
-    // except sale_person must also receive its live broadcasts. Previously
+    // role except employee sees the whole company board, so every role
+    // except employee must also receive its live broadcasts. Previously
     // this only checked ADMIN_MANAGER ("admin"/"super_admin"/"manager"),
     // silently excluding the "user" role — those accounts loaded the full
     // board on connect but then received zero live taskCreated/taskUpdated/
     // taskDeleted events, so drag-and-drop and other edits from teammates
     // never appeared until the page was refreshed.
-    if (role !== "sale_person") {
+    if (role !== "employee") {
       socket.join(`task:company:${companyId}`);
     }
 
@@ -138,7 +138,7 @@ export const initTaskSocket = (io: Server): void => {
 
         if (
           (role === "admin" || role === "super_admin" || role === "manager") &&
-          !["manager", "sale_person"].includes(assigneeRole)
+          !["manager", "employee"].includes(assigneeRole)
         ) {
           return socket.emit("taskError", { message: "Tasks can only be assigned to managers or sale persons" });
         }
@@ -203,13 +203,13 @@ export const initTaskSocket = (io: Server): void => {
       try {
         const where: any = { companyId: Number(companyId) };
 
-        // sale_person only ever sees their own tasks; manager is scoped to
+        // employee only ever sees their own tasks; manager is scoped to
         // their own hierarchy (self + recursive team, company-scoped) — NOT
         // the whole company. FIX: this previously had no manager restriction
         // at all (company-wide, same as admin), which let any manager see
         // every other manager's salesperson tasks in the same company.
         let managerTeamIds: number[] | null = null;
-        if (role === "sale_person") {
+        if (role === "employee") {
           where.assignedTo = uid;
         } else if (role === "manager") {
           const teamIds = await getCompanyScopedChildUserIds(uid, companyId);
@@ -225,7 +225,7 @@ export const initTaskSocket = (io: Server): void => {
         }
         if (priority) where.priority = priority;
         if (tags)     where.tags     = tags;
-        if (assignedTo && role !== "sale_person") {
+        if (assignedTo && role !== "employee") {
           const requestedId = Number(assignedTo);
           // A manager can narrow the filter to one of their own team members,
           // but not to an arbitrary user id — otherwise the assignedTo query
@@ -235,7 +235,7 @@ export const initTaskSocket = (io: Server): void => {
           }
         }
         // admin/super_admin/manager can filter by who created/assigned the task
-        if (assignedBy && role !== "sale_person") where.assignedBy = Number(assignedBy);
+        if (assignedBy && role !== "employee") where.assignedBy = Number(assignedBy);
 
         if (status === "completed" && (dateScope === "today" || dateScope === "history")) {
           // FIX: was new Date() + setHours(0,0,0,0)/(23,59,59,999) — setHours
@@ -305,7 +305,7 @@ export const initTaskSocket = (io: Server): void => {
 
     // ── UPDATE TASK ──────────────────────────────────────────────────────────
     // client emits: updateTask  { id, title?, description?, status?, priority?, dueDate?, assignedTo?, tags? }
-    // sale_person can only update status of tasks assigned to them
+    // employee can only update status of tasks assigned to them
     socket.on("updateTask", async (data) => {
       if (!await hasPermission(uid, companyId, role, "update")) {
         return socket.emit("taskError", { message: "Forbidden — you do not have task:update permission" });
@@ -328,7 +328,7 @@ export const initTaskSocket = (io: Server): void => {
         const prevDueDate    = task.dueDate;
         const prevTags       = task.tags;
 
-        if (role === "sale_person") {
+        if (role === "employee") {
           if (status !== undefined) task.status = status;
         } else {
           if (assignedTo !== undefined) {
@@ -348,7 +348,7 @@ export const initTaskSocket = (io: Server): void => {
             const assigneeRole: string = assignee.role;
             if (
               (role === "admin" || role === "super_admin" || role === "manager") &&
-              !["manager", "sale_person"].includes(assigneeRole)
+              !["manager", "employee"].includes(assigneeRole)
             ) {
               return socket.emit("taskError", { message: "Tasks can only be assigned to managers or sale persons" });
             }
@@ -415,7 +415,7 @@ export const initTaskSocket = (io: Server): void => {
 
         // Task completed → escalate up the chain: notify whoever assigned
         // it (if not the completer) and the completer's own direct
-        // manager/admin (sale_person → their manager; manager → their
+        // manager/admin (employee → their manager; manager → their
         // admin), deduped so the same person never gets notified twice.
         // Previously no completion notification existed at all.
         if (status !== undefined && status === "completed" && prevStatus !== "completed") {
@@ -472,7 +472,7 @@ export const initTaskSocket = (io: Server): void => {
           return socket.emit("taskHistory", { success: true, taskId: Number(id), data: history });
         }
 
-        // Global mode — company-wide (or own-tasks-only for sale_person),
+        // Global mode — company-wide (or own-tasks-only for employee),
         // paginated, newest first.
         const { page = 1, limit: limitQ = 20 } = data;
         const pageNum  = Math.max(1, Number(page));

@@ -7,7 +7,7 @@ import * as AnnouncementController from "./announcement.controller";
 // Announcement routes — mounted on /admin in server.ts, same tokenCheck +
 // checkPermission gating convention as every other module. tokenCheck
 // re-verifies role from the DB (see jwtVerify.ts/tokenCheck.ts), so a
-// sale_person token cannot reach create/cancel regardless of client UI
+// employee token cannot reach create/cancel regardless of client UI
 // state — defense in depth is automatic here, not hand-built.
 //
 // Static-path routes (sent/received/unread-count/recipients/preview/

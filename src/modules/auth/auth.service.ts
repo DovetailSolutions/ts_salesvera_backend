@@ -25,10 +25,10 @@ const UNIQUE_ROLES = ["super_admin"];
 // ASSIGNABLE_ROLES in permission.ts. "super_admin" isn't a key here: it's
 // handled as a standalone bootstrap case below (no caller required at all).
 const REGISTER_ALLOWED_ROLES: Record<string, string[]> = {
-  super_admin: ["user", "admin", "manager", "sale_person"],
-  user: ["admin", "manager", "sale_person"],
-  admin: ["manager", "sale_person"],
-  manager: ["sale_person"],
+  super_admin: ["user", "admin", "manager", "employee"],
+  user: ["admin", "manager", "employee"],
+  admin: ["manager", "employee"],
+  manager: ["employee"],
 };
 
 export const register = async (body: any, callerData?: { userId?: number | string; role?: string }) => {
@@ -61,12 +61,12 @@ export const register = async (body: any, callerData?: { userId?: number | strin
 
     // Admin-configurable, per-manager: a manager's ability to add sale
     // persons is otherwise unconditional (REGISTER_ALLOWED_ROLES above), so
-    // this only tightens the "manager creating sale_person" path — every
+    // this only tightens the "manager creating employee" path — every
     // other caller (admin/super_admin/user) is completely unaffected.
     // Managers created before this shipped are backfilled with this grant
     // in seedPermissions.ts so nobody loses access on deploy.
-    if (callerRole === "manager" && role === "sale_person") {
-      const allowed = await userHasPermission(callerId, callerRole, "sale-person", "create");
+    if (callerRole === "manager" && role === "employee") {
+      const allowed = await userHasPermission(callerId, callerRole, "employee", "create");
       if (!allowed) {
         throw new ServiceError("You do not have permission to add a Sale Person. Contact your admin.", 403);
       }
@@ -126,7 +126,7 @@ export const register = async (body: any, callerData?: { userId?: number | strin
 
   // Check if user with same email exists — scoped to tenant.
   // super_admin and user (tenant roots) are globally unique; admin/manager/
-  // sale_person are unique only within their tenant.
+  // employee are unique only within their tenant.
   const emailCheckTenantId = role === "super_admin" || role === "user" ? null : resolvedTenantId;
   const isExist = await Middleware.FindByEmailInTenant(User, email, emailCheckTenantId);
   if (isExist) throw new ServiceError("Email already exists");
@@ -226,7 +226,7 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     await item.update({ tenantId: item.getDataValue("id") });
   }
 
-  if (role === "sale_person" || role === "manager" || role === "admin" || role === "user") {
+  if (role === "employee" || role === "manager" || role === "admin" || role === "user") {
     // Uses the same resolved primaryCreatorId as obj.createdBy above (which
     // may be the self-authorship default, not just the raw request body) —
     // previously this checked the raw createdBy field, so an omitted
@@ -372,8 +372,8 @@ export const resolveLoginCompanyId = async (
   } else if (userRole === "user") {
     const company = await AuthRepo.findCompanyByUserId(userId);
     companyId = company ? company.id : null;
-  } else if (userRole === "sale_person") {
-    // FIX: this branch was missing entirely — a sale_person with no
+  } else if (userRole === "employee") {
+    // FIX: this branch was missing entirely — a employee with no
     // UserPermission rows yet (e.g. freshly registered, before any
     // permission was explicitly delegated to them) fell straight through to
     // the Priority 2 fallback below, which also comes up empty with no
@@ -386,7 +386,7 @@ export const resolveLoginCompanyId = async (
     // makes it recompute from scratch — but the login/refresh RESPONSE
     // itself still incorrectly reported companyId: null. Reuse the same,
     // already-correct resolver instead of duplicating its logic.
-    companyId = await resolveCompanyId(userId, "sale_person", null);
+    companyId = await resolveCompanyId(userId, "employee", null);
   }
 
   // Priority 2: Fallback — find ANY company where this user has assigned permissions
@@ -398,7 +398,7 @@ export const resolveLoginCompanyId = async (
   // ── Restore last active company (from previous logout/switch), if still accessible ──
   if (
     lastLoginCompanyId &&
-    (userRole === "admin" || userRole === "manager" || userRole === "sale_person" || userRole === "user")
+    (userRole === "admin" || userRole === "manager" || userRole === "employee" || userRole === "user")
   ) {
     let hasAccess = false;
 
@@ -412,7 +412,7 @@ export const resolveLoginCompanyId = async (
     } else if (userRole === "manager") {
       const assignment = await AuthRepo.findCompanyManagerAssignmentFor(lastLoginCompanyId, userId);
       hasAccess = !!assignment;
-    } else if (userRole === "sale_person") {
+    } else if (userRole === "employee") {
       const company = await AuthRepo.findCompanyByIdAndManagerOwner(lastLoginCompanyId, userId);
       hasAccess = !!company;
     } else if (userRole === "user") {
@@ -435,7 +435,7 @@ export const login = async (body: any, meta: { deviceId?: string | null; userAge
   const user = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
   if (!user) throw new ServiceError("Invalid email or password");
 
-  const allowedRoles = ["admin", "manager", "super_admin", "user", "sale_person", "sales_person"];
+  const allowedRoles = ["admin", "manager", "super_admin", "user", "employee", "sales_person"];
   const userRole = user.get("role") as string;
 
   if (!allowedRoles.includes(userRole)) {

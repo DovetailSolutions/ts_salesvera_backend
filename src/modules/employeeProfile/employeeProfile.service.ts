@@ -15,11 +15,11 @@ import * as Repo from "./employeeProfile.repository";
 // company-scoped team (getCompanyScopedChildUserIdsFast — the same helper
 // getDashboardSummary/getTopPerformers use), AND the caller holds the
 // relevant permission (employee-profile:view/update, bank-account:
-// view/manage). sale_person has no downstream reports today, so in
+// view/manage). employee has no downstream reports today, so in
 // practice they only ever satisfy the self-service branch.
 // ============================================================
 
-const IN_SCOPE_ROLES = new Set(["admin", "super_admin", "manager", "sale_person"]);
+const IN_SCOPE_ROLES = new Set(["admin", "super_admin", "manager", "employee"]);
 
 interface Caller {
   callerId: number;
@@ -54,7 +54,7 @@ const assertTargetInScope = async (targetUserId: number): Promise<any> => {
   const target = await Repo.findUserSafeById(targetUserId);
   if (!target) throw new ServiceError("Employee not found.", 404);
   if (!IN_SCOPE_ROLES.has(target.role)) {
-    throw new ServiceError("This feature is only available for admin, manager, and sale_person accounts.", 403);
+    throw new ServiceError("This feature is only available for admin, manager, and employee accounts.", 403);
   }
   return target;
 };

@@ -43,7 +43,7 @@ const MODULE_LABELS: Record<string, string> = {
   "attendance-regularization": "Attendance Regularization",
   "employee-profile": "Employee Profile",
   "bank-account": "Bank Account",
-  "sale-person": "Sale Person",
+  "employee": "Sale Person",
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -124,9 +124,9 @@ const PERMISSION_API_MAP: Record<string, string> = {
   "employee-profile:update": "PUT /admin/employees/:userId/profile",
   "bank-account:view": "GET /admin/employees/:userId/bank-accounts",
   "bank-account:manage": "POST/PATCH/DELETE /admin/employees/:userId/bank-accounts",
-  "sale-person:create": "POST /admin/register (role: sale_person)",
-  "sale-person:bulk_create": "POST /admin/bulk-add-saleperson",
-  "sale-person:view": "GET /admin/mysaleperson",
+  "employee:create": "POST /admin/register (role: employee)",
+  "employee:bulk_create": "POST /admin/bulk-add-saleperson",
+  "employee:view": "GET /admin/mysaleperson",
 };
 
 const humanizeModule = (m: string) => MODULE_LABELS[m] || m;

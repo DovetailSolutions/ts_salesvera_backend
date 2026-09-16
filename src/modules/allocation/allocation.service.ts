@@ -12,8 +12,8 @@ import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 // app to "may this caller act on that user":
 //
 //   user (tenant) -> admin, manager
-//   admin         -> manager, sale_person
-//   manager       -> sale_person
+//   admin         -> manager, employee
+//   manager       -> employee
 //   super_admin   -> everyone
 //
 // On top of the role check, every target must also be inside the caller's
@@ -23,13 +23,13 @@ import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 // ============================================================
 
 const ASSIGNABLE_TARGET_ROLES: Record<string, string[]> = {
-  super_admin: ["user", "admin", "manager", "sale_person"],
-  user: ["admin", "manager", "sale_person", "salesperson"],
-  admin: ["manager", "sale_person"],
-  manager: ["sale_person"],
+  super_admin: ["user", "admin", "manager", "employee"],
+  user: ["admin", "manager", "employee", "salesperson"],
+  admin: ["manager", "employee"],
+  manager: ["employee"],
 };
 
-// Roles allowed to hold more than one branch. A sale_person works out of a
+// Roles allowed to hold more than one branch. A employee works out of a
 // single branch (and User.branchId, the primary-branch column the rest of
 // the app reads, can only hold one anyway).
 const MULTI_BRANCH_ROLES = ["admin", "manager", "user", "super_admin"];
@@ -143,7 +143,7 @@ export const bulkAssignBranches = async (
   const targets = await loadAssignableTargets(loggedInId, callerRole, callerCompanyId, userIds);
   await assertRefsInCallerCompany(Branch, branchIds, callerCompanyId, "Branch(es)");
 
-  // A sale_person can only ever hold one branch.
+  // A employee can only ever hold one branch.
   if (branchIds.length > 1) {
     const singleBranchOnly = targets.filter((t) => !MULTI_BRANCH_ROLES.includes(String(t.role)));
     if (singleBranchOnly.length > 0) {
@@ -160,7 +160,7 @@ export const bulkAssignBranches = async (
     const isSingleBranch = !MULTI_BRANCH_ROLES.includes(String(target.role));
 
     // The length check above only inspects the REQUEST. On its own that
-    // still let mode:"add" hand a sale_person a second branch one call at a
+    // still let mode:"add" hand a employee a second branch one call at a
     // time (each call passing a single id). The constraint has to hold on
     // the RESULTING state, so a single-branch role always replaces — they
     // end up holding exactly the one branch requested, never accumulating.
@@ -284,7 +284,7 @@ export const bulkAssignDepartment = async (
 // Viewing is a lighter bar than allocating: any caller may see their OWN
 // allocation, and otherwise the target need only be in the caller's
 // company-scoped team — no ASSIGNABLE_TARGET_ROLES check, since e.g. an
-// admin's team already legitimately spans both managers and sale_persons
+// admin's team already legitimately spans both managers and employees
 // and there's nothing sensitive about seeing where a team member is
 // currently posted (only about REASSIGNING them, which bulkAssignBranches/
 // Shift above still gate separately).
@@ -339,7 +339,7 @@ export const getAllocations = async (
     userId: Number(u.id),
     primaryBranch: u.branch ? { id: u.branch.id, branchName: u.branch.branchName, branchCode: u.branch.branchCode } : null,
     // Every branch this user is allocated to (the multi-branch junction) —
-    // for a sale_person this is always exactly [primaryBranch] or empty,
+    // for a employee this is always exactly [primaryBranch] or empty,
     // since they can only ever hold one.
     branches: branchesByUser.get(Number(u.id)) ?? (u.branch ? [{ id: u.branch.id, branchName: u.branch.branchName, branchCode: u.branch.branchCode }] : []),
     shift: u.shift

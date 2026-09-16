@@ -6,12 +6,12 @@ import * as PermissionController from "../controller/permission";
 
 // FIX: "/my" (view my own permissions) is called on every login by
 // AuthProvider.jsx (fetchAndSyncProfile) for every role, including
-// sale_person — but this router's `tokenCheck` (jwtVerify.ts) structurally
-// excludes sale_person, the same bug as auth.routes.ts's getProfile. It's
+// employee — but this router's `tokenCheck` (jwtVerify.ts) structurally
+// excludes employee, the same bug as auth.routes.ts's getProfile. It's
 // non-blocking there (`.catch(() => null)`) so it didn't stop login itself,
 // but it silently left a permanently empty permissions matrix for every
-// sale_person session, which any permission-gated UI reads from.
-const selfServiceTokenCheck = createTokenCheck(["user", "admin", "super_admin", "manager", "sale_person"]);
+// employee session, which any permission-gated UI reads from.
+const selfServiceTokenCheck = createTokenCheck(["user", "admin", "super_admin", "manager", "employee"]);
 // ============================================================
 // Permission Router
 // Base path: /admin/permissions  (mounted in server.ts under /admin)
@@ -37,7 +37,7 @@ router.get("/my", selfServiceTokenCheck, PermissionController.getMyPermissions);
 router.get("/user/:userId", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.getUserPermissions);
 
 // ── Assign / revoke permissions — admin, manager, and super_admin ─────────
-// Manager can assign/revoke for sale_person (enforced in controller via ASSIGNABLE_ROLES)
+// Manager can assign/revoke for employee (enforced in controller via ASSIGNABLE_ROLES)
 router.post("/assign",       tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.assignPermissions);
 router.delete("/revoke",     tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.revokePermissions);
 router.post("/assign-role",  tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), PermissionController.assignPermissionsToRole);

@@ -6,14 +6,14 @@ import * as GeoFencingController from "./geoFencing.controller";
 // ============================================================
 // Geo-fencing config routes — mounted on /admin in server.ts.
 //
-// /my is open to every staff role (a sale_person needs to know whether
+// /my is open to every staff role (a employee needs to know whether
 // geo-fencing applies to THEM before punching in); viewing/editing another
 // user's config is restricted to super_admin/admin, with the finer
 // "which specific user" hierarchy + tenant-isolation + capability-gate
 // checks enforced in geoFencing.service.ts (mirrors allocation.routes.ts's
 // split: broad role gate here, precise target-scoping in the service).
 // ============================================================
-const tokenCheck = createTokenCheck(["super_admin", "admin", "manager", "sale_person", "user"]);
+const tokenCheck = createTokenCheck(["super_admin", "admin", "manager", "employee", "user"]);
 
 const router = Router();
 

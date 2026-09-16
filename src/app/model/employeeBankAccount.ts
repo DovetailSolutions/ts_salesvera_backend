@@ -1,7 +1,7 @@
 import { Sequelize, DataTypes, Model, Optional } from "sequelize";
 
 // ============================================================
-// employee_bank_accounts — one-to-many: a user (admin/manager/sale_person)
+// employee_bank_accounts — one-to-many: a user (admin/manager/employee)
 // may have several bank accounts, at most one marked primary. Deliberately
 // a SEPARATE table from CompanyBank/company_banks (app/model/bank.ts) —
 // that table is a company-owned bank account (keyed by companyId, `userId`

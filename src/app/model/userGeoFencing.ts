@@ -10,15 +10,15 @@ import { Sequelize, DataTypes, Model, Optional } from "sequelize";
 //   - on an admin's own row       -> also the parent/child capability gate
 //                                    ("has super_admin allowed this admin
 //                                    to configure geo-fencing for their
-//                                    manager/sale_person team")
-//   - on a manager/sale_person row -> just whether their own punches are
+//                                    manager/employee team")
+//   - on a manager/employee row -> just whether their own punches are
 //                                     geo-fence-checked
 // Kept as one flag rather than two, to avoid a second, easily-drifting
 // permission system living alongside the existing RBAC one.
 //
 // Hierarchy enforcement (service layer, not DB):
 //   super_admin -> admin
-//   admin       -> manager, sale_person   (same companyId, and only when
+//   admin       -> manager, employee   (same companyId, and only when
 //                                          the admin's OWN row is enabled)
 // ============================================================
 

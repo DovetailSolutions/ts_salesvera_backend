@@ -22,9 +22,9 @@ const VALID_PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
 //
 // Deliberately does NOT intersect the admin/manager branches with
 // resolveCompanyEmployeeIds()'s salePersonIds bucket (that function derives
-// sale-person company membership purely from User.branchId, which is NULL
+// employee company membership purely from User.branchId, which is NULL
 // for a large share of real accounts in this system — verified directly
-// against live data: most of a real manager's sale-person team have no
+// against live data: most of a real manager's employee team have no
 // branchId at all, only a UserCreators link). Intersecting with that bucket
 // would silently drop legitimate recipients. getCompanyScopedChildUserIds
 // already resolves company membership correctly and deliberately "fails
@@ -37,7 +37,7 @@ export const resolveAuthorizedRecipients = async (
   role: string,
   companyId: number | null
 ): Promise<Map<number, string>> => {
-  if (role === "sale_person") {
+  if (role === "employee") {
     throw new ServiceError("Sale persons cannot create announcements", 403);
   }
   if (companyId == null) {
@@ -53,10 +53,10 @@ export const resolveAuthorizedRecipients = async (
     expectedRoles = new Set(["admin", "manager"]);
   } else if (role === "admin") {
     candidateIds = await getCompanyScopedChildUserIds(callerId, companyId);
-    expectedRoles = new Set(["manager", "sale_person"]);
+    expectedRoles = new Set(["manager", "employee"]);
   } else if (role === "manager") {
     candidateIds = await getCompanyScopedChildUserIds(callerId, companyId);
-    expectedRoles = new Set(["sale_person"]);
+    expectedRoles = new Set(["employee"]);
   } else {
     // super_admin and any other role are not senders in this feature.
     throw new ServiceError("This role cannot create announcements", 403);

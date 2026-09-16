@@ -8,7 +8,7 @@ import { Sequelize, DataTypes, Model, Optional } from "sequelize";
 // resolveDefaultBranchAndShift fallback), so it must keep working exactly
 // as before. This junction sits alongside it and records the FULL set of
 // branches a user is allocated to, which only admin/manager ever need more
-// than one of. A sale_person works out of a single branch, so for them the
+// than one of. A employee works out of a single branch, so for them the
 // junction holds exactly one row that mirrors User.branchId.
 interface UserBranchAttributes {
   id: number;

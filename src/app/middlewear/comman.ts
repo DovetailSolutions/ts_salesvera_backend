@@ -872,7 +872,7 @@ export const getAllSubordinateIds = async (userId: number): Promise<number[]> =>
       for (const child of userWithCreated.createdUsers) {
         if (!processedIds.has(child.id)) {
           processedIds.add(child.id);
-          // Only include manager, sale_person, admin etc. but NOT super_admin
+          // Only include manager, employee, admin etc. but NOT super_admin
           if (child.role !== "super_admin") {
             teamUserIds.push(child.id);
             queue.push(child.id);

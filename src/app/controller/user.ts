@@ -135,13 +135,13 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       ReadableStreamDefaultController;
     }
 
-    // ✅ Resolve companyId for token: sale_person → manager → admin → company
+    // ✅ Resolve companyId for token: employee → manager → admin → company
     const userId = user.getDataValue("id");
     const role = user.getDataValue("role");
     const createdBy = user.getDataValue("createdBy");
 
-    // ✅ Only sale_person and manager are allowed to log in
-    if (role !== "sale_person" && role !== "manager") {
+    // ✅ Only employee and manager are allowed to log in
+    if (role !== "employee" && role !== "manager") {
       badRequest(res, "Only sale person and manager are allowed to login");
       return;
     }
@@ -311,7 +311,7 @@ export const GetProfile = async (
     delete profile.otpExpiry;
 
     // ✅ Step 2: Walk UP the hierarchy to find the root admin
-    // Chain: sale_person → manager → admin
+    // Chain: employee → manager → admin
     // We keep going until we find someone with role "admin" or "super_admin"
     let currentId = loggedInId;
     let rootAdminId: number | null = null;
@@ -362,7 +362,7 @@ export const GetProfile = async (
     profile.parent = parentUser;
 
     // ✅ Step 4: Fetch the company linked to the root admin
-    // sale_person → manager → admin → company (adminId = admin.id)
+    // employee → manager → admin → company (adminId = admin.id)
     if (rootAdminId) {
       const company = await Company.findOne({
         where: { adminId: rootAdminId },
@@ -390,11 +390,11 @@ export const GetProfile = async (
     }
 
     // FIX: profile.company.branches (the company's FULL branch list) was
-    // included unconditionally for every role, including sale_person — any
-    // sale_person's own profile fetch always exposed every branch in the
+    // included unconditionally for every role, including employee — any
+    // employee's own profile fetch always exposed every branch in the
     // company. Now admin-gated per user (User Management page toggle,
     // default OFF — see schemaExtensions.ts's ensureBranchVisibilityToggle):
-    // only when canViewAllBranches is explicitly true does a sale_person see
+    // only when canViewAllBranches is explicitly true does a employee see
     // the full list here. Every other role is unaffected.
     // NOTE: profile.company above is assigned the raw Sequelize instance
     // (not .get({ plain: true })'d) — deleting a property off it doesn't
@@ -404,12 +404,12 @@ export const GetProfile = async (
     if (profile.company && typeof profile.company.get === "function") {
       profile.company = profile.company.get({ plain: true });
     }
-    if (userData.role === "sale_person" && profile.company && !profile.canViewAllBranches) {
+    if (userData.role === "employee" && profile.company && !profile.canViewAllBranches) {
       delete profile.company.branches;
     }
 
-    // ✅ Step 5: For sale_person — include the admin's granted permissions
-    if (userData.role === "sale_person" && rootAdminId && profile.company?.id) {
+    // ✅ Step 5: For employee — include the admin's granted permissions
+    if (userData.role === "employee" && rootAdminId && profile.company?.id) {
       const adminPerms = await UserPermission.findAll({
         where: { userId: rootAdminId, companyId: profile.company.id },
         include: [{
@@ -542,7 +542,7 @@ export const MySalePerson = async (
     // filter accordingly so a recursive team lookup (which also picks up
     // any intermediate managers) doesn't hand back the wrong role. Still
     // overridable for the rare caller that explicitly wants something else.
-    where.role = filterRole || "sale_person";
+    where.role = filterRole || "employee";
     if (shiftId) where.shiftId = Number(shiftId);
     if (branchId) where.branchId = Number(branchId);
     if (search) {
@@ -1925,7 +1925,7 @@ export const myLeaveBalance = async (req: Request, res: Response): Promise<void>
 //
 // Same shape as authorizeCreateRegularization (attendanceRegularization.
 // controller.ts): admin/super_admin review and approve team expense claims
-// but never submit their own — only manager (and sale_person, elsewhere)
+// but never submit their own — only manager (and employee, elsewhere)
 // create expense claims. This used to be governed purely by
 // checkPermission("expense", "create"), so a company that had granted an
 // admin account that permission (e.g. copied from another role's template)
@@ -2090,7 +2090,7 @@ export const GetExpense = async (
     // expenses (to approve them) is "the manager's functionality" for this
     // route — delegate to the team-scoped handler (identical to
     // /admin/get-expense) instead of duplicating that query here. Every
-    // other caller (sale_person) falls through to the original self-only
+    // other caller (employee) falls through to the original self-only
     // behavior below, unchanged.
     if (userData.role === "manager") {
       await AdminController.GetExpense(req, res);
@@ -3969,11 +3969,11 @@ export const getDashboardMobile = async (
     // approvals, meetings this week, attendance/punctuality/task rates) —
     // "the manager's functionality" for this route — delegate to the
     // dashboard-summary handler (identical to /admin/dashboard-summary)
-    // instead of duplicating that computation here. sale_person keeps the
+    // instead of duplicating that computation here. employee keeps the
     // original quotation/invoice/report counts below, unchanged.
     // NOTE: the manager branch is completed further down — it needs the
     // same personal fields (shift / presentDays / casualLeaves) that a
-    // sale_person gets, so those are computed once for BOTH roles below and
+    // employee gets, so those are computed once for BOTH roles below and
     // merged with the team KPIs. Delegating wholesale here (as this used to)
     // returned only team numbers and silently dropped the manager's own
     // shift, attendance and leave balance from their mobile home screen.
@@ -4078,7 +4078,7 @@ export const getDashboardMobile = async (
     }
 
     // Same endpoint, same field names, richer scope for a manager — the
-    // pattern every role-aware /api route here follows: a sale_person gets
+    // pattern every role-aware /api route here follows: a employee gets
     // exactly what they always got, a manager gets the team-scoped version
     // of the SAME payload with their oversight numbers added on top.
     //
@@ -4131,8 +4131,8 @@ export const getSalesPerformance = async (
     const finalUserId = Number(userId);
 
     // Role-based scope: a manager sees their whole team's completion rate
-    // (self + recursive sale_person reports, same team scope every other
-    // team-oversight endpoint uses); every other role (sale_person) keeps
+    // (self + recursive employee reports, same team scope every other
+    // team-oversight endpoint uses); every other role (employee) keeps
     // the original self-only behavior unchanged.
     //
     // Company-scoped: a manager assigned to more than one company must only

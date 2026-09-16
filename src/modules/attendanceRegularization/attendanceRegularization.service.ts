@@ -56,7 +56,7 @@ const MAX_DESCRIPTION_LENGTH = 2000;
 // one; enforced here too (defense in depth) alongside the route-level
 // authorizeCreateRegularization gate. super_admin is intentionally not
 // listed either — same as before this fix, unchanged.
-const ELIGIBLE_ROLES = ["sale_person", "manager"];
+const ELIGIBLE_ROLES = ["employee", "manager"];
 
 const toPublicRequest = (row: any) => {
   const plain = row.get ? row.get({ plain: true }) : row;
@@ -362,7 +362,7 @@ export const approveRequest = async (
   if (!targetUser) throw new ServiceError("User not found", 404);
   // Sale person can never approve — ELIGIBLE_ROLES for review is exactly
   // GEO_ASSIGNABLE_TARGET_ROLES's caller side (admin/manager/super_admin),
-  // enforced by assertCanAct itself (a sale_person caller has no allowed
+  // enforced by assertCanAct itself (a employee caller has no allowed
   // target roles at all, so this throws 403 unconditionally for them —
   // also blocks a Sale Person "approving" their own request).
   await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: false });
@@ -505,7 +505,7 @@ export const rejectRequest = async (
 // Fire-and-forget: a notification failure must never block the request
 // that triggered it. ─────────────────────────────────────────────────────
 // Recipients: company admins always (existing behavior, unchanged) — PLUS,
-// when the requester is a sale_person, their direct manager too (§22's
+// when the requester is a employee, their direct manager too (§22's
 // "Sale Person → Manager → Admin" hierarchy), reusing getDirectCreator
 // (userHierarchy.ts) rather than inventing a second hierarchy lookup. A
 // Set dedupes the rare case where the direct creator IS the admin (no
@@ -522,7 +522,7 @@ const notifyRegularizationCreated = (
     const [user, adminIds, directCreator] = await Promise.all([
       Repo.findUserById(userId),
       getCompanyAdminIds(companyId),
-      requesterRole === "sale_person" ? getDirectCreator(userId) : Promise.resolve(null),
+      requesterRole === "employee" ? getDirectCreator(userId) : Promise.resolve(null),
     ]);
 
     const receiverIds = new Set<number>(adminIds);

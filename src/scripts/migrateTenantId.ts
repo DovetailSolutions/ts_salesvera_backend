@@ -9,7 +9,7 @@
  * Hierarchy assumed:
  *   super_admin  → creates → user (tenant root)
  *   user         → creates → admin
- *   admin        → creates → manager / sale_person
+ *   admin        → creates → manager / employee
  */
 
 import dotenv from "dotenv";

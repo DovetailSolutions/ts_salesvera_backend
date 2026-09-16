@@ -15,10 +15,10 @@ import * as Controller from "./attendanceRegularization.controller";
 // [/admin]"). No new business logic here.
 //
 // Uses the same self-service role set as attendanceSelf.routes.ts's own
-// tokenCheck (user/admin/manager/sale_person) rather than jwtVerify.ts's
+// tokenCheck (user/admin/manager/employee) rather than jwtVerify.ts's
 // /admin-side tokenCheck.
 // ============================================================
-const tokenCheck = createTokenCheck(["user", "admin", "manager", "sale_person"]);
+const tokenCheck = createTokenCheck(["user", "admin", "manager", "employee"]);
 
 const router = Router();
 

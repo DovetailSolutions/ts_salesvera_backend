@@ -138,8 +138,8 @@ async function getAllRelatedUserIds(
   return Array.from(result);
 }
 
-// 🟢 sale_person UserList: own admin + own manager + all "cousins"
-// (every other sale_person under the same admin, regardless of which manager created them)
+// 🟢 employee UserList: own admin + own manager + all "cousins"
+// (every other employee under the same admin, regardless of which manager created them)
 async function getSalePersonChatUserIds(userId: number): Promise<number[]> {
   const result = new Set<number>();
 
@@ -181,7 +181,7 @@ async function getSalePersonChatUserIds(userId: number): Promise<number[]> {
   if (managerId) result.add(managerId);
   if (adminId) result.add(adminId);
 
-  // 2. Cousins: every sale_person whose creator is a manager under the same admin
+  // 2. Cousins: every employee whose creator is a manager under the same admin
   if (adminId) {
     const admin = (await User.findByPk(adminId, {
       include: [
@@ -200,7 +200,7 @@ async function getSalePersonChatUserIds(userId: number): Promise<number[]> {
 
     if (managerIds.length > 0) {
       const salePersons = await User.findAll({
-        where: { role: "sale_person" },
+        where: { role: "employee" },
         attributes: ["id"],
         include: [
           {
@@ -224,13 +224,13 @@ export const initChatSocket = (io: Server) => {
   // ---------- 🔐 AUTH + PERMISSION MIDDLEWARE ----------
   // FIX: connection is rejected if the user lacks chat:read permission.
   //      This blocks the entire chat namespace for users without it —
-  //      admin without chat:read cannot connect, so their manager/sale_person
+  //      admin without chat:read cannot connect, so their manager/employee
   //      hierarchy cannot receive chat access either.
   io.use(async (socket, next) => {
     const token = (socket.handshake.auth?.token || socket.handshake.headers.token) as string;
 
     // FIX: log token presence/length on every handshake so a client-side
-    // "connects but never authenticates" report (e.g. sale_person reconnect
+    // "connects but never authenticates" report (e.g. employee reconnect
     // sending an empty/stale token) can be diagnosed from server logs alone.
     console.log(
       `SOCKET: Handshake from ${socket.id} — tokenLen: ${token ? token.length : 0}`
@@ -874,9 +874,9 @@ export const initChatSocket = (io: Server) => {
         const offset = (page - 1) * limit;
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
-        // 🟢 sale_person gets a dedicated list: own admin + own manager + all cousins (other sale_persons)
+        // 🟢 employee gets a dedicated list: own admin + own manager + all cousins (other employees)
         const childIds =
-          userRole === "sale_person"
+          userRole === "employee"
             ? await getSalePersonChatUserIds(userId)
             : await getAllRelatedUserIds(userId);
 

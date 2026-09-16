@@ -48,9 +48,9 @@ export const PERMISSION_TEMPLATES: Record<string, ModuleAction[]> = {
     ["announcement", "create"], ["announcement", "view"], ["announcement", "cancel"],
   ],
 
-  sale_person: [
+  employee: [
     // "update" is required alongside "create" because punch-out (like
-    // punch-in) is a self-service action a sale_person performs on their
+    // punch-in) is a self-service action a employee performs on their
     // own attendance record — without it they could punch in but never out.
     ["attendance", "view"], ["attendance", "create"], ["attendance", "update"],
     ["expense", "view"], ["expense", "create"],

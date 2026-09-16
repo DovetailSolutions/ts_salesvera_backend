@@ -16,7 +16,7 @@ interface CustomRequest extends Request {
 
 // ── Resolve companyId ──────────────────────────────────────────────────
 // Priority: JWT payload → Company table lookup (admin/user) → CompanyManager
-// junction (manager) → creator-chain walk to root admin (sale_person) →
+// junction (manager) → creator-chain walk to root admin (employee) →
 // null (super_admin, or no company found).
 export const resolveCompanyId = async (
   id: number,
@@ -62,7 +62,7 @@ export const resolveCompanyId = async (
     return company ? company.id : null;
   }
 
-  // sale_person: walk up the creator chain to find the root admin, then
+  // employee: walk up the creator chain to find the root admin, then
   // resolve their company.
   let currentId = id;
   let rootAdminId: number | null = null;

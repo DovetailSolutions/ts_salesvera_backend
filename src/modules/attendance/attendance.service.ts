@@ -103,7 +103,7 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
     throw new ServiceError("companyLeaveId is required when marking a specific leave type");
   }
 
-  // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
+  // Team members only — covers any employee/manager (or deeper) under this admin/manager.
   // FIX: was getAllChildUserIds — the unscoped hierarchy let an admin/manager
   // assigned to two companies mark attendance for the OTHER company's staff
   // while acting in this one. Scoped to the company they're currently acting
@@ -1254,7 +1254,7 @@ const formatShiftWindowMessage = (
 // neither is configured.
 //
 // FIX: companyId used to be derived ONLY from the shift/branch's own
-// companyId — fine for a sale_person (always has both), but admin/manager
+// companyId — fine for a employee (always has both), but admin/manager
 // accounts routinely have neither (shiftId/branchId are null), so company
 // silently resolved to null for them: late-marking fell back to a
 // hardcoded 09:30/no-grace regardless of the company's actual
@@ -1821,7 +1821,7 @@ export const getSalesPersonTravelForAdmin = async (
 };
 
 // Manager/admin "My Team" travel overview (spec item 52) — one row per
-// direct-report sale_person for the given date, so a manager can scan
+// direct-report employee for the given date, so a manager can scan
 // everyone's meetings/distance/allowance before drilling into one person's
 // full journey. Company-scoped via the same getCompanyScopedChildUserIds
 // used by getSalesPersonTravelForAdmin, so it can never leak another
@@ -1835,7 +1835,7 @@ export const getTeamTravelSummary = async (
   const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   if (childIds.length === 0) return [];
 
-  const userWhere: any = { id: { [Op.in]: childIds }, role: "sale_person", status: { [Op.ne]: "delete" } };
+  const userWhere: any = { id: { [Op.in]: childIds }, role: "employee", status: { [Op.ne]: "delete" } };
   if (options?.search && options.search.trim()) {
     const search = options.search.trim();
     userWhere[Op.or] = [
