@@ -18,7 +18,7 @@ import * as Service from "./attendanceRegularization.service";
 // Because those are two conceptually different actions sharing one
 // permission, whichever users happened to hold attendance:create governed
 // who could create a regularization — backwards from the fixed business
-// rule (sale_person/manager: always allowed, admin: never allowed): an
+// rule (employee/manager: always allowed, admin: never allowed): an
 // admin commonly holds attendance:create (for marking team attendance) and
 // could therefore create regularizations, while a manager commonly does
 // NOT hold it and was wrongly blocked.
@@ -45,7 +45,7 @@ export const authorizeCreateRegularization = async (
     });
   }
 
-  if (role === "super_admin" || role === "manager" || role === "sale_person") {
+  if (role === "super_admin" || role === "manager" || role === "employee") {
     return next();
   }
 

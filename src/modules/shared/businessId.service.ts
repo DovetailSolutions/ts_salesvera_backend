@@ -30,7 +30,7 @@ const PAD_WIDTH = 3;
 export class BusinessIdError extends Error {}
 
 // Generates and permanently allocates the next Business ID for the given
-// entity type (e.g. "company", "admin", "manager", "sale_person",
+// entity type (e.g. "company", "admin", "manager", "employee",
 // "attendance" — must already have a seeded row in business_id_sequences,
 // see the migration). Safe under concurrent callers: the SELECT ... FOR
 // UPDATE below blocks any other transaction trying to increment the same

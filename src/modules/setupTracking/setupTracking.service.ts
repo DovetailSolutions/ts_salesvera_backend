@@ -325,7 +325,7 @@ export const recordUserCreated = async (params: {
   companyId?: number | null;
 }) => {
   const { newUserId, newUserRole, newUserTenantId, actorId, actorRole, companyId } = params;
-  if (!["admin", "manager", "sale_person"].includes(newUserRole)) return;
+  if (!["admin", "manager", "employee"].includes(newUserRole)) return;
 
   if (newUserTenantId) {
     await SetupAuditLog.create({

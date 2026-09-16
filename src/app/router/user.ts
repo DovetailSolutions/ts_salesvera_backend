@@ -116,7 +116,7 @@ router.get("/getbranch",tokenCheck,Controller.getBranchall)
 
 // ============================================================
 // Manager mobile — team oversight, mounted flat on this SAME /api
-// surface sale_person's mobile app already uses (jwtVerify2 already
+// surface employee's mobile app already uses (jwtVerify2 already
 // allows role "manager" here) — no separate route family/prefix, no
 // new namespace for the mobile team to integrate against. Two kinds
 // of addition:
@@ -124,18 +124,18 @@ router.get("/getbranch",tokenCheck,Controller.getBranchall)
 //  1. Existing self-service routes above (mysaleperson, getexpense,
 //     leave-list, dashboardmobile) were made role-aware in-place —
 //     see the role branch inside their controller functions in
-//     src/app/controller/user.ts. A sale_person calling them gets the
+//     src/app/controller/user.ts. A employee calling them gets the
 //     EXACT same behavior as before; a manager gets the team-scoped
 //     version of the same endpoint. No new routes needed for those.
 //
-//  2. The routes below are genuinely new — sale_person has no
+//  2. The routes below are genuinely new — employee has no
 //     equivalent capability at all (approve/assign/mark-for-someone-
 //     else/schedule-for-someone-else) — so there's nothing existing to
 //     extend. Named to match their /admin/* counterparts exactly
 //     (same controller functions, same scoping, same checkPermission
 //     gates) so behavior is predictable and consistent with the rest
 //     of this file's naming. Every one is additionally restricted to
-//     role:"manager" (authorizeRoles) — a sale_person token gets a
+//     role:"manager" (authorizeRoles) — a employee token gets a
 //     clean 403, not a confusing empty result.
 // ============================================================
 

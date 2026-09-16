@@ -31,7 +31,7 @@ router.patch("/approved-leave", tokenCheck, checkPermission("leave", "approve"),
 router.get("/get-leave-list", tokenCheck, checkPermission("leave", "view"), LeaveController.leaveList);
 router.get("/leave-request-today", tokenCheck, checkPermission("leave", "view"), LeaveController.getTodayLeaveRequests);
 
-// Per-employee leave balance: admin/manager assign & view balances for their sale_persons.
+// Per-employee leave balance: admin/manager assign & view balances for their employees.
 router.post("/assign-leave-balance", tokenCheck, checkPermission("leave", "manage"), LeaveController.assignLeaveBalance);
 router.get("/leave-balance-list", tokenCheck, checkPermission("leave", "view"), LeaveController.getTeamLeaveBalances);
 router.get("/leave-balance/:employeeId", tokenCheck, checkPermission("leave", "view"), LeaveController.getEmployeeLeaveBalance);

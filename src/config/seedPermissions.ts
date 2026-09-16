@@ -139,9 +139,9 @@ export const PERMISSION_SEEDS = [
   // underlying endpoint (GET /admin/mysaleperson), not two separate
   // features. Admin/super_admin/user are never gated by this — see
   // authorizeManagerSalePersonAction in app/controller/admin.ts.
-  { module: "sale-person", action: "create",      description: "Register a new Sale Person account reporting to this Manager" },
-  { module: "sale-person", action: "bulk_create", description: "Register multiple Sale Persons at once via CSV upload" },
-  { module: "sale-person", action: "view",        description: "View the list and details of Sale Persons reporting to this Manager" },
+  { module: "employee", action: "create",      description: "Register a new Sale Person account reporting to this Manager" },
+  { module: "employee", action: "bulk_create", description: "Register multiple Sale Persons at once via CSV upload" },
+  { module: "employee", action: "view",        description: "View the list and details of Sale Persons reporting to this Manager" },
 ];
 
 export const seedPermissions = async (): Promise<void> => {
@@ -163,7 +163,7 @@ export const seedPermissions = async (): Promise<void> => {
 };
 
 // ============================================================
-// One-time backfill: "sale-person" create/bulk_create/view used to be pure
+// One-time backfill: "employee" create/bulk_create/view used to be pure
 // role gates (every manager could always do these, unconditionally — see
 // the former roleCapabilityCatalog.ts entries). Now that
 // authorizeManagerSalePersonAction actually checks these permissions,
@@ -186,6 +186,12 @@ export const seedPermissions = async (): Promise<void> => {
 // any admin's later, deliberate revoke of these permissions the next time
 // the server restarts — the exact opposite of making them revocable).
 // ============================================================
+// Deliberately NOT renamed to match the "employee" module rename below —
+// this is a historical, already-run idempotency marker (see comment above).
+// Changing its value would make the one-time backfill run a second time on
+// every installation that already ran it, silently re-granting these
+// permissions to any manager an admin had since deliberately revoked them
+// from — exactly the bug this key exists to prevent.
 const BACKFILL_KEY = "sale-person-v1";
 
 export const backfillManagerSalePersonPermissions = async (): Promise<void> => {
@@ -202,7 +208,7 @@ export const backfillManagerSalePersonPermissions = async (): Promise<void> => {
   );
   if ((alreadyRan as any[]).length > 0) return;
 
-  const perms = await Permission.findAll({ where: { module: "sale-person" } });
+  const perms = await Permission.findAll({ where: { module: "employee" } });
   if (perms.length === 0) return;
 
   const users = await User.findAll({

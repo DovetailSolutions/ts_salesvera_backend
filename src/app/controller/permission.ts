@@ -15,7 +15,7 @@ import { getCompanyScopedChildUserIds, getOrgWideUserIdsForCaller } from "../../
 // HIERARCHY (enforced in every function):
 //   super_admin → can assign to admin
 //   admin       → can assign to manager (same company only)
-//   manager     → can assign to sale_person (same company only)
+//   manager     → can assign to employee (same company only)
 //
 // Anti-privilege-escalation rule:
 //   You can only grant a permission you YOURSELF possess.
@@ -60,18 +60,18 @@ const getSubordinateIdsDown = async (userId: number): Promise<number[]> => {
 // permissions editor on a manager row. Saving there hit a 403 because this
 // map never allowed it.
 const ASSIGNABLE_ROLES: Record<string, string[]> = {
-  super_admin: ["user", "admin", "manager", "sale_person"],
+  super_admin: ["user", "admin", "manager", "employee"],
   user:        ["admin", "manager"],
-  admin:       ["manager", "sale_person"],
-  manager:     ["sale_person"],
+  admin:       ["manager", "employee"],
+  manager:     ["employee"],
 };
 
 // Roles a caller can bulk-assign to via /assign-role
 const ROLE_ASSIGNABLE_ROLES: Record<string, string[]> = {
-  super_admin: ["user", "admin", "manager", "sale_person"],
-  user:        ["admin", "manager", "sale_person"],
-  admin:       ["manager", "sale_person"],
-  manager:     ["sale_person"],
+  super_admin: ["user", "admin", "manager", "employee"],
+  user:        ["admin", "manager", "employee"],
+  admin:       ["manager", "employee"],
+  manager:     ["employee"],
 };
 
 // ─── Helper: get own permission set ────────────────────────────────────────
@@ -165,7 +165,7 @@ const resolveRoleTargetUserIds = async (
     return { userIds: activeAdmins.map((u: any) => u.id) };
   }
 
-  // manager / sale_person — walk down from EVERY one of this company's
+  // manager / employee — walk down from EVERY one of this company's
   // admins (the legacy single Company.adminId plus any additional admins
   // via the CompanyAdmin junction — mirrors the "admin" branch above, which
   // already merges both), scoped to only people who actually belong to this
@@ -285,7 +285,7 @@ export const getUserPermissions = async (req: AuthRequest, res: Response): Promi
     const targetUserId = Number(req.params.userId);
 
     // FIX: this endpoint had NO authorization check at all — any
-    // authenticated caller (down to a sale_person) could view ANY other
+    // authenticated caller (down to a employee) could view ANY other
     // user's permission list, including a super_admin's, just by supplying
     // their id in the URL. Allow: viewing your own permissions, or a target
     // inside the caller's own company-scoped org (super_admin exempt, same
@@ -658,7 +658,7 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
 // Convenience: assign all permissions of a certain set to all
 // users of a given role within a company (e.g., give all managers attendance:view)
 // Body: { targetRole, companyId, permissionIds: number[] }
-// Only callable by: admin (for manager), manager (for sale_person)
+// Only callable by: admin (for manager), manager (for employee)
 // ============================================================
 export const assignPermissionsToRole = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
@@ -682,7 +682,7 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
     // FIX: effectiveCompanyId was taken straight from the request body with
     // no check that the caller actually has any relationship to that
     // company — an admin could pass an arbitrary companyId and bulk-grant
-    // permissions to a totally unrelated company's managers/sale_persons.
+    // permissions to a totally unrelated company's managers/employees.
     // "user" targetRole is exempt (platform-wide by design, see
     // resolveRoleTargetUserIds); super_admin is exempt (legitimately
     // platform-wide).
@@ -761,7 +761,7 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
 };
 
 // ============================================================
-// GET /permissions/users-by-role?role=sale_person
+// GET /permissions/users-by-role?role=employee
 // Returns all active users in the caller's company with the given role.
 // Used by admin/manager to preview who will be affected before bulk-assigning.
 // Query params: role (required), companyId (required only for super_admin)
@@ -772,11 +772,11 @@ export const getUsersByRole = async (req: AuthRequest, res: Response): Promise<a
     const { role: callerRole, companyId: callerCompanyId } = userData;
     const { role: targetRole, companyId: queryCompanyId } = req.query;
 
-    const VALID_ROLES = ["admin", "manager", "sale_person", "user"];
+    const VALID_ROLES = ["admin", "manager", "employee", "user"];
     if (!targetRole || !VALID_ROLES.includes(targetRole as string)) {
       return res.status(400).json({
         success: false,
-        message: "Query param 'role' is required and must be one of: admin, manager, sale_person, user",
+        message: "Query param 'role' is required and must be one of: admin, manager, employee, user",
       });
     }
 
@@ -932,7 +932,7 @@ export const getMyPermissions = async (req: AuthRequest, res: Response): Promise
 // DELETE /permissions/revoke-role
 // Revoke one or more permissions from ALL users of a given role in a company.
 // Body: { targetRole, companyId, permissionIds: number[] }
-// Callable by: super_admin (any role), admin (manager/sale_person), manager (sale_person)
+// Callable by: super_admin (any role), admin (manager/employee), manager (employee)
 // ============================================================
 export const revokePermissionsFromRole = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
@@ -961,7 +961,7 @@ export const revokePermissionsFromRole = async (req: AuthRequest, res: Response)
     // FIX: effectiveCompanyId was taken straight from the request body with
     // no check that the caller actually has any relationship to that
     // company — an admin could pass an arbitrary companyId and bulk-revoke
-    // permissions from a totally unrelated company's managers/sale_persons.
+    // permissions from a totally unrelated company's managers/employees.
     if (effectiveCompanyId && role !== "super_admin") {
       if (!(await hasCompanyAccess(effectiveCompanyId, Number(userData.userId), role))) {
         return res.status(403).json({ success: false, message: "You do not have access to this company" });

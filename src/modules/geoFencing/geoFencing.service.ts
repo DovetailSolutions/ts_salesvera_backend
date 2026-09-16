@@ -16,18 +16,18 @@ import * as GeoFencingRepo from "./geoFencing.repository";
 //
 // Hierarchy — who may view/configure whose geo-fencing:
 //   super_admin -> admin                      (global, no company scoping)
-//   admin       -> manager, sale_person        (same company, and only when
+//   admin       -> manager, employee        (same company, and only when
 //                                               the admin's OWN config is
 //                                               itself enabled — see
 //                                               assertCanConfigure below)
-// manager and sale_person cannot configure anyone's geo-fencing (spec: no
+// manager and employee cannot configure anyone's geo-fencing (spec: no
 // implicit cascade — would need a future, explicit RBAC grant to change).
 // ============================================================
 
 const GEO_ASSIGNABLE_TARGET_ROLES: Record<string, string[]> = {
   super_admin: ["admin"],
-  admin: ["manager", "sale_person"],
-  manager: ["sale_person"],
+  admin: ["manager", "employee"],
+  manager: ["employee"],
 };
 
 const MAX_RADIUS_METERS = 500000; // 500km — generous upper bound, guards against fat-finger entry
@@ -161,7 +161,7 @@ export const saveConfigForUser = async (
 
 // ── Authorization gate shared by GET/PUT above ──────────────────────────────
 // Exported so attendanceSecurity.service.ts can reuse the exact same
-// super_admin->admin->manager/sale_person, same-company hierarchy check for
+// super_admin->admin->manager/employee, same-company hierarchy check for
 // its own per-user/bulk settings and device-request review, instead of a
 // second copy that could silently drift from this one.
 export const assertCanAct = async (

@@ -53,7 +53,7 @@ export const ensureLeaveTypeSchema = async (sequelize: Sequelize): Promise<void>
 };
 
 // ============================================================
-// Human-facing employee code ("EMP00001") for every user (sale_person,
+// Human-facing employee code ("EMP00001") for every user (employee,
 // manager, admin, and "user"/company-owner alike) — a Postgres GENERATED
 // ALWAYS column derived from the row's own `id`, so it's automatically
 // present for every existing user (computed once when this column is added)
@@ -113,13 +113,13 @@ export const ensureChatRoomOwnership = async (sequelize: Sequelize): Promise<voi
 };
 
 // ============================================================
-// Per-user branch-list visibility toggle — admin-configurable per sale_person
-// (User Management page), default OFF. When off, that sale_person's own
+// Per-user branch-list visibility toggle — admin-configurable per employee
+// (User Management page), default OFF. When off, that employee's own
 // self-service profile (GET /api/getprofile) omits the company's full
 // branch list from profile.company.branches (previously always included
 // for every role with no gating at all); when on, they see it. Every other
 // role's profile is unaffected — this only ever gates the branch list on a
-// sale_person's OWN profile fetch.
+// employee's OWN profile fetch.
 // ============================================================
 export const ensureBranchVisibilityToggle = async (sequelize: Sequelize): Promise<void> => {
   await sequelize.query(`
@@ -237,7 +237,7 @@ export const ensureEmployeeExtraDetailsSchema = async (sequelize: Sequelize): Pr
 
 // ============================================================
 // Employee bank accounts — one-to-many per user (admin/manager/
-// sale_person), at most one PRIMARY+ACTIVE account per user enforced by the
+// employee), at most one PRIMARY+ACTIVE account per user enforced by the
 // partial unique index below. bankAccountNumberEncrypted holds the only
 // reversible copy of the account number (AES-256-GCM via
 // config/bankAccountCrypto.ts); bankAccountNumberLast4 is derived once at

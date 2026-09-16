@@ -10,13 +10,13 @@ import * as SubscriptionRepo from "./subscription.repository";
 // full subscription module. Only imports its own repository + ServiceError.
 // ============================================================
 
-export type LimitedResource = "admin" | "company" | "manager" | "sale_person";
+export type LimitedResource = "admin" | "company" | "manager" | "employee";
 
 const RESOURCE_LABEL: Record<LimitedResource, string> = {
   admin: "Admin",
   company: "Company",
   manager: "Manager",
-  sale_person: "Sale Person",
+  employee: "Sale Person",
 };
 
 // Resolves the top-level tenant User id whose Subscription governs the
@@ -67,7 +67,7 @@ const LIMIT_FIELD: Record<LimitedResource, "maxAdmins" | "maxCompanies" | "maxMa
   admin: "maxAdmins",
   company: "maxCompanies",
   manager: "maxManagers",
-  sale_person: "maxSalePersons",
+  employee: "maxSalePersons",
 };
 
 const usageCounter = async (resource: LimitedResource, tenantUserId: number): Promise<number> => {
@@ -132,7 +132,7 @@ export const getUsageSummary = async (tenantUserId: number): Promise<UsageSummar
     usageCounter("admin", tenantUserId),
     usageCounter("company", tenantUserId),
     usageCounter("manager", tenantUserId),
-    usageCounter("sale_person", tenantUserId),
+    usageCounter("employee", tenantUserId),
   ]);
 
   return {

@@ -143,7 +143,7 @@ export async function resolveCompanyEmployeeIds(
   const branchIds: number[] = branches.map((b: any) => b.id);
   const salePersons: any[] = branchIds.length
     ? await (User as any).findAll({
-        where: { role: "sale_person", branchId: { [Op.in]: branchIds } },
+        where: { role: "employee", branchId: { [Op.in]: branchIds } },
         attributes: ["id"],
       })
     : [];

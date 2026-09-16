@@ -52,7 +52,7 @@ export async function getAllChildUserIds(userId: number): Promise<number[]> {
 //
 // resolveCompanyEmployeeIds (companyAccess.ts) answers the complementary
 // question — "who belongs to THIS company" — but can't be used on its own
-// for team scoping either: it resolves sale_persons purely via
+// for team scoping either: it resolves employees purely via
 // User.branchId, and branchId is not reliably populated on older accounts
 // (verified: a large share of existing users have branchId = null). Hard-
 // intersecting with it would silently HIDE those legitimate team members.
@@ -109,7 +109,7 @@ export const collectUserCompanyIds = async (
     (UserBranch as any).findAll({ where: { userId: { [Op.in]: userIds } }, attributes: ["userId", "branchId"] }),
   ]);
 
-  // Branch membership (the primary signal for sale_persons) — one combined
+  // Branch membership (the primary signal for employees) — one combined
   // lookup for every branch referenced by either signal, instead of a
   // second round trip for whatever the allocation junction added.
   const branchIds = Array.from(
@@ -139,7 +139,7 @@ export const collectUserCompanyIds = async (
   });
 
   // ── Fallback: inherit the company from whoever created them ──────────
-  // branchId is the primary company signal for a sale_person, but it is
+  // branchId is the primary company signal for a employee, but it is
   // only reliably populated on accounts created after it started being
   // defaulted at registration — a large share of existing accounts still
   // have branchId = null and no junction row of their own, leaving their
@@ -170,7 +170,7 @@ export const collectUserCompanyIds = async (
 
     const creatorIds = Array.from(new Set(creatorIdByUser.values())).filter((id) => !visited.has(id));
     if (creatorIds.length > 0) {
-      // Recurse so a chain of unresolved accounts (sale_person -> manager
+      // Recurse so a chain of unresolved accounts (employee -> manager
       // -> admin) still terminates at the first ancestor that resolves.
       const creatorCompanies = await collectUserCompanyIds(creatorIds, visited, depth + 1);
       creatorIdByUser.forEach((creatorId, userId) => {
@@ -285,7 +285,7 @@ export async function getCompanyScopedChildUserIdsFast(
 // existing accounts assigned in later, not necessarily the primary admin's
 // own creator-descendants — anchoring on only Company.adminId would still
 // silently miss a second admin's own separately-created managers/
-// sale_persons, the same class of gap this function exists to close.
+// employees, the same class of gap this function exists to close.
 export async function getCompanyScopedOrgWideUserIds(
   callerId: number,
   callerCompanyId: number | null | undefined
@@ -325,7 +325,7 @@ export async function getCompanyScopedOrgWideUserIds(
 // req.userData.companyId only ever reflects whichever one is currently
 // "active" in their JWT (see tokenCheck.ts's resolveCompanyId) — so
 // permission.ts's org-membership checks were rejecting a "user" managing an
-// admin/manager/sale_person in any of their OTHER owned companies (e.g.
+// admin/manager/employee in any of their OTHER owned companies (e.g.
 // immediately after creating a second company via the registration wizard,
 // before ever calling switch-company). This is the fix: for role "user",
 // union the org across every company they own instead of just the active
@@ -349,7 +349,7 @@ export async function getOrgWideUserIdsForCaller(
 }
 
 // Returns the given user's immediate creator (one level up the createdBy
-// chain) — e.g. a sale_person's direct manager, or a manager's direct
+// chain) — e.g. a employee's direct manager, or a manager's direct
 // admin. Used to route "task completed" / other escalation notifications
 // to the right person without walking the whole chain. Returns null if the
 // user has no creator (e.g. a tenant-root "user" or super_admin).

@@ -15,11 +15,11 @@ import { getUserPermissionsFromCache } from "./permissionCache";
 //   super_admin  → always passes (global access, no DB hit)
 //   admin        → checked against user_permissions cache (must have explicit permission)
 //   manager      → checked against user_permissions cache
-//   sale_person  → checked against user_permissions cache
+//   employee  → checked against user_permissions cache
 //
 // FIX: admin no longer bypasses permission checks — all non-super_admin roles
 //      are verified against user_permissions so that an admin without leave:*
-//      cannot access leave routes (and cannot cascade those rights to manager/sale_person).
+//      cannot access leave routes (and cannot cascade those rights to manager/employee).
 // ============================================================
 
 interface AuthenticatedRequest extends Request {
@@ -102,9 +102,9 @@ export const checkPermission = (module: string, action: string) => {
       }
 
       // ── Admin / Manager / User: check permissions table via cache ──────
-      // sale_person is exempt from the companyId requirement — its permission
+      // employee is exempt from the companyId requirement — its permission
       // set is still enforced below, just without a company context gate.
-      if (!companyId && role !== "sale_person") {
+      if (!companyId && role !== "employee") {
         return res.status(403).json({
           success: false,
           message: "Forbidden — no company context in token",
@@ -189,7 +189,7 @@ export const checkInvoiceCreatePermission = () => {
         return next();
       }
 
-      if (!companyId && role !== "sale_person") {
+      if (!companyId && role !== "employee") {
         return res.status(403).json({
           success: false,
           message: "Forbidden — no company context in token",
@@ -232,7 +232,7 @@ export const checkInvoiceCreatePermission = () => {
 // getinvoice serves both real invoices and draft (proforma) invoices in one
 // list, with the controller filtering draft rows by proformainvoice:view.
 // That controller-level gating is dead code if the route itself requires
-// invoice:view up front — a sale_person who only has proformainvoice:*
+// invoice:view up front — a employee who only has proformainvoice:*
 // (no invoice:view) would be blocked before ever reaching the controller,
 // even though they're only asking for their draft invoices.
 // Pass if the caller has EITHER invoice:view OR proformainvoice:view; the
@@ -264,7 +264,7 @@ export const checkInvoiceViewPermission = () => {
         return next();
       }
 
-      if (!companyId && role !== "sale_person") {
+      if (!companyId && role !== "employee") {
         return res.status(403).json({
           success: false,
           message: "Forbidden — no company context in token",
@@ -329,7 +329,7 @@ export const checkInvoiceUpdatePermission = () => {
         return next();
       }
 
-      if (!companyId && role !== "sale_person") {
+      if (!companyId && role !== "employee") {
         return res.status(403).json({
           success: false,
           message: "Forbidden — no company context in token",

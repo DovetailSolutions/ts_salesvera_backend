@@ -14,9 +14,9 @@ import { handleAttendancePhoto, handleAttendancePunchOutPhoto } from "./attendan
 // excludes "admin" for the rest of the /api/* self-service surface) —
 // admin punching their own attendance is a real, requested case, and
 // scoping the wider role just to this router keeps every other /api/*
-// route's original user/manager/sale_person-only boundary unchanged.
+// route's original user/manager/employee-only boundary unchanged.
 // ============================================================
-const tokenCheck = createTokenCheck(["user", "admin", "manager", "sale_person"]);
+const tokenCheck = createTokenCheck(["user", "admin", "manager", "employee"]);
 
 const router = Router();
 

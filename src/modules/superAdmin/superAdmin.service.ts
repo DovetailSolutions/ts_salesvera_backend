@@ -27,7 +27,7 @@ export const getDashboardStats = async () => {
   const tenantUserCount = await User.count({ where: { role: "user", status: { [Op.ne]: "delete" } } });
   const adminCount = await User.count({ where: { role: "admin", status: { [Op.ne]: "delete" } } });
   const managerCount = await User.count({ where: { role: "manager", status: { [Op.ne]: "delete" } } });
-  const salePersonCount = await User.count({ where: { role: "sale_person", status: { [Op.ne]: "delete" } } });
+  const salePersonCount = await User.count({ where: { role: "employee", status: { [Op.ne]: "delete" } } });
 
   const totalCompanies = await Company.count();
 
@@ -453,9 +453,9 @@ export const getUserTreeDetails = async (targetUserId: number) => {
 
     // Scope strictly to THIS company's own branches/departments (and its own
     // admin as creator) — a bare `tenantId: targetUserId` match would pull in
-    // every sale_person under the root user and duplicate them onto every
+    // every employee under the root user and duplicate them onto every
     // company in the loop, since tenantId only identifies the root user, not
-    // which of their companies a sale_person actually belongs to.
+    // which of their companies a employee actually belongs to.
     const branchIds = branches.map((b) => b.id);
     const departmentIds = departments.map((d) => d.id);
     const salesScopeConditions: any[] = [];
@@ -467,7 +467,7 @@ export const getUserTreeDetails = async (targetUserId: number) => {
       salesScopeConditions.length > 0
         ? await User.findAll({
             where: {
-              role: "sale_person",
+              role: "employee",
               status: { [Op.ne]: "delete" },
               [Op.or]: salesScopeConditions,
             },
@@ -537,7 +537,7 @@ export const createUserAsSuperAdmin = async (
     email: string;
     password?: string;
     phone?: string;
-    role: "user" | "admin" | "manager" | "sale_person";
+    role: "user" | "admin" | "manager" | "employee";
     createdBy?: number;
     tenantId?: number;
     branchId?: number;
@@ -635,7 +635,7 @@ export const updateUserAsSuperAdmin = async (
     firstName?: string;
     lastName?: string;
     phone?: string;
-    role?: "user" | "admin" | "manager" | "sale_person";
+    role?: "user" | "admin" | "manager" | "employee";
     status?: "active" | "deActive" | "delete";
     branchId?: number | null;
     departmentId?: number | null;

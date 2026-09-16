@@ -8,7 +8,7 @@ import { Sequelize, DataTypes, Model, Optional } from "sequelize";
 // Hierarchy enforcement (in controller, not DB):
 //   super_admin -> admin
 //   admin       -> manager     (same companyId)
-//   manager     -> sale_person (same companyId)
+//   manager     -> employee (same companyId)
 //
 // grantedBy = userId of the person who assigned this permission
 // ============================================================

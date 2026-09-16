@@ -51,7 +51,7 @@ router.get(
   AttendanceController.getSalesPersonTravel
 );
 
-// "My Team" travel overview — one row per direct-report sale_person for the
+// "My Team" travel overview — one row per direct-report employee for the
 // date, so a manager/admin can scan everyone before drilling into one.
 router.get(
   "/sales-team/travel-summary/:date",

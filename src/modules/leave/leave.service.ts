@@ -493,7 +493,7 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
   const unauthorizedIds = employeeIds.filter((id) => id !== loggedInId && !childIds.includes(id));
   if (unauthorizedIds.length > 0) {
     throw new ServiceError(
-      `You can only assign leave balance to your own sale_persons. Unauthorized employeeId(s): ${unauthorizedIds.join(", ")}`
+      `You can only assign leave balance to your own employees. Unauthorized employeeId(s): ${unauthorizedIds.join(", ")}`
     );
   }
 
@@ -554,7 +554,7 @@ export const getEmployeeLeaveBalance = async (
   // company context rather than the company-blind hierarchy.
   const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
   if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
-    throw new ServiceError("You can only view leave balance of your own sale_persons");
+    throw new ServiceError("You can only view leave balance of your own employees");
   }
   if (!callerCompanyId) {
     throw new ServiceError("No company context — cannot resolve this company's leave types");
@@ -715,7 +715,7 @@ export const cancelLeaveAndMarkPresent = async (loggedInId: number, callerCompan
   if (!employeeId) throw new ServiceError("employeeId is required");
   if (!leaveID) throw new ServiceError("leaveID is required");
 
-  // Team members only — covers any sale_person/manager (or deeper) under this admin/manager.
+  // Team members only — covers any employee/manager (or deeper) under this admin/manager.
   // Company-scoped: this cancels a leave and writes an attendance row for
   // someone else, so it must not reach staff of another company the caller
   // is also assigned to (the company-blind hierarchy used to allow that).

@@ -109,7 +109,7 @@ export const findAllPermissions = (ordered?: boolean) =>
 // FIX: previously filtered by { userId, companyId } — but permission grants
 // (assignPermissions in permission.ts) are written without a companyId (that
 // column is left null), so the exact-match filter silently returned zero
-// rows for every manager/sale_person, even ones with permissions actually
+// rows for every manager/employee, even ones with permissions actually
 // assigned. loadUserPermissionsFromDB in checkPermission.ts (the real
 // enforcement gate used on every protected route) already queries by userId
 // alone — this brings the login/getProfile response in line with that same,

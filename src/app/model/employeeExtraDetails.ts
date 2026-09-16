@@ -4,7 +4,7 @@ import { Sequelize, DataTypes, Model, Optional } from "sequelize";
 // employee_extra_details — one row per user (PK = userId), holding the
 // SalaryBox bulk-import spreadsheet's fields that have no home anywhere in
 // the existing `users` table or any other normalized table. Scoped in
-// practice to admin/manager/sale_person (the only roles this feature's
+// practice to admin/manager/employee (the only roles this feature's
 // UI/API ever writes for) but not role-enforced at the schema level — that
 // happens in modules/employeeProfile's service layer, same as every other
 // company-scoped table in this codebase.

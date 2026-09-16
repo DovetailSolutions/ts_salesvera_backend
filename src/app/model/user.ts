@@ -18,7 +18,7 @@ import { generateBusinessId } from "../../modules/shared/businessId.service";
 const ROLE_BUSINESS_ID_ENTITY_TYPE: Record<string, string> = {
   admin: "admin",
   manager: "manager",
-  sale_person: "sale_person",
+  employee: "employee",
 };
 
 // 1. Define the attributes
@@ -31,7 +31,7 @@ interface UserAttributes {
   // employee tables, etc.) — internal FKs/joins still use `id`.
   employeeCode?: string;
   // Human-readable Business ID, role-scoped prefix (ADM/MGR/SAL) — only
-  // assigned for admin/manager/sale_person (see the beforeCreate hook
+  // assigned for admin/manager/employee (see the beforeCreate hook
   // below and businessId.service.ts). null for user/super_admin/client,
   // which aren't in this rollout's scope. Separate from `id` and from
   // employeeCode (which is unscoped-by-role and derived from `id` itself).
@@ -41,7 +41,7 @@ interface UserAttributes {
   email?: string;
   password?: string;
   phone?: string;
-  role?: "user" | "admin" | "super_admin" | "manager" | "sale_person"; // Match ENUM exactly!
+  role?: "user" | "admin" | "super_admin" | "manager" | "employee"; // Match ENUM exactly!
   refreshToken?: string;
   status?: "active" | "deActive" | "delete";
   dob?: string;
@@ -65,7 +65,7 @@ interface UserAttributes {
   notifyTask?: boolean;
   notifyMeeting?: boolean;
   // Admin-configurable per user (User Management page) — default OFF. Only
-  // meaningful for sale_person: gates whether their own GET /api/getprofile
+  // meaningful for employee: gates whether their own GET /api/getprofile
   // includes the company's full branch list. See schemaExtensions.ts's
   // ensureBranchVisibilityToggle.
   canViewAllBranches?: boolean;
@@ -179,7 +179,7 @@ export const createUserModel = (sequelize: Sequelize) => {
           "client",
           "super_admin",
           "manager",
-          "sale_person"
+          "employee"
         ),
         allowNull: false,
         defaultValue: "user",

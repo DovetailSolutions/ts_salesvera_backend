@@ -2,7 +2,7 @@ import { Model, DataTypes, Sequelize, Optional } from "sequelize";
 
 export type AnnouncementPriority = "low" | "normal" | "high" | "urgent";
 export type AnnouncementStatus = "draft" | "scheduled" | "published" | "cancelled" | "expired";
-// Roles allowed to send announcements — sale_person is intentionally excluded
+// Roles allowed to send announcements — employee is intentionally excluded
 // (enforced again, independently, in announcement.service.ts).
 export type AnnouncementCreatorRole = "user" | "admin" | "manager";
 

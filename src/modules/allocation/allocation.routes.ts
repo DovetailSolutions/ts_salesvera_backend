@@ -10,7 +10,7 @@ import * as AllocationController from "./allocation.controller";
 // manager). Which of those may allocate to WHICH target role is enforced
 // inside allocation.service.ts against the same hierarchy used for
 // permission assignment, so the two can't drift apart:
-//   user -> admin, manager | admin -> manager, sale_person | manager -> sale_person
+//   user -> admin, manager | admin -> manager, employee | manager -> employee
 // ============================================================
 const router = Router();
 

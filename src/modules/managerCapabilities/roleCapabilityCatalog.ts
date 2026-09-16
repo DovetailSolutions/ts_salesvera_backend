@@ -32,7 +32,7 @@ export const ROLE_CAPABILITY_CATALOG: RoleCapability[] = [
   // NOTE: "Add Sale Person", "Bulk Add Sale Person (CSV)", and "View My
   // Sale Persons / View Sale Person Details" used to be listed here as
   // pure, unenforced role gates. They are now real, individually-editable
-  // permissions (module "sale-person" — see config/seedPermissions.ts and
+  // permissions (module "employee" — see config/seedPermissions.ts and
   // authorizeManagerSalePersonAction in app/controller/admin.ts), so they
   // show up automatically via the Permission-table loop below instead of
   // this static catalog. "Manage Sale Person Attendance/Leave" and "View
@@ -43,22 +43,22 @@ export const ROLE_CAPABILITY_CATALOG: RoleCapability[] = [
   // CAPABILITY_ALIASES, and report:view/insights:view directly) — verified
   // against the actual route files, not assumed.
   {
-    key: "role:sale_person:edit",
+    key: "role:employee:edit",
     module: "Sale Person",
     label: "Edit Sale Person",
     description: "Edit an existing Sale Person's personal account credentials or profile",
     allowedRoles: [],
-    evidence: "No edit-sale-person account endpoint exists anywhere in the current application.",
+    evidence: "No edit-employee account endpoint exists anywhere in the current application.",
     api: "N/A (Feature not in application)",
     status: "not_available",
   },
   {
-    key: "role:sale_person:deactivate",
+    key: "role:employee:deactivate",
     module: "Sale Person",
     label: "Delete / Deactivate Sale Person",
     description: "Deactivate or remove a Sale Person account",
     allowedRoles: [],
-    evidence: "No deactivate/delete-sale-person endpoint exists anywhere in the current application.",
+    evidence: "No deactivate/delete-employee endpoint exists anywhere in the current application.",
     api: "N/A (Feature not in application)",
     status: "not_available",
   },
@@ -82,7 +82,7 @@ export const ROLE_CAPABILITY_CATALOG: RoleCapability[] = [
     api: "GET /admin/geo-fencing/:userId, PUT /admin/geo-fencing/:userId",
   },
   {
-    key: "role:sale_person:branch_visibility",
+    key: "role:employee:branch_visibility",
     module: "Sale Person",
     label: "Toggle Sale Person Branch Visibility",
     description: "Allow a Sale Person to view every company branch (not just their own)",
@@ -96,7 +96,7 @@ export const ROLE_CAPABILITY_CATALOG: RoleCapability[] = [
     module: "Travel / Mileage",
     label: "View Team Daily Mileage Logs",
     description: "View daily distance traveled, GPS logs, and meeting routes for team members",
-    allowedRoles: ["super_admin", "admin", "manager", "user", "sale_person"],
+    allowedRoles: ["super_admin", "admin", "manager", "user", "employee"],
     evidence: "modules/salesTravel/salesTravel.routes.ts GET /sales-travel/logs",
     api: "GET /admin/sales-travel/logs",
   },

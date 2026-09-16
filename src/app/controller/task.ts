@@ -9,8 +9,8 @@ const getUser = (req: Request) => (req as any).userData as JwtPayload;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /admin/task/create
-// Admin → can assign to manager or sale_person
-// Manager → can assign to sale_person only
+// Admin → can assign to manager or employee
+// Manager → can assign to employee only
 // ─────────────────────────────────────────────────────────────────────────────
 export const createTask = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -44,7 +44,7 @@ export const createTask = async (req: Request, res: Response): Promise<void> => 
     const assigneeRole: string = assignee.role;
 
     // Role-based restriction on who can be assigned
-    if (role === "manager" && assigneeRole !== "sale_person") {
+    if (role === "manager" && assigneeRole !== "employee") {
       res.status(403).json({
         success: false,
         message: "Managers can only assign tasks to sale persons",
@@ -54,7 +54,7 @@ export const createTask = async (req: Request, res: Response): Promise<void> => 
 
     if (
       (role === "admin" || role === "super_admin") &&
-      !["manager", "sale_person"].includes(assigneeRole)
+      !["manager", "employee"].includes(assigneeRole)
     ) {
       res.status(403).json({
         success: false,
@@ -212,14 +212,14 @@ export const updateTask = async (req: Request, res: Response): Promise<void> => 
 
       const assigneeRole: string = assignee.role;
 
-      if (role === "manager" && assigneeRole !== "sale_person") {
+      if (role === "manager" && assigneeRole !== "employee") {
         res.status(403).json({ success: false, message: "Managers can only assign tasks to sale persons" });
         return;
       }
 
       if (
         (role === "admin" || role === "super_admin") &&
-        !["manager", "sale_person"].includes(assigneeRole)
+        !["manager", "employee"].includes(assigneeRole)
       ) {
         res.status(403).json({ success: false, message: "Tasks can only be assigned to managers or sale persons" });
         return;
