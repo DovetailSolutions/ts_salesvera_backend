@@ -1,7 +1,7 @@
 import { Op } from "sequelize";
 import { User, Company, Permission, UserPermission, CompanyManager } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
-import { getOrgWideUserIdsForCaller } from "../shared/userHierarchy";
+import { getOrgWideUserIdsForCaller, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import { ROLE_CAPABILITY_CATALOG, CAPABILITY_ALIASES } from "./roleCapabilityCatalog";
 
 // ============================================================
@@ -129,6 +129,12 @@ const PERMISSION_API_MAP: Record<string, string> = {
   "employee:view": "GET /admin/mysaleperson",
 };
 
+// PERF: the org walk is the expensive part of every request here. Use the
+// batched level-by-level resolver (same result set as the default per-user
+// recursion) and let the overview compute it once and share it.
+const resolveOrgIds = (loggedInId: number, role: string | undefined, callerCompanyId: number | null) =>
+  getOrgWideUserIdsForCaller(loggedInId, String(role), callerCompanyId, getCompanyScopedChildUserIdsFast);
+
 const humanizeModule = (m: string) => MODULE_LABELS[m] || m;
 const humanizeAction = (a: string) => ACTION_LABELS[a] || a;
 
@@ -156,7 +162,8 @@ const isEffectivelyGranted = (granted: Set<string>, module: string, action: stri
 export const getCompanyManagers = async (
   loggedInId: number,
   role: string | undefined,
-  callerCompanyId: number | null
+  callerCompanyId: number | null,
+  orgIdsPromise?: Promise<number[]>
 ) => {
   if (role !== "super_admin" && !callerCompanyId) {
     return [];
@@ -178,25 +185,27 @@ export const getCompanyManagers = async (
     }));
   }
 
-  // 1. Managers explicitly linked via company_managers table
-  const assignments: any[] = await (CompanyManager as any).findAll({
-    where: { companyId: callerCompanyId },
-    include: [
-      {
-        model: User,
-        as: "manager",
-        attributes: ["id", "firstName", "lastName", "email", "phone", "status", "employeeCode"],
-      },
-    ],
-  });
+  // 1. Managers explicitly linked via company_managers table, and
+  // 2. the company-scoped org hierarchy — independent, so fetched together.
+  const [assignments, orgIds]: [any[], number[]] = await Promise.all([
+    (CompanyManager as any).findAll({
+      where: { companyId: callerCompanyId },
+      include: [
+        {
+          model: User,
+          as: "manager",
+          attributes: ["id", "firstName", "lastName", "email", "phone", "status", "employeeCode"],
+        },
+      ],
+    }),
+    orgIdsPromise ?? resolveOrgIds(loggedInId, role, callerCompanyId),
+  ]);
 
   const assignedManagers = assignments
     .map((a) => a.manager)
     .filter(Boolean)
     .filter((m) => m.status !== "delete");
 
-  // 2. Managers within the company-scoped org hierarchy
-  const orgIds = await getOrgWideUserIdsForCaller(loggedInId, String(role), callerCompanyId);
   const orgManagers: any[] = await User.findAll({
     where: {
       id: { [Op.in]: orgIds },
@@ -226,16 +235,29 @@ export const getManagerCapabilities = async (
   loggedInId: number,
   role: string | undefined,
   callerCompanyId: number | null,
-  managerId: number
+  managerId: number,
+  orgIdsPromise?: Promise<number[]>
 ) => {
   if (!managerId || Number.isNaN(managerId)) {
     throw new ServiceError("A valid managerId is required");
   }
 
-  const targetUser: any = await User.findOne({
-    where: { id: managerId },
-    attributes: ["id", "firstName", "lastName", "email", "phone", "role", "status", "employeeCode", "createdAt"],
-  });
+  // Every lookup below is independent — run them in one round instead of
+  // sequentially. Nothing is returned until the role + org checks pass.
+  const [targetUser, orgIds, company, allPermissions, grantedRecords]: [any, number[] | null, any, any[], any[]] =
+    await Promise.all([
+      User.findOne({
+        where: { id: managerId },
+        attributes: ["id", "firstName", "lastName", "email", "phone", "role", "status", "employeeCode", "createdAt"],
+      }),
+      role !== "super_admin" ? orgIdsPromise ?? resolveOrgIds(loggedInId, role, callerCompanyId) : Promise.resolve(null),
+      callerCompanyId ? Company.findByPk(callerCompanyId, { attributes: ["companyName"] }) : Promise.resolve(null),
+      Permission.findAll({ order: [["module", "ASC"], ["action", "ASC"]] }),
+      UserPermission.findAll({
+        where: { userId: managerId },
+        include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
+      }),
+    ]);
 
   if (!targetUser || targetUser.role !== "manager") {
     throw new ServiceError("Manager not found", 404);
@@ -246,24 +268,11 @@ export const getManagerCapabilities = async (
   // design), everyone else must have this manager inside their own
   // company-scoped org, never trusting anything the client sent beyond the
   // JWT-resolved role/companyId.
-  if (role !== "super_admin") {
-    const orgIds = await getOrgWideUserIdsForCaller(loggedInId, String(role), callerCompanyId);
-    if (!orgIds.includes(managerId)) {
-      throw new ServiceError("You are not authorized to view this manager's capabilities", 403);
-    }
+  if (role !== "super_admin" && !orgIds!.includes(managerId)) {
+    throw new ServiceError("You are not authorized to view this manager's capabilities", 403);
   }
 
-  const companyName = callerCompanyId
-    ? ((await Company.findByPk(callerCompanyId, { attributes: ["companyName"] })) as any)?.companyName ?? null
-    : null;
-
-  const [allPermissions, grantedRecords] = await Promise.all([
-    Permission.findAll({ order: [["module", "ASC"], ["action", "ASC"]] }),
-    UserPermission.findAll({
-      where: { userId: managerId },
-      include: [{ model: Permission, as: "permission", attributes: ["module", "action"] }],
-    }),
-  ]);
+  const companyName = company?.companyName ?? null;
 
   const granted = new Set(
     (grantedRecords as any[]).map((r) => `${r.permission.module}:${r.permission.action}`)
@@ -409,7 +418,11 @@ export const getManagerCapabilitiesOverview = async (
   callerCompanyId: number | null,
   requestedManagerId?: number
 ) => {
-  const managers = await getCompanyManagers(loggedInId, role, callerCompanyId);
+  // Walk the org tree once and share it between the manager list and the
+  // selected manager's authorization check (previously walked twice).
+  const orgIdsPromise =
+    role !== "super_admin" && callerCompanyId ? resolveOrgIds(loggedInId, role, callerCompanyId) : undefined;
+  const managers = await getCompanyManagers(loggedInId, role, callerCompanyId, orgIdsPromise);
 
   if (managers.length === 0) {
     return {
@@ -422,7 +435,7 @@ export const getManagerCapabilitiesOverview = async (
   }
 
   const targetManagerId = requestedManagerId || managers[0].id;
-  const details = await getManagerCapabilities(loggedInId, role, callerCompanyId, targetManagerId);
+  const details = await getManagerCapabilities(loggedInId, role, callerCompanyId, targetManagerId, orgIdsPromise);
 
   return {
     managers,

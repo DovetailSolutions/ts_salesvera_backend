@@ -286,25 +286,33 @@ export async function getCompanyScopedChildUserIdsFast(
 // own creator-descendants — anchoring on only Company.adminId would still
 // silently miss a second admin's own separately-created managers/
 // employees, the same class of gap this function exists to close.
+// Pluggable subtree resolver — defaults to the original per-user recursion so
+// existing callers are unchanged; pass getCompanyScopedChildUserIdsFast to
+// opt into the batched level-by-level walk (same result set, far fewer
+// DB round trips).
+type ChildIdResolver = (userId: number, companyId: number | null | undefined) => Promise<number[]>;
+
 export async function getCompanyScopedOrgWideUserIds(
   callerId: number,
-  callerCompanyId: number | null | undefined
+  callerCompanyId: number | null | undefined,
+  resolveChildIds: ChildIdResolver = getCompanyScopedChildUserIds
 ): Promise<number[]> {
   if (callerCompanyId == null) {
     // No company context resolvable (e.g. super_admin with no active
     // company) — fall back to the caller's own tree, same as before.
-    const own = await getCompanyScopedChildUserIds(callerId, null);
+    const own = await resolveChildIds(callerId, null);
     return [callerId, ...own];
   }
 
   const rootIds = new Set<number>();
-  const company = await Company.findByPk(Number(callerCompanyId), { attributes: ["adminId"] });
+  const [company, junctionAdmins] = await Promise.all([
+    Company.findByPk(Number(callerCompanyId), { attributes: ["adminId"] }),
+    (CompanyAdmin as any).findAll({
+      where: { companyId: Number(callerCompanyId) },
+      attributes: ["adminId"],
+    }),
+  ]);
   if (company?.adminId) rootIds.add(company.adminId);
-
-  const junctionAdmins = await (CompanyAdmin as any).findAll({
-    where: { companyId: Number(callerCompanyId) },
-    attributes: ["adminId"],
-  });
   junctionAdmins.forEach((a: any) => rootIds.add(a.adminId));
 
   // No admin on record at all for this company — fall back to the caller's
@@ -312,7 +320,7 @@ export async function getCompanyScopedOrgWideUserIds(
   if (rootIds.size === 0) rootIds.add(callerId);
 
   const idSets = await Promise.all(
-    Array.from(rootIds).map((rootId) => getCompanyScopedChildUserIds(rootId, callerCompanyId))
+    Array.from(rootIds).map((rootId) => resolveChildIds(rootId, callerCompanyId))
   );
   const merged = new Set<number>(rootIds);
   idSets.flat().forEach((id) => merged.add(id));
@@ -333,17 +341,19 @@ export async function getCompanyScopedOrgWideUserIds(
 export async function getOrgWideUserIdsForCaller(
   callerId: number,
   role: string,
-  callerCompanyId: number | null | undefined
+  callerCompanyId: number | null | undefined,
+  resolveChildIds: ChildIdResolver = getCompanyScopedChildUserIds
 ): Promise<number[]> {
   if (role !== "user") {
-    return getCompanyScopedOrgWideUserIds(callerId, callerCompanyId ?? null);
+    return getCompanyScopedOrgWideUserIds(callerId, callerCompanyId ?? null, resolveChildIds);
   }
 
   const ownedCompanies = await Company.findAll({ where: { userId: callerId }, attributes: ["id"] });
-  if (ownedCompanies.length === 0) return getCompanyScopedOrgWideUserIds(callerId, callerCompanyId ?? null);
+  if (ownedCompanies.length === 0)
+    return getCompanyScopedOrgWideUserIds(callerId, callerCompanyId ?? null, resolveChildIds);
 
   const idSets = await Promise.all(
-    ownedCompanies.map((c: any) => getCompanyScopedOrgWideUserIds(callerId, c.id))
+    ownedCompanies.map((c: any) => getCompanyScopedOrgWideUserIds(callerId, c.id, resolveChildIds))
   );
   return Array.from(new Set(idSets.flat()));
 }
