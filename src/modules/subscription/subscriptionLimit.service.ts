@@ -16,7 +16,7 @@ const RESOURCE_LABEL: Record<LimitedResource, string> = {
   admin: "Admin",
   company: "Company",
   manager: "Manager",
-  employee: "Sale Person",
+  employee: "Employee",
 };
 
 // Resolves the top-level tenant User id whose Subscription governs the
@@ -63,11 +63,11 @@ export const getActiveSubscriptionForUser = async (tenantUserId: number) => {
   return subscription;
 };
 
-const LIMIT_FIELD: Record<LimitedResource, "maxAdmins" | "maxCompanies" | "maxManagers" | "maxSalePersons"> = {
+const LIMIT_FIELD: Record<LimitedResource, "maxAdmins" | "maxCompanies" | "maxManagers" | "maxEmployees"> = {
   admin: "maxAdmins",
   company: "maxCompanies",
   manager: "maxManagers",
-  employee: "maxSalePersons",
+  employee: "maxEmployees",
 };
 
 const usageCounter = async (resource: LimitedResource, tenantUserId: number): Promise<number> => {
@@ -119,7 +119,7 @@ export interface UsageSummary {
   admins: { used: number; limit: number | null };
   companies: { used: number; limit: number | null };
   managers: { used: number; limit: number | null };
-  salePersons: { used: number; limit: number | null };
+  employees: { used: number; limit: number | null };
 }
 
 export const getUsageSummary = async (tenantUserId: number): Promise<UsageSummary> => {
@@ -128,7 +128,7 @@ export const getUsageSummary = async (tenantUserId: number): Promise<UsageSummar
     throw new ServiceError("No active subscription found for this account.", 400, { code: "NO_SUBSCRIPTION" });
   }
 
-  const [admins, companies, managers, salePersons] = await Promise.all([
+  const [admins, companies, managers, employees] = await Promise.all([
     usageCounter("admin", tenantUserId),
     usageCounter("company", tenantUserId),
     usageCounter("manager", tenantUserId),
@@ -139,6 +139,6 @@ export const getUsageSummary = async (tenantUserId: number): Promise<UsageSummar
     admins: { used: admins, limit: subscription.maxAdmins },
     companies: { used: companies, limit: subscription.maxCompanies },
     managers: { used: managers, limit: subscription.maxManagers },
-    salePersons: { used: salePersons, limit: subscription.maxSalePersons },
+    employees: { used: employees, limit: subscription.maxEmployees },
   };
 };

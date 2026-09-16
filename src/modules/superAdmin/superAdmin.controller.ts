@@ -67,3 +67,46 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
     handleServiceError(res, error);
   }
 };
+
+// GET /admin/super-admin/subscriptions — every tenant's subscription, plan,
+// expiry and role-limit usage in one list.
+export const listSubscriptions = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = Number(req.query.page) || 1;
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const offset = (page - 1) * limit;
+    const search = req.query.search ? String(req.query.search) : undefined;
+    const result = await SuperAdminService.listTenantSubscriptions({ page, limit, offset, search });
+    res.status(200).json({ success: true, message: "Subscriptions fetched", data: result });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// GET /admin/super-admin/subscriptions/:id — one tenant's full detail,
+// usage, payment history, and access-audit trail.
+export const getSubscriptionDetail = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) { res.status(400).json({ success: false, message: "Invalid subscription id" }); return; }
+    const result = await SuperAdminService.getTenantSubscriptionDetail(id);
+    res.status(200).json({ success: true, message: "Subscription detail fetched", data: result });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// PATCH /admin/super-admin/subscriptions/:id — update plan limits, access
+// window, or status (suspend/reactivate/cancel/etc).
+export const updateSubscription = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const id = Number(req.params.id);
+    if (!id) { res.status(400).json({ success: false, message: "Invalid subscription id" }); return; }
+    const { reason, ...updates } = req.body || {};
+    const result = await SuperAdminService.updateTenantSubscription(Number(userData.userId), id, updates, reason);
+    res.status(200).json({ success: true, message: "Subscription updated", data: result });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};

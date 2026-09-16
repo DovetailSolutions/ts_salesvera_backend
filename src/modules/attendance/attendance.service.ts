@@ -1928,3 +1928,67 @@ export const getTodayAttendance = async (finalUserId: number) => {
   const plain = typeof (record as any).get === "function" ? (record as any).get({ plain: true }) : record;
   return { ...plain, todayLeave };
 };
+
+// Company holidays for the month the attendance list is showing. The mobile
+// app drives /api/attendancelist as a month calendar (?month=&year=), and a
+// holiday has to render as a non-working day there rather than as a blank
+// (or "absent") cell — but holidays live in their own table, not in
+// Attendance, so the list alone can't tell the two apart. Returned as a
+// sibling `holidays` array keyed by "YYYY-MM-DD" dates so the caller can
+// overlay them on the same month grid without a second round trip.
+// Falls back to the current IST month when no month/year is supplied (the
+// same month withuserlogin's default page would be showing).
+export const getHolidaysForAttendanceMonth = async (
+  finalUserId: number,
+  callerCompanyId: number | null,
+  query: any
+) => {
+  if (!callerCompanyId) return [];
+
+  const now = getISTDateString();
+  const year = Number(query?.year) || Number(now.slice(0, 4));
+  const month = Number(query?.month) || Number(now.slice(5, 7));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return [];
+
+  const mm = String(month).padStart(2, "0");
+  const startDate = `${year}-${mm}-01`;
+  // Date.UTC(y, month, 0) = last day of `month` (month is 1-based here, so
+  // this is day 0 of the NEXT month), read back in UTC so the server's OS
+  // timezone can't shift it to the 30th/1st.
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const endDate = `${year}-${mm}-${String(lastDay).padStart(2, "0")}`;
+
+  const [user, rows] = await Promise.all([
+    User.findByPk(finalUserId, { attributes: ["id", "branchId"] }) as any,
+    AttendanceRepo.findCompanyHolidaysInRange({
+      companyId: Number(callerCompanyId),
+      startDate,
+      endDate,
+    }),
+  ]);
+  const myBranchId = user?.branchId ? Number(user.branchId) : null;
+
+  // createHolidays writes one row per selected branch, so the same holiday can
+  // come back several times for one date. Collapse to one entry per
+  // date+name, preferring the row for the caller's own branch (then a
+  // company-wide branchId = null row) so the calendar shows each holiday once.
+  const byDay = new Map<string, any>();
+  for (const row of rows as any[]) {
+    const plain = typeof row.get === "function" ? row.get({ plain: true }) : row;
+    // DATEONLY already comes back as a plain "YYYY-MM-DD" string.
+    const key = `${plain.holidayDate}|${plain.holidayName}`;
+    const rank = (b: any) => (myBranchId && Number(b) === myBranchId ? 0 : b == null ? 1 : 2);
+    const existing = byDay.get(key);
+    if (existing && rank(existing.branchId) <= rank(plain.branchId)) continue;
+    byDay.set(key, {
+      id: plain.id,
+      holidayDate: plain.holidayDate,
+      holidayName: plain.holidayName,
+      holidayType: plain.holidayType,
+      description: plain.description ?? null,
+      branchId: plain.branchId ?? null,
+    });
+  }
+
+  return [...byDay.values()].sort((a, b) => String(a.holidayDate).localeCompare(String(b.holidayDate)));
+};

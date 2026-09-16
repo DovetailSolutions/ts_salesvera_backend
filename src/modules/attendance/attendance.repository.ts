@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import { sequelize } from "../../config/dbConnection";
-import { User, Attendance, Leave, Company, Shift, Branch, CompanyLeave } from "../../config/dbConnection";
+import { User, Attendance, Leave, Company, Shift, Branch, CompanyLeave, Holiday } from "../../config/dbConnection";
 
 // ============================================================
 // Attendance repository — wraps all direct Sequelize access for this domain.
@@ -227,4 +227,31 @@ export const findLatestAttendanceForDate = (employeeId: number | string, date: s
   Attendance.findOne({
     where: { employee_id: employeeId, date },
     order: [["id", "DESC"]],
+  });
+
+// Company holidays overlapping a date range, for the employee's own branch.
+// `holidayDate` is a DATEONLY column, so the range is compared against plain
+// "YYYY-MM-DD" strings (never Date instants — see the note in
+// middlewear/comman.ts's withuserlogin about Sequelize stringifying a Date
+// for a DATEONLY column in the server's OS timezone).
+// Scoped by companyId only — deliberately NOT by branch in SQL. Holidays are
+// stored one row per selected branch (see holiday.service.ts's createHolidays),
+// but those branchIds are not reliable: company 48's live rows, for instance,
+// point at branch 44/45, which no longer exist in `branches` at all, so an
+// employee of that company (branch 28) matched nothing and got an empty
+// calendar. The caller's branch is applied as a *preference* when picking
+// between duplicate rows for the same day, not as a filter that can hide a
+// company-wide holiday outright — see getHolidaysForAttendanceMonth.
+export const findCompanyHolidaysInRange = (params: {
+  companyId: number;
+  startDate: string;
+  endDate: string;
+}) =>
+  Holiday.findAll({
+    where: {
+      companyId: params.companyId,
+      holidayDate: { [Op.between]: [params.startDate, params.endDate] },
+    },
+    attributes: ["id", "holidayName", "holidayDate", "holidayType", "description", "branchId"],
+    order: [["holidayDate", "ASC"]],
   });

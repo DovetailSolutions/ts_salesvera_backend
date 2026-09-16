@@ -11,6 +11,9 @@ import {
   TenantSetupStatus,
 } from "../../config/dbConnection";
 import * as SetupTracking from "../setupTracking/setupTracking.service";
+import * as SubscriptionRepo from "../subscription/subscription.repository";
+import * as SubscriptionLimit from "../subscription/subscriptionLimit.service";
+import { AccessAuditLog } from "../../config/dbConnection";
 
 // ============================================================
 // Super Admin Service - Handles System-Wide Aggregations,
@@ -566,6 +569,15 @@ export const createUserAsSuperAdmin = async (
     }
   }
 
+  // Same limit enforcement as the self-service register() path
+  // (auth.service.ts) — a super_admin creating an admin/manager/employee
+  // FOR a tenant still counts against that tenant's own subscription; only
+  // super_admin's OWN account (role === "user" tenant bootstrap, or a
+  // brand-new super_admin) is unrestricted.
+  if ((role === "admin" || role === "manager" || role === "employee")) {
+    await SubscriptionLimit.assertCanCreate(role, resolvedTenantId);
+  }
+
   const newUser = await User.create({
     firstName: firstName.trim(),
     lastName: lastName ? lastName.trim() : "",
@@ -583,6 +595,32 @@ export const createUserAsSuperAdmin = async (
 
   if (role === "user" && !resolvedTenantId) {
     await newUser.update({ tenantId: newUser.id as number });
+    // Same trial-subscription bootstrap as auth.service.ts's register() —
+    // this is the OTHER path a brand-new tenant account gets created
+    // through (Super Admin onboarding one directly, rather than
+    // self-signup), and needs the same subscription row for the limit
+    // checks above to ever allow this tenant to hire anyone.
+    try {
+      const trialPlan = await SubscriptionRepo.findTrialPlan();
+      if (trialPlan) {
+        const trialDays = (trialPlan as any).trialDays ?? 90;
+        const startDate = new Date();
+        const endDate = new Date(startDate.getTime() + trialDays * 24 * 60 * 60 * 1000);
+        await SubscriptionRepo.createSubscription({
+          userId: newUser.id as number,
+          planId: (trialPlan as any).id,
+          status: "TRIALING",
+          startDate,
+          endDate,
+          maxAdmins: (trialPlan as any).maxAdmins,
+          maxCompanies: (trialPlan as any).maxCompanies,
+          maxManagers: (trialPlan as any).maxManagers,
+          maxEmployees: (trialPlan as any).maxEmployees,
+        });
+      }
+    } catch (e) {
+      console.error("Failed to create trial subscription for new tenant:", e);
+    }
   }
 
   if (companyId) {
@@ -665,4 +703,170 @@ export const updateUserAsSuperAdmin = async (
     status: user.status,
     updatedAt: (user as any).updatedAt,
   };
+};
+
+// ============================================================
+// Access management — Super Admin oversight of tenant subscriptions
+// (limits, expiry, suspend/reactivate). Built entirely on the existing
+// Subscription/SubscriptionPlan models and subscription.repository.ts's
+// already-written "Super Admin oversight" queries (findAllSubscriptions
+// Paginated/findSubscriptionWithPaymentsById) — those existed since
+// migration 0021 but had no controller/route ever calling them.
+// ============================================================
+
+const REMAINING_DAYS = (endDate: Date) =>
+  Math.ceil((new Date(endDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+// Warning threshold for "expiring soon" — not currently a configurable
+// per-plan/per-tenant field anywhere in the existing schema, so kept as one
+// named constant rather than hardcoding the number inline at every call
+// site (easy to promote to a real config field later without touching the
+// call sites).
+const EXPIRING_SOON_THRESHOLD_DAYS = 7;
+
+const deriveEffectiveStatus = (subscription: any): string => {
+  if (subscription.status === "CANCELLED" || subscription.status === "PAYMENT_FAILED") return subscription.status;
+  const remaining = REMAINING_DAYS(subscription.endDate);
+  if (remaining < 0) return "EXPIRED";
+  if (remaining <= EXPIRING_SOON_THRESHOLD_DAYS) return "EXPIRING_SOON";
+  return subscription.status;
+};
+
+export const listTenantSubscriptions = async (params: { page: number; limit: number; offset: number; search?: string }) => {
+  const { rows, count } = await SubscriptionRepo.findAllSubscriptionsPaginated(params);
+
+  const data = await Promise.all(
+    rows.map(async (sub: any) => {
+      const plain = sub.get({ plain: true });
+      const usage = await SubscriptionLimit.getUsageSummary(plain.userId).catch(() => null);
+      return {
+        id: plain.id,
+        businessCode: plain.businessCode,
+        owner: plain.user,
+        plan: plain.plan,
+        status: plain.status,
+        effectiveStatus: deriveEffectiveStatus(plain),
+        startDate: plain.startDate,
+        endDate: plain.endDate,
+        remainingDays: REMAINING_DAYS(plain.endDate),
+        limits: {
+          admins: usage?.admins ?? { used: 0, limit: plain.maxAdmins },
+          companies: usage?.companies ?? { used: 0, limit: plain.maxCompanies },
+          managers: usage?.managers ?? { used: 0, limit: plain.maxManagers },
+          employees: usage?.employees ?? { used: 0, limit: plain.maxEmployees },
+        },
+      };
+    })
+  );
+
+  return {
+    totalRecords: count,
+    totalPages: Math.ceil(count / params.limit) || 1,
+    currentPage: params.page,
+    data,
+  };
+};
+
+export const getTenantSubscriptionDetail = async (subscriptionId: number) => {
+  const subscription: any = await SubscriptionRepo.findSubscriptionWithPaymentsById(subscriptionId);
+  if (!subscription) throw new ServiceError("Subscription not found", 404);
+
+  const plain = subscription.get({ plain: true });
+  const usage = await SubscriptionLimit.getUsageSummary(plain.userId).catch(() => null);
+  const auditLog = await AccessAuditLog.findAll({
+    where: { entityType: "subscription", entityId: plain.id },
+    order: [["createdAt", "DESC"]],
+    limit: 20,
+  });
+
+  return {
+    ...plain,
+    effectiveStatus: deriveEffectiveStatus(plain),
+    remainingDays: REMAINING_DAYS(plain.endDate),
+    usage,
+    auditLog,
+  };
+};
+
+const VALID_STATUSES = ["TRIALING", "ACTIVE", "PAST_DUE", "CANCELLED", "EXPIRED", "PAYMENT_FAILED", "SUSPENDED"];
+
+export const updateTenantSubscription = async (
+  actorId: number,
+  subscriptionId: number,
+  updates: {
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    maxAdmins?: number | null;
+    maxCompanies?: number | null;
+    maxManagers?: number | null;
+    maxEmployees?: number | null;
+  },
+  reason?: string
+) => {
+  const subscription: any = await SubscriptionRepo.findSubscriptionById(subscriptionId);
+  if (!subscription) throw new ServiceError("Subscription not found", 404);
+
+  const before = {
+    status: subscription.status,
+    startDate: subscription.startDate,
+    endDate: subscription.endDate,
+    maxAdmins: subscription.maxAdmins,
+    maxCompanies: subscription.maxCompanies,
+    maxManagers: subscription.maxManagers,
+    maxEmployees: subscription.maxEmployees,
+  };
+
+  const fields: any = {};
+
+  if (updates.status !== undefined) {
+    if (!VALID_STATUSES.includes(updates.status)) {
+      throw new ServiceError(`status must be one of: ${VALID_STATUSES.join(", ")}`);
+    }
+    fields.status = updates.status;
+  }
+
+  const newStart = updates.startDate !== undefined ? new Date(updates.startDate) : new Date(subscription.startDate);
+  const newEnd = updates.endDate !== undefined ? new Date(updates.endDate) : new Date(subscription.endDate);
+  if (updates.startDate !== undefined) {
+    if (isNaN(newStart.getTime())) throw new ServiceError("startDate is not a valid date");
+    fields.startDate = newStart;
+  }
+  if (updates.endDate !== undefined) {
+    if (isNaN(newEnd.getTime())) throw new ServiceError("endDate is not a valid date");
+    fields.endDate = newEnd;
+  }
+  if (newEnd < newStart) {
+    throw new ServiceError("endDate cannot be earlier than startDate");
+  }
+
+  (["maxAdmins", "maxCompanies", "maxManagers", "maxEmployees"] as const).forEach((field) => {
+    if (updates[field] !== undefined) {
+      const v = updates[field];
+      if (v !== null && (!Number.isInteger(v) || v < 0)) {
+        throw new ServiceError(`${field} must be a non-negative whole number, or null for unlimited`);
+      }
+      fields[field] = v;
+    }
+  });
+
+  if (Object.keys(fields).length === 0) {
+    throw new ServiceError("No changes supplied");
+  }
+
+  await SubscriptionRepo.updateSubscription(subscriptionId, fields);
+
+  const after = { ...before, ...fields };
+  await AccessAuditLog.create({
+    entityType: "subscription",
+    entityId: subscriptionId,
+    action: "updated_by_super_admin",
+    actorId,
+    actorRole: "super_admin",
+    previousValue: before,
+    newValue: after,
+    reason: reason || null,
+  } as any);
+
+  return SubscriptionRepo.findSubscriptionById(subscriptionId);
 };

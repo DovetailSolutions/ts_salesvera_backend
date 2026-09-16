@@ -82,6 +82,8 @@ import { SetupAuditLog } from "../app/model/setupAuditLog";
 import { SubscriptionPlan } from "../app/model/subscriptionPlan";
 import { Subscription } from "../app/model/subscription";
 import { Payment } from "../app/model/payment";
+import { AccessExtensionRequest } from "../app/model/accessExtensionRequest";
+import { AccessAuditLog } from "../app/model/accessAuditLog";
 import { TallyMaster } from "../app/model/tallyMaster";
 import { EmployeeExtraDetails } from "../app/model/employeeExtraDetails";
 import { EmployeeBankAccount } from "../app/model/employeeBankAccount";
@@ -149,6 +151,8 @@ SetupAuditLog.initModel(sequelize);
 SubscriptionPlan.initModel(sequelize);
 Subscription.initModel(sequelize);
 Payment.initModel(sequelize);
+AccessExtensionRequest.initModel(sequelize);
+AccessAuditLog.initModel(sequelize);
 EmployeeExtraDetails.initModel(sequelize);
 EmployeeBankAccount.initModel(sequelize);
 
@@ -343,6 +347,19 @@ User.hasMany(Payment, { foreignKey: "userId", as: "payments" });
 Payment.belongsTo(User, { foreignKey: "userId", as: "user" });
 SubscriptionPlan.hasMany(Payment, { foreignKey: "planId", as: "payments" });
 Payment.belongsTo(SubscriptionPlan, { foreignKey: "planId", as: "plan" });
+
+// Access-management: an AccessExtensionRequest is made BY someone (usually
+// the tenant owner, but a delegated admin could submit on the owner's
+// behalf — see accessExtension.service.ts) FOR a tenant owner's own
+// subscription, and reviewed BY a super_admin.
+User.hasMany(AccessExtensionRequest, { foreignKey: "requestedByUserId", as: "extensionRequestsMade" });
+AccessExtensionRequest.belongsTo(User, { foreignKey: "requestedByUserId", as: "requestedBy" });
+User.hasMany(AccessExtensionRequest, { foreignKey: "ownerUserId", as: "extensionRequestsOwned" });
+AccessExtensionRequest.belongsTo(User, { foreignKey: "ownerUserId", as: "owner" });
+User.hasMany(AccessExtensionRequest, { foreignKey: "reviewedBy", as: "extensionRequestsReviewed" });
+AccessExtensionRequest.belongsTo(User, { foreignKey: "reviewedBy", as: "reviewer" });
+Subscription.hasMany(AccessExtensionRequest, { foreignKey: "subscriptionId", as: "extensionRequests" });
+AccessExtensionRequest.belongsTo(Subscription, { foreignKey: "subscriptionId", as: "subscription" });
 User.belongsToMany(Company, { through: CompanyManager, as: "managedCompanies", foreignKey: "managerId", otherKey: "companyId" });
 CompanyManager.belongsTo(Company, { foreignKey: "companyId", as: "company" });
 CompanyManager.belongsTo(User, { foreignKey: "managerId", as: "manager" });
@@ -1326,5 +1343,7 @@ export {
   SubscriptionPlan,
   Subscription,
   Payment,
+  AccessExtensionRequest,
+  AccessAuditLog,
   TallyMaster,
 };

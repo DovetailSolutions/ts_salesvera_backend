@@ -8,7 +8,7 @@ import { generateBusinessId } from "../../modules/shared/businessId.service";
 // against. See modules/subscription/subscriptionLimit.service.ts for how
 // these limits are enforced.
 //
-// "Unlimited" for any of maxAdmins/maxCompanies/maxManagers/maxSalePersons
+// "Unlimited" for any of maxAdmins/maxCompanies/maxManagers/maxEmployees
 // is represented as NULL — never -1, never 0, never a magic string.
 // Subscription rows snapshot these limits at purchase/upgrade time (see
 // app/model/subscription.ts), so editing a plan's numbers here never
@@ -28,7 +28,7 @@ export interface SubscriptionPlanAttributes {
   maxAdmins: number | null;
   maxCompanies: number | null;
   maxManagers: number | null;
-  maxSalePersons: number | null;
+  maxEmployees: number | null;
   features: Record<string, boolean>;
   isActive: boolean;
   isTrialPlan: boolean;
@@ -48,7 +48,7 @@ type SubscriptionPlanCreationAttributes = Optional<
   | "maxAdmins"
   | "maxCompanies"
   | "maxManagers"
-  | "maxSalePersons"
+  | "maxEmployees"
   | "features"
   | "isActive"
   | "isTrialPlan"
@@ -71,7 +71,7 @@ export class SubscriptionPlan
   public maxAdmins!: number | null;
   public maxCompanies!: number | null;
   public maxManagers!: number | null;
-  public maxSalePersons!: number | null;
+  public maxEmployees!: number | null;
   public features!: Record<string, boolean>;
   public isActive!: boolean;
   public isTrialPlan!: boolean;
@@ -94,7 +94,7 @@ export class SubscriptionPlan
         maxAdmins: { type: DataTypes.INTEGER, allowNull: true },
         maxCompanies: { type: DataTypes.INTEGER, allowNull: true },
         maxManagers: { type: DataTypes.INTEGER, allowNull: true },
-        maxSalePersons: { type: DataTypes.INTEGER, allowNull: true },
+        maxEmployees: { type: DataTypes.INTEGER, allowNull: true },
         features: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
         isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
         isTrialPlan: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },

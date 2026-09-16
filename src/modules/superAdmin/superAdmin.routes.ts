@@ -26,4 +26,9 @@ router.get("/super-admin/users/:id/tree", SuperAdminController.getUserTree);
 router.post("/super-admin/users", SuperAdminController.createUser);
 router.put("/super-admin/users/:id", SuperAdminController.updateUser);
 
+// Access management — tenant subscription/limits/expiry oversight.
+router.get("/super-admin/subscriptions", SuperAdminController.listSubscriptions);
+router.get("/super-admin/subscriptions/:id", SuperAdminController.getSubscriptionDetail);
+router.patch("/super-admin/subscriptions/:id", SuperAdminController.updateSubscription);
+
 export default router;

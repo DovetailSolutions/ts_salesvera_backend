@@ -6,6 +6,7 @@ import { getISTDateString } from "../shared/dateUtils";
 import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import * as CompanyRepo from "./company.repository";
 import * as SetupTracking from "../setupTracking/setupTracking.service";
+import * as SubscriptionLimit from "../subscription/subscriptionLimit.service";
 
 // ============================================================
 // Company service — validation + orchestration. Byte-for-byte port of the
@@ -63,6 +64,17 @@ export const addCompany = async (userId: number, role: any, body: any) => {
 
   const targetUserId = createdBy || (role === "user" ? userId : (body.userId || null));
   const targetAdminId = adminId || (role === "admin" ? userId : null);
+
+  // FIX: same gap as auth.service.ts's register() — company creation had no
+  // subscription-limit enforcement at all. Gated against targetUserId (the
+  // tenant this company will belong to via Company.userId), never a
+  // client-supplied company id. super_admin creating a company on a
+  // tenant's behalf still enforces that TENANT's limit (targetUserId is the
+  // tenant either way) — only a super_admin acting with no tenant context
+  // at all (targetUserId null) is unrestricted.
+  if (targetUserId) {
+    await SubscriptionLimit.assertCanCreate("company", Number(targetUserId));
+  }
 
   const company = await CompanyRepo.createCompany({
     companyName, legalName, registrationNo, gst, pan, industry, companySize,
