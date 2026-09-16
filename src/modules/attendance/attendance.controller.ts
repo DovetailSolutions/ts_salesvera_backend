@@ -227,17 +227,22 @@ export const AttendanceList = async (req: Request, res: Response): Promise<void>
   try {
     const userData = req.userData as JwtPayload;
     const finalUserId = userData?.userId;
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
     const data = req.query;
 
-    const { data: attendanceRows, pagination } = await Middleware.withuserlogin(
-      Attendance,
-      finalUserId,
-      data
-    );
+    // Company holidays for the same month are returned alongside the rows —
+    // the app renders this list as a month calendar and a holiday has no
+    // Attendance row of its own, so without them a holiday is indistinguishable
+    // from a blank/absent day.
+    const [{ data: attendanceRows, pagination }, holidays] = await Promise.all([
+      Middleware.withuserlogin(Attendance, finalUserId, data),
+      AttendanceService.getHolidaysForAttendanceMonth(Number(finalUserId), callerCompanyId, data),
+    ]);
     res.status(200).json({
       success: true,
       message: "Attendance list fetched successfully",
       data: attendanceRows,
+      holidays,
       pagination,
     });
   } catch (error) {

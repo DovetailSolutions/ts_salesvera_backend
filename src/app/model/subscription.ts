@@ -13,7 +13,7 @@ import { generateBusinessId } from "../../modules/shared/businessId.service";
 // (plain STRING, not a Postgres ENUM — same convention as
 // AttendanceRegularization.status elsewhere in this codebase).
 //
-// maxAdmins/maxCompanies/maxManagers/maxSalePersons are SNAPSHOTTED from
+// maxAdmins/maxCompanies/maxManagers/maxEmployees are SNAPSHOTTED from
 // the plan at purchase/upgrade time (NULL = unlimited) — never a live join
 // to subscription_plans — so a later plan edit never retroactively changes
 // an already-purchased subscription's enforced limits.
@@ -41,7 +41,7 @@ export interface SubscriptionAttributes {
   maxAdmins: number | null;
   maxCompanies: number | null;
   maxManagers: number | null;
-  maxSalePersons: number | null;
+  maxEmployees: number | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -58,7 +58,7 @@ type SubscriptionCreationAttributes = Optional<
   | "maxAdmins"
   | "maxCompanies"
   | "maxManagers"
-  | "maxSalePersons"
+  | "maxEmployees"
 >;
 
 export class Subscription
@@ -78,7 +78,7 @@ export class Subscription
   public maxAdmins!: number | null;
   public maxCompanies!: number | null;
   public maxManagers!: number | null;
-  public maxSalePersons!: number | null;
+  public maxEmployees!: number | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -98,7 +98,7 @@ export class Subscription
         maxAdmins: { type: DataTypes.INTEGER, allowNull: true },
         maxCompanies: { type: DataTypes.INTEGER, allowNull: true },
         maxManagers: { type: DataTypes.INTEGER, allowNull: true },
-        maxSalePersons: { type: DataTypes.INTEGER, allowNull: true },
+        maxEmployees: { type: DataTypes.INTEGER, allowNull: true },
       },
       {
         sequelize,

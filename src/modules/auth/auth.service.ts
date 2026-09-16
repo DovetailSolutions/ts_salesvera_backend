@@ -8,6 +8,8 @@ import { resolveDefaultBranchAndShift } from "../shared/companyAccess";
 import { resolveCompanyId } from "../../config/tokenCheck";
 import { SpacesFile } from "../../config/spaces";
 import * as AuthRepo from "./auth.repository";
+import * as SubscriptionLimit from "../subscription/subscriptionLimit.service";
+import * as SubscriptionRepo from "../subscription/subscription.repository";
 import * as SetupTracking from "../setupTracking/setupTracking.service";
 import { issueAccessToken, issueRefreshToken } from "./webToken.service";
 import { createSession, rotateSession, revokeSession, revokeAllSessionsForUser } from "./refreshSession.service";
@@ -124,6 +126,20 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     }
   }
 
+  // FIX: subscriptionLimit.service.ts's assertCanCreate/getUsageSummary
+  // have existed since migration 0021 but were never actually called from
+  // anywhere — every tenant could create unlimited admins/managers/
+  // employees regardless of their plan's configured limits, with zero
+  // enforcement (not even a frontend check). Wired in here at the one
+  // place every admin/manager/employee account is actually created,
+  // against resolvedTenantId (the same tenant whose Subscription snapshot
+  // holds the limit) — never a client-supplied id. super_admin/user
+  // creation is unrestricted (a "user" IS the tenant a subscription
+  // belongs to, not a resource counted against one).
+  if (role === "admin" || role === "manager" || role === "employee") {
+    await SubscriptionLimit.assertCanCreate(role, resolvedTenantId);
+  }
+
   // Check if user with same email exists — scoped to tenant.
   // super_admin and user (tenant roots) are globally unique; admin/manager/
   // employee are unique only within their tenant.
@@ -224,6 +240,41 @@ export const register = async (body: any, callerData?: { userId?: number | strin
   // If this is a tenant root (user role created by super_admin), point tenantId at self
   if (role === "user" && !resolvedTenantId) {
     await item.update({ tenantId: item.getDataValue("id") });
+
+    // FIX: brand-new tenants got NO Subscription row at all (confirmed
+    // against the live database: every existing "user"-role account had
+    // zero subscription rows before migration 0029's backfill) — the
+    // system was modeled and seeded with plans (0021) but nothing ever
+    // actually enrolled a tenant onto one. Now that assertCanCreate above
+    // is wired into admin/manager/employee creation, a tenant with no
+    // subscription row would get "no active subscription" on their very
+    // first hire. Start every new signup on the real seeded trial plan —
+    // existing tenants are grandfathered onto an unlimited, non-expiring
+    // row by that same migration, so this only changes behavior for
+    // accounts created from here on.
+    try {
+      const trialPlan = await SubscriptionRepo.findTrialPlan();
+      if (trialPlan) {
+        const trialDays = (trialPlan as any).trialDays ?? 90;
+        const startDate = new Date();
+        const endDate = new Date(startDate.getTime() + trialDays * 24 * 60 * 60 * 1000);
+        await SubscriptionRepo.createSubscription({
+          userId: item.getDataValue("id"),
+          planId: (trialPlan as any).id,
+          status: "TRIALING",
+          startDate,
+          endDate,
+          maxAdmins: (trialPlan as any).maxAdmins,
+          maxCompanies: (trialPlan as any).maxCompanies,
+          maxManagers: (trialPlan as any).maxManagers,
+          maxEmployees: (trialPlan as any).maxEmployees,
+        });
+      }
+    } catch (e) {
+      // Never block tenant registration over subscription bookkeeping —
+      // same "best-effort, never block" philosophy as SetupTracking below.
+      console.error("Failed to create trial subscription for new tenant:", e);
+    }
   }
 
   if (role === "employee" || role === "manager" || role === "admin" || role === "user") {

@@ -24,6 +24,7 @@ import shiftRoutes from "./modules/shift/shift.routes";
 import allocationRoutes from "./modules/allocation/allocation.routes";
 import departmentRoutes from "./modules/department/department.routes";
 import leaveRoutes from "./modules/leave/leave.routes";
+import accessExtensionRoutes from "./modules/accessExtension/accessExtension.routes";
 import attendanceRoutes from "./modules/attendance/attendance.routes";
 import attendanceSelfRoutes from "./modules/attendance/attendanceSelf.routes";
 import geoFencingRoutes from "./modules/geoFencing/geoFencing.routes";
@@ -65,11 +66,14 @@ const PORT = process.env.PORT || 5000;
 // all (curl, Postman, server-to-server, the mobile app) are still allowed
 // through — CORS only ever governs browser-enforced cross-origin reads,
 // it was never what protected non-browser callers.
+// Every origin is allowed. Set FRONTEND_URL (comma-separated) to go back to
+// an allowlist — see CORS_ALLOW_ALL below.
 const allowedOrigins = FRONTEND_URL.split(",").map((o) => o.trim()).filter(Boolean);
+const CORS_ALLOW_ALL = process.env.CORS_ALLOW_ALL !== "false";
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (CORS_ALLOW_ALL || !origin || allowedOrigins.includes(origin)) return callback(null, true);
       console.warn(`CORS: rejected request from unlisted origin "${origin}" — add it to FRONTEND_URL if legitimate.`);
       return callback(null, false);
     },
@@ -122,10 +126,15 @@ app.use("/admin", managerCapabilitiesRoutes);
 app.use("/admin", employeeProfileRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
-// setupTrackingRoutes is mounted BEFORE superAdminRoutes on purpose — see
-// the FIX note in superAdmin.routes.ts: a path-less router.use(tokenCheck)
-// there previously shadowed any route mounted after it.
+// setupTrackingRoutes and accessExtensionRoutes are mounted BEFORE
+// superAdminRoutes on purpose — see the FIX note in superAdmin.routes.ts: a
+// path-less router.use(tokenCheck) there previously shadowed any route
+// mounted after it, and superAdmin.routes.ts's own "/super-admin"-scoped
+// tokenCheck/authorizeRoles would otherwise still redundantly re-run ahead
+// of accessExtensionRoutes' own identical gate on its "/super-admin/..."
+// routes (harmless either order, but this avoids running it twice).
 app.use("/admin", setupTrackingRoutes);
+app.use("/admin", accessExtensionRoutes);
 app.use("/admin", superAdminRoutes);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {
