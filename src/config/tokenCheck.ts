@@ -184,7 +184,7 @@ export const createTokenCheck = (allowedRoles: string[]) => {
         return res.status(403).json({
           code: 403,
           success: false,
-          message: inactiveAccessMessage(blockedStatus),
+          message: inactiveAccessMessage(blockedStatus, item.role),
           data: { code: "SUBSCRIPTION_INACTIVE", status: blockedStatus },
         });
       }

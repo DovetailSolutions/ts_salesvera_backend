@@ -19,10 +19,12 @@ export const getMyAccessStatus = async (callerId: number, callerRole: string | u
 
   const usage = await getUsageSummary(callerId).catch(() => null);
   const pending = await ExtRepo.findPendingRequestForOwner(callerId);
+  const plan = subscription.planId ? await SubscriptionRepo.findPlanById(subscription.planId) : null;
 
   return {
     subscription: {
       id: subscription.id,
+      plan: plan ? { id: plan.get("id"), name: plan.get("name"), planCode: plan.get("planCode") } : null,
       status: subscription.status,
       startDate: subscription.startDate,
       endDate: subscription.endDate,
