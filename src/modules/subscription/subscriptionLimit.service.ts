@@ -93,8 +93,14 @@ export const getBlockedTenantStatus = async (
   return INACTIVE_STATUSES.includes(subscription.status) ? subscription.status : null;
 };
 
-export const inactiveAccessMessage = (status: string) =>
-  `Your organisation's access is ${status.toLowerCase().replace("_", " ")}. Please contact your account owner to renew access.`;
+// The owner is the one who can fix it (request an extension from Super
+// Admin); everyone else is told to go to the owner.
+export const inactiveAccessMessage = (status: string, role?: string) => {
+  const label = status.toLowerCase().replace("_", " ");
+  return role === "user"
+    ? `Your subscription is ${label}. Request an access extension from Super Admin to continue.`
+    : `Your organisation's access is ${label}. Please contact your account owner to renew access.`;
+};
 
 const LIMIT_FIELD: Record<LimitedResource, "maxAdmins" | "maxCompanies" | "maxManagers" | "maxEmployees"> = {
   admin: "maxAdmins",
