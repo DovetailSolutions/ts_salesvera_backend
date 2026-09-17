@@ -58,6 +58,12 @@ export const getActiveSubscriptionForUser = async (tenantUserId: number) => {
   if (isLive && new Date(subscription.endDate) < new Date()) {
     await SubscriptionRepo.updateSubscription(subscription.id, { status: "EXPIRED" });
     subscription.status = "EXPIRED";
+  } else if (subscription.status === "EXPIRED" && new Date(subscription.endDate) >= new Date()) {
+    // The reverse heal: Super Admin moved the expiry date forward but the
+    // row kept status EXPIRED (e.g. edited before updateTenantSubscription
+    // reactivated on extension) — a future end date means access is live.
+    await SubscriptionRepo.updateSubscription(subscription.id, { status: "ACTIVE" });
+    subscription.status = "ACTIVE";
   }
 
   return subscription;
