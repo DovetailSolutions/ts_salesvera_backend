@@ -3,6 +3,21 @@ import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { User, Company, CompanyManager, CompanyAdmin } from "./dbConnection";
 import { JWT_SECRET } from "./env";
+import { getBlockedTenantStatus, inactiveAccessMessage } from "../modules/subscription/subscriptionLimit.service";
+
+// Routes a tenant owner can still call while their subscription is
+// inactive: session/profile basics plus the access-extension flow.
+const OWNER_ROUTES_WHILE_BLOCKED = new Set([
+  "/admin/getProfile",
+  "/admin/updateProfile",
+  "/admin/updatepassword",
+  "/admin/logout",
+  "/admin/access-status",
+  "/admin/access-extension-requests",
+]);
+
+const isOwnerRouteWhileBlocked = (req: Request) =>
+  OWNER_ROUTES_WHILE_BLOCKED.has(req.originalUrl.split("?")[0].replace(/\/+$/, ""));
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -158,6 +173,19 @@ export const createTokenCheck = (allowedRoles: string[]) => {
           code: "403",
           success: false,
           message: "Forbidden — user not found, inactive, or insufficient role",
+        });
+      }
+
+      // Expired/suspended tenant — checked on every request, not just at
+      // login, so already-open sessions lose access too. The owner keeps
+      // only the routes needed to see their status and request an extension.
+      const blockedStatus = await getBlockedTenantStatus(id, item.role, item.tenantId ?? null);
+      if (blockedStatus && !(item.role === "user" && isOwnerRouteWhileBlocked(req))) {
+        return res.status(403).json({
+          code: 403,
+          success: false,
+          message: inactiveAccessMessage(blockedStatus),
+          data: { code: "SUBSCRIPTION_INACTIVE", status: blockedStatus },
         });
       }
 

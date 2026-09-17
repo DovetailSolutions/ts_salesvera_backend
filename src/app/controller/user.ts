@@ -15,7 +15,9 @@ import {
   createSuccess,
   getSuccess,
   badRequest,
+  forbidden,
 } from "../middlewear/errorMessage";
+import { getBlockedTenantStatus, inactiveAccessMessage } from "../../modules/subscription/subscriptionLimit.service";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { userHasPermission, checkPermission } from "../../config/checkPermission";
 import {
@@ -46,7 +48,6 @@ import {
   UserPermission,
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
-import { ReadableStreamDefaultController } from "stream/web";
 import { getAllSubordinateIds } from "../middlewear/comman";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds } from "../../modules/shared/userHierarchy";
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
@@ -131,8 +132,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     const isPasswordValid = await bcrypt.compare(password, hashedPassword);
     if (!isPasswordValid) {
       badRequest(res, "Invalid email or password");
-      
-      ReadableStreamDefaultController;
+      return;
     }
 
     // ✅ Resolve companyId for token: employee → manager → admin → company
@@ -143,6 +143,13 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
     // ✅ Only employee and manager are allowed to log in
     if (role !== "employee" && role !== "manager") {
       badRequest(res, "Only sale person and manager are allowed to login");
+      return;
+    }
+
+    // ✅ Block login when the tenant's subscription is expired/suspended
+    const blockedStatus = await getBlockedTenantStatus(userId, role, user.getDataValue("tenantId") ?? null);
+    if (blockedStatus) {
+      forbidden(res, inactiveAccessMessage(blockedStatus), { code: "SUBSCRIPTION_INACTIVE", status: blockedStatus });
       return;
     }
 

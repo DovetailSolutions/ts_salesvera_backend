@@ -63,6 +63,39 @@ export const getActiveSubscriptionForUser = async (tenantUserId: number) => {
   return subscription;
 };
 
+// Statuses under which a tenant has no access — shared by assertCanCreate
+// (no new accounts) and getBlockedTenantStatus (no login / API access).
+const INACTIVE_STATUSES = ["CANCELLED", "EXPIRED", "PAYMENT_FAILED", "SUSPENDED"];
+
+// Returns the tenant's inactive subscription status (e.g. "EXPIRED") when
+// the tenant a user belongs to has lost access, or null when access is
+// allowed. Used by login, refresh and tokenCheck so an expired tenant's
+// admins/managers/employees are locked out — not just blocked from creating
+// new accounts. super_admin is never tenant-gated. A tenant with no
+// Subscription row at all is allowed (grandfathered accounts) rather than
+// locked out over missing bookkeeping. `tenantId` is the caller's already-
+// loaded users.tenantId, when available, to avoid a second user lookup.
+export const getBlockedTenantStatus = async (
+  userId: number,
+  role: string,
+  tenantId?: number | null
+): Promise<string | null> => {
+  if (role === "super_admin") return null;
+
+  let tenantUserId: number | null;
+  if (role === "user") tenantUserId = userId;
+  else if (tenantId !== undefined) tenantUserId = tenantId;
+  else tenantUserId = await getOwningTenantUserId(userId, role);
+  if (!tenantUserId) return null;
+
+  const subscription = await getActiveSubscriptionForUser(tenantUserId);
+  if (!subscription) return null;
+  return INACTIVE_STATUSES.includes(subscription.status) ? subscription.status : null;
+};
+
+export const inactiveAccessMessage = (status: string) =>
+  `Your organisation's access is ${status.toLowerCase().replace("_", " ")}. Please contact your account owner to renew access.`;
+
 const LIMIT_FIELD: Record<LimitedResource, "maxAdmins" | "maxCompanies" | "maxManagers" | "maxEmployees"> = {
   admin: "maxAdmins",
   company: "maxCompanies",
@@ -94,7 +127,7 @@ export const assertCanCreate = async (resource: LimitedResource, tenantUserId: n
     );
   }
 
-  if (subscription.status === "CANCELLED" || subscription.status === "EXPIRED" || subscription.status === "PAYMENT_FAILED") {
+  if (INACTIVE_STATUSES.includes(subscription.status)) {
     throw new ServiceError(
       `Your subscription is ${subscription.status.toLowerCase()}. Renew or upgrade your plan to continue.`,
       400,

@@ -504,6 +504,21 @@ export const login = async (body: any, meta: { deviceId?: string | null; userAge
 
   const userId = user.get("id") as number;
 
+  // Expired/suspended tenant: everyone below the owner is locked out. The
+  // owner ("user") may still sign in, but tokenCheck limits them to the
+  // Subscription & Access screen so they can request an extension.
+  const accessBlockedStatus = await SubscriptionLimit.getBlockedTenantStatus(
+    userId,
+    userRole,
+    (user.get("tenantId") as number | null) ?? null
+  );
+  if (accessBlockedStatus && userRole !== "user") {
+    throw new ServiceError(SubscriptionLimit.inactiveAccessMessage(accessBlockedStatus), 403, {
+      code: "SUBSCRIPTION_INACTIVE",
+      status: accessBlockedStatus,
+    });
+  }
+
   const lastLoginCompanyId = user.get("lastLoginCompanyId") as number | null;
   const companyId = await resolveLoginCompanyId(userId, userRole, lastLoginCompanyId);
 
@@ -545,6 +560,7 @@ export const login = async (body: any, meta: { deviceId?: string | null; userAge
       tallyStartDate: user.get("tallyStartDate") || null,
     },
     permissions,
+    accessBlockedStatus,
   };
 };
 
@@ -590,6 +606,20 @@ export const refresh = async (
     throw new ServiceError("Authentication session expired", 401, { code: "REFRESH_USER_INVALID" });
   }
   const role = userRow.get("role") as string;
+  // Same tenant-access gate as login — otherwise a session opened before
+  // the tenant expired would keep refreshing for its full lifetime.
+  const accessBlockedStatus = await SubscriptionLimit.getBlockedTenantStatus(
+    decoded.userId,
+    role,
+    (userRow.get("tenantId") as number | null) ?? null
+  );
+  if (accessBlockedStatus && role !== "user") {
+    await revokeSession(refreshCookieToken);
+    throw new ServiceError(SubscriptionLimit.inactiveAccessMessage(accessBlockedStatus), 401, {
+      code: "SUBSCRIPTION_INACTIVE",
+      status: accessBlockedStatus,
+    });
+  }
   const lastLoginCompanyId = userRow.get("lastLoginCompanyId") as number | null;
   const companyId = await resolveLoginCompanyId(decoded.userId, role, lastLoginCompanyId);
 
@@ -672,7 +702,11 @@ export const getProfile = async (userId: number, role: string, companyId: number
     }
   }
 
-  return { user, permissions, matrix };
+  // Lets the frontend confine an expired tenant's owner to the
+  // Subscription & Access screen (see ProtectedRoute.jsx).
+  const accessBlockedStatus = await SubscriptionLimit.getBlockedTenantStatus(Number(userId), role);
+
+  return { user, permissions, matrix, accessBlockedStatus };
 };
 
 export const updateProfile = async (userId: number, body: any, file: SpacesFile | undefined) => {
