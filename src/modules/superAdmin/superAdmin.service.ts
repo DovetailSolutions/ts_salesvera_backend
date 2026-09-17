@@ -840,6 +840,16 @@ export const updateTenantSubscription = async (
     throw new ServiceError("endDate cannot be earlier than startDate");
   }
 
+  // Extending an expired tenant: the edit form re-submits the status it
+  // loaded ("EXPIRED") alongside the new date, which left the tenant locked
+  // out (login/tokenCheck gate on status) despite a future expiry. A future
+  // end date with status EXPIRED is contradictory — reactivate it.
+  // SUSPENDED/CANCELLED remain the way to cut access before the end date.
+  const resultingStatus = fields.status ?? subscription.status;
+  if (resultingStatus === "EXPIRED" && newEnd >= new Date()) {
+    fields.status = "ACTIVE";
+  }
+
   (["maxAdmins", "maxCompanies", "maxManagers", "maxEmployees"] as const).forEach((field) => {
     if (updates[field] !== undefined) {
       const v = updates[field];
