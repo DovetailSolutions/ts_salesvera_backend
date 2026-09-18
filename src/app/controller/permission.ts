@@ -291,11 +291,16 @@ export const getUserPermissions = async (req: AuthRequest, res: Response): Promi
     // inside the caller's own company-scoped org (super_admin exempt, same
     // as every other permission-management action in this file).
     if (role !== "super_admin" && targetUserId !== Number(callerId)) {
-      const orgIds = await getOrgWideUserIdsForCaller(
-        Number(callerId),
-        String(role),
-        companyId ? Number(companyId) : null
-      );
+      // A manager only ever manages permissions for their own team — the
+      // org-wide set let them read the admin's and other managers' teams'
+      // permission sets too.
+      const orgIds = role === "manager"
+        ? await getCompanyScopedChildUserIds(Number(callerId), companyId ? Number(companyId) : null)
+        : await getOrgWideUserIdsForCaller(
+            Number(callerId),
+            String(role),
+            companyId ? Number(companyId) : null
+          );
       if (!orgIds.includes(targetUserId)) {
         return res.status(403).json({
           success: false,

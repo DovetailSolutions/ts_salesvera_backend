@@ -20,6 +20,14 @@ export interface HolidayRow {
 
 export const bulkCreateHolidays = (rows: HolidayRow[]) => Holiday.bulkCreate(rows as any);
 
+// Existing holidays for the given company on any of the given dates — used to
+// skip re-inserting a holiday that's already there for that branch.
+export const findHolidaysOnDates = (companyId: number | null, dates: string[]) =>
+  Holiday.findAll({
+    where: { companyId: companyId as any, holidayDate: { [Op.in]: dates } } as any,
+    attributes: ["holidayName", "holidayDate", "branchId"],
+  });
+
 export const findHolidayOwnedBy = (id: number, userId: number) =>
   Holiday.findOne({ where: { id, userId } });
 

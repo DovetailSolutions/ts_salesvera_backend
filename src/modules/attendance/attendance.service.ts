@@ -423,11 +423,21 @@ export const attendanceBook = async (userId: number, callerCompanyId: number | n
   // Date.UTC (shifted back by the same offset), is deployment-proof.
   const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
   const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+  // An out-of-range month used to reach the DB as "Invalid date" and a
+  // non-numeric one silently fell back to the current month.
+  if (query.month !== undefined && query.month !== "") {
+    const m = Number(query.month);
+    if (!Number.isInteger(m) || m < 1 || m > 12) throw new ServiceError("month must be between 1 and 12");
+  }
+  if (query.year !== undefined && query.year !== "") {
+    const y = Number(query.year);
+    if (!Number.isInteger(y) || y < 2000 || y > 2100) throw new ServiceError("year is invalid");
+  }
   const month = Number(query.month) || nowIST.getUTCMonth() + 1;
   const year = Number(query.year) || nowIST.getUTCFullYear();
   const search = String(query.search || "");
-  const pageNum = Number(query.page) || 1;
-  const limitNum = Number(query.limit) || 10;
+  const pageNum = Math.max(1, Math.floor(Number(query.page)) || 1);
+  const limitNum = Math.min(Math.max(1, Math.floor(Number(query.limit)) || 10), 200);
   const offset = (pageNum - 1) * limitNum;
 
   const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();

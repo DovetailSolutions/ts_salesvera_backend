@@ -42,6 +42,48 @@ export async function hasCompanyAccess(companyId: number, callerId: number, call
   return false;
 }
 
+// Every company id the caller has a legitimate relationship to, for scoping
+// list endpoints. Returns null for super_admin (no restriction). An employee
+// belongs to exactly the company tokenCheck already resolved for them.
+export async function getAccessibleCompanyIds(
+  callerId: number,
+  callerRole: string,
+  resolvedCompanyId: number | null | undefined
+): Promise<number[] | null> {
+  if (callerRole === "super_admin") return null;
+
+  const ids = new Set<number>();
+  if (resolvedCompanyId != null) ids.add(Number(resolvedCompanyId));
+  if (callerRole === "employee") return Array.from(ids);
+
+  const [owned, adminLinks, managerLinks]: [any[], any[], any[]] = await Promise.all([
+    (Company as any).findAll({
+      where: { [Op.or]: [{ userId: callerId }, { adminId: callerId }] },
+      attributes: ["id"],
+    }),
+    (CompanyAdmin as any).findAll({ where: { adminId: callerId }, attributes: ["companyId"] }),
+    (CompanyManager as any).findAll({ where: { managerId: callerId }, attributes: ["companyId"] }),
+  ]);
+  owned.forEach((c: any) => ids.add(Number(c.id)));
+  adminLinks.forEach((a: any) => ids.add(Number(a.companyId)));
+  managerLinks.forEach((m: any) => ids.add(Number(m.companyId)));
+  return Array.from(ids);
+}
+
+// Bank columns stored directly on the companies row. Only roles that raise
+// quotations/invoices (which print them) need these.
+export const COMPANY_BANK_FIELDS = [
+  "bankAccountHolder", "bankName", "bankAccountNumber", "bankIfsc",
+  "bankBranchName", "bankAccountType", "bankMicr", "upiId",
+] as const;
+
+export const stripCompanyBankFields = (company: any) => {
+  const plain = company?.get ? company.get({ plain: true }) : { ...company };
+  COMPANY_BANK_FIELDS.forEach((f) => delete plain[f]);
+  delete plain.companyBanks;
+  return plain;
+};
+
 // An employee created with no explicit branch/shift falls back to the
 // company's "main" branch (its first-ever registered branch, by id — there's
 // no separate isMain/isHeadOffice flag on Branch) and its first-ever

@@ -56,6 +56,7 @@ import { userHasPermission } from "../../config/checkPermission";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, collectUserCompanyIds } from "../../modules/shared/userHierarchy";
 import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
+import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
 
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
@@ -146,12 +147,12 @@ export const GetAllUser = async (
   try {
     const userData = req.userData as JwtPayload;
 
-    console.log("userData in GetAllUser:", userData); // Debugging line
-
     const { page = 1, limit = 10, search = "", role, shiftId, branchId, departmentId } = req.query;
 
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
+    // Non-numeric/negative page or limit used to reach the SQL layer as
+    // NaN/negative and come back as a raw database error.
+    const pageNum = Math.max(1, Math.floor(Number(page)) || 1);
+    const limitNum = Math.min(Math.max(1, Math.floor(Number(limit)) || 10), 1000);
     const offset = (pageNum - 1) * limitNum;
 
     const loggedInId = userData?.userId;
@@ -190,11 +191,19 @@ export const GetAllUser = async (
     if (departmentId) where.departmentId = Number(departmentId);
 
     if (search) {
+      const term = String(search).trim();
       where[Op.or] = [
-        { firstName: { [Op.iLike]: `%${search}%` } },
-        { lastName: { [Op.iLike]: `%${search}%` } },
-        { email: { [Op.iLike]: `%${search}%` } },
-        { phone: { [Op.iLike]: `%${search}%` } },
+        { firstName: { [Op.iLike]: `%${term}%` } },
+        { lastName: { [Op.iLike]: `%${term}%` } },
+        { email: { [Op.iLike]: `%${term}%` } },
+        { phone: { [Op.iLike]: `%${term}%` } },
+        { employeeCode: { [Op.iLike]: `%${term}%` } },
+        // "Neha Singh" — full-name searches matched nothing when only the
+        // individual name columns were compared.
+        Sequelize.where(
+          Sequelize.fn("concat_ws", " ", Sequelize.col("User.firstName"), Sequelize.col("User.lastName")),
+          { [Op.iLike]: `%${term}%` }
+        ),
       ];
     }
 
@@ -3105,7 +3114,10 @@ export const downloadQuotationPdf = async (req: Request, res: Response) => {
 
     // ─── Fetch quotation record ────────────────────────────────────────────
     const quotation = await Quotations.findByPk(id);
-    if (!quotation) {
+    // FIX: any quotation (customer name/email/mobile/address) was readable
+    // by id with no ownership check. Same visibility as the quotation list:
+    // the caller's own and their team's. Reported exactly like a missing id.
+    if (!quotation || !(await canAccessOwnedRecord(req.userData as JwtPayload, quotation.userId))) {
       badRequest(res, "Quotation not found");
       return;
     }
@@ -3160,41 +3172,68 @@ export const downloadQuotationPdf = async (req: Request, res: Response) => {
     const stamp = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
 
     const filePath = path.join(__dirname, "../../ejs/preview.ejs");
-    const html = await ejs.renderFile(filePath, {
-      ...data,
-      logo,
-      signature,
-      stamp,
-      subtotal,
-      discount,
-      taxableAmount,
-      gstAmount,
-      finalAmount
-    });
+    // Every top-level variable preview.ejs reads. EJS throws a ReferenceError
+    // for any that the quotation JSON lacks — e.g. Tally-imported quotations
+    // have no address/phone/gstin — which failed the whole PDF.
+    const templateDefaults = {
+      companyName: "", address: "", phone: "", email: "", gstin: "",
+      quotationNumber: "", date: "", customerName: "", customerAddress: "",
+      toName: "", toAddress: "", ownstate: "", clientState: "",
+      billToName: "", billToAddress: "", billToState: "", billToCountry: "", billToPincode: "",
+      shipToName: "", shipToAddress: "", shipToState: "", shipToCountry: "", shipToPincode: "",
+      type: "", items: [], notes: "", gstRate: 0, cgst: 0, sgst: 0, igst: 0,
+    };
+    let html: string;
+    try {
+      html = await ejs.renderFile(filePath, {
+        ...templateDefaults,
+        ...data,
+        items: Array.isArray(data.items) ? data.items : [],
+        logo,
+        signature,
+        stamp,
+        subtotal,
+        discount,
+        taxableAmount,
+        gstAmount,
+        finalAmount
+      }) as string;
+    } catch (templateError) {
+      // Logged server-side only — the raw EJS error includes the server's
+      // file path and template source, which must not reach the client.
+      console.error(`Quotation ${id} PDF template render failed:`, templateError);
+      badRequest(res, "Could not generate the PDF for this quotation");
+      return;
+    }
 
     const browser = await puppeteer.launch({
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
-    const page = await browser.newPage();
-    await page.setContent(html as string, { waitUntil: "load" });
-
-    const pdfBuffer = await page.pdf({
-      format: "a4",
-      printBackground: true,
-      margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
-    });
-    await browser.close();
+    let pdfBuffer: Uint8Array;
+    // Closed in finally — a failure while rendering used to leave the
+    // headless Chromium process running.
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html as string, { waitUntil: "load" });
+      pdfBuffer = await page.pdf({
+        format: "a4",
+        printBackground: true,
+        margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
+      });
+    } finally {
+      await browser.close();
+    }
 
     res.set({
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
     });
-    res.send(pdfBuffer);
+    res.send(Buffer.from(pdfBuffer));
 
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    // Generic message to the client; details (paths, Chromium errors) only in the server log.
+    console.error("downloadQuotationPdf error:", error);
+    badRequest(res, "Could not generate the PDF for this quotation");
   }
 }
 
@@ -4068,6 +4107,31 @@ export const getClientDetails = async (req: Request, res: Response): Promise<voi
     if (!client) {
       badRequest(res, "Client not found");
       return;
+    }
+
+    // FIX: any client (contact details, GST/PAN) was readable by id with no
+    // ownership check. Same visibility as the client list (getClient): the
+    // caller's own clients and their company-scoped team's — including a
+    // client someone on the team has met, even if another user created it.
+    if (userData.role !== "super_admin") {
+      const callerId = Number(userData.userId);
+      const teamIds = await getCompanyScopedChildUserIdsFast(
+        callerId,
+        userData.companyId ? Number(userData.companyId) : null
+      );
+      const visibleUserIds = [callerId, ...teamIds];
+      const ownerId = Number((client as any).userId);
+      const ownedByTeam = visibleUserIds.includes(ownerId);
+      const metByTeam = ownedByTeam
+        ? true
+        : !!(await Meeting.findOne({
+            where: { meetingUserId: clientId, userId: { [Op.in]: visibleUserIds } },
+            attributes: ["id"],
+          }));
+      if (!metByTeam) {
+        res.status(403).json({ success: false, message: "You do not have access to this client" });
+        return;
+      }
     }
 
     // 1. User meetings attended with this client
