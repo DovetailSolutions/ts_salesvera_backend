@@ -105,7 +105,7 @@ router.patch("/notifications/:id/read",      tokenCheck, NotificationController.
 router.delete("/notifications/clear-all",    tokenCheck, NotificationController.clearAllNotifications);
 router.delete("/notifications/:id",          tokenCheck, NotificationController.deleteNotification);
 // router.post("/notifications/test",           tokenCheck, NotificationController.testNotification);
-
+// wefgerge
 
 router.post("/create-client", tokenCheck, Controller.createClient);
 // FIX: tally report requires report:view permission.
@@ -132,6 +132,11 @@ router.get("/getbranch",tokenCheck,Controller.getBranchall)
 //     EXACT same behavior as before; a manager gets the team-scoped
 //     version of the same endpoint. No new routes needed for those.
 //
+
+
+
+
+
 //  2. The routes below are genuinely new — employee has no
 //     equivalent capability at all (approve/assign/mark-for-someone-
 //     else/schedule-for-someone-else) — so there's nothing existing to
