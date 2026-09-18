@@ -269,7 +269,10 @@ export const getCompanyManagers = async (companyIdParam: string, userId: number)
   const company = await CompanyRepo.findCompanyOwnedOrAdminBy(companyIdParam, userId);
   if (!company) throw new ServiceError("Company not found");
 
-  return CompanyRepo.findCompanyManagers(Number(companyIdParam));
+  // Skip assignment rows whose manager account no longer exists — they came
+  // back as { manager: null } and inflated the list (4 rows for 3 managers).
+  const assignments = await CompanyRepo.findCompanyManagers(Number(companyIdParam));
+  return (assignments as any[]).filter((a: any) => a.manager != null);
 };
 
 export const getMyCompanies = async (userId: number, role: any) => {
@@ -335,8 +338,8 @@ export const switchCompany = async (userId: number, role: any, body: any) => {
 
   // Issue a new token scoped to the target company
   const { accessToken, refreshToken } = Middleware.CreateToken(String(callerId), role, targetCompanyId);
-
-  await CompanyRepo.updateUserRefreshToken(callerId, refreshToken);
+  // refreshToken is returned to the caller but no longer stored in plain
+  // text on users.refreshToken — nothing ever read that column back.
   // See updateLastLoginCompanyId's doc comment — this is what lets a
   // subsequent /admin/refreshtoken call (now happening far more often,
   // with short-lived access tokens) restore the company the user actually

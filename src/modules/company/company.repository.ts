@@ -173,8 +173,6 @@ export const findManagerCompanyAssignment = (companyId: number, managerId: numbe
     include: [{ model: Company, as: "company", attributes: ["id", "companyName"] }],
   });
 
-export const updateUserRefreshToken = (userId: number, refreshToken: string) =>
-  User.update({ refreshToken }, { where: { id: userId } });
 
 // Persists which company is "active" for this user independent of any
 // token — see auth.service.ts's refresh(), which restores this on every
@@ -250,7 +248,9 @@ export const findOwnedCompaniesByUserId = (userId: number) =>
 
 export const findCompaniesWithFullDetail = (userId: number) =>
   Company.findAll({
-    where: { userId },
+    // A company's primary admin (Company.adminId) owns it too — matching
+    // userId alone returned "No company found" for them.
+    where: { [Op.or]: [{ userId }, { adminId: userId }] },
     include: [
       { model: Branch, as: "branches" },
       { model: Shift, as: "shifts" },

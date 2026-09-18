@@ -89,7 +89,9 @@ export const getTeamLeaveBalances = async (req: Request, res: Response): Promise
     const year = Number(req.query.year) || Number(getISTDateString().slice(0, 4));
     const { page, limit, offset } = getPagination(req);
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
-    const result = await LeaveService.getTeamLeaveBalances(Number(userData?.userId), year, page, limit, offset, callerCompanyId);
+    const result = await LeaveService.getTeamLeaveBalances(
+      Number(userData?.userId), year, page, limit, offset, callerCompanyId, userData?.role, req.query.search as string | undefined
+    );
     createSuccess(res, "Team leave balances fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);
@@ -102,7 +104,9 @@ export const leaveList = async (req: Request, res: Response): Promise<void> => {
     const { status } = req.query;
     const { page, limit, offset } = getPagination(req);
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
-    const result = await LeaveService.leaveList(Number(userData.userId), status, page, limit, offset, callerCompanyId);
+    const result = await LeaveService.leaveList(
+      Number(userData.userId), status, page, limit, offset, callerCompanyId, req.query.search as string | undefined
+    );
     res.status(200).json({
       success: true,
       message: "Leaves fetched successfully",
@@ -162,11 +166,8 @@ export const ownLeave = async (req: Request, res: Response): Promise<void> => {
     const userData = req.userData as JwtPayload;
     const { page, limit, offset } = getPagination(req);
     const result = await LeaveService.ownLeave(Number(userData?.userId), page, limit, offset);
-    if (result.isEmpty) {
-      badRequest(res, "No leaves found");
-      return;
-    }
-    createSuccess(res, "Leave fetched successfully", {
+    // Having no leave yet is a valid, empty result — not a 400.
+    createSuccess(res, result.isEmpty ? "No leaves found" : "Leave fetched successfully", {
       leave: result.leave,
       pagination: result.pagination,
     });

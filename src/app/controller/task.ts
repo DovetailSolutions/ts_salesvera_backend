@@ -2,10 +2,26 @@ import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { Op } from "sequelize";
 import { Task, User } from "../../config/dbConnection";
+import { getCompanyScopedChildUserIds } from "../../modules/shared/userHierarchy";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 const getUser = (req: Request) => (req as any).userData as JwtPayload;
+
+// Manager task visibility for the read endpoints — the same rule as the
+// Socket.IO task board (Notigication/task.ts buildTaskVisibilityWhere): tasks
+// assigned to the manager or their company-scoped team, plus anything they
+// created. Previously only `assignedBy = manager` was applied here, so these
+// endpoints disagreed with both the board and the dashboard's task KPIs.
+const managerTaskVisibility = async (userId: number, companyId: number) => {
+  const teamIds = await getCompanyScopedChildUserIds(userId, companyId);
+  return {
+    [Op.or]: [
+      { assignedTo: { [Op.in]: [userId, ...teamIds] } },
+      { assignedBy: userId },
+    ],
+  };
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /admin/task/create
@@ -98,7 +114,7 @@ export const getAllTasks = async (req: Request, res: Response): Promise<void> =>
     const where: any = { companyId };
 
     if (role === "manager") {
-      where.assignedBy = userId;
+      Object.assign(where, await managerTaskVisibility(Number(userId), Number(companyId)));
     }
 
     if (status)     where.status     = status;
@@ -146,8 +162,13 @@ export const getTaskById = async (req: Request, res: Response): Promise<void> =>
     const { userId, role, companyId } = getUser(req);
     const { id } = req.params;
 
-    const where: any = { id, companyId };
-    if (role === "manager") where.assignedBy = userId;
+    if (!/^\d+$/.test(String(id))) {
+      res.status(400).json({ success: false, message: "A valid task id is required" });
+      return;
+    }
+
+    const where: any = { id: Number(id), companyId };
+    if (role === "manager") Object.assign(where, await managerTaskVisibility(Number(userId), Number(companyId)));
 
     const task = await Task.findOne({
       where,

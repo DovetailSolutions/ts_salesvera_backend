@@ -2,6 +2,7 @@ import { ServiceError } from "../shared/serviceError";
 import { hasCompanyAccess } from "../shared/companyAccess";
 import {
   bulkCreateHolidays,
+  findHolidaysOnDates,
   findHolidayOwnedBy,
   findHolidays,
   HolidayRow,
@@ -70,7 +71,25 @@ export const createHolidays = async (
     }
   }
 
-  return bulkCreateHolidays(holidayData);
+  // FIX: nothing stopped the same holiday being inserted again on every
+  // repeated save/submit — one company ended up with the same holiday 19
+  // times per branch. Skip rows that already exist (same company, date,
+  // branch and name, case-insensitive) or repeat within this request.
+  const holidayKey = (name: string, date: unknown, branch: unknown) =>
+    `${String(name).trim().toLowerCase()}|${String(date).slice(0, 10)}|${Number(branch)}`;
+  const dates = Array.from(new Set(holidayData.map((h) => String(h.holidayDate).slice(0, 10))));
+  const existing = await findHolidaysOnDates(holidayData[0]?.companyId ?? null, dates);
+  const seen = new Set<string>(
+    existing.map((h: any) => holidayKey(h.holidayName, h.holidayDate, h.branchId))
+  );
+  const newRows = holidayData.filter((h) => {
+    const key = holidayKey(h.holidayName, h.holidayDate, h.branchId);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return newRows.length > 0 ? bulkCreateHolidays(newRows) : [];
 };
 
 interface UpdateHolidayInput {

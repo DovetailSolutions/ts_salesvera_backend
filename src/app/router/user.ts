@@ -60,7 +60,11 @@ router.post(
   Controller.CreateExpense
 );
 router.get("/getexpense", tokenCheck, checkPermission("expense", "view"), Controller.GetExpense);
-router.get("/refreshtoken",tokenCheck,Controller.ReFressToken);
+// POST is the correct method for issuing tokens. GET is kept only for
+// existing mobile builds that already call it — the handler no longer
+// writes anything, so GET is now side-effect free.
+router.post("/refreshtoken", tokenCheck, Controller.ReFressToken);
+router.get("/refreshtoken", tokenCheck, Controller.ReFressToken);
 router.get("/my-permissions", tokenCheck, PermissionController.getMyPermissions);
 router.patch("/updatepassword", tokenCheck, Controller.UpdatePassword);
 // Quotation

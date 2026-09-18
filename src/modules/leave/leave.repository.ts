@@ -1,6 +1,25 @@
-import { Op } from "sequelize";
+import { Op, Sequelize } from "sequelize";
 import { Leave, CompanyLeave, EmployeeLeaveTypeBalance, Attendance, User } from "../../config/dbConnection";
 import { getISTDateString } from "../shared/dateUtils";
+
+// Name/email/code search over the team list endpoints below — both accepted
+// `search` from the UI but never applied it, returning the unfiltered page.
+const userSearchWhere = (search?: string) => {
+  const term = String(search ?? "").trim();
+  if (!term) return {};
+  return {
+    [Op.or]: [
+      { firstName: { [Op.iLike]: `%${term}%` } },
+      { lastName: { [Op.iLike]: `%${term}%` } },
+      { email: { [Op.iLike]: `%${term}%` } },
+      { employeeCode: { [Op.iLike]: `%${term}%` } },
+      Sequelize.where(
+        Sequelize.fn("concat_ws", " ", Sequelize.col("User.firstName"), Sequelize.col("User.lastName")),
+        { [Op.iLike]: `%${term}%` }
+      ),
+    ],
+  };
+};
 
 // ============================================================
 // Leave repository — wraps all direct Sequelize access for this domain.
@@ -53,6 +72,7 @@ export const findLeavesForUsersPaginated = (params: {
   status?: any;
   limit: number;
   offset: number;
+  search?: string;
 }) =>
   User.findAndCountAll({
     where: {
@@ -60,6 +80,7 @@ export const findLeavesForUsersPaginated = (params: {
         [Op.in]: params.allUserIds,
         [Op.ne]: params.excludeUserId,
       },
+      ...userSearchWhere(params.search),
     },
     attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "createdAt"],
     include: [
@@ -261,9 +282,9 @@ export const findBalancesForUserIds = (userIds: number[], year: number) =>
     include: [{ model: CompanyLeave, as: "leaveType", attributes: ["id", "leaveName", "leaveCode", "leavesPerYear"] }],
   });
 
-export const findTeamLeaveTypeBalances = (params: { childIds: number[]; year: number; limit: number; offset: number }) =>
+export const findTeamLeaveTypeBalances = (params: { childIds: number[]; year: number; limit: number; offset: number; search?: string }) =>
   User.findAndCountAll({
-    where: { id: { [Op.in]: params.childIds } },
+    where: { id: { [Op.in]: params.childIds }, ...userSearchWhere(params.search) },
     attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role", "createdAt"],
     include: [
       {

@@ -21,13 +21,21 @@ export interface RefreshSessionAttributes {
   userAgent: string | null;
   ipAddress: string | null;
   lastUsedAt: Date | null;
+  // Set when this row is rotated: the id of the session that replaced it.
+  // Distinguishes "revoked by rotation" from "revoked by logout/sweep" —
+  // see rotateSession's grace window.
+  replacedById: number | null;
+  // Shared by every session row descending from one login on one browser
+  // (rotation successors and grace-window siblings). Logout revokes the
+  // whole lineage; other devices have their own.
+  lineageId: number | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 type RefreshSessionCreationAttributes = Optional<
   RefreshSessionAttributes,
-  "id" | "revokedAt" | "deviceId" | "userAgent" | "ipAddress" | "lastUsedAt"
+  "id" | "revokedAt" | "deviceId" | "userAgent" | "ipAddress" | "lastUsedAt" | "replacedById" | "lineageId"
 >;
 
 export class RefreshSession
@@ -43,6 +51,8 @@ export class RefreshSession
   public userAgent!: string | null;
   public ipAddress!: string | null;
   public lastUsedAt!: Date | null;
+  public replacedById!: number | null;
+  public lineageId!: number | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -58,6 +68,8 @@ export class RefreshSession
         userAgent: { type: DataTypes.TEXT, allowNull: true },
         ipAddress: { type: DataTypes.STRING, allowNull: true },
         lastUsedAt: { type: DataTypes.DATE, allowNull: true },
+        replacedById: { type: DataTypes.INTEGER, allowNull: true },
+        lineageId: { type: DataTypes.INTEGER, allowNull: true },
       },
       {
         sequelize,

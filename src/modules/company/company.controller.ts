@@ -1,8 +1,9 @@
 import { buildSpacesUrl } from "../../config/spaces";
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
-import { createSuccess, badRequest } from "../../app/middlewear/errorMessage";
+import { createSuccess, badRequest, forbidden } from "../../app/middlewear/errorMessage";
 import { handleServiceError } from "../shared/handleServiceError";
+import { hasCompanyAccess } from "../shared/companyAccess";
 import * as CompanyService from "./company.service";
 
 // ============================================================
@@ -304,8 +305,14 @@ export const getCompanyBanks = async (req: Request, res: Response): Promise<void
       ? Number(req.query.companyId)
       : (userData.companyId ? Number(userData.companyId) : undefined);
 
-    if (!companyId) {
+    if (!companyId || isNaN(companyId)) {
       badRequest(res, "companyId is required");
+      return;
+    }
+    // Previously any companyId was accepted (another company's simply came
+    // back empty/as a 200) — reject companies the caller has no access to.
+    if (!(await hasCompanyAccess(companyId, Number(userData.userId), userData.role))) {
+      forbidden(res, "You do not have access to this company");
       return;
     }
     const banks = await CompanyService.getCompanyBanks(companyId);

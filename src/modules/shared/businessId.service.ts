@@ -35,7 +35,13 @@ export class BusinessIdError extends Error {}
 // see the migration). Safe under concurrent callers: the SELECT ... FOR
 // UPDATE below blocks any other transaction trying to increment the same
 // entityType's row until this one commits.
-export const generateBusinessId = async (sequelize: Sequelize, entityType: string): Promise<string> => {
+// padWidth is optional and defaults to the existing 3 digits, so every
+// current caller is unchanged; assets use 6 ("AST-000001").
+export const generateBusinessId = async (
+  sequelize: Sequelize,
+  entityType: string,
+  padWidth: number = PAD_WIDTH
+): Promise<string> => {
   return sequelize.transaction(async (t) => {
     const rows = await sequelize.query<{ prefix: string; nextNumber: number }>(
       `SELECT "prefix", "nextNumber" FROM "business_id_sequences" WHERE "entityType" = :entityType FOR UPDATE`,
@@ -55,6 +61,6 @@ export const generateBusinessId = async (sequelize: Sequelize, entityType: strin
       { replacements: { next: assignedNumber + 1, entityType }, transaction: t }
     );
 
-    return `${seq.prefix}${String(assignedNumber).padStart(PAD_WIDTH, "0")}`;
+    return `${seq.prefix}${String(assignedNumber).padStart(padWidth, "0")}`;
   });
 };

@@ -42,6 +42,7 @@ import setupTrackingRoutes from "./modules/setupTracking/setupTracking.routes";
 import announcementRoutes from "./modules/announcement/announcement.routes";
 import managerCapabilitiesRoutes from "./modules/managerCapabilities/managerCapabilities.routes";
 import employeeProfileRoutes from "./modules/employeeProfile/employeeProfile.routes";
+import assetRoutes from "./modules/asset/asset.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -124,6 +125,7 @@ app.use("/admin", meetingRoutes);
 app.use("/admin", announcementRoutes);
 app.use("/admin", managerCapabilitiesRoutes);
 app.use("/admin", employeeProfileRoutes);
+app.use("/admin", assetRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
 // setupTrackingRoutes and accessExtensionRoutes are mounted BEFORE

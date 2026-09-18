@@ -49,8 +49,25 @@ import {
 } from "../../config/dbConnection";
 import * as Middleware from "../middlewear/comman";
 import { getAllSubordinateIds } from "../middlewear/comman";
-import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds, getOrgWideUserIdsForCaller } from "../../modules/shared/userHierarchy";
+
+// Everyone in the caller's company org (the company's admin(s) and their
+// company-scoped trees; a tenant owner gets each company they own), always
+// including the caller. Replaces Middleware.getAllSubordinateIds for the
+// company-wide catalog/report lists below — that helper climbs the creator
+// chain to the TENANT owner, so a tenant with several companies had every
+// company's invoices, Tally report rows and categories mixed together.
+const getCompanyOrgUserIds = async (userData: JwtPayload): Promise<number[]> => {
+  const callerId = Number(userData.userId);
+  const ids = await getOrgWideUserIdsForCaller(
+    callerId,
+    String(userData.role),
+    userData.companyId != null ? Number(userData.companyId) : null
+  );
+  return Array.from(new Set([callerId, ...ids]));
+};
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
+import { getAccessibleCompanyIds, stripCompanyBankFields } from "../../modules/shared/companyAccess";
 import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
@@ -216,8 +233,9 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       companyId
     );
 
-    // ✅ Save refresh token in DB
-    await user.update({ refreshToken });
+    // The refresh token is no longer written to users.refreshToken: nothing
+    // ever read it back (tokens are verified by JWT signature only), so it
+    // was just a long-lived credential stored in plain text.
 
     if (deviceToken) {
       // ✅ Check if this device (token or ID) is already registered
@@ -1524,7 +1542,7 @@ export const getCategory = async (
     const pageLimit = Number(limit);
     const offset = (pageNumber - 1) * pageLimit;
 
-    const allUserIds = await getAllSubordinateIds(userId);
+    const allUserIds = await getCompanyOrgUserIds(userData);
 
     const { count, rows } = await Category.findAndCountAll({
       where: {
@@ -2161,9 +2179,8 @@ export const ReFressToken = async (
       carriedCompanyId
     );
 
-    // update refresh token in DB
-    user.setDataValue("refreshToken", refreshToken); // or user.refreshToken = refreshToken;
-    await user.save();
+    // FIX: no longer persisted (see Login) — this endpoint is now read-only,
+    // so the legacy GET form no longer changes server state.
     createSuccess(res, "Login successful", {
       token: accessToken,
       refreshToken: refreshToken,
@@ -2619,106 +2636,13 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
 
 
 
-export const downloadQuotationPdf = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    // ─── Fetch quotation record ────────────────────────────────────────────
-    const quotation = await Quotations.findByPk(id);
-    if (!quotation) {
-      badRequest(res, "Quotation not found");
-      return;
-    }
-
-    // const data: any = quotation.quotation;
-
-    // // ─── Shared calculations ───────────────────────────────────────────────
-    // const subtotal = (data.items ?? []).reduce((sum: number, item: any) => {
-    //   return sum + Number(item.amount || 0);
-    // }, 0);
-    // const discount      = Number(data.discount  || 0);
-    // const taxableAmount = subtotal - discount;
-    // const gstAmount     = (taxableAmount * Number(data.gstRate || 0)) / 100;
-    // const finalAmount   = taxableAmount + gstAmount;
-
-    // // ─── ?mode=details → return JSON details ──────────────────────────────
-    // if (req.query.mode === "details") {
-    //   createSuccess(res, "Quotation details fetched successfully", {
-    //     id:        quotation.id,
-    //     userId:    quotation.userId,
-    //     companyId: quotation.companyId,
-    //     status:    quotation.status,
-    //     createdAt: (quotation as any).createdAt,
-    //     updatedAt: (quotation as any).updatedAt,
-    //     quotation: {
-    //       ...data,
-    //       subtotal,
-    //       discount,
-    //       taxableAmount,
-    //       gstAmount,
-    //       finalAmount
-    //     }
-    //   });
-    //   return;
-    // }
-
-    // // ─── Default → generate & stream PDF ──────────────────────────────────
-    // const toBase64 = (filePath: string): string => {
-    //   try {
-    //     if (fs.existsSync(filePath)) {
-    //       const ext  = filePath.split(".").pop()?.toLowerCase();
-    //       const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
-    //       const buf  = fs.readFileSync(filePath);
-    //       return `data:${mime};base64,${buf.toString("base64")}`;
-    //     }
-    //   } catch (_) {}
-    //   return "";
-    // };
-
-    // const logo      = toBase64(path.join(__dirname, "../../../uploads/images/logo.jpeg"));
-    // const signature = toBase64(path.join(__dirname, "../../../uploads/signature.png"));
-    // const stamp     = toBase64(path.join(__dirname, "../../../uploads/stamp.png"));
-
-    // const filePath = path.join(__dirname, "../../ejs/preview.ejs");
-    // const html = await ejs.renderFile(filePath, {
-    //   ...data,
-    //   logo,
-    //   signature,
-    //   stamp,
-    //   subtotal,
-    //   discount,
-    //   taxableAmount,
-    //   gstAmount,
-    //   finalAmount
-    // });
-
-    // const browser = await puppeteer.launch({
-    //   args: ["--no-sandbox", "--disable-setuid-sandbox"]
-    // });
-    // const page = await browser.newPage();
-    // await page.setContent(html as string, { waitUntil: "load" });
-
-    // const pdfBuffer = await page.pdf({
-    //   format: "a4",
-    //   printBackground: true,
-    //   margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" }
-    // });
-    // await browser.close();
-
-    // res.set({
-    //   "Content-Type": "application/pdf",
-    //   "Content-Disposition": `attachment; filename=quotation-${data.quotationNumber || id}.pdf`
-    // });
-    // res.send(pdfBuffer);
-
-
-
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
-  }
-}
+// GET /api/downloadquotationpdf/:id — mobile/self-service counterpart of
+// /admin/downloadquotationpdf/:id. FIX: this copy had everything after the
+// quotation lookup commented out, so it never sent a response and every
+// request for an existing id hung until the client timed out. It now uses
+// the same (ownership-checked) implementation as the admin route.
+export const downloadQuotationPdf = (req: Request, res: Response) =>
+  AdminController.downloadQuotationPdf(req as any, res as any);
 
 
 export const getSubCategory = async (req: Request, res: Response) => {
@@ -2731,9 +2655,8 @@ export const getSubCategory = async (req: Request, res: Response) => {
     }
 
     const userData = req.userData as JwtPayload;
-    const userId = Number(userData?.userId);
 
-    const allUserIds = await getAllSubordinateIds(userId);
+    const allUserIds = await getCompanyOrgUserIds(userData);
 
     const subCategory = await SubCategory.findAll({
       where: {
@@ -2808,12 +2731,19 @@ export const getCompany = async (req: Request, res: Response) => {
       state,
     } = req.query;
 
-    const pageNumber = Number(page);
-    const pageSize = Math.min(Number(limit), 50); // safety limit
+    const pageNumber = Math.max(1, Number(page) || 1);
+    const pageSize = Math.min(Math.max(1, Number(limit) || 10), 50); // safety limit
     const offset = (pageNumber - 1) * pageSize;
 
     // ✅ Dynamic where condition
     const whereCondition: any = {};
+
+    // FIX: this listed every company in the system (all tenants, bank
+    // details included) to any authenticated user/manager/employee. Scope it
+    // to the companies the caller actually belongs to.
+    const userData = req.userData as JwtPayload;
+    const accessibleIds = await getAccessibleCompanyIds(Number(userData.userId), userData.role, userData.companyId);
+    if (accessibleIds) whereCondition.id = { [Op.in]: accessibleIds };
 
     // 🔍 Global search
     if (search) {
@@ -2856,7 +2786,7 @@ export const getCompany = async (req: Request, res: Response) => {
       total: count,
       currentPage: pageNumber,
       totalPages: Math.ceil(count / pageSize),
-      data: rows,
+      data: userData.role === "employee" ? rows.map(stripCompanyBankFields) : rows,
     });
   } catch (error) {
     const errorMessage =
@@ -2869,8 +2799,17 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    if (!id) {
-      badRequest(res, "Company id is required");
+    if (!id || isNaN(Number(id))) {
+      badRequest(res, "A valid company id is required");
+      return;
+    }
+
+    // FIX: any company's full record (bank details included) was readable by
+    // id regardless of whether the caller had anything to do with it.
+    const userData = req.userData as JwtPayload;
+    const accessibleIds = await getAccessibleCompanyIds(Number(userData.userId), userData.role, userData.companyId);
+    if (accessibleIds && !accessibleIds.includes(Number(id))) {
+      forbidden(res, "You do not have access to this company");
       return;
     }
 
@@ -2905,7 +2844,7 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
     createSuccess(
       res,
       "Company details fetched successfully",
-      company
+      userData.role === "employee" ? stripCompanyBankFields(company) : company
     );
 
   } catch (error) {
@@ -3300,18 +3239,9 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     const offset = (pageNumber - 1) * pageSize;
 
 
-    // Anchor the hierarchy at the company admin so that all siblings are
-    // included regardless of whether the logged-in user's own junction-table
-    // entries are intact.
-    let hierarchyRootId = Number(userData.userId);
-    if (userData.companyId) {
-      const company = await Company.findByPk(Number(userData.companyId), { attributes: ["adminId"] });
-      if (company?.adminId) {
-        hierarchyRootId = company.adminId;
-      }
-    }
-
-    const allUserIds = await Middleware.getAllSubordinateIds(hierarchyRootId);
+    // Anchored at the company's admin(s) so all siblings are included, but
+    // limited to THIS company (see getCompanyOrgUserIds).
+    const allUserIds = await getCompanyOrgUserIds(userData);
 
     // console.log(">>>>>>>>>>>>>allUserIds>",allUserIds)
 
@@ -3527,6 +3457,17 @@ export const getRecordSale = async (req: Request, res: Response): Promise<void> 
   }
 }
 
+// FIX: get/update/delete by id previously loaded ANY record sale with
+// findByPk — any logged-in user/manager/employee could read, overwrite or
+// delete anyone's record, and an update also silently re-assigned the row
+// to the caller. Scoped to the caller's own records, the same rule as the
+// GET /api/getrecordsale list; another user's id is reported as not found.
+const findOwnRecordSale = async (req: Request, userData: JwtPayload) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return RecordSales.findOne({ where: { id, userId: Number(userData.userId) } });
+};
+
 export const getRecordSaleById = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -3534,12 +3475,7 @@ export const getRecordSaleById = async (req: Request, res: Response): Promise<vo
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { id } = req.params;
-    if (!id) {
-      badRequest(res, "Record sale id is required");
-      return;
-    }
-    const recordSaleData = await RecordSales.findByPk(id);
+    const recordSaleData = await findOwnRecordSale(req, userData);
     if (!recordSaleData) {
       badRequest(res, "Record sale not found");
       return;
@@ -3559,12 +3495,7 @@ export const updateRecordSale = async (req: Request, res: Response): Promise<voi
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { id } = req.params;
-    if (!id) {
-      badRequest(res, "Record sale id is required");
-      return;
-    }
-    const recordSaleData = await RecordSales.findByPk(id);
+    const recordSaleData = await findOwnRecordSale(req, userData);
     if (!recordSaleData) {
       badRequest(res, "Record sale not found");
       return;
@@ -3582,16 +3513,18 @@ export const updateRecordSale = async (req: Request, res: Response): Promise<voi
       badRequest(res, "Sale amount is required");
       return;
     }
+    // Owner (userId) and companyId are left as they are — an edit is not a
+    // transfer of the record.
     const recordSalePayload: any = {
-      userId: userData.userId,
-      companyId: userData.companyId || 0,
       customerName: data.customerName,
       productDescription: data.productDescription,
       saleAmount: data.saleAmount,
       remarks: data.remarks,
       paymentReceived: data.paymentReceived,
     };
-    const updateResult = await RecordSales.update(recordSalePayload, { where: { id } });
+    const updateResult = await RecordSales.update(recordSalePayload, {
+      where: { id: recordSaleData.get("id"), userId: Number(userData.userId) },
+    });
     createSuccess(res, "Record sale updated successfully", updateResult);
   } catch (error) {
     const errorMessage =
@@ -3607,17 +3540,14 @@ export const deleteRecordSale = async (req: Request, res: Response): Promise<voi
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { id } = req.params;
-    if (!id) {
-      badRequest(res, "Record sale id is required");
-      return;
-    }
-    const recordSaleData = await RecordSales.findByPk(id);
+    const recordSaleData = await findOwnRecordSale(req, userData);
     if (!recordSaleData) {
       badRequest(res, "Record sale not found");
       return;
     }
-    const deleteResult = await RecordSales.destroy({ where: { id } });
+    const deleteResult = await RecordSales.destroy({
+      where: { id: recordSaleData.get("id"), userId: Number(userData.userId) },
+    });
     createSuccess(res, "Record sale deleted successfully", deleteResult);
   } catch (error) {
     const errorMessage =
@@ -3657,8 +3587,7 @@ export const getTallyReport = async (req: Request, res: Response): Promise<void>
     // ==============================
     // 🔼 STEP 1: FIND PARENT & ROOT
     // ==============================
-    const allUserIds = await Middleware.getAllSubordinateIds(Number(userData.userId));
-    console.log(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>",allUserIds);
+    const allUserIds = await getCompanyOrgUserIds(userData);
     // ==============================
     // ✅ STEP 2: FILTERS
     // ==============================
@@ -3978,15 +3907,11 @@ export const getDashboardMobile = async (
     // then walk the whole tree down from there via getAllSubordinateIds.
     // Deliberately broader than getCompanyScopedChildUserIds (descendants
     // only), which getSalesPerformance below still uses unchanged.
+    // FIX: getAllSubordinateIds climbed to the TENANT owner, mixing every
+    // company the tenant owns into these counts — now the same company-
+    // scoped org as getInvoice.
     const callerCompanyId = companyId ? Number(companyId) : null;
-    let hierarchyRootId = Number(userId);
-    if (callerCompanyId) {
-      const company = await Company.findByPk(callerCompanyId, { attributes: ["adminId"] });
-      if (company?.adminId) {
-        hierarchyRootId = company.adminId;
-      }
-    }
-    const allUserIds = await getAllSubordinateIds(hierarchyRootId);
+    const allUserIds = await getCompanyOrgUserIds(req.userData as JwtPayload);
 
     const commonFilter = {
       userId: { [Op.in]: allUserIds },
@@ -4281,8 +4206,8 @@ export const getSalesPerformance = async (
 export const getBranchall = async (req: Request, res: Response): Promise<void> => {
   try {
     const { companyId, branchId } = req.query;
-    const page = Number(req.query.page || 1);
-    const limit = Number(req.query.limit || 10);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(Math.max(1, Number(req.query.limit) || 10), 100);
     const offset = (page - 1) * limit;
 
     const whereClause: any = {};
@@ -4291,6 +4216,17 @@ export const getBranchall = async (req: Request, res: Response): Promise<void> =
       whereClause.companyId = Number(companyId);
     } else if (branchId) {
       whereClause.id = Number(branchId);
+    }
+
+    // FIX: with no companyId this returned every company's branches. Always
+    // restrict to the caller's own companies (an explicit companyId outside
+    // them simply matches nothing).
+    const userData = req.userData as JwtPayload;
+    const accessibleIds = await getAccessibleCompanyIds(Number(userData.userId), userData.role, userData.companyId);
+    if (accessibleIds) {
+      whereClause.companyId = companyId
+        ? (accessibleIds.includes(Number(companyId)) ? Number(companyId) : -1)
+        : { [Op.in]: accessibleIds };
     }
 
     const { count, rows } = await Branch.findAndCountAll({

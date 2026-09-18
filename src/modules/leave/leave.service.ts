@@ -586,7 +586,8 @@ export const getTeamLeaveBalances = async (
   limit: number,
   offset: number,
   callerCompanyId: number | null,
-  role?: string
+  role?: string,
+  search?: string
 ) => {
   let childIds: number[] = [];
   if (role === "super_admin" && !callerCompanyId) {
@@ -607,7 +608,7 @@ export const getTeamLeaveBalances = async (
     }) as any[];
   }
 
-  const { rows, count } = await LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset });
+  const { rows, count } = await LeaveRepo.findTeamLeaveTypeBalances({ childIds, year, limit, offset, search });
 
   if (rows.length === 0) {
     return {
@@ -664,7 +665,8 @@ export const leaveList = async (
   page: number,
   limit: number,
   offset: number,
-  callerCompanyId: number | null
+  callerCompanyId: number | null,
+  search?: string
 ) => {
   // Company-scoped team — otherwise a multi-company admin/manager sees the
   // other company's leave requests in this list after switching companies.
@@ -680,6 +682,7 @@ export const leaveList = async (
     status,
     limit,
     offset,
+    search,
   });
 
   return {
