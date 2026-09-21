@@ -46,6 +46,6 @@ router.post("/assets/:id/assign", ...adminOnly, AssetController.assignAsset);
 router.post("/assets/:id/return", ...adminOnly, AssetController.returnAsset);
 router.get("/assets/:id/history", ...adminOnly, AssetController.getAssetHistory);
 
-router.get("/my-assets", tokenCheck, authorizeRoles("employee", "manager"), AssetController.listMyAssets);
+router.get("/my-assets", tokenCheck, authorizeRoles("employee", "manager", "admin", "user"), AssetController.listMyAssets);
 
 export default router;

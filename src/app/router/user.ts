@@ -7,7 +7,9 @@ import * as AdminController from "../controller/admin";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AttendanceController from "../../modules/attendance/attendance.controller";
 import * as MeetingController from "../../modules/meeting/meeting.controller";
+import * as AssetController from "../../modules/asset/asset.controller";
 import { tokenCheck } from "../../config/jwtVerify2";
+import { tokenCheck as allStaffTokenCheck } from "../../config/jwtVerify";
 import { checkPermission, checkInvoiceCreatePermission, checkInvoiceViewPermission } from "../../config/checkPermission";
 import { authorizeRoles } from "../middlewear/rbac";
 import getUploadMiddleware from "../../config/fileUploads";
@@ -117,6 +119,9 @@ router.get("/dashboardmobile",tokenCheck,Controller.getDashboardMobile)
 
 router.get("/getsalesPerformance",tokenCheck,Controller.getSalesPerformance)
 router.get("/getbranch",tokenCheck,Controller.getBranchall)
+
+// ── Assets (self-service) ───────────────────────────────────────────────────
+router.get("/my-assets", allStaffTokenCheck, AssetController.listMyAssets);
 
 // ============================================================
 // Manager mobile — team oversight, mounted flat on this SAME /api
