@@ -239,6 +239,16 @@ export const initChatSocket = (io: Server) => {
     if (!token) return next(new Error("Authentication error"));
     try {
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET!);
+
+      // Same rejection createTokenCheck/optionalTokenCheck apply on the HTTP
+      // side: CreateToken signs access and refresh with the one JWT_SECRET
+      // and only this `type` claim separates them, so without this a 60-day
+      // refresh token opened a fully authenticated socket. Tokens issued
+      // before the claim existed have no `type` and are unaffected.
+      if (decoded?.type === "refresh") {
+        return next(new Error("Authentication error"));
+      }
+
       socket.data.user = decoded;
 
       const { userId, role, companyId } = decoded;

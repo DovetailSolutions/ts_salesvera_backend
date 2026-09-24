@@ -20,7 +20,7 @@ const requestMeta = (req: Request) => ({
 const handleServiceError = (res: Response, error: unknown) => {
   if (error instanceof ServiceError) return badRequest(res, error.message);
   const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-  return badRequest(res, errorMessage, error);
+  return badRequest(res, errorMessage);
 };
 
 export const Register = async (req: Request, res: Response): Promise<void> => {

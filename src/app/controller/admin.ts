@@ -54,7 +54,7 @@ import { sendEmail, forgotpassword } from "../../config/email";
 import { invalidatePermissionCache } from "../../config/permissionCache";
 import { userHasPermission } from "../../config/checkPermission";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, collectUserCompanyIds } from "../../modules/shared/userHierarchy";
-import { resolveDefaultBranchAndShift } from "../../modules/shared/companyAccess";
+import { resolveDefaultBranchAndShift, hasCompanyAccess } from "../../modules/shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
 import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
 
@@ -256,7 +256,6 @@ export const GetAllUser = async (
         { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
         { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
         { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
-        { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
       ],
     });
 
@@ -318,7 +317,7 @@ export const AddCategory = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
     return;
   }
 };
@@ -369,7 +368,7 @@ export const getcategory = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -438,7 +437,7 @@ export const getCategoryWithSubCategories = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -462,7 +461,7 @@ export const categoryDetails = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 export const UpdateCategory = async (
@@ -524,7 +523,7 @@ export const UpdateCategory = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 export const DeleteCategory = async (
@@ -546,7 +545,7 @@ export const DeleteCategory = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -3025,7 +3024,7 @@ export const getSubCategory = async (req: Request, res: Response) => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -3104,7 +3103,7 @@ export const getQuotationPdfList = async (req: Request, res: Response) => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 }
 
@@ -3483,7 +3482,7 @@ export const getMeetingDistance = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -3552,7 +3551,7 @@ export const getFuelExpense = async (req: Request, res: Response) => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -3929,7 +3928,7 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
   }catch(error){
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -4039,7 +4038,7 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -4081,7 +4080,7 @@ export const updateClient = async (req: Request, res: Response): Promise<void> =
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -4208,7 +4207,7 @@ export const getClientDetails = async (req: Request, res: Response): Promise<voi
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -4245,7 +4244,7 @@ export const CategoryStatus = async (req: Request, res: Response): Promise<void>
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -4283,7 +4282,7 @@ export const SubCategoryStatus = async (req: Request, res: Response): Promise<vo
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -5885,6 +5884,24 @@ export const assignAdmin = async(req:Request, res:Response):Promise<void>=>{
   try{
     const userData = req.userData as JwtPayload;
 
+    // FIX: req.params.id went straight into the Company.update() WHERE with
+    // no ownership check at all (userData was read but never used), and the
+    // route carried only tokenCheck — so ANY authenticated caller of ANY
+    // role could re-point ANY company's adminId/managerId at themselves.
+    // Since Company.adminId is one of the relationships hasCompanyAccess()
+    // accepts, that was a self-service escalation into another tenant's
+    // branches/departments/shifts/holidays. Same gate the rest of the
+    // company-scoped modules already apply.
+    const companyId = Number(req.params.id);
+    if (!Number.isInteger(companyId) || companyId <= 0) {
+      badRequest(res, "A valid company id is required");
+      return;
+    }
+    if (!(await hasCompanyAccess(companyId, Number(userData.userId), userData.role as string))) {
+      forbidden(res, "You do not have access to this company");
+      return;
+    }
+
    let obj:any={};
     if(req.body.adminId){
       obj.adminId=req.body.adminId;
@@ -5894,7 +5911,7 @@ export const assignAdmin = async(req:Request, res:Response):Promise<void>=>{
     }
     const item = await Company.update(obj,{
       where:{
-        id:Number(req.params.id)
+        id:companyId
       }
     });
     createSuccess(res, "Admin assigned successfully", item);

@@ -21,7 +21,7 @@ export const addBranch = async (req: Request, res: Response) => {
   } catch (error) {
     if (error instanceof ServiceError) return badRequest(res, error.message);
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    return badRequest(res, errorMessage, error);
+    return badRequest(res, errorMessage);
   }
 };
 
@@ -42,7 +42,7 @@ export const updateBranch = async (req: Request, res: Response) => {
   } catch (error) {
     if (error instanceof ServiceError) return badRequest(res, error.message);
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
-    return badRequest(res, errorMessage, error);
+    return badRequest(res, errorMessage);
   }
 };
 
