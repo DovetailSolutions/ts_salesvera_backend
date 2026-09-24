@@ -116,7 +116,7 @@ export const Register = async (req: Request, res: Response): Promise<void> => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -1515,12 +1515,18 @@ export const scheduled = async (req: Request, res: Response): Promise<void> => {
 
 export const Logout = async (req: Request, res: Response): Promise<void> => {
   try {
+    const userData = req.userData as JwtPayload;
     const { deviceId } = req.body;
     if (!deviceId) {
       badRequest(res, "device ID is missing");
       return;
     }
-    await Device.destroy({ where: { deviceId } });
+    // FIX: deviceId came straight from the body and was matched on its own,
+    // so any authenticated caller could delete ANOTHER user's device row and
+    // silently kill their push notifications. Scope the delete to the
+    // caller's own devices — a real logout always passes its own deviceId,
+    // so nothing legitimate changes.
+    await Device.destroy({ where: { deviceId, userId: Number(userData.userId) } });
     createSuccess(res, "logout sussfully");
   } catch (error) {
     const errorMessage =
@@ -2188,7 +2194,7 @@ export const ReFressToken = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -2234,7 +2240,7 @@ export const UpdatePassword = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
     return;
   }
 };
@@ -2497,7 +2503,7 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
 
   }
 };
@@ -2688,7 +2694,7 @@ export const getSubCategory = async (req: Request, res: Response) => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -2715,7 +2721,7 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 }
 
@@ -2791,7 +2797,7 @@ export const getCompany = async (req: Request, res: Response) => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 
@@ -2850,7 +2856,7 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage, error);
+    badRequest(res, errorMessage);
   }
 };
 

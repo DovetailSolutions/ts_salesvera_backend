@@ -162,7 +162,7 @@ router.post("/update-report",     tokenCheck, checkPermission("report", "export"
 // router.delete("/delete-report/:id",tokenCheck,AdminController.deleteReport);
 
 
-router.patch("/assign-admin/:id", tokenCheck, AdminController.assignAdmin);
+router.patch("/assign-admin/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), AdminController.assignAdmin);
 
 router.get("/getalluser",tokenCheck,AdminController.GetAllUser)
 

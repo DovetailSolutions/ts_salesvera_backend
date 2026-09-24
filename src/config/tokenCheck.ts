@@ -241,6 +241,19 @@ export const optionalTokenCheck = async (
       return next();
     }
 
+    // Same refresh-token rejection createTokenCheck applies above, which
+    // this path was missing: CreateToken signs access AND refresh with the
+    // one JWT_SECRET and only a `type` claim tells them apart, so without
+    // this a 60-day refresh token — the very one /register echoes back in
+    // its own response — authenticated the caller as the creating user on
+    // this route. Degrades the way the rest of this middleware does (carry
+    // on unauthenticated) rather than 401-ing, so an anonymous self-signup
+    // is unaffected. Legacy tokens predating the `type` claim are left
+    // alone (undefined !== "refresh").
+    if ((decoded as any).type === "refresh") {
+      return next();
+    }
+
     const rawId = (decoded as any).userId ?? (decoded as any).id;
     const id = Number(rawId);
 

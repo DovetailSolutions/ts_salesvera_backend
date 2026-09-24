@@ -791,20 +791,37 @@ export const verifyOtp = async (body: any) => {
   if (user.otp !== otp) throw new ServiceError("Invalid OTP");
   if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) throw new ServiceError("OTP has expired");
 
-  user.otp = null;
-  user.otpExpiry = null;
-  await user.save();
+  // Deliberately does NOT consume the OTP any more. This endpoint only tells
+  // the UI whether to advance to the "choose a new password" step; the OTP
+  // is the actual authorisation for the reset, so changePassword below is
+  // what validates and then clears it. Consuming it here was what left
+  // changePassword with nothing left to verify.
 };
 
 export const changePassword = async (body: any) => {
-  const { email, newPassword, tenantId } = body || {};
+  const { email, newPassword, otp, tenantId } = body || {};
   if (!email || !newPassword) throw new ServiceError("Email and new password are required");
+  // FIX: this took only { email, newPassword } and set the password on
+  // whatever account matched — no OTP, no token, no session. POST
+  // /admin/reset-password is mounted with no middleware at all
+  // (auth.routes.ts), so ANY unauthenticated caller who knew an address
+  // could take over ANY account, super_admin included, in one request.
+  // Nothing tied this call to the forgot-password/verify-otp steps that
+  // precede it; the whole flow was enforced client-side only. The OTP is
+  // the reset authorisation, so re-verify it HERE — where the password
+  // actually changes — and consume it so it is strictly single-use.
+  if (!otp) throw new ServiceError("OTP is required");
 
   const loginTenantId = tenantId ? Number(tenantId) : null;
   const user: any = await Middleware.FindByEmailInTenant(User, email, loginTenantId);
   if (!user) throw new ServiceError("User not found");
 
+  if (!user.otp || user.otp !== otp) throw new ServiceError("Invalid OTP");
+  if (!user.otpExpiry || new Date(user.otpExpiry) < new Date()) throw new ServiceError("OTP has expired");
+
   user.set("password", newPassword);
+  user.otp = null;
+  user.otpExpiry = null;
   await user.save();
 };
 
