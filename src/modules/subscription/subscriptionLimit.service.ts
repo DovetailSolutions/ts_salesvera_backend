@@ -1,3 +1,4 @@
+import { sequelize } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import * as SubscriptionRepo from "./subscription.repository";
 
@@ -7,7 +8,9 @@ import * as SubscriptionRepo from "./subscription.repository";
 // razorpay.service.ts and the rest of the checkout/webhook orchestration)
 // so auth.service.ts, company.service.ts, and app/controller/admin.ts can
 // import ONLY this file without risking a circular import back through the
-// full subscription module. Only imports its own repository + ServiceError.
+// full subscription module. Only imports its own repository + ServiceError
+// + the sequelize instance (config/dbConnection, which this file's own
+// repository already depends on — no new cycle).
 // ============================================================
 
 export type LimitedResource = "admin" | "company" | "manager" | "employee";
@@ -99,13 +102,28 @@ export const getBlockedTenantStatus = async (
   return INACTIVE_STATUSES.includes(subscription.status) ? subscription.status : null;
 };
 
-// The owner is the one who can fix it (request an extension from Super
-// Admin); everyone else is told to go to the owner.
+// Roles that may still SIGN IN while their tenant's access is inactive, and
+// which tokenCheck then confines to the access-request routes. Both can file a
+// request (accessExtension.routes.ts allows "user" and "admin"), so locking
+// either out of the app entirely left them with a login error and no route to
+// the one screen that could fix it. Manager and employee stay fully locked
+// out: they cannot request anything, so there is nothing for them to reach.
+export const ROLES_ALLOWED_WHILE_BLOCKED = ["user", "admin"];
+
+export const canSignInWhileBlocked = (role: string | null | undefined): boolean =>
+  !!role && ROLES_ALLOWED_WHILE_BLOCKED.includes(role);
+
+// Both roles that can reach the expired screen are told they can request;
+// everyone else is told to go to the owner.
 export const inactiveAccessMessage = (status: string, role?: string) => {
   const label = status.toLowerCase().replace("_", " ");
-  return role === "user"
-    ? `Your subscription is ${label}. Request an access extension from Super Admin to continue.`
-    : `Your organisation's access is ${label}. Please contact your account owner to renew access.`;
+  if (role === "user") {
+    return `Your subscription is ${label}. Request an access extension from Super Admin to continue.`;
+  }
+  if (role === "admin") {
+    return `Your organisation's access is ${label}. Request an extension from Super Admin, or contact your account owner.`;
+  }
+  return `Your organisation's access is ${label}. Please contact your account owner to renew access.`;
 };
 
 const LIMIT_FIELD: Record<LimitedResource, "maxAdmins" | "maxCompanies" | "maxManagers" | "maxEmployees"> = {
@@ -158,6 +176,100 @@ export const assertCanCreate = async (resource: LimitedResource, tenantUserId: n
       { code: "SUBSCRIPTION_LIMIT_REACHED", resource: resource.toUpperCase(), limit, currentUsage }
     );
   }
+};
+
+// ============================================================
+// Concurrency-safe creation
+// ============================================================
+// assertCanCreate on its own is a classic check-then-act race: it COUNTS
+// existing rows, then its caller INSERTs one, with no interlock between the
+// two. Two requests arriving together for a tenant sitting at 49/50 both
+// count 49, both pass, and both insert — landing the tenant at 51 with a
+// limit of 50. Reproducible with two parallel calls to
+// POST /register (or /bulk-add-saleperson), so "the backend enforces the
+// limit" was only true for strictly serial traffic.
+//
+// Fixed with a PostgreSQL advisory lock keyed on the tenant, held across
+// the count AND the insert, so the critical section is serialized per
+// tenant. Notes on the shape of this:
+//
+//  * The lock is taken as pg_advisory_XACT_lock inside a transaction
+//    because that is what pins the work to ONE pooled connection and
+//    guarantees release (on COMMIT/ROLLBACK, including on a crash).
+//    A session-level pg_advisory_lock would be acquired on whichever
+//    connection the pool handed out and could be released on a different
+//    one — i.e. leaked.
+//
+//  * `create()` deliberately runs WITHOUT that transaction, so its INSERT
+//    commits on its own and is immediately visible to the next waiter's
+//    COUNT. If the insert joined the transaction, waiter B would still be
+//    holding a snapshot from before A committed. The transaction here
+//    exists only to scope the lock, which is why nothing else is put in it
+//    — and why a rollback of it cannot lose a created user.
+//
+//  * Only tenant-scoped resources lock. tenantUserId === null is
+//    super_admin acting outside any tenant (creating another super_admin, a
+//    new tenant owner) — nothing to count, nothing to serialize.
+//
+// Callers keep their existing early assertCanCreate call for a fast, clean
+// error before doing other validation work; this wrapper is the authority
+// that actually holds under concurrency.
+const TENANT_CREATION_LOCK_CLASS = 42001;
+
+export const withCreationLimitLock = async <T>(
+  resource: LimitedResource,
+  tenantUserId: number | null,
+  create: () => Promise<T>
+): Promise<T> => {
+  if (tenantUserId === null) return create();
+
+  return sequelize.transaction(async (t) => {
+    await sequelize.query("SELECT pg_advisory_xact_lock(:lockClass, :tenantId)", {
+      replacements: { lockClass: TENANT_CREATION_LOCK_CLASS, tenantId: tenantUserId },
+      transaction: t,
+    });
+
+    // Re-checked under the lock — this, not the caller's earlier optimistic
+    // check, is what actually enforces the limit.
+    await assertCanCreate(resource, tenantUserId);
+
+    return create();
+  });
+};
+
+// How many more of `resource` this tenant may create right now: a number,
+// or null for unlimited. Used by bulk paths (app/controller/admin.ts's
+// BulkAddSalePerson) that need to know the remaining headroom up front
+// rather than discovering it one rejected row at a time. Must be called
+// INSIDE withCreationLimitLock for the answer to stay true while the bulk
+// insert runs.
+export const getRemainingCapacity = async (
+  resource: LimitedResource,
+  tenantUserId: number | null
+): Promise<number | null> => {
+  if (tenantUserId === null) return null;
+
+  const subscription = await getActiveSubscriptionForUser(tenantUserId);
+  if (!subscription) {
+    throw new ServiceError(
+      "No active subscription found for this account. Please contact support.",
+      400,
+      { code: "NO_SUBSCRIPTION" }
+    );
+  }
+  if (INACTIVE_STATUSES.includes(subscription.status)) {
+    throw new ServiceError(
+      `Your subscription is ${subscription.status.toLowerCase()}. Renew or upgrade your plan to continue.`,
+      400,
+      { code: "SUBSCRIPTION_INACTIVE", status: subscription.status }
+    );
+  }
+
+  const limit = subscription[LIMIT_FIELD[resource]];
+  if (limit === null || limit === undefined) return null; // unlimited
+
+  const currentUsage = await usageCounter(resource, tenantUserId);
+  return Math.max(0, limit - currentUsage);
 };
 
 export interface UsageSummary {

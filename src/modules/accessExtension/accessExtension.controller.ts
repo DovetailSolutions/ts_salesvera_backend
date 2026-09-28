@@ -29,7 +29,10 @@ const getPagination = (req: Request) => {
   return { page, limit, offset };
 };
 
-// GET /admin/access-status — the caller's own subscription/usage/expiry.
+// GET /admin/access-status — the caller's own TENANT's subscription, usage
+// and expiry. Available to the tenant owner ("user") and to an admin of that
+// tenant; the service resolves which tenant that is from the caller's own
+// record, so nothing here is client-controllable.
 export const getMyAccessStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -60,7 +63,13 @@ export const listMyExtensionRequests = async (req: Request, res: Response): Prom
   try {
     const userData = req.userData as JwtPayload;
     const { page, limit, offset } = getPagination(req);
-    const result = await AccessExtensionService.listMyExtensionRequests(Number(userData?.userId), page, limit, offset);
+    const result = await AccessExtensionService.listMyExtensionRequests(
+      Number(userData?.userId),
+      (userData as any)?.role,
+      page,
+      limit,
+      offset
+    );
     createSuccess(res, "Extension requests fetched", result);
   } catch (error) {
     handleServiceError(res, error);
@@ -72,7 +81,13 @@ export const listAllExtensionRequests = async (req: Request, res: Response): Pro
   try {
     const { page, limit, offset } = getPagination(req);
     const status = req.query.status ? String(req.query.status) : undefined;
-    const result = await AccessExtensionService.listAllExtensionRequests(status, page, limit, offset);
+    const requestType = req.query.requestType ? String(req.query.requestType) : undefined;
+    const result = await AccessExtensionService.listAllExtensionRequests(
+      { status, requestType },
+      page,
+      limit,
+      offset
+    );
     createSuccess(res, "Extension requests fetched", result);
   } catch (error) {
     handleServiceError(res, error);
@@ -85,10 +100,17 @@ export const approveExtensionRequest = async (req: Request, res: Response): Prom
     const userData = req.userData as JwtPayload;
     const requestId = Number(req.params.id);
     if (!requestId) { badRequest(res, "A valid request id is required"); return; }
+    // approvedEmployeeLimit is optional: it lets a Super Admin grant a
+    // different number than the tenant asked for. Validated in the service —
+    // this layer never decides what is allowed.
+    const rawApproved = req.body?.approvedEmployeeLimit;
     const request = await AccessExtensionService.approveExtensionRequest(
       Number(userData?.userId),
       requestId,
-      req.body?.reviewComment
+      req.body?.reviewComment,
+      rawApproved === undefined || rawApproved === null || rawApproved === ""
+        ? undefined
+        : { approvedEmployeeLimit: Number(rawApproved) }
     );
     createSuccess(res, "Extension request approved", request);
   } catch (error) {

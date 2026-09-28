@@ -57,6 +57,8 @@ import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, collect
 import { resolveDefaultBranchAndShift, hasCompanyAccess } from "../../modules/shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
 import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
+import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
+import { ServiceError } from "../../modules/shared/serviceError";
 
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
@@ -1189,77 +1191,134 @@ export const BulkAddSalePerson = async (
           const linkedExisting: any[] = [];
           const skippedDuplicate: any[] = [];
           const skippedRoleMismatch: any[] = [];
+          const skippedLimitReached: any[] = [];
 
-          for (const r of validRows) {
-            const existing = existingByEmail.get(r.email);
+          // The count and every insert below run inside ONE per-tenant
+          // advisory lock, so a second concurrent upload (or a single-create
+          // request racing this one) cannot read the same remaining headroom
+          // and overshoot the cap. remaining === null means unlimited.
+          //
+          // Two distinct outcomes, both intentional:
+          //
+          //   NO headroom at all — withCreationLimitLock's own assertCanCreate
+          //     throws before this callback runs, so the whole upload fails
+          //     with 400 + { code: "SUBSCRIPTION_LIMIT_REACHED", limit,
+          //     currentUsage }. That is the useful answer when not one row
+          //     could ever be accepted: the frontend opens the "limit reached /
+          //     request an increase" dialog off that code
+          //     (components/AccessLimitReachedModal.jsx) instead of reporting a
+          //     "successful" upload that created nothing.
+          //
+          //   SOME headroom — the rows that fit are created and the rest come
+          //     back as skippedLimitReached, alongside the batch's other
+          //     per-row skip buckets. Failing the entire CSV because its last
+          //     few rows don't fit would throw away valid work.
+          //
+          // An inactive tenant (expired/suspended) and a tenant with no
+          // subscription row are likewise refused up front by that same
+          // assert, with SUBSCRIPTION_INACTIVE / NO_SUBSCRIPTION.
+          await SubscriptionLimit.withCreationLimitLock("employee", resolvedTenantId, async () => {
+            let remaining = await SubscriptionLimit.getRemainingCapacity("employee", resolvedTenantId);
 
-            if (existing) {
-              if (existing.getDataValue("role") !== "employee") {
-                skippedRoleMismatch.push(r);
+            for (const r of validRows) {
+              const existing = existingByEmail.get(r.email);
+
+              if (existing) {
+                if (existing.getDataValue("role") !== "employee") {
+                  skippedRoleMismatch.push(r);
+                  continue;
+                }
+
+                const alreadyLinked =
+                  ((existing as any).creators || []).length > 0;
+
+                if (alreadyLinked) {
+                  skippedDuplicate.push(r);
+                  continue;
+                }
+
+                await (existing as any).addCreators([creatorId]);
+
+                linkedExisting.push({
+                  id: existing.getDataValue("id"),
+                  firstName: r.firstName,
+                  lastName: r.lastName,
+                  email: r.email,
+                  phone: r.phone,
+                });
+
                 continue;
               }
 
-              const alreadyLinked =
-                ((existing as any).creators || []).length > 0;
-
-              if (alreadyLinked) {
-                skippedDuplicate.push(r);
+              // Employee-limit enforcement for the BULK path. Previously
+              // absent entirely: this loop inserted one User per CSV row with
+              // no subscription check anywhere, so a tenant capped at 50
+              // employees could upload a 1000-row CSV and get all 1000 —
+              // the single-create path's limit (auth.service.ts's register)
+              // was simply not on this code path. Rows past the cap are
+              // reported as skippedLimitReached rather than failing the whole
+              // upload, matching how every other unusable row in this batch
+              // (invalid/duplicate/role-mismatch) is already handled.
+              if (remaining !== null && remaining <= 0) {
+                skippedLimitReached.push(r);
                 continue;
               }
 
-              await (existing as any).addCreators([creatorId]);
+              const tempPassword = generateTempPassword();
 
-              linkedExisting.push({
-                id: existing.getDataValue("id"),
+              const item = await User.create({
                 firstName: r.firstName,
                 lastName: r.lastName,
                 email: r.email,
                 phone: r.phone,
+                dob: r.dob,
+                password: tempPassword,
+                // FIX: was `role: req.body.role` — an unvalidated role taken
+                // straight from the request body. This endpoint is reachable
+                // by admin and manager (see router/admin.ts's
+                // authorizeRoles(...ADMIN_AND_MANAGER) on
+                // /bulk-add-saleperson), so either could upload a CSV with
+                // role=admin — or role=super_admin — and mint accounts above
+                // their own privilege level, while also sidestepping the
+                // employee cap by having the rows counted as a different
+                // resource. The endpoint's entire purpose is employees
+                // (every message, the existing-user role check above, and
+                // the response keys all say so), so the role is pinned here
+                // rather than taken from the caller.
+                role: "employee",
+                createdBy: creatorId,
+                tenantId: resolvedTenantId,
+                branchId: resolvedBranchId,
+                shiftId: resolvedShiftId,
+              } as any);
+
+              await (item as any).setCreators([creatorId]);
+
+              sendEmail(
+                "Welcome to SalesVera - Your Login Credentials",
+                tempPassword,
+                r.email,
+                r.firstName,
+                r.lastName
+              ).catch((err) =>
+                console.error(
+                  `Failed to send credentials email to ${r.email}:`,
+                  err
+                )
+              );
+
+              created.push({
+                id: item.getDataValue("id"),
+                firstName: r.firstName,
+                lastName: r.lastName,
+                email: r.email,
+                phone: r.phone,
+                tempPassword,
               });
 
-              continue;
+              if (remaining !== null) remaining -= 1;
             }
-
-            const tempPassword = generateTempPassword();
-
-            const item = await User.create({
-              firstName: r.firstName,
-              lastName: r.lastName,
-              email: r.email,
-              phone: r.phone,
-              dob: r.dob,
-              password: tempPassword,
-              role: req.body.role,
-              createdBy: creatorId,
-              tenantId: resolvedTenantId,
-              branchId: resolvedBranchId,
-              shiftId: resolvedShiftId,
-            } as any);
-
-            await (item as any).setCreators([creatorId]);
-
-            sendEmail(
-              "Welcome to SalesVera - Your Login Credentials",
-              tempPassword,
-              r.email,
-              r.firstName,
-              r.lastName
-            ).catch((err) =>
-              console.error(
-                `Failed to send credentials email to ${r.email}:`,
-                err
-              )
-            );
-
-            created.push({
-              id: item.getDataValue("id"),
-              firstName: r.firstName,
-              lastName: r.lastName,
-              email: r.email,
-              phone: r.phone,
-              tempPassword,
-            });
-          }
+          });
 
           createSuccess(res, "Bulk sale person upload completed", {
             totalCSV: rows.length,
@@ -1269,10 +1328,20 @@ export const BulkAddSalePerson = async (
             skippedDuplicateInCsv: duplicateInCsv.length,
             skippedDuplicate: skippedDuplicate.length,
             skippedRoleMismatch: skippedRoleMismatch.length,
+            skippedLimitReached: skippedLimitReached.length,
+            limitReachedSalePersons: skippedLimitReached,
             createdSalePersons: created,
             linkedSalePersons: linkedExisting,
           });
         } catch (err) {
+          // A ServiceError here comes from the subscription/limit layer
+          // (no subscription, suspended/expired access). Pass its structured
+          // meta through so the frontend can branch on `code` exactly as it
+          // does for the single-create path, instead of only getting prose.
+          if (err instanceof ServiceError) {
+            badRequest(res, err.message, err.meta);
+            return;
+          }
           badRequest(
             res,
             err instanceof Error

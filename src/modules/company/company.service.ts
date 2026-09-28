@@ -72,31 +72,38 @@ export const addCompany = async (userId: number, role: any, body: any) => {
   // tenant's behalf still enforces that TENANT's limit (targetUserId is the
   // tenant either way) — only a super_admin acting with no tenant context
   // at all (targetUserId null) is unrestricted.
+  // Optimistic pre-check for a clean early error; the binding check is the
+  // one inside withCreationLimitLock below, which holds the per-tenant lock
+  // across both the count and the insert.
   if (targetUserId) {
     await SubscriptionLimit.assertCanCreate("company", Number(targetUserId));
   }
 
-  const company = await CompanyRepo.createCompany({
-    companyName, legalName, registrationNo, gst, pan, industry, companySize,
-    website, companyEmail, companyPhone, city, timezone, currency,
-    bankAccountHolder, bankName, bankAccountNumber, bankIfsc, bankBranchName,
-    bankAccountType, bankMicr, upiId, state, country, zipcode,
-    payrollCycle, lateMarkAfter, autoHalfDayAfter,
-    geoFencingRequired: geoFencingRequired !== undefined ? Boolean(geoFencingRequired) : true,
-    officeLocationRequired: officeLocationRequired !== undefined ? Boolean(officeLocationRequired) : true,
-    overtimeAllowed: overtimeAllowed !== undefined ? Boolean(overtimeAllowed) : false,
-    companyWorkingDays: Array.isArray(companyWorkingDays) ? companyWorkingDays : null,
-    altSaturday: altSaturday !== undefined ? Boolean(altSaturday) : false,
-    casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice,
-    compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry,
-    userId: targetUserId,
-    adminId: targetAdminId,
-    managerId: managerId || null,
-    companyProfileImg: companyProfileImg || null,
-    companyStampImg: companyStampImg || null,
-    companySignatureImg: companySignatureImg || null,
-    vehicleAllowanceRatePerKm: vehicleAllowanceRatePerKm !== undefined ? vehicleAllowanceRatePerKm : null,
-  });
+  const company = await SubscriptionLimit.withCreationLimitLock(
+    "company",
+    targetUserId ? Number(targetUserId) : null,
+    () => CompanyRepo.createCompany({
+      companyName, legalName, registrationNo, gst, pan, industry, companySize,
+      website, companyEmail, companyPhone, city, timezone, currency,
+      bankAccountHolder, bankName, bankAccountNumber, bankIfsc, bankBranchName,
+      bankAccountType, bankMicr, upiId, state, country, zipcode,
+      payrollCycle, lateMarkAfter, autoHalfDayAfter,
+      geoFencingRequired: geoFencingRequired !== undefined ? Boolean(geoFencingRequired) : true,
+      officeLocationRequired: officeLocationRequired !== undefined ? Boolean(officeLocationRequired) : true,
+      overtimeAllowed: overtimeAllowed !== undefined ? Boolean(overtimeAllowed) : false,
+      companyWorkingDays: Array.isArray(companyWorkingDays) ? companyWorkingDays : null,
+      altSaturday: altSaturday !== undefined ? Boolean(altSaturday) : false,
+      casualHolidaysTotal, casualHolidaysPerMonth, casualHolidayNotice,
+      compOffMinHours, compOffExpiryDays, casualCarryForwardLimit, casualCarryForwardExpiry,
+      userId: targetUserId,
+      adminId: targetAdminId,
+      managerId: managerId || null,
+      companyProfileImg: companyProfileImg || null,
+      companyStampImg: companyStampImg || null,
+      companySignatureImg: companySignatureImg || null,
+      vehicleAllowanceRatePerKm: vehicleAllowanceRatePerKm !== undefined ? vehicleAllowanceRatePerKm : null,
+    })
+  );
 
   // When a company is linked to an admin, propagate the creator-user's permissions
   // to that admin scoped to this company. Company is optional — if no adminId, skip.

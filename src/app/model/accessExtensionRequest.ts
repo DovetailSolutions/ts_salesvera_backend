@@ -9,14 +9,25 @@ import { generateBusinessId } from "../../modules/shared/businessId.service";
 // 0029_access_management.ts, not just an application-level check, so a
 // duplicate-submit race can't create two).
 //
-// Deliberately does NOT let the request itself carry a role/limit change —
-// scope is "extend the subscription's endDate," matching what the Super
-// Admin access-management UI actually exposes today. Raising role limits is
-// a separate, existing Super Admin action (PATCH the subscription directly)
-// requiring no employee-side request/approval workflow.
+// Carries one of two request kinds, discriminated by `requestType`
+// (migration 0033_access_limit_requests.ts):
+//
+//   "duration"       -> requestedDurationDays: give this tenant more time
+//                       before the subscription's endDate cuts them off.
+//   "employee_limit" -> requestedEmployeeLimit: raise the tenant's
+//                       maxEmployees cap so they can hire past it.
+//
+// Both share one status machine, one Super Admin review queue and one audit
+// trail rather than living in two near-identical tables. Exactly one field
+// matching the row's requestType is populated — enforced by a CHECK
+// constraint in 0033 as well as in accessExtension.service.ts.
 // ============================================================
 
 export type AccessExtensionStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+// "duration" is the pre-0033 behaviour and stays the column default, so
+// every historical row reads back as the kind of request it actually was.
+export type AccessRequestType = "duration" | "employee_limit";
 
 export interface AccessExtensionRequestAttributes {
   id: number;
@@ -24,7 +35,11 @@ export interface AccessExtensionRequestAttributes {
   requestedByUserId: number;
   ownerUserId: number;
   subscriptionId: number | null;
-  requestedDurationDays: number;
+  requestType: AccessRequestType;
+  requestedDurationDays: number | null;
+  currentEmployeeLimit: number | null;
+  requestedEmployeeLimit: number | null;
+  approvedEmployeeLimit: number | null;
   reason: string;
   status: AccessExtensionStatus;
   reviewedBy: number | null;
@@ -40,6 +55,8 @@ type AccessExtensionRequestCreationAttributes = Optional<
   AccessExtensionRequestAttributes,
   | "id" | "publicId" | "subscriptionId" | "status" | "reviewedBy" | "reviewedAt"
   | "reviewComment" | "previousExpiresAt" | "approvedExpiresAt"
+  | "requestType" | "requestedDurationDays" | "currentEmployeeLimit"
+  | "requestedEmployeeLimit" | "approvedEmployeeLimit"
 >;
 
 export class AccessExtensionRequest
@@ -51,7 +68,11 @@ export class AccessExtensionRequest
   public requestedByUserId!: number;
   public ownerUserId!: number;
   public subscriptionId!: number | null;
-  public requestedDurationDays!: number;
+  public requestType!: AccessRequestType;
+  public requestedDurationDays!: number | null;
+  public currentEmployeeLimit!: number | null;
+  public requestedEmployeeLimit!: number | null;
+  public approvedEmployeeLimit!: number | null;
   public reason!: string;
   public status!: AccessExtensionStatus;
   public reviewedBy!: number | null;
@@ -70,7 +91,11 @@ export class AccessExtensionRequest
         requestedByUserId: { type: DataTypes.INTEGER, allowNull: false },
         ownerUserId: { type: DataTypes.INTEGER, allowNull: false },
         subscriptionId: { type: DataTypes.INTEGER, allowNull: true },
-        requestedDurationDays: { type: DataTypes.INTEGER, allowNull: false },
+        requestType: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "duration" },
+        requestedDurationDays: { type: DataTypes.INTEGER, allowNull: true },
+        currentEmployeeLimit: { type: DataTypes.INTEGER, allowNull: true },
+        requestedEmployeeLimit: { type: DataTypes.INTEGER, allowNull: true },
+        approvedEmployeeLimit: { type: DataTypes.INTEGER, allowNull: true },
         reason: { type: DataTypes.TEXT, allowNull: false },
         status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "pending" },
         reviewedBy: { type: DataTypes.INTEGER, allowNull: true },

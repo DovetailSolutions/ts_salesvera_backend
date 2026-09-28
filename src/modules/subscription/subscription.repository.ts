@@ -1,4 +1,4 @@
-import { Op } from "sequelize";
+import { Op, fn, col } from "sequelize";
 import { User, Company, SubscriptionPlan, Subscription, Payment } from "../../config/dbConnection";
 
 // ============================================================
@@ -17,6 +17,42 @@ export const countActiveUsersByRole = (tenantUserId: number, role: string) =>
 
 export const countCompaniesForTenant = (tenantUserId: number) =>
   Company.count({ where: { userId: tenantUserId } });
+
+// ── Batched usage counters ───────────────────────────────────────────────
+// The per-tenant counters above are correct but N+1 when a LIST of tenants
+// needs usage: superAdmin.service.ts's listTenantSubscriptions was calling
+// getUsageSummary once per row, and each of those issued a subscription
+// lookup plus four separate COUNTs — roughly 5 queries per tenant per page,
+// measured at ~2.5s for one page of the Super Admin access list.
+//
+// These two replace all of it with two grouped queries for the whole page,
+// regardless of how many tenants are on it. Counting rules are kept
+// character-for-character identical to countActiveUsersByRole /
+// countCompaniesForTenant (status <> 'delete', companies by userId) so the
+// list and the detail view can never disagree about the same tenant's usage.
+export const countUsersByRoleForTenants = (tenantUserIds: number[]) => {
+  if (tenantUserIds.length === 0) return Promise.resolve([] as any[]);
+  return User.findAll({
+    where: {
+      tenantId: { [Op.in]: tenantUserIds },
+      role: { [Op.in]: ["admin", "manager", "employee"] },
+      status: { [Op.ne]: "delete" },
+    },
+    attributes: ["tenantId", "role", [fn("COUNT", col("id")), "count"]],
+    group: ["tenantId", "role"],
+    raw: true,
+  }) as unknown as Promise<Array<{ tenantId: number; role: string; count: string }>>;
+};
+
+export const countCompaniesForTenants = (tenantUserIds: number[]) => {
+  if (tenantUserIds.length === 0) return Promise.resolve([] as any[]);
+  return Company.findAll({
+    where: { userId: { [Op.in]: tenantUserIds } },
+    attributes: ["userId", [fn("COUNT", col("id")), "count"]],
+    group: ["userId"],
+    raw: true,
+  }) as unknown as Promise<Array<{ userId: number; count: string }>>;
+};
 
 export const findActivePlans = () =>
   SubscriptionPlan.findAll({ where: { isActive: true }, order: [["sortOrder", "ASC"]] });
@@ -47,6 +83,21 @@ export const findExpiredLiveSubscriptions = () =>
       status: { [Op.in]: ["TRIALING", "ACTIVE", "PAST_DUE"] },
       endDate: { [Op.lt]: new Date() },
     },
+  });
+
+// Live subscriptions whose endDate falls inside the next `days` — the input
+// to the daily expiry-warning sweep (accessExpirySweep.service.ts). Only the
+// four columns the sweep actually needs, not whole Subscription rows, since
+// this scans every tenant. Served by the (status, endDate) index added in
+// migration 0033.
+export const findLiveSubscriptionsExpiringWithin = (days: number) =>
+  Subscription.findAll({
+    where: {
+      status: { [Op.in]: ["TRIALING", "ACTIVE", "PAST_DUE"] },
+      endDate: { [Op.between]: [new Date(), new Date(Date.now() + days * 24 * 60 * 60 * 1000)] },
+    },
+    attributes: ["id", "userId", "status", "endDate"],
+    order: [["endDate", "ASC"]],
   });
 
 export const createPayment = (row: any) => Payment.create(row);

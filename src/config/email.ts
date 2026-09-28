@@ -2,6 +2,26 @@ import dotenv from "dotenv";
 import nodemailer from "nodemailer";
 dotenv.config();
 
+// The "Login Now" button in the credentials email pointed at
+// https://yourapp.com/login - a placeholder that shipped unreplaced, so
+// every new account received a dead link. Resolved at send time (not at
+// module load) so a late-loading env is still picked up.
+//
+// FRONTEND_URL is the same value the CORS allowlist uses and may be a
+// comma-separated list, so take the first entry. APP_LOGIN_URL overrides it
+// outright when the login page is not simply <frontend>/login. The final
+// fallback is the real production site rather than localhost: an unset
+// FRONTEND_URL on a server would otherwise mail out a localhost link.
+export const getLoginUrl = (): string => {
+  const explicit = (process.env.APP_LOGIN_URL || "").trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  const first = (process.env.FRONTEND_URL || "").split(",")[0].trim().replace(/\/+$/, "");
+  if (first) return first + "/login";
+
+  return "https://salesvera.com/login";
+};
+
 // const transporter = nodemailer.createTransport({
 //   host: "live.smtp.mailtrap.io",  // ✅ correct host
 //   port: 587,                      // ✅ use 587 (TLS) instead of 465
@@ -42,6 +62,8 @@ Here are your login details:
 Email: ${email}
 Password: ${password}
 
+Log in here: ${getLoginUrl()}
+
 Please change your password after your first login for security.
 
 Best regards,  
@@ -62,7 +84,7 @@ Support Team
           <p>👉 You can log in anytime to explore our services and manage your account.</p>
 
           <div style="margin:20px 0;">
-            <a href="https://yourapp.com/login" 
+            <a href="${getLoginUrl()}" 
                style="background:#4CAF50; color:#fff; padding:10px 18px; text-decoration:none; border-radius:5px; font-weight:bold;">
                Login Now
             </a>

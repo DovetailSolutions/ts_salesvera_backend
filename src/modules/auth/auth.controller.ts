@@ -18,7 +18,16 @@ const requestMeta = (req: Request) => ({
 // ============================================================
 
 const handleServiceError = (res: Response, error: unknown) => {
-  if (error instanceof ServiceError) return badRequest(res, error.message);
+  // FIX: error.meta was dropped here, so a ServiceError's structured payload
+  // never reached the client on any auth route — including register()'s
+  // subscription-limit refusal, whose
+  // { code: "SUBSCRIPTION_LIMIT_REACHED", resource, limit, currentUsage }
+  // arrived as an empty {}. The frontend could then only show the prose
+  // message and had no code to branch on, so "employee limit reached" was
+  // indistinguishable from any other 400. Forwarded the same way
+  // accessExtension.controller.ts already does it. Additive: responses that
+  // carry no meta still send {} exactly as before.
+  if (error instanceof ServiceError) return badRequest(res, error.message, error.meta);
   const errorMessage = error instanceof Error ? error.message : "Something went wrong";
   return badRequest(res, errorMessage);
 };
