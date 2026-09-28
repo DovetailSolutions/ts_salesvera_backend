@@ -136,7 +136,13 @@ export const register = async (body: any, callerData?: { userId?: number | strin
   // holds the limit) — never a client-supplied id. super_admin/user
   // creation is unrestricted (a "user" IS the tenant a subscription
   // belongs to, not a resource counted against one).
-  if (role === "admin" || role === "manager" || role === "employee") {
+  // This early call stays purely so a limit-reached caller gets a clean
+  // error BEFORE the email/role/branch validation work below. It is NOT the
+  // enforcement point on its own — two concurrent requests can both pass
+  // it. The authoritative re-check happens under a per-tenant advisory lock
+  // at the actual insert (withCreationLimitLock, further down).
+  const isLimitedRole = role === "admin" || role === "manager" || role === "employee";
+  if (isLimitedRole) {
     await SubscriptionLimit.assertCanCreate(role, resolvedTenantId);
   }
 
@@ -235,7 +241,16 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     departmentId: resolvedDepartmentId,
     ...(primaryCreatorId && !isNaN(primaryCreatorId) ? { createdBy: primaryCreatorId } : {}),
   };
-  const item = await AuthRepo.createUser(obj);
+  // Counting and inserting are serialized per tenant here so a burst of
+  // concurrent hires cannot slip past the limit between the count and the
+  // insert (see withCreationLimitLock). Unlimited/untenanted creation
+  // (super_admin, a new tenant owner) passes a null tenant and takes no
+  // lock, behaving exactly as before.
+  const item = await SubscriptionLimit.withCreationLimitLock(
+    role as any,
+    isLimitedRole ? resolvedTenantId : null,
+    () => AuthRepo.createUser(obj)
+  );
 
   // If this is a tenant root (user role created by super_admin), point tenantId at self
   if (role === "user" && !resolvedTenantId) {
@@ -504,15 +519,20 @@ export const login = async (body: any, meta: { deviceId?: string | null; userAge
 
   const userId = user.get("id") as number;
 
-  // Expired/suspended tenant: everyone below the owner is locked out. The
-  // owner ("user") may still sign in, but tokenCheck limits them to the
-  // Subscription & Access screen so they can request an extension.
+  // Expired/suspended tenant. The owner ("user") AND the tenant's admins may
+  // still sign in — tokenCheck then confines them to the access-request
+  // routes, so they land on the expired screen and can ask Super Admin for an
+  // extension or a higher limit. Manager/employee are locked out at login:
+  // they cannot file a request, so there is nothing for them to sign in to.
+  // (Previously admin was refused here, which meant an admin of an expired
+  // tenant got a login error and had no way to request anything, even though
+  // the request endpoints accept them.)
   const accessBlockedStatus = await SubscriptionLimit.getBlockedTenantStatus(
     userId,
     userRole,
     (user.get("tenantId") as number | null) ?? null
   );
-  if (accessBlockedStatus && userRole !== "user") {
+  if (accessBlockedStatus && !SubscriptionLimit.canSignInWhileBlocked(userRole)) {
     throw new ServiceError(SubscriptionLimit.inactiveAccessMessage(accessBlockedStatus), 403, {
       code: "SUBSCRIPTION_INACTIVE",
       status: accessBlockedStatus,
@@ -613,7 +633,7 @@ export const refresh = async (
     role,
     (userRow.get("tenantId") as number | null) ?? null
   );
-  if (accessBlockedStatus && role !== "user") {
+  if (accessBlockedStatus && !SubscriptionLimit.canSignInWhileBlocked(role)) {
     await revokeSession(refreshCookieToken);
     throw new ServiceError(SubscriptionLimit.inactiveAccessMessage(accessBlockedStatus), 401, {
       code: "SUBSCRIPTION_INACTIVE",

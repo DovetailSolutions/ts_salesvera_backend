@@ -14,6 +14,7 @@ import * as SetupTracking from "../setupTracking/setupTracking.service";
 import * as SubscriptionRepo from "../subscription/subscription.repository";
 import * as SubscriptionLimit from "../subscription/subscriptionLimit.service";
 import { AccessAuditLog } from "../../config/dbConnection";
+import * as AccessNotify from "../accessExtension/accessNotification.service";
 
 // ============================================================
 // Super Admin Service - Handles System-Wide Aggregations,
@@ -205,6 +206,39 @@ export const getUsersList = async (params: {
 
   const creatorIds: number[] = Array.from(new Set(rows.map((u) => u.createdBy).filter((id): id is number => typeof id === "number")));
   const creatorsMap = new Map<number, { id: number; name: string; email: string }>();
+
+  // FIX: parentUser was resolved purely from users.createdBy, which is NULL
+  // for every row in the table — so this page's "Parent User" column rendered
+  // "—" for all 143 users, on the one screen whose entire job is showing the
+  // org hierarchy. The hierarchy actually lives in the UserCreators junction
+  // (the same "creators" association GetAllUser reads, and the same table
+  // getCompanyScopedChildUserIdsFast walks). Batched into one query, and only
+  // used as a FALLBACK so any row that does start populating createdBy keeps
+  // its current behaviour.
+  const junctionParentMap = new Map<number, { id: number; name: string; email: string }>();
+  if (userIds.length > 0) {
+    const withCreators: any[] = await User.findAll({
+      where: { id: { [Op.in]: userIds } },
+      attributes: ["id"],
+      include: [
+        {
+          model: User,
+          as: "creators",
+          attributes: ["id", "firstName", "lastName", "email"],
+          through: { attributes: [] },
+          required: false,
+        },
+      ],
+    });
+    withCreators.forEach((row: any) => {
+      // A user can carry more than one creator row; the lowest id is the
+      // earliest link, which is the one that reflects who actually created them.
+      const parent = (row.creators || []).slice().sort((a: any, b: any) => a.id - b.id)[0];
+      if (!parent) return;
+      const name = [parent.firstName, parent.lastName].filter(Boolean).join(" ") || parent.email || "User #" + parent.id;
+      junctionParentMap.set(row.id as number, { id: parent.id, name, email: parent.email || "" });
+    });
+  }
   if (creatorIds.length > 0) {
     const creators = await User.findAll({
       where: { id: { [Op.in]: creatorIds } },
@@ -267,19 +301,34 @@ export const getUsersList = async (params: {
     });
   }
 
+  // FIX: this grouped on users.createdBy, which is NULL for every row in the
+  // table — so the "Child Users" column rendered 0 for all 143 users. Same dead
+  // column that blanked parentUser. The live signal is tenantId (100% populated
+  // for admin/manager/employee), which is also what the breakdown below needs,
+  // so both come from one grouped query instead of two.
   const childCountsMap = new Map<number, number>();
+  const teamBreakdownMap = new Map<number, { admins: number; managers: number; employees: number; total: number }>();
   if (userIds.length > 0) {
-    const childCounts = await User.findAll({
-      attributes: ["createdBy", [Sequelize.fn("COUNT", Sequelize.col("id")), "count"]],
-      where: { createdBy: { [Op.in]: userIds }, status: { [Op.ne]: "delete" } },
-      group: ["createdBy"],
+    const teamRows: any[] = await User.findAll({
+      attributes: ["tenantId", "role", [Sequelize.fn("COUNT", Sequelize.col("id")), "count"]],
+      where: { tenantId: { [Op.in]: userIds }, status: { [Op.ne]: "delete" } },
+      group: ["tenantId", "role"],
       raw: true,
     });
-    childCounts.forEach((c: any) => {
-      if (c.createdBy) {
-        childCountsMap.set(Number(c.createdBy), Number(c.count));
-      }
+    teamRows.forEach((r: any) => {
+      const tid = Number(r.tenantId);
+      if (!tid) return;
+      const entry = teamBreakdownMap.get(tid) || { admins: 0, managers: 0, employees: 0, total: 0 };
+      const n = Number(r.count) || 0;
+      if (r.role === "admin") entry.admins += n;
+      else if (r.role === "manager") entry.managers += n;
+      else if (r.role === "employee") entry.employees += n;
+      // A tenant owner never sits under another tenant, so "user" rows here are
+      // noise; keep them out of the total rather than double-counting a tenant.
+      if (r.role !== "user") entry.total += n;
+      teamBreakdownMap.set(tid, entry);
     });
+    teamBreakdownMap.forEach((v, k) => childCountsMap.set(k, v.total));
   }
 
   // Setup status is only meaningful for tenant-root ("user") rows — batched
@@ -316,10 +365,12 @@ export const getUsersList = async (params: {
   const formattedRows = rows.map((u) => {
     const userObj = u.toJSON() as any;
     const uid = u.id as number;
-    userObj.parentUser = u.createdBy ? creatorsMap.get(u.createdBy) || null : null;
+    userObj.parentUser =
+      (u.createdBy ? creatorsMap.get(u.createdBy) : null) || junctionParentMap.get(uid) || null;
     userObj.companies = companiesMap.get(uid) || [];
     userObj.companiesCount = userObj.companies.length;
     userObj.childUsersCount = childCountsMap.get(uid) || 0;
+    userObj.teamBreakdown = teamBreakdownMap.get(uid) || { admins: 0, managers: 0, employees: 0, total: 0 };
     userObj.setupStatus = u.role === "user" ? setupStatusMap.get(uid) || "not_started" : null;
     return userObj;
   });
@@ -369,22 +420,73 @@ export const getUserTreeDetails = async (targetUserId: number) => {
     }
   }
 
-  async function fetchChildren(parentId: number, currentDepth = 1, maxDepth = 5): Promise<any[]> {
-    if (currentDepth > maxDepth) return [];
-    const children = await User.findAll({
-      where: { createdBy: parentId, status: { [Op.ne]: "delete" } },
-      attributes: ["id", "firstName", "lastName", "email", "phone", "role", "status", "createdAt"],
-      order: [["id", "ASC"]],
-    });
+  // FIX: this walked users.createdBy, which is NULL for every row in the table,
+  // so childUsersTree came back empty for every tenant while still firing one
+  // query per node to discover nothing. Fourth place the dead column was read
+  // (see parentUser and the team counts in getUsersList). The live hierarchy is
+  // the UserCreators junction, reached through the existing "createdUsers"
+  // association. Also switched from one-query-per-node recursion to one query
+  // per LEVEL (breadth-first, same shape GetAllUser uses), so a wide tenant
+  // costs <= maxDepth queries instead of one per member.
+  async function fetchChildren(rootId: number, maxDepth = 5): Promise<any[]> {
+    const nodesById = new Map<number, any>();
+    const childIdsByParent = new Map<number, number[]>();
+    let frontier: number[] = [rootId];
 
-    const result = [];
-    for (const child of children) {
-      const childObj = child.toJSON() as any;
-      childObj.name = [child.firstName, child.lastName].filter(Boolean).join(" ") || child.email;
-      childObj.children = await fetchChildren(child.id as number, currentDepth + 1, maxDepth);
-      result.push(childObj);
+    for (let depth = 0; depth < maxDepth && frontier.length > 0; depth++) {
+      const parents: any[] = await User.findAll({
+        where: { id: { [Op.in]: frontier } },
+        attributes: ["id"],
+        include: [
+          {
+            model: User,
+            as: "createdUsers",
+            attributes: ["id", "firstName", "lastName", "email", "phone", "role", "status", "createdAt"],
+            through: { attributes: [] },
+            where: { status: { [Op.ne]: "delete" } },
+            required: false,
+          },
+        ],
+      });
+
+      const nextFrontier: number[] = [];
+      for (const parent of parents) {
+        const kids = (parent.createdUsers || [])
+          .slice()
+          .sort((a: any, b: any) => a.id - b.id);
+        childIdsByParent.set(
+          Number(parent.id),
+          kids.map((k: any) => Number(k.id))
+        );
+        for (const k of kids) {
+          const id = Number(k.id);
+          // A user can be linked to more than one creator; keep the first node
+          // we build for them so the tree stays acyclic and finite.
+          if (nodesById.has(id)) continue;
+          const obj = k.toJSON ? k.toJSON() : { ...k };
+          obj.name = [k.firstName, k.lastName].filter(Boolean).join(" ") || k.email;
+          obj.children = [];
+          nodesById.set(id, obj);
+          nextFrontier.push(id);
+        }
+      }
+      frontier = nextFrontier;
     }
-    return result;
+
+    const attach = (parentId: number, seen: Set<number>): any[] => {
+      const ids = childIdsByParent.get(parentId) || [];
+      const out: any[] = [];
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        const node = nodesById.get(id);
+        if (!node) continue;
+        seen.add(id);
+        node.children = attach(id, seen);
+        out.push(node);
+      }
+      return out;
+    };
+    return attach(rootId, new Set<number>([rootId]));
   }
 
   const childUsersTree = await fetchChildren(targetUserId);
@@ -508,7 +610,31 @@ export const getUserTreeDetails = async (targetUserId: number) => {
   };
   const totalChildUsersCount = countFlatChildren(childUsersTree);
 
+  // Access / subscription summary — only tenant roots ("user") carry one, so
+  // this is null for every other role and the UI just omits the section.
+  let access: any = null;
+  if (targetUser.role === "user") {
+    const sub: any = await SubscriptionRepo.findLatestSubscriptionForUser(targetUserId);
+    if (sub) {
+      const plan: any = sub.planId ? await SubscriptionRepo.findPlanById(sub.planId) : null;
+      access = {
+        subscriptionId: sub.id,
+        status: sub.status,
+        planName: plan?.name ?? null,
+        startDate: sub.startDate,
+        endDate: sub.endDate,
+        usage: {
+          companies: { used: companyTreeList.length, limit: sub.maxCompanies ?? null },
+          admins: { used: totalAdminsInTree, limit: sub.maxAdmins ?? null },
+          managers: { used: totalManagersInTree, limit: sub.maxManagers ?? null },
+          employees: { used: totalSalesInTree, limit: sub.maxEmployees ?? null },
+        },
+      };
+    }
+  }
+
   return {
+    access,
     user: {
       id: targetUser.id,
       employeeCode: targetUser.employeeCode,
@@ -574,24 +700,34 @@ export const createUserAsSuperAdmin = async (
   // FOR a tenant still counts against that tenant's own subscription; only
   // super_admin's OWN account (role === "user" tenant bootstrap, or a
   // brand-new super_admin) is unrestricted.
-  if ((role === "admin" || role === "manager" || role === "employee")) {
+  const isLimitedRole = role === "admin" || role === "manager" || role === "employee";
+  if (isLimitedRole) {
     await SubscriptionLimit.assertCanCreate(role, resolvedTenantId);
   }
 
-  const newUser = await User.create({
-    firstName: firstName.trim(),
-    lastName: lastName ? lastName.trim() : "",
-    email: email.trim().toLowerCase(),
-    password: rawPassword,
-    phone: phone ? phone.trim() : "",
-    role,
-    status: "active",
-    createdBy: createdBy || superAdminUserId,
-    tenantId: resolvedTenantId,
-    branchId: branchId ? Number(branchId) : null,
-    departmentId: departmentId ? Number(departmentId) : null,
-    shiftId: shiftId ? Number(shiftId) : null,
-  });
+  // Serialized per tenant across the count and the insert, same as
+  // register()'s path — a Super Admin bulk-onboarding a tenant's team from
+  // several tabs at once is exactly the concurrent case the bare
+  // assertCanCreate above cannot hold against.
+  const newUser = await SubscriptionLimit.withCreationLimitLock(
+    role as any,
+    isLimitedRole ? resolvedTenantId : null,
+    () =>
+      User.create({
+        firstName: firstName.trim(),
+        lastName: lastName ? lastName.trim() : "",
+        email: email.trim().toLowerCase(),
+        password: rawPassword,
+        phone: phone ? phone.trim() : "",
+        role,
+        status: "active",
+        createdBy: createdBy || superAdminUserId,
+        tenantId: resolvedTenantId,
+        branchId: branchId ? Number(branchId) : null,
+        departmentId: departmentId ? Number(departmentId) : null,
+        shiftId: shiftId ? Number(shiftId) : null,
+      })
+  );
 
   if (role === "user" && !resolvedTenantId) {
     await newUser.update({ tenantId: newUser.id as number });
@@ -735,29 +871,52 @@ const deriveEffectiveStatus = (subscription: any): string => {
 export const listTenantSubscriptions = async (params: { page: number; limit: number; offset: number; search?: string }) => {
   const { rows, count } = await SubscriptionRepo.findAllSubscriptionsPaginated(params);
 
-  const data = await Promise.all(
-    rows.map(async (sub: any) => {
-      const plain = sub.get({ plain: true });
-      const usage = await SubscriptionLimit.getUsageSummary(plain.userId).catch(() => null);
-      return {
-        id: plain.id,
-        businessCode: plain.businessCode,
-        owner: plain.user,
-        plan: plain.plan,
-        status: plain.status,
-        effectiveStatus: deriveEffectiveStatus(plain),
-        startDate: plain.startDate,
-        endDate: plain.endDate,
-        remainingDays: REMAINING_DAYS(plain.endDate),
-        limits: {
-          admins: usage?.admins ?? { used: 0, limit: plain.maxAdmins },
-          companies: usage?.companies ?? { used: 0, limit: plain.maxCompanies },
-          managers: usage?.managers ?? { used: 0, limit: plain.maxManagers },
-          employees: usage?.employees ?? { used: 0, limit: plain.maxEmployees },
-        },
-      };
-    })
-  );
+  // PERF: this used to await getUsageSummary(userId) per row — a subscription
+  // lookup plus four COUNTs each, so ~5 queries per tenant per page (measured
+  // at ~2.5s for a single page). Replaced with two grouped queries covering
+  // every tenant on the page at once, so the query count no longer scales
+  // with page size. The limits themselves need no extra query at all: they
+  // live on the subscription row this listing has already loaded.
+  const plainRows = rows.map((sub: any) => sub.get({ plain: true }));
+  const tenantIds = [...new Set(plainRows.map((p: any) => Number(p.userId)).filter(Boolean))];
+
+  const [roleCounts, companyCounts] = await Promise.all([
+    SubscriptionRepo.countUsersByRoleForTenants(tenantIds),
+    SubscriptionRepo.countCompaniesForTenants(tenantIds),
+  ]);
+
+  // tenantId -> role -> used. A tenant/role pair with no rows is simply
+  // absent from the grouped result, hence the ?? 0 at lookup time.
+  const usedByTenant = new Map<number, Record<string, number>>();
+  for (const row of roleCounts as any[]) {
+    const tid = Number(row.tenantId);
+    if (!usedByTenant.has(tid)) usedByTenant.set(tid, {});
+    usedByTenant.get(tid)![row.role] = Number(row.count);
+  }
+  const companiesByTenant = new Map<number, number>();
+  for (const row of companyCounts as any[]) companiesByTenant.set(Number(row.userId), Number(row.count));
+
+  const data = plainRows.map((plain: any) => {
+    const tid = Number(plain.userId);
+    const used = usedByTenant.get(tid) ?? {};
+    return {
+      id: plain.id,
+      businessCode: plain.businessCode,
+      owner: plain.user,
+      plan: plain.plan,
+      status: plain.status,
+      effectiveStatus: deriveEffectiveStatus(plain),
+      startDate: plain.startDate,
+      endDate: plain.endDate,
+      remainingDays: REMAINING_DAYS(plain.endDate),
+      limits: {
+        admins: { used: used.admin ?? 0, limit: plain.maxAdmins },
+        companies: { used: companiesByTenant.get(tid) ?? 0, limit: plain.maxCompanies },
+        managers: { used: used.manager ?? 0, limit: plain.maxManagers },
+        employees: { used: used.employee ?? 0, limit: plain.maxEmployees },
+      },
+    };
+  });
 
   return {
     totalRecords: count,
@@ -877,6 +1036,28 @@ export const updateTenantSubscription = async (
     newValue: after,
     reason: reason || null,
   } as any);
+
+  // Tell the tenant what changed. Previously a Super Admin could cut a
+  // tenant's employee limit, move their expiry date or suspend them outright
+  // and the tenant would find out only by being refused mid-task — the
+  // SUBSCRIPTION notification type existed (migration 0022) but nothing ever
+  // sent one. Driven off the real before/after diff, so re-submitting the
+  // edit form unchanged notifies nobody. Best-effort and deliberately not
+  // awaited into the return value's critical path: a notification failure
+  // must not undo a persisted access change (see
+  // accessNotification.service.ts).
+  //
+  // `fields` is passed as the "after" side rather than the merged object so
+  // the notifier can tell an untouched field (undefined) from one that was
+  // explicitly set — it only reports what the Super Admin actually edited.
+  await AccessNotify.notifySubscriptionChanged({
+    ownerUserId: Number(subscription.userId),
+    actorId,
+    subscriptionId,
+    before,
+    after: fields,
+    reason: reason || null,
+  }).catch((e) => console.error("[access-notification] subscription update notify failed:", e));
 
   return SubscriptionRepo.findSubscriptionById(subscriptionId);
 };

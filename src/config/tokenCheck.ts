@@ -3,21 +3,38 @@ import { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { User, Company, CompanyManager, CompanyAdmin } from "./dbConnection";
 import { JWT_SECRET } from "./env";
-import { getBlockedTenantStatus, inactiveAccessMessage } from "../modules/subscription/subscriptionLimit.service";
+import {
+  getBlockedTenantStatus,
+  inactiveAccessMessage,
+  canSignInWhileBlocked,
+} from "../modules/subscription/subscriptionLimit.service";
 
-// Routes a tenant owner can still call while their subscription is
-// inactive: session/profile basics plus the access-extension flow.
-const OWNER_ROUTES_WHILE_BLOCKED = new Set([
-  "/admin/getProfile",
-  "/admin/updateProfile",
+// Routes still callable while the tenant's subscription is inactive:
+// session/profile basics plus the access-request flow. Stored lowercased and
+// compared lowercased — see isAccessRouteWhileBlocked.
+const ROUTES_ALLOWED_WHILE_BLOCKED = new Set([
+  "/admin/getprofile",
+  "/admin/updateprofile",
   "/admin/updatepassword",
   "/admin/logout",
   "/admin/access-status",
   "/admin/access-extension-requests",
-]);
+].map((r) => r.toLowerCase()));
 
-const isOwnerRouteWhileBlocked = (req: Request) =>
-  OWNER_ROUTES_WHILE_BLOCKED.has(req.originalUrl.split("?")[0].replace(/\/+$/, ""));
+// FIX: this compared the raw URL against a Set holding "/admin/getProfile"
+// and "/admin/updateProfile" — capital P. Express matches its own routes
+// case-insensitively, so the app calls GET /admin/getprofile (lowercase, see
+// the frontend's authApi.getProfile) and that reached this check as a
+// lowercase string, which Set.has() then failed to match. The effect: a
+// blocked tenant owner was 403'd on getProfile, AuthProvider's boot-time
+// fetchAndSyncProfile threw, and the expired-access screen never rendered —
+// the owner saw a generic error instead of the one page that let them
+// request an extension. Both sides are lowercased now so casing cannot
+// silently gate a route again.
+const isAccessRouteWhileBlocked = (req: Request) =>
+  ROUTES_ALLOWED_WHILE_BLOCKED.has(
+    req.originalUrl.split("?")[0].replace(/\/+$/, "").toLowerCase()
+  );
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -180,7 +197,7 @@ export const createTokenCheck = (allowedRoles: string[]) => {
       // login, so already-open sessions lose access too. The owner keeps
       // only the routes needed to see their status and request an extension.
       const blockedStatus = await getBlockedTenantStatus(id, item.role, item.tenantId ?? null);
-      if (blockedStatus && !(item.role === "user" && isOwnerRouteWhileBlocked(req))) {
+      if (blockedStatus && !(canSignInWhileBlocked(item.role) && isAccessRouteWhileBlocked(req))) {
         return res.status(403).json({
           code: 403,
           success: false,

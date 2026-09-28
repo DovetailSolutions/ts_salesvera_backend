@@ -14,22 +14,31 @@ import * as AccessExtensionController from "./accessExtension.controller";
 // ============================================================
 const router = Router();
 
+// "user" (the tenant owner) and "admin" both reach these three: an admin is
+// the one who actually hits the employee cap while hiring, so locking them
+// out of even SEEING the number left them guessing at why a creation failed.
+// Both are read/ask only — every mutation of a limit, expiry or status is
+// super_admin-gated below. Manager/employee are deliberately not included.
+// Which tenant's data a caller gets is resolved server-side from their own
+// record (accessExtension.service.ts), never from the request.
+const OWNER_AND_ADMIN = ["user", "admin"] as const;
+
 router.get(
   "/access-status",
   tokenCheck,
-  authorizeRoles("user"),
+  authorizeRoles(...OWNER_AND_ADMIN),
   AccessExtensionController.getMyAccessStatus
 );
 router.post(
   "/access-extension-requests",
   tokenCheck,
-  authorizeRoles("user"),
+  authorizeRoles(...OWNER_AND_ADMIN),
   AccessExtensionController.submitExtensionRequest
 );
 router.get(
   "/access-extension-requests",
   tokenCheck,
-  authorizeRoles("user"),
+  authorizeRoles(...OWNER_AND_ADMIN),
   AccessExtensionController.listMyExtensionRequests
 );
 

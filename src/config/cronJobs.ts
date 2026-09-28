@@ -191,4 +191,42 @@ export const startCronJobs = () => {
     },
     { timezone: "Asia/Kolkata" }
   );
+
+  // ─────────────────────────────────────────────
+  //  ACCESS-EXPIRY SWEEP
+  //  Schedule : Every day at 6:00 AM (IST)
+  //  Purpose  : Flip subscriptions that have passed their endDate to
+  //             EXPIRED, and send 30/7/3/1-day expiry warnings to tenants
+  //             approaching it.
+  //
+  //  subscriptionLimit.service.ts's getActiveSubscriptionForUser already
+  //  heals an expired status lazily whenever the tenant touches a gated
+  //  endpoint, so this is the backstop for accounts that have gone quiet —
+  //  and the only thing that can warn a tenant BEFORE expiry, since no
+  //  request from them is involved.
+  //
+  //  6 AM rather than midnight so a warning lands at the top of a working
+  //  day, and clear of the 23:59 auto-punch-out and 03:30 session-cleanup
+  //  jobs above.
+  //
+  //  Idempotent (see accessNotification.service.ts) — a restart that runs it
+  //  twice in one day sends no duplicate notifications.
+  // ─────────────────────────────────────────────
+  cron.schedule(
+    "0 6 * * *",
+    async () => {
+      try {
+        const { runAccessExpirySweep } = await import("../modules/accessExtension/accessExpirySweep.service");
+        const r = await runAccessExpirySweep();
+        if (r.expired || r.warned || r.errors) {
+          console.log(
+            `[CRON] 🔐 Access-expiry sweep — expired ${r.expired}, expiry notices ${r.expiredNotified}, warnings ${r.warned}, errors ${r.errors}.`
+          );
+        }
+      } catch (error) {
+        console.error("[CRON] ❌ Access-expiry sweep failed:", error);
+      }
+    },
+    { timezone: "Asia/Kolkata" }
+  );
 };
