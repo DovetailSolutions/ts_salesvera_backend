@@ -101,7 +101,8 @@ export const getMyAccessStatus = async (callerId: number, callerRole: string | u
   ]);
 
   const effectiveStatus = deriveEffectiveStatus(subscription);
-  const employees = usage?.employees ?? null;
+  // Admins, managers and employees share one limit, so report the combined count.
+  const employees = usage?.users ?? null;
 
   const pendingByType = (type: RequestType) => {
     const row: any = (pending as any[]).find((r: any) => r.requestType === type);

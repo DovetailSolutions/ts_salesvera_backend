@@ -15,11 +15,13 @@ import * as SubscriptionRepo from "./subscription.repository";
 
 export type LimitedResource = "admin" | "company" | "manager" | "employee";
 
+// Admin, manager and employee are all "users" of the tenant and draw from a
+// single shared seat limit (maxEmployees) — see LIMIT_FIELD / usageCounter.
 const RESOURCE_LABEL: Record<LimitedResource, string> = {
-  admin: "Admin",
+  admin: "User",
   company: "Company",
-  manager: "Manager",
-  employee: "Employee",
+  manager: "User",
+  employee: "User",
 };
 
 // Resolves the top-level tenant User id whose Subscription governs the
@@ -127,15 +129,15 @@ export const inactiveAccessMessage = (status: string, role?: string) => {
 };
 
 const LIMIT_FIELD: Record<LimitedResource, "maxAdmins" | "maxCompanies" | "maxManagers" | "maxEmployees"> = {
-  admin: "maxAdmins",
+  admin: "maxEmployees",
   company: "maxCompanies",
-  manager: "maxManagers",
+  manager: "maxEmployees",
   employee: "maxEmployees",
 };
 
 const usageCounter = async (resource: LimitedResource, tenantUserId: number): Promise<number> => {
   if (resource === "company") return SubscriptionRepo.countCompaniesForTenant(tenantUserId);
-  return SubscriptionRepo.countActiveUsersByRole(tenantUserId, resource);
+  return SubscriptionRepo.countActiveTenantUsers(tenantUserId);
 };
 
 // Throws a ServiceError (caught by the caller's handleServiceError, mapped
@@ -277,6 +279,8 @@ export interface UsageSummary {
   companies: { used: number; limit: number | null };
   managers: { used: number; limit: number | null };
   employees: { used: number; limit: number | null };
+  // Combined admin + manager + employee seats against the single user limit.
+  users: { used: number; limit: number | null };
 }
 
 export const getUsageSummary = async (tenantUserId: number): Promise<UsageSummary> => {
@@ -286,10 +290,10 @@ export const getUsageSummary = async (tenantUserId: number): Promise<UsageSummar
   }
 
   const [admins, companies, managers, employees] = await Promise.all([
-    usageCounter("admin", tenantUserId),
+    SubscriptionRepo.countActiveUsersByRole(tenantUserId, "admin"),
     usageCounter("company", tenantUserId),
-    usageCounter("manager", tenantUserId),
-    usageCounter("employee", tenantUserId),
+    SubscriptionRepo.countActiveUsersByRole(tenantUserId, "manager"),
+    SubscriptionRepo.countActiveUsersByRole(tenantUserId, "employee"),
   ]);
 
   return {
@@ -297,5 +301,6 @@ export const getUsageSummary = async (tenantUserId: number): Promise<UsageSummar
     companies: { used: companies, limit: subscription.maxCompanies },
     managers: { used: managers, limit: subscription.maxManagers },
     employees: { used: employees, limit: subscription.maxEmployees },
+    users: { used: admins + managers + employees, limit: subscription.maxEmployees },
   };
 };

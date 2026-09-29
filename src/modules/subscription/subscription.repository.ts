@@ -15,6 +15,13 @@ export const findUserForTenantResolution = (userId: number) =>
 export const countActiveUsersByRole = (tenantUserId: number, role: string) =>
   User.count({ where: { tenantId: tenantUserId, role, status: { [Op.ne]: "delete" } } });
 
+// Admins, managers and employees share ONE seat pool (subscriptions.maxEmployees),
+// so their usage is counted together.
+export const TENANT_USER_ROLES = ["admin", "manager", "employee"];
+
+export const countActiveTenantUsers = (tenantUserId: number) =>
+  User.count({ where: { tenantId: tenantUserId, role: { [Op.in]: TENANT_USER_ROLES }, status: { [Op.ne]: "delete" } } });
+
 export const countCompaniesForTenant = (tenantUserId: number) =>
   Company.count({ where: { userId: tenantUserId } });
 
