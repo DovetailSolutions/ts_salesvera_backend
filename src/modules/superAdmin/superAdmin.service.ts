@@ -628,6 +628,7 @@ export const getUserTreeDetails = async (targetUserId: number) => {
           admins: { used: totalAdminsInTree, limit: sub.maxAdmins ?? null },
           managers: { used: totalManagersInTree, limit: sub.maxManagers ?? null },
           employees: { used: totalSalesInTree, limit: sub.maxEmployees ?? null },
+          users: { used: totalAdminsInTree + totalManagersInTree + totalSalesInTree, limit: sub.maxEmployees ?? null },
         },
       };
     }
@@ -914,6 +915,7 @@ export const listTenantSubscriptions = async (params: { page: number; limit: num
         companies: { used: companiesByTenant.get(tid) ?? 0, limit: plain.maxCompanies },
         managers: { used: used.manager ?? 0, limit: plain.maxManagers },
         employees: { used: used.employee ?? 0, limit: plain.maxEmployees },
+        users: { used: (used.admin ?? 0) + (used.manager ?? 0) + (used.employee ?? 0), limit: plain.maxEmployees },
       },
     };
   });
