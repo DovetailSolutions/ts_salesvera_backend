@@ -99,8 +99,8 @@ export const getMeetingDashboardDetails = async (req: Request, res: Response): P
 };
 
 // Admin Meeting Excel Export — read-only, never mutates a meeting/user/
-// company record. Route-gated to admin/super_admin/user (see
-// meeting.routes.ts's authorizeRoles(ADMIN_ONLY)).
+// company record. Route-gated to admin/super_admin/user/manager (see
+// meeting.routes.ts); managers get only their own team.
 export const exportMeetingReport = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -108,6 +108,7 @@ export const exportMeetingReport = async (req: Request, res: Response): Promise<
     const { fromDate, toDate, userIds } = req.query;
     const { buffer, filename } = await MeetingService.exportMeetingReportExcel(
       Number(userData.userId),
+      userData.role as string | undefined,
       callerCompanyId,
       {
         fromDate: fromDate as string | undefined,

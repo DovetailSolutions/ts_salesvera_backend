@@ -126,7 +126,7 @@ export const findUserWithProfileIncludes = (id: number, role: string, includeCom
   const userAttributes = [
     "id", "employeeCode", "firstName", "lastName", "email", "phone", "dob", "profile",
     "role", "status", "branchId", "departmentId", "shiftId", "tenantId", "createdBy",
-    "canViewAllBranches", "tallyGuid", "tallyName", "tallyStartDate", "createdAt", "updatedAt"
+    "canViewAllBranches", "tallyGuid", "tallyName", "tallyStartDate", "createdAt", "updatedAt","isAttendancePhotoRequired"
   ];
 
   if (role === "super_admin") {
