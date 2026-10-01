@@ -730,7 +730,7 @@ export const getProfile = async (userId: number, role: string, companyId: number
 };
 
 export const updateProfile = async (userId: number, body: any, file: SpacesFile | undefined) => {
-  const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob", "tallyGuid", "tallyName", "tallyStartDate"] as const;
+  const ALLOWED_FIELDS = ["firstName", "lastName", "phone", "dob", "tallyGuid", "tallyName", "tallyStartDate","isAttendancePhotoRequired"] as const;
   type AllowedField = (typeof ALLOWED_FIELDS)[number];
 
   const updates: Partial<Record<AllowedField, string>> & { profile?: string } = {};
@@ -758,7 +758,7 @@ export const updateProfile = async (userId: number, body: any, file: SpacesFile 
   await user.update(updatePayload);
 
   const updatedUser = await AuthRepo.findUserById(Number(userId), [
-    "id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid", "tallyName", "tallyStartDate",
+    "id", "firstName", "lastName", "email", "phone", "dob", "profile", "role", "tallyGuid", "tallyName", "tallyStartDate", "isAttendancePhotoRequired",
   ]);
 
   return { user: updatedUser };

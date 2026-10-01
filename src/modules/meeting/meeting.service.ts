@@ -528,6 +528,7 @@ const istDayBoundary = (dateLike: string, edge: "start" | "end"): Date => {
 
 export const exportMeetingReportExcel = async (
   loggedInId: number,
+  role: string | undefined,
   callerCompanyId: number | null,
   query: { fromDate?: string; toDate?: string; userIds?: string }
 ) => {
@@ -550,7 +551,11 @@ export const exportMeetingReportExcel = async (
   // plus their whole descendant tree, exactly what the Meeting Dashboard
   // already uses for an admin (getMeetingDashboard above). Never derived
   // from anything the client sends.
-  const authorizedIds = await getCompanyScopedOrgWideUserIds(loggedInId, callerCompanyId);
+  // Managers are limited to themselves + their own team, same as the dashboard.
+  const authorizedIds =
+    role === "manager"
+      ? await resolveTeamScope(loggedInId, callerCompanyId)
+      : await getCompanyScopedOrgWideUserIds(loggedInId, callerCompanyId);
   const authorizedSet = new Set(authorizedIds);
 
   let targetIds: number[];
