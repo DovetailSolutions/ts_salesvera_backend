@@ -1892,16 +1892,23 @@ export const GetExpense = async (
     }
 
     const allUserIds: number[] = [loggedInId, ...childIds];
-    const { approvedByAdmin, approvedBySuperAdmin, self, userId: queryUserId } = req.query;
+    const {
+      approvedByAdmin, approvedBySuperAdmin, self, userId: queryUserId,
+      scope, status, withSummary,
+    } = req.query;
+    const isAdminRole = role === "admin" || role === "super_admin";
 
+    // scope: "my" = own claims, "team" = everyone below the caller.
     const expenseWhere: any = {
       userId: queryUserId
         ? Number(queryUserId)
-        : (self === "true" || self === "1")
+        : (self === "true" || self === "1" || scope === "my")
         ? loggedInId
+        : scope === "team"
+        ? { [Op.in]: childIds }
         : { [Op.in]: allUserIds },
     };
-    let userWhere: any = {};
+    const and: any[] = [];
 
     if (approvedByAdmin !== undefined && approvedByAdmin !== "") {
       expenseWhere.approvedByAdmin = approvedByAdmin;
@@ -1911,17 +1918,58 @@ export const GetExpense = async (
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
     }
 
-    if (search && String(search).trim() !== "") {
-      const searchStr = String(search).trim();
-      userWhere[Op.or] = [
-        { firstName: { [Op.iLike]: `%${searchStr}%` } },
-        { lastName: { [Op.iLike]: `%${searchStr}%` } },
-        { email: { [Op.iLike]: `%${searchStr}%` } },
-        { phone: { [Op.iLike]: `%${searchStr}%` } },
-      ];
+    // status: derived from the two approval columns, mirroring the web
+    // Expense Management badges. "Pending by Admin" (manager view: admin
+    // accepted, super admin still pending) counts as approved for managers
+    // and as pending for admins.
+    const notEq = (field: string, val: string) => ({
+      [Op.or]: [{ [field]: { [Op.ne]: val } }, { [field]: null }],
+    });
+    const rejected = {
+      [Op.or]: [{ approvedByAdmin: "rejected" }, { approvedBySuperAdmin: "rejected" }],
+    };
+    const bothAccepted = { approvedByAdmin: "accepted", approvedBySuperAdmin: "accepted" };
+    const pendingByAdmin = { approvedByAdmin: "accepted", approvedBySuperAdmin: "pending" };
+
+    if (status === "rejected") {
+      and.push(rejected);
+    } else if (status === "approved") {
+      and.push(isAdminRole ? bothAccepted : { [Op.or]: [bothAccepted, pendingByAdmin] });
+    } else if (status === "pending") {
+      and.push(
+        notEq("approvedByAdmin", "rejected"),
+        notEq("approvedBySuperAdmin", "rejected"),
+        { [Op.or]: [notEq("approvedByAdmin", "accepted"), notEq("approvedBySuperAdmin", "accepted")] }
+      );
+      if (!isAdminRole) {
+        and.push({ [Op.or]: [notEq("approvedByAdmin", "accepted"), notEq("approvedBySuperAdmin", "pending")] });
+      }
     }
 
-    const hasUserFilter = Object.keys(userWhere).length > 0;
+    // search: employee name/email/phone, or the expense's title, category,
+    // location or amount.
+    if (search && String(search).trim() !== "") {
+      const like = { [Op.iLike]: `%${String(search).trim()}%` };
+      const matchedUsers = await User.findAll({
+        where: {
+          id: { [Op.in]: allUserIds },
+          [Op.or]: [{ firstName: like }, { lastName: like }, { email: like }, { phone: like }],
+        },
+        attributes: ["id"],
+      });
+      and.push({
+        [Op.or]: [
+          { userId: { [Op.in]: matchedUsers.map((u: any) => u.id) } },
+          { title: like },
+          { category: like },
+          { location: like },
+          { total_amount: like },
+          { amount: like },
+        ],
+      });
+    }
+
+    if (and.length) expenseWhere[Op.and] = and;
 
     const { rows, count } = await Expense.findAndCountAll({
       attributes: [
@@ -1944,11 +1992,42 @@ export const GetExpense = async (
           model: User,
           as: "user",
           attributes: ["id", "firstName", "lastName", "email", "phone", "role"],
-          required: hasUserFilter,
-          where: hasUserFilter ? userWhere : undefined,
+          required: false,
         },
       ],
     });
+
+    // withSummary: KPI totals over everything the caller can see, ignoring
+    // status/search/scope filters and pagination.
+    let summary: any;
+    if (withSummary === "true" || withSummary === "1") {
+      const num = (c: string) =>
+        `CASE WHEN TRIM(${c}) ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN TRIM(${c})::numeric ELSE 0 END`;
+      const amountSql = `CASE WHEN total_amount IS NOT NULL THEN ${num("total_amount")} ELSE ${num("amount")} END`;
+      const isRejected = `("approvedByAdmin" = 'rejected' OR "approvedBySuperAdmin" = 'rejected')`;
+      const isApproved = `("approvedByAdmin" = 'accepted' AND "approvedBySuperAdmin" = 'accepted')`;
+      const s: any = await Expense.findOne({
+        attributes: [
+          [fn("COUNT", col("id")), "totalCount"],
+          [literal(`COALESCE(SUM(${amountSql}), 0)`), "totalAmount"],
+          [literal(`COUNT(*) FILTER (WHERE NOT COALESCE(${isRejected}, false) AND NOT COALESCE(${isApproved}, false))`), "pendingCount"],
+          [literal(`COUNT(*) FILTER (WHERE ${isApproved})`), "approvedCount"],
+          [literal(`COUNT(*) FILTER (WHERE "userId" = ${loggedInId})`), "myCount"],
+        ],
+        where: { userId: { [Op.in]: allUserIds } },
+        raw: true,
+      });
+      const totalCount = Number(s?.totalCount) || 0;
+      const myCount = Number(s?.myCount) || 0;
+      summary = {
+        totalCount,
+        totalAmount: Number(s?.totalAmount) || 0,
+        pendingCount: Number(s?.pendingCount) || 0,
+        approvedCount: Number(s?.approvedCount) || 0,
+        myCount,
+        teamCount: totalCount - myCount,
+      };
+    }
 
     res.status(200).json({
       success: true,
@@ -1960,6 +2039,7 @@ export const GetExpense = async (
         currentPage: page,
         limit,
       },
+      ...(summary && { summary }),
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
