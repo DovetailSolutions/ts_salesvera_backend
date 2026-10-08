@@ -67,6 +67,7 @@ const getCompanyOrgUserIds = async (userData: JwtPayload): Promise<number[]> => 
   return Array.from(new Set([callerId, ...ids]));
 };
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
+import { getJobPersonalDetails } from "../../modules/shared/jobPersonalDetails";
 import { getAccessibleCompanyIds, stripCompanyBankFields } from "../../modules/shared/companyAccess";
 import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
@@ -334,6 +335,7 @@ export const GetProfile = async (
     delete profile.refreshToken;
     delete profile.otp;
     delete profile.otpExpiry;
+    Object.assign(profile, await getJobPersonalDetails(loggedInId));
 
     // ✅ Step 2: Walk UP the hierarchy to find the root admin
     // Chain: employee → manager → admin
