@@ -14,6 +14,7 @@ import * as SetupTracking from "../setupTracking/setupTracking.service";
 import { issueAccessToken, issueRefreshToken } from "./webToken.service";
 import { createSession, rotateSession, revokeSession, revokeAllSessionsForUser } from "./refreshSession.service";
 import { userHasPermission } from "../../config/checkPermission";
+import { getJobPersonalDetails } from "../shared/jobPersonalDetails";
 
 // ============================================================
 // Auth service — validation + orchestration. Byte-for-byte port of the
@@ -700,6 +701,7 @@ export const getProfile = async (userId: number, role: string, companyId: number
     delete (user as any).dataValues.refreshToken;
     delete (user as any).dataValues.otp;
     delete (user as any).dataValues.otpExpiry;
+    Object.assign((user as any).dataValues, await getJobPersonalDetails(Number(userId)));
   }
 
   const permissions: string[] = [];
