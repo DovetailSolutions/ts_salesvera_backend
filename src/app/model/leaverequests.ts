@@ -13,11 +13,16 @@ interface LeaveAttributes {
   // instead of only the fixed leave_type enum above. Null for legacy/mobile
   // requests that only ever sent the enum value.
   companyLeaveId?: number | null;
+  // Migration 0035: which part of the day a half-day (first_half /
+  // second_half) or short leave (morning / evening) covers, and a short
+  // leave's length. Null for full-day requests and every older request.
+  leaveSession?: "first_half" | "second_half" | "morning" | "evening" | null;
+  durationMinutes?: number | null;
 }
 
 type LeaveCreationAttributes = Optional<
   LeaveAttributes,
-  "id" | "reason" | "status" 
+  "id" | "reason" | "status" | "leaveSession" | "durationMinutes"
 >;
 
 export class Leave
@@ -32,6 +37,8 @@ export class Leave
   public status!: "pending" | "approved" | "rejected";
   public leave_type!: "sick" | "casual" | "paid" | "unpaid" |"short_leave" |"half_day";
   public companyLeaveId!: number | null;
+  public leaveSession!: "first_half" | "second_half" | "morning" | "evening" | null;
+  public durationMinutes!: number | null;
 
   static initModel(sequelize: Sequelize): typeof Leave {
     Leave.init(
@@ -67,6 +74,14 @@ export class Leave
           defaultValue: "pending",
         },
         companyLeaveId: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
+        },
+        leaveSession: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        },
+        durationMinutes: {
           type: DataTypes.INTEGER,
           allowNull: true,
         },

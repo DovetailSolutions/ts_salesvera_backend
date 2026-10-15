@@ -28,6 +28,10 @@ router.post(
 );
 router.get("/user-attendance", tokenCheck, checkPermission("attendance", "view"), AttendanceController.userAttendance);
 router.get("/attendance-book", tokenCheck, checkPermission("attendance", "view"), AttendanceController.AttendanceBook);
+// Excel export of the full Attendance Register (all pages, not just the one
+// on screen). Query: year, month, search, role ("all" | "Employee" | "Manager"),
+// userId (optional — one team member's file).
+router.get("/attendance-book/export", tokenCheck, checkPermission("attendance", "view"), AttendanceController.exportAttendanceBook);
 // Admin/manager team attendance summary: total child count, present today,
 // absent today, on leave today — all derived from batched COUNT queries
 // (no row fetching) so it responds fast regardless of team size.

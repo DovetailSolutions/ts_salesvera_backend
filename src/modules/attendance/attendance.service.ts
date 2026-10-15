@@ -13,6 +13,8 @@ import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, par
 import { resolveAttendanceLocationName } from "./locationName.service";
 import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User, Leave, CompanyLeave } from "../../config/dbConnection";
 import * as AttendanceSecurity from "../attendanceSecurity/attendanceSecurity.service";
+import { resolvePolicy, shiftWindowOn, getMyPolicySummary } from "../attendancePolicy/attendancePolicy.service";
+import { classifyAttendanceDay } from "../attendancePolicy/attendancePolicy.classifier";
 
 // ============================================================
 // Attendance service — validation + orchestration. Byte-for-byte port of the
@@ -149,6 +151,16 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
 
   const fields = buildMarkAttendanceFields(status, shift as any, company as any, attendanceDate, punchIn, leaveTypeRow);
 
+  // Attendance policy may require a reason for any manual correction. The
+  // row is marked "Manual: …" so automatic day classification (punch-out,
+  // auto punch-out) never overrides an admin's decision.
+  const markPolicy = await resolvePolicy((company as any)?.id ?? (shift as any)?.companyId ?? callerCompanyId, (shift as any)?.id ?? null, attendanceDate);
+  const reasonText = typeof body?.reason === "string" ? body.reason.trim().slice(0, 180) : "";
+  if (markPolicy?.config.manualCorrectionRequiresReason && !reasonText) {
+    throw new ServiceError("A reason is required for manual attendance corrections under your company's attendance policy");
+  }
+  const manualReason = `${MANUAL_REASON_PREFIX} marked ${status.replace("_", " ")} by admin${reasonText ? ` — ${reasonText}` : ""}`;
+
   const existing = await AttendanceRepo.findAttendanceForDate(employeeId, attendanceDate);
 
   if (existing) {
@@ -178,6 +190,7 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
     // stays paired with the real-punch-preservation branch below rather
     // than being reset to the shift-derived (always-zero) value.
     existing.dayType = fields.dayType;
+    existing.statusReason = manualReason;
     // Never overwrite a real punch already on the record (e.g. the employee
     // already self-punched-in for real) — only fill in shift-derived times
     // when there's nothing there yet. Non-"showed up" outcomes (absent/
@@ -204,6 +217,7 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
     overtime: fields.overtime,
     status: fields.status,
     companyLeaveId: fields.companyLeaveId,
+    statusReason: manualReason,
   } as any);
 };
 
@@ -479,7 +493,9 @@ export const attendanceBook = async (userId: number, callerCompanyId: number | n
     const leaveTypes: Record<string, { id: number; name: string } | undefined> = {};
 
     if (u.Attendances?.length) {
-      u.Attendances.forEach((attendance: any) => {
+      // A day can hold several punch sessions (one row each); iterate oldest
+      // → newest so each day's cell ends on its LATEST row.
+      [...u.Attendances].sort((x: any, y: any) => Number(x.id) - Number(y.id)).forEach((attendance: any) => {
         // FIX: was new Date(attendance.date).getDate() — attendance.date is
         // a DATEONLY value already read back as a plain "YYYY-MM-DD" string
         // (Sequelize registers a raw passthrough parser for Postgres DATE
@@ -620,6 +636,217 @@ export const exportAttendanceReportExcel = async (loggedInId: number, callerComp
     // filename. getISTDateString() is deployment-proof regardless of the
     // server's OS timezone.
     filename: `attendance-report-${getISTDateString()}.xlsx`,
+  };
+};
+
+// Full-team Excel export of the Attendance Register (the attendance-
+// management page's "Export Excel"). That page only ever holds one
+// paginated slice of /attendance-book, so the previous browser-side export
+// could only contain the employees on the current page — this builds the
+// same register server-side for EVERY matching employee. Day statuses come
+// from attendanceBook itself (paged at its own 200-row cap) and are mapped
+// to cell codes exactly the way AttendanceRegister.jsx does, so the sheet
+// matches the on-screen register; raw punch sessions come from the same
+// findTeamAttendanceForReport query exportAttendanceReportExcel uses.
+// Query: year, month (default: current IST month), search, role
+// ("all" | "Employee" | "Manager" — the register's category filter),
+// userId (optional — one team member only).
+const REGISTER_EXPORT_PAGE_SIZE = 200;
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_TYPE_LABELS: Record<string, string> = { full_day: "Full Day", half_day: "Half Day", short_leave: "Short Day" };
+
+export const exportAttendanceBookExcel = async (loggedInId: number, callerCompanyId: number | null, query: any) => {
+  // Every page of the register, same search/scoping/validation as the UI.
+  const users: any[] = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const result = await attendanceBook(loggedInId, callerCompanyId, { ...query, page, limit: REGISTER_EXPORT_PAGE_SIZE });
+    users.push(...result.users);
+    totalPages = result.totalPages;
+    page++;
+  } while (page <= totalPages);
+
+  // Category filter — same Employee/Manager split as the register's
+  // "All Roles" dropdown (role "employee" vs everything else).
+  const role = String(query.role || "all");
+  const categoryOf = (u: any) => (u.role === "employee" ? "Employee" : "Manager");
+  let exportUsers = role === "all" ? users : users.filter((u) => categoryOf(u) === role);
+
+  // Single-employee export (Team Attendance's "View Attendance" popup) —
+  // only someone already in the caller's company-scoped register.
+  let singleUser: any = null;
+  if (query.userId !== undefined && query.userId !== "") {
+    const requestedId = Number(query.userId);
+    singleUser = exportUsers.find((u) => u.id === requestedId) ?? null;
+    if (!singleUser) {
+      throw new ServiceError("You can only export attendance of your own team members", 403);
+    }
+    exportUsers = [singleUser];
+  }
+
+  // Same month resolution as attendanceBook (which has already rejected
+  // invalid month/year values above).
+  const todayStr = getISTDateString();
+  const month = Number(query.month) || Number(todayStr.slice(5, 7));
+  const year = Number(query.year) || Number(todayStr.slice(0, 4));
+  const mm = String(month).padStart(2, "0");
+  const totalDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const startDate = `${year}-${mm}-01`;
+  const endDate = `${year}-${mm}-${String(totalDays).padStart(2, "0")}`;
+
+  // Holidays and weekly offs, resolved the same way the register page does:
+  // every company holiday in the month, and the company's configured
+  // working days (Sunday-only off when none are configured).
+  const [company, holidayRows] = callerCompanyId
+    ? await Promise.all([
+        AttendanceRepo.findCompanyById(callerCompanyId),
+        AttendanceRepo.findCompanyHolidaysInRange({ companyId: callerCompanyId, startDate, endDate }),
+      ])
+    : [null, []];
+  const holidaysByDate: Record<string, string> = {};
+  for (const h of holidayRows as any[]) {
+    holidaysByDate[String(h.holidayDate).slice(0, 10)] = h.holidayName;
+  }
+  const workingDays = (company as any)?.companyWorkingDays;
+  const isWeekOff = (weekday: number) =>
+    Array.isArray(workingDays) && workingDays.length > 0 ? !workingDays.includes(WEEKDAY_NAMES[weekday]) : weekday === 0;
+
+  const dayInfo = Array.from({ length: totalDays }, (_, i) => {
+    const day = i + 1;
+    const dateStr = `${year}-${mm}-${String(day).padStart(2, "0")}`;
+    const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+    return { day, dateStr, weekday };
+  });
+
+  // Mirrors AttendanceRegister.jsx's fetchAttendance cell mapping.
+  const cellCode = (u: any, d: { day: number; dateStr: string; weekday: number }): string => {
+    const apiStatus = u.days?.[String(d.day)];
+    const workedThisDay = apiStatus === "present" || apiStatus === "out";
+    if (holidaysByDate[d.dateStr] && !workedThisDay) return "H";
+    if (isWeekOff(d.weekday) && !workedThisDay) return "OFF";
+    if (d.dateStr > todayStr) return "-";
+    const apiDayType = u.dayTypes?.[String(d.day)];
+    if (apiStatus === "leaveReject") return "R";
+    if (apiDayType === "short_leave") return "S";
+    if (apiDayType === "half_day") return "HD";
+    if (workedThisDay) return "P";
+    if (apiStatus === "leaveApproved") return "L";
+    return "A";
+  };
+
+  const sessions = exportUsers.length
+    ? await AttendanceRepo.findTeamAttendanceForReport({
+        employeeIds: exportUsers.map((u) => u.id),
+        dateFilter: { [Op.between]: [startDate, endDate] },
+      })
+    : [];
+  const sessionRows = sessions.map((row: any) => (row.get ? row.get({ plain: true }) : row));
+
+  const hoursByUser = new Map<number, number>();
+  for (const s of sessionRows) {
+    hoursByUser.set(s.employee_id, (hoursByUser.get(s.employee_id) ?? 0) + (Number(s.working_hours) || 0));
+  }
+
+  // ── Sheet 1: the register grid ──
+  const shortDay = (weekday: number) => WEEKDAY_NAMES[weekday].slice(0, 3);
+  const registerHeader = [
+    "Employee Code",
+    "Name",
+    "Email",
+    "Category",
+    ...dayInfo.map((d) => `${d.day} ${shortDay(d.weekday)}`),
+    "Present",
+    "Absent",
+    "Leave",
+    "Total Working Days",
+    "Total Days",
+    "Total Working Hours",
+  ];
+  // Working days = the month's days minus weekly offs and company holidays
+  // (the company calendar, same for every employee); Total Days = calendar
+  // days in the month.
+  const totalWorkingDays = dayInfo.filter((d) => !holidaysByDate[d.dateStr] && !isWeekOff(d.weekday)).length;
+  const registerRows = exportUsers.map((u) => {
+    const codes = dayInfo.map((d) => cellCode(u, d));
+    // Same buckets as the register's Monthly Summary column.
+    const present = codes.filter((c) => c === "P").length;
+    const absent = codes.filter((c) => c === "A" || c === "R" || c === "S").length;
+    const leave = codes.filter((c) => c === "L" || c === "HD").length;
+    return [
+      u.employeeCode ?? u.id,
+      u.name,
+      u.email ?? "",
+      categoryOf(u),
+      ...codes,
+      present,
+      absent,
+      leave,
+      totalWorkingDays,
+      totalDays,
+      Number((hoursByUser.get(u.id) ?? 0).toFixed(2)),
+    ];
+  });
+  const registerSheet = XLSX.utils.aoa_to_sheet([registerHeader, ...registerRows]);
+  registerSheet["!cols"] = [{ wch: 14 }, { wch: 24 }, { wch: 30 }, { wch: 10 }, ...dayInfo.map(() => ({ wch: 6 })), { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 10 }, { wch: 18 }];
+
+  // ── Sheet 2: every punch session / attendance record in the month ──
+  const sessionsSheetRows = sessionRows.map((s: any) => {
+    const dateStr = String(s.date ?? "").slice(0, 10);
+    const weekday = dateStr ? new Date(`${dateStr}T00:00:00.000Z`).getUTCDay() : null;
+    return {
+      "Employee Code": s.user?.employeeCode ?? "",
+      "Employee Name": `${s.user?.firstName ?? ""} ${s.user?.lastName ?? ""}`.trim(),
+      "Email": s.user?.email ?? "",
+      "Role": s.user?.role ?? "",
+      "Date": dateStr,
+      "Day": weekday == null ? "" : WEEKDAY_NAMES[weekday],
+      "Status": s.status ?? "",
+      "Day Type": s.dayType ? DAY_TYPE_LABELS[s.dayType] ?? s.dayType : "",
+      "Leave Type": s.leaveType?.leaveName ?? "",
+      "Punch In": s.punch_in ? formatISTTime(new Date(s.punch_in)) : "",
+      "Punch Out": s.punch_out ? formatISTTime(new Date(s.punch_out)) : "",
+      "Working Hours": s.working_hours ?? "",
+      "Overtime": s.overtime ?? "",
+      "Late": s.late ? "Yes" : "No",
+      "Source": s.attendanceSource ?? "",
+      "Punch In Location": s.locationNameIn ?? "",
+      "Punch Out Location": s.locationNameOut ?? "",
+      "Travel Distance (km)": s.totalTravelDistanceKm ?? "",
+      "Vehicle Allowance": s.vehicleAllowance ?? "",
+    };
+  });
+  const sessionsSheet = XLSX.utils.json_to_sheet(
+    sessionsSheetRows.length ? sessionsSheetRows : [{ "No attendance records found for this month": "" }]
+  );
+
+  // ── Sheet 3: legend for the register codes ──
+  const legendSheet = XLSX.utils.aoa_to_sheet([
+    ["Code", "Meaning"],
+    ["P", "Present"],
+    ["A", "Absent"],
+    ["HD", "Half Day"],
+    ["S", "Short Day (counted as absent)"],
+    ["L", "Leave"],
+    ["R", "Leave Rejected"],
+    ["H", "Holiday"],
+    ["OFF", "Weekly Off"],
+    ["-", "Future date"],
+  ]);
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, registerSheet, "Attendance Register");
+  XLSX.utils.book_append_sheet(workbook, sessionsSheet, "Punch Sessions");
+  XLSX.utils.book_append_sheet(workbook, legendSheet, "Legend");
+
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+  return {
+    buffer,
+    filename: singleUser
+      ? `Attendance_${String(singleUser.employeeCode ?? singleUser.id).replace(/[^A-Za-z0-9_-]/g, "")}_${year}-${mm}.xlsx`
+      : `Attendance_Register_${year}-${mm}.xlsx`,
+    rowCount: exportUsers.length,
   };
 };
 
@@ -1328,10 +1555,28 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
 
   const { shift, company, branch } = await resolveAttendanceContext(Number(finalUserId), callerCompanyId);
 
+  // Attendance policy (null = none saved → previous behaviour everywhere).
+  const punchInPolicy = await resolvePolicy(company?.id ?? null, shift?.id ?? null, today);
+
   // Shift-start gate — can't punch in for today until the assigned shift is
   // about to start (within EARLY_MARK_LEAD_MINUTES of its start time). No
-  // assigned shift skips this entirely.
-  if (isBeforeShiftWindow(shift, today)) {
+  // assigned shift skips this entirely. A policy with a punch-in window
+  // replaces this fixed 30-minute rule with its own window (server clock).
+  if (punchInPolicy?.config.punchIn.restrictToWindow) {
+    const window = shiftWindowOn(shift, today);
+    if (window?.start) {
+      const now = Date.now();
+      const earliest = window.start.getTime() - punchInPolicy.config.punchIn.earlyMinutes * 60000;
+      const latest = window.start.getTime() + punchInPolicy.config.punchIn.lateMinutes * 60000;
+      if (now < earliest || now > latest) {
+        throw new ServiceError(
+          "Punch-in is outside your permitted attendance window. Please contact your manager or submit a regularization request.",
+          400,
+          { code: "PUNCH_IN_OUTSIDE_WINDOW", windowStart: new Date(earliest).toISOString(), windowEnd: new Date(latest).toISOString() }
+        );
+      }
+    }
+  } else if (isBeforeShiftWindow(shift, today)) {
     throw new ServiceError(formatShiftWindowMessage(shift, today));
   }
 
@@ -1380,12 +1625,35 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
   // Check if this is the first punch of the day to determine "late" status
   // — shift start time + company grace minutes, falling back to 09:30 with
   // no grace only when neither is configured.
-  const existingRecordsForToday = await AttendanceRepo.findAttendanceForDate(finalUserId, today);
+  const todaysRows: any[] = await AttendanceRepo.findAttendanceRowsForDate(finalUserId, today);
+
+  // FIX: an approved full-day leave row used to be silently overwritten by a
+  // punch-in (status, companyLeaveId wiped) while the leave stayed deducted.
+  // Same rule Mark Attendance already applies: cancel the leave first.
+  const fullDayLeaveRow = todaysRows.find((r) => r.status === "leaveApproved" && !r.dayType);
+  if (fullDayLeaveRow) {
+    throw new ServiceError(
+      "You are on approved leave today. Ask your manager to cancel the leave before punching in.",
+      400,
+      { code: "ON_APPROVED_LEAVE" }
+    );
+  }
+
+  // FIX: a second punch-in on the same day used to REUSE the day's row —
+  // overwriting the first session's punch-in and hours (a lunch-break
+  // punch-out/in left only the afternoon counted → HD/S) and wiping an
+  // approved half-day/short-leave row. Now only a row with no punch at all
+  // and no approved leave (an admin "absent" mark, a pending/rejected leave
+  // placeholder) is reused; every other punch-in starts a new session row,
+  // and the day is classified from all of its sessions at punch-out.
+  const existingRecordsForToday =
+    [...todaysRows].reverse().find((r) => !r.punch_in && r.status !== "leaveApproved") ?? null;
+  const isFirstSessionToday = !todaysRows.some((r) => r.punch_in);
 
   let late = false;
-  if (!existingRecordsForToday) {
+  if (isFirstSessionToday) {
     const officeStartTime = shift?.startTime || "09:30:00";
-    const graceMinutes = company?.lateMarkAfter ?? 0;
+    const graceMinutes = punchInPolicy ? punchInPolicy.config.lateGraceMinutes : company?.lateMarkAfter ?? 0;
     // FIX: was new Date(y, m-1, d, startHour, startMin+grace, 0) — the
     // multi-arg constructor interprets these numbers as the server's
     // OS-local time, not IST — the exact same bug class that broke
@@ -1447,6 +1715,13 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
     existingRecordsForToday.overtime = null as any;
     existingRecordsForToday.status = "present" as any;
     existingRecordsForToday.companyLeaveId = null as any;
+    // Only punch-less rows are reused now, so this is the day's first
+    // arrival — record its late flag and clear the previous outcome.
+    existingRecordsForToday.late = late;
+    existingRecordsForToday.statusReason = null;
+    existingRecordsForToday.autoPunchedOut = false;
+    existingRecordsForToday.earlyDeparture = false;
+    existingRecordsForToday.attendancePolicyId = null;
     existingRecordsForToday.latitude_in = latitude_in;
     existingRecordsForToday.longitude_in = longitude_in;
     existingRecordsForToday.locationNameIn = locationNameIn;
@@ -1543,6 +1818,130 @@ export const getDayTypeFromWorkingHours = (
   return "full_day";
 };
 
+// Prefix marking a day an admin set by hand (Mark Attendance). Such a day is
+// never re-classified automatically — see applyDayClassification.
+export const MANUAL_REASON_PREFIX = "Manual:";
+
+const isManualOrRegularized = (row: any) =>
+  String(row?.statusReason || "").startsWith(MANUAL_REASON_PREFIX) || row?.attendanceSource === "REGULARIZATION";
+
+// The approved half-day / short leave covering `date`, if any (full-day
+// leave days are blocked from punch-in, so they never reach classification).
+const findApprovedPartialLeave = async (employeeId: number, date: string) => {
+  const leave: any = await Leave.findOne({
+    where: {
+      employee_id: employeeId,
+      status: "approved",
+      leave_type: { [Op.in]: ["half_day", "short_leave"] },
+      from_date: { [Op.lte]: date },
+      to_date: { [Op.gte]: date },
+    },
+    order: [["updatedAt", "DESC"]],
+  });
+  if (!leave) return null;
+  return {
+    kind: leave.leave_type as "half_day" | "short_leave",
+    session: leave.leaveSession ?? null,
+    durationMinutes: leave.durationMinutes ?? null,
+  };
+};
+
+// ONE authoritative day classification, used by punch-out and the auto
+// punch-out job alike. Looks at every punch session of the employee's day
+// (a day can now have several), so a lunch-break punch-out/in no longer
+// makes the day look like a half day.
+//
+//   - A day with a manual admin mark or an approved regularization is left
+//     exactly as it is (manual > computed).
+//   - With a saved attendance policy → classifyAttendanceDay (strict /
+//     flexible rules, breaks, partial leave, late/early flags).
+//   - Without one → the previous shift/company thresholds
+//     (getDayTypeFromWorkingHours / resolveHalfDayThresholdHours), applied to
+//     the day's total hours. Behaviour for such companies is unchanged
+//     except that all of the day's sessions now count.
+//
+// The day's result is written to every closed session row of that day, so
+// the register, reports and APIs can't show contradictory statuses.
+// Overtime is stored once, on the latest session.
+export const applyDayClassification = async (params: {
+  employeeId: number;
+  date: string;
+  shift: any;
+  company: any;
+  missedPunchOut?: boolean;
+}) => {
+  const { employeeId, date, shift, company } = params;
+  const rows: any[] = await AttendanceRepo.findAttendanceRowsForDate(employeeId, date);
+  const sessions = rows.filter((r) => r.punch_in && r.punch_out && r.status !== "leaveApproved");
+
+  if (rows.some(isManualOrRegularized)) {
+    // Keep the corrected day; just make sure a newly closed session isn't
+    // left looking "in progress".
+    for (const r of sessions) {
+      if (r.status === "present") {
+        await r.update({ status: "out", statusReason: "Day was corrected manually — not recalculated" });
+      }
+    }
+    return null;
+  }
+
+  const policy = await resolvePolicy(company?.id ?? shift?.companyId ?? null, shift?.id ?? null, date);
+  const latestId = sessions.length ? sessions[sessions.length - 1].id : null;
+
+  // A system (auto) punch-out isn't real work up to 23:59: such a session
+  // counts only its in-shift part (legacy) / up to shift end (policy) —
+  // the same protection the auto punch-out job always applied.
+  const window = shiftWindowOn(shift, date);
+  if (!policy) {
+    const hours = Number(
+      sessions
+        .reduce((sum, r) => sum + (r.autoPunchedOut
+          ? computeShiftOverlapHours(shift, date, new Date(r.punch_in), new Date(r.punch_out), Number(r.working_hours) || 0)
+          : Number(r.working_hours) || 0), 0)
+        .toFixed(2)
+    );
+    const officeHours = shift?.workingHours && shift.workingHours > 0 ? shift.workingHours : 8;
+    const overtime = company?.overtimeAllowed && hours > officeHours ? Number((hours - officeHours).toFixed(2)) : 0;
+    const dayType = getDayTypeFromWorkingHours(hours, shift, company);
+    const status = hours < resolveHalfDayThresholdHours(shift, company) ? "absent" : "out";
+    const reason = `${hours} h worked across ${sessions.length} session${sessions.length === 1 ? "" : "s"} (shift rules)`;
+    for (const r of sessions) {
+      await r.update({ dayType, status, statusReason: reason, attendancePolicyId: null, overtime: r.id === latestId ? overtime : 0 });
+    }
+    return { status, dayType, reason, eligibleHours: hours, policyId: null };
+  }
+
+  const leave = await findApprovedPartialLeave(employeeId, date);
+  const result = classifyAttendanceDay({
+    mode: policy.mode,
+    config: policy.config,
+    shift: window,
+    sessions: sessions.map((r) => {
+      const punchIn = new Date(r.punch_in);
+      let punchOut = new Date(r.punch_out);
+      if (r.autoPunchedOut && window?.end && punchIn < window.end && punchOut > window.end) punchOut = window.end;
+      return { punchIn, punchOut, autoPunchedOut: !!r.autoPunchedOut };
+    }),
+    leave,
+    missedPunchOut: params.missedPunchOut,
+  });
+  const dayType = result.dayType;
+  const status = result.status === "leaveApproved" ? "out" : result.status;
+  for (const r of sessions) {
+    const isLatest = r.id === latestId;
+    await r.update({
+      dayType,
+      status,
+      statusReason: result.reason,
+      attendancePolicyId: policy.id,
+      overtime: isLatest ? result.overtimeHours : 0,
+      earlyDeparture: isLatest ? result.earlyDeparture : false,
+      ...(r.id === sessions[0].id ? { late: result.late } : {}),
+    });
+  }
+  return { ...result, status, policyId: policy.id };
+};
+
 export const attendancePunchOut = async (finalUserId: number, callerCompanyId: number | null, body: any, files?: any[]) => {
   const { punch_out, AttendanceId, latitude_out, longitude_out } = body || {};
 
@@ -1564,9 +1963,25 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   if (!attendance) throw new ServiceError("No active punch-in record found. Please punch-in first.");
 
   const punchInTime = new Date(attendance.punch_in as Date);
-  const punchOutTime = new Date(punch_out);
+  let punchOutTime = new Date(punch_out);
+  if (isNaN(punchOutTime.getTime())) throw new ServiceError("Punch-out time is invalid");
 
   if (punchOutTime < punchInTime) throw new ServiceError("Punch-out must be after punch-in");
+
+  // FIX: a session left open on an earlier day (the app can close it by
+  // AttendanceId on a later day) used to take the punch-out time as sent —
+  // closing yesterday's 09:30 session at 18:00 today counted ~32 hours as
+  // worked. It is now capped at the end of the session's OWN day (IST), and
+  // the reason says so.
+  const sessionDate = String(attendance.date).slice(0, 10);
+  let closedLate = false;
+  if (sessionDate < today) {
+    const sessionDayEnd = new Date(`${sessionDate}T23:59:59.000+05:30`);
+    if (punchOutTime > sessionDayEnd) {
+      punchOutTime = sessionDayEnd;
+      closedLate = true;
+    }
+  }
 
   // Attendance Security — device binding (same check as punch-in, since a
   // revoked/untrusted device must not be able to punch out either) and
@@ -1619,6 +2034,23 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
 
   const { shift, company } = await resolveAttendanceContext(Number(finalUserId), callerCompanyId);
 
+  // Attendance policy: early punch-out before the shift ends (minus the
+  // grace period) can be blocked — the employee then submits a
+  // regularization instead. Checked against the server clock, and only for
+  // a session of today (a forgotten older session can always be closed).
+  const punchOutPolicy = await resolvePolicy(company?.id ?? null, shift?.id ?? null, sessionDate);
+  if (punchOutPolicy && sessionDate === today && punchOutPolicy.config.punchOut.beforeShiftEnd === "block") {
+    const window = shiftWindowOn(shift, sessionDate);
+    const graceMs = punchOutPolicy.config.earlyDepartureGraceMinutes * 60000;
+    if (window?.end && Date.now() < window.end.getTime() - graceMs) {
+      throw new ServiceError(
+        "Punch-out is before your shift end. Please contact your manager or submit a regularization request.",
+        400,
+        { code: "EARLY_PUNCH_OUT_BLOCKED" }
+      );
+    }
+  }
+
   // Overtime — only computed when the company has opted in; baseline from
   // the employee's shift working-hours, falling back to 8h.
   const overtimeAllowed = company?.overtimeAllowed ?? false;
@@ -1659,28 +2091,15 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
     attendance.geoFenceDistance = userGeoFenceOut.distanceMeters ?? null;
   }
 
-  // FIX: dayType/status were both derived from raw punch duration alone —
-  // not "shift aware" in any real sense, since punching in well before the
-  // shift starts (or staying logged in well after it ends) padded out
-  // "hours worked" for time that was never actually the shift. Login/logout
-  // time now matter: only the portion of [punch_in, punch_out] that
-  // actually overlaps the employee's assigned shift window counts toward
-  // the half-day/absent decision.
-  const shiftAwareHours = computeShiftOverlapHours(shift, today, punchInTime, punchOutTime, workingHoursRounded);
-  attendance.dayType = getDayTypeFromWorkingHours(shiftAwareHours, shift, company);
-  // FIX: status was unconditionally "out" (the same "showed up" bucket as a
-  // full day) no matter how few (shift-relevant) hours were actually
-  // worked — punching in and back out again a few minutes later still
-  // counted as a normal present day everywhere the app reads `status`
-  // (attendance rate, the register/calendar colour, etc.); only the
-  // separate dayType field silently recorded the shortfall, and nothing in
-  // the app actually read dayType for that. Below the half-day threshold,
-  // this now reflects in status itself — "absent", the same as any other
-  // day that needs a manual correction — while still keeping the real
-  // punch_in/punch_out/working_hours on the record so whoever corrects it
-  // sees exactly what happened instead of a bare "absent" with no context.
-  const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
-  attendance.status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
+  // The session is closed here; the DAY's status (all of today's sessions,
+  // the company's attendance policy if one is saved, else the previous
+  // shift thresholds on total hours worked) is set right after saving by
+  // applyDayClassification — the single classification path shared with the
+  // auto punch-out job. "out" is only the interim value.
+  attendance.status = "out";
+  if (closedLate) {
+    attendance.statusReason = "Closed on a later day — punch-out capped at the end of the session's own day";
+  }
 
   // ── Sale Person daily travel: close out the day's journey ────────────────
   // Attendance-In -> Meeting-1 and Meeting -> Meeting legs are already
@@ -1688,9 +2107,14 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   // app/controller/user.ts's EndMeeting). The only leg still missing at
   // punch-out time is the closing one — last completed meeting (or, with no
   // meetings today, nowhere) -> Attendance Out.
-  await applyTravelSummaryOnPunchOut(attendance, finalUserId, today, company);
+  // The session's own date, not "today" — a session closed on a later day
+  // must pick up its own day's meetings.
+  await applyTravelSummaryOnPunchOut(attendance, finalUserId, sessionDate, company);
 
   await attendance.save();
+
+  await applyDayClassification({ employeeId: Number(finalUserId), date: sessionDate, shift, company });
+  await attendance.reload();
 
   AttendanceSecurity.logSecurityEvent({
     userId: finalUserId,
@@ -1866,6 +2290,9 @@ export const getTeamTravelSummary = async (
   const attendanceRows = await Attendance.findAll({
     where: { employee_id: { [Op.in]: salesPersonIds }, date },
     attributes: ["employee_id", "punch_in", "punch_out", "totalTravelDistanceKm", "vehicleAllowance", "vehicleAllowanceRateApplied", "distanceCalculationStatus"],
+    // Oldest → newest: with several punch sessions in a day the Map below
+    // keeps the LATEST one, whose travel total already covers the whole day.
+    order: [["id", "ASC"]],
   });
   const attendanceByUser = new Map(attendanceRows.map((a: any) => [a.employee_id, a]));
 
@@ -1930,13 +2357,30 @@ export const getTodayAttendance = async (finalUserId: number) => {
   )[0];
   const todayLeave = todayLeaveRow ? todayLeaveRow.get({ plain: true }) : null;
 
+  // Additive fields for the employee attendance screen: their shift, the
+  // day's completed hours across all sessions, and a read-only summary of
+  // the attendance policy that applies to them (null = none saved).
+  const { shift, company } = await resolveAttendanceContext(Number(finalUserId));
+  const [todaysRows, policy] = await Promise.all([
+    AttendanceRepo.findAttendanceRowsForDate(finalUserId, today),
+    getMyPolicySummary((company as any)?.id ?? (shift as any)?.companyId ?? null, shift, today),
+  ]);
+  const completedHours = Number(
+    (todaysRows as any[]).filter((r) => r.punch_in && r.punch_out).reduce((sum, r) => sum + (Number(r.working_hours) || 0), 0).toFixed(2)
+  );
+  const extras = {
+    shift: shift ? { id: shift.id, shiftName: shift.shiftName, startTime: shift.startTime, endTime: shift.endTime, workingHours: shift.workingHours ?? null } : null,
+    daySummary: { sessions: (todaysRows as any[]).filter((r) => r.punch_in).length, completedHours },
+    attendancePolicy: policy,
+  };
+
   // A leave applied for today still shows, even before any punch-in.
   if (!record) {
-    if (!todayLeave) throw new ServiceError("No attendance found for today");
-    return { punch_in: null, punch_out: null, todayLeave };
+    if (!todayLeave) throw new ServiceError("No attendance found for today", 400, extras);
+    return { punch_in: null, punch_out: null, todayLeave, ...extras };
   }
   const plain = typeof (record as any).get === "function" ? (record as any).get({ plain: true }) : record;
-  return { ...plain, todayLeave };
+  return { ...plain, todayLeave, ...extras };
 };
 
 // Company holidays for the month the attendance list is showing. The mobile

@@ -85,6 +85,14 @@ interface AttendanceAttributes {
   originalPunchOut?: Date | null;
   regularizedFromRequestId?: number | null;
 
+  // Attendance policies (migration 0035): why this session got its status,
+  // whether the system (not the employee) closed it, the early-departure
+  // flag, and which saved policy version classified it (null = legacy rules).
+  statusReason?: string | null;
+  autoPunchedOut?: boolean;
+  earlyDeparture?: boolean;
+  attendancePolicyId?: number | null;
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -121,6 +129,10 @@ type AttendanceCreationAttributes = Optional<
   | "originalPunchIn"
   | "originalPunchOut"
   | "regularizedFromRequestId"
+  | "statusReason"
+  | "autoPunchedOut"
+  | "earlyDeparture"
+  | "attendancePolicyId"
 >;
 
 export class Attendance
@@ -167,6 +179,11 @@ export class Attendance
   public originalPunchIn!: Date | null;
   public originalPunchOut!: Date | null;
   public regularizedFromRequestId!: number | null;
+
+  public statusReason!: string | null;
+  public autoPunchedOut!: boolean;
+  public earlyDeparture!: boolean;
+  public attendancePolicyId!: number | null;
 
   static initModel(sequelize: Sequelize): typeof Attendance {
     Attendance.init(
@@ -312,6 +329,24 @@ export class Attendance
           allowNull: true,
         },
         regularizedFromRequestId: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
+        },
+        statusReason: {
+          type: DataTypes.STRING(255),
+          allowNull: true,
+        },
+        autoPunchedOut: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        earlyDeparture: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        attendancePolicyId: {
           type: DataTypes.INTEGER,
           allowNull: true,
         },
