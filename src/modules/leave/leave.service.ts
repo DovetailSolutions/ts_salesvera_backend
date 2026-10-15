@@ -1,10 +1,92 @@
-import { User, CompanyLeave, Leave, Attendance, EmployeeLeaveTypeBalance, sequelize } from "../../config/dbConnection";
+import { User, CompanyLeave, Leave, Attendance, EmployeeLeaveTypeBalance, Shift, sequelize } from "../../config/dbConnection";
 import { Op } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import { hasCompanyAccess } from "../shared/companyAccess";
 import { getISTDateString } from "../shared/dateUtils";
 import * as LeaveRepo from "./leave.repository";
+import { resolvePolicy, shiftWindowOn } from "../attendancePolicy/attendancePolicy.service";
+
+// Half-day / short-leave detail (migration 0035). Morning/evening and
+// first/second half are relative to the employee's own shift, never a fixed
+// clock time. Limits come from the company's attendance policy when one is
+// saved; without one the fields are optional and only shape-checked.
+const PARTIAL_SESSIONS: Record<string, string[]> = {
+  half_day: ["first_half", "second_half"],
+  short_leave: ["morning", "evening"],
+};
+
+export const validatePartialLeave = async (
+  employeeId: number,
+  callerCompanyId: number,
+  leaveType: string,
+  fromDate: string,
+  toDate: string,
+  body: any
+): Promise<{ leaveSession: string | null; durationMinutes: number | null }> => {
+  const rawSession = body?.leaveSession ?? null;
+  const rawDuration = body?.durationMinutes;
+  const allowedSessions = PARTIAL_SESSIONS[leaveType];
+
+  if (!allowedSessions) {
+    if (rawSession || (rawDuration !== undefined && rawDuration !== null && rawDuration !== "")) {
+      throw new ServiceError("Leave session / duration only apply to half-day and short leave");
+    }
+    return { leaveSession: null, durationMinutes: null };
+  }
+
+  if (rawSession !== null && !allowedSessions.includes(rawSession)) {
+    throw new ServiceError(`leaveSession must be one of: ${allowedSessions.join(", ")}`);
+  }
+  let durationMinutes: number | null = null;
+  if (rawDuration !== undefined && rawDuration !== null && rawDuration !== "") {
+    if (leaveType !== "short_leave") throw new ServiceError("durationMinutes only applies to short leave");
+    durationMinutes = Number(rawDuration);
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 480) {
+      throw new ServiceError("durationMinutes must be a whole number between 15 and 480");
+    }
+  }
+
+  const employee: any = await User.findByPk(employeeId, { attributes: ["id", "shiftId"] });
+  const shift: any = employee?.shiftId ? await Shift.findByPk(employee.shiftId) : null;
+  const policy = await resolvePolicy(callerCompanyId, shift?.id ?? null, fromDate);
+  if (policy) {
+    const rules = policy.config.leave;
+    if (leaveType === "half_day" && !rules.halfDayAllowed) throw new ServiceError("Half-day leave is not allowed by your company's attendance policy");
+    if (leaveType === "short_leave" && !rules.shortLeaveAllowed) throw new ServiceError("Short leave is not allowed by your company's attendance policy");
+    if (!rawSession) {
+      throw new ServiceError(leaveType === "half_day" ? "Choose first half or second half" : "Choose morning or evening");
+    }
+    if (leaveType === "short_leave") {
+      if (fromDate !== toDate) throw new ServiceError("Short leave must be for a single day");
+      if (durationMinutes === null) throw new ServiceError("Short leave duration (minutes) is required");
+      if (durationMinutes > rules.shortLeaveMaxMinutes) {
+        throw new ServiceError(`Short leave can be at most ${rules.shortLeaveMaxMinutes} minutes`);
+      }
+      const monthStart = `${fromDate.slice(0, 7)}-01`;
+      const lastDay = new Date(Date.UTC(Number(fromDate.slice(0, 4)), Number(fromDate.slice(5, 7)), 0)).getUTCDate();
+      const monthEnd = `${fromDate.slice(0, 7)}-${String(lastDay).padStart(2, "0")}`;
+      const used = await Leave.count({
+        where: {
+          employee_id: employeeId,
+          leave_type: "short_leave",
+          status: { [Op.in]: ["pending", "approved"] },
+          from_date: { [Op.between]: [monthStart, monthEnd] },
+        },
+      });
+      if (used >= rules.shortLeaveMaxPerMonth) {
+        throw new ServiceError(`Short leave limit reached for this month (${rules.shortLeaveMaxPerMonth})`);
+      }
+    }
+    if (!rules.allowRequestAfterShiftStart && fromDate === getISTDateString()) {
+      const window = shiftWindowOn(shift, fromDate);
+      if (window?.start && Date.now() >= window.start.getTime()) {
+        throw new ServiceError("Today's shift has already started — this request can no longer be submitted for today");
+      }
+    }
+  }
+  return { leaveSession: rawSession, durationMinutes };
+};
 
 // ============================================================
 // Leave service — validation + orchestration. Byte-for-byte port of the
@@ -189,6 +271,15 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     throw new ServiceError("half_day leave must have from_date equal to to_date");
   }
 
+  const partial = await validatePartialLeave(
+    targetEmployeeId,
+    Number(callerCompanyId),
+    leave_type,
+    String(from_date).slice(0, 10),
+    String(to_date).slice(0, 10),
+    body
+  );
+
   const existingLeave = await LeaveRepo.findOverlappingLeave(targetEmployeeId, from, to);
   if (existingLeave) {
     throw new ServiceError("This employee already has a leave request overlapping this date range");
@@ -232,6 +323,8 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     status: "pending",
     leave_type,
     companyLeaveId: leaveTypeRow.id,
+    leaveSession: partial.leaveSession as any,
+    durationMinutes: partial.durationMinutes,
   });
 
   return leave;

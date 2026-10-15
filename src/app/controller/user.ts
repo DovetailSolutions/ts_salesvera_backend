@@ -69,7 +69,7 @@ const getCompanyOrgUserIds = async (userData: JwtPayload): Promise<number[]> => 
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
 import { getJobPersonalDetails } from "../../modules/shared/jobPersonalDetails";
 import { getAccessibleCompanyIds, stripCompanyBankFields } from "../../modules/shared/companyAccess";
-import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType } from "../../modules/leave/leave.service";
+import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType, validatePartialLeave } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
 import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
@@ -1758,6 +1758,18 @@ export const requestLeave = async (
       return;
     }
 
+    // Half-day (first/second half) / short leave (morning/evening +
+    // minutes) detail — same validation and attendance-policy limits as the
+    // admin "request on behalf" endpoint (leave.service.ts).
+    const partial = await validatePartialLeave(
+      Number(finalUserId),
+      Number(userData?.companyId),
+      leave_type,
+      String(from_date).slice(0, 10),
+      String(to_date).slice(0, 10),
+      req.body
+    );
+
     // --------------------
     // ✅ Create Leave Request
     // --------------------
@@ -1769,6 +1781,8 @@ export const requestLeave = async (
       status: "pending",
       leave_type,
       companyLeaveId: resolvedCompanyLeaveId,
+      leaveSession: partial.leaveSession,
+      durationMinutes: partial.durationMinutes,
     } as any);
 
     // Note: Balance is NOT permanently deducted while pending.
@@ -2716,8 +2730,12 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
       return;
     }
     quotationData.status = status;
-    quotationData.guid = req.body.guid || null;
-    quotationData.alterid = req.body.alterid || null;
+    // FIX: guid/alterid (the Tally link) were overwritten with null whenever
+    // the caller sent only a status — e.g. the web "Accept" action — which
+    // silently cut the quotation's tie to Tally. Only update them when the
+    // caller actually sends them (the Tally sync always does).
+    if (req.body.guid !== undefined) quotationData.guid = req.body.guid || null;
+    if (req.body.alterid !== undefined) quotationData.alterid = req.body.alterid || null;
     await quotationData.save();
     createSuccess(res, "Quotation updated successfully");
   } catch (error) {

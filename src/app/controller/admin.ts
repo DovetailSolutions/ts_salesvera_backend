@@ -57,6 +57,7 @@ import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, collect
 import { resolveDefaultBranchAndShift, hasCompanyAccess } from "../../modules/shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../../modules/shared/dateUtils";
 import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
+import { allocateProformaInvoiceNumber } from "../../modules/shared/proformaInvoiceNumber";
 import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
 import { ServiceError } from "../../modules/shared/serviceError";
 
@@ -4445,23 +4446,30 @@ export const addInvoice = async (
   try {
     const userData = req.userData as JwtPayload;
 
+    // FIX: none of the validation failures below returned after replying —
+    // execution carried on into the (already rolled-back) transaction, then
+    // the catch tried to roll back and reply a second time ("headers
+    // already sent"). Each now stops right after its 400.
     // 🔒 Auth validation
     if (!userData?.userId) {
       await transaction.rollback();
       badRequest(res, "Unauthorized request");
+      return;
     }
 
-    const data = req.body;
+    const data = req.body || {};
 
     // 🔍 Basic validation
     if (!data.customerName) {
       await transaction.rollback();
       badRequest(res, "Customer name is required");
+      return;
     }
 
     if (!Array.isArray(data.items) || data.items.length === 0) {
       await transaction.rollback();
       badRequest(res, "Items are required");
+      return;
     }
 
     // 🔍 Item validation
@@ -4472,16 +4480,19 @@ export const addInvoice = async (
           res,
           "Each item must have itemName, quantity, and rate"
         );
+        return;
       }
 
       if (!item.index) {
         await transaction.rollback();
         badRequest(res, "Item index is required");
+        return;
       }
 
       if (Number(item.quantity) <= 0) {
         await transaction.rollback();
         badRequest(res, "Item quantity must be greater than 0");
+        return;
       }
     }
 
@@ -4511,7 +4522,11 @@ export const addInvoice = async (
         lock: transaction.LOCK.UPDATE,
       });
 
-      if (!quotationRecord) {
+      // FIX: any quotation id was accepted here, so a caller could consume
+      // (and invoice against) another team's or company's quotation. Same
+      // visibility rule as the quotation list/PDF download; reported
+      // exactly like a missing id.
+      if (!quotationRecord || !(await canAccessOwnedRecord(userData, quotationRecord.userId))) {
         throw new Error("Quotation not found");
       }
 
@@ -4575,11 +4590,15 @@ export const addInvoice = async (
         const available = baseQuantity - alreadyConsumed;
 
         // 🔴 Prevent over-consumption
-        // if (newConsume > available) {
-        //   throw new Error(
-        //     `Only ${available} quantity left for ${qItem.itemName}`
-        //   );
-        // }
+        // FIX: this check was commented out — invoicing more than the
+        // quoted quantity drove remainingQuantity negative, so the
+        // quotation never reached isConsumed and the same quotation could
+        // be turned into sale orders again and again.
+        if (newConsume > available) {
+          throw new Error(
+            `Only ${available} quantity left for ${qItem.itemName}`
+          );
+        }
 
         const totalConsumed = alreadyConsumed + newConsume;
 
@@ -4615,10 +4634,21 @@ export const addInvoice = async (
     // =========================================
     // 🧾 CREATE INVOICE
     // =========================================
+    // FIX: the number came from the browser — Date.now() (e.g.
+    // 1789039194463), a date+random string, or nothing at all (stored as
+    // "web"). This web endpoint now always issues the company's next
+    // PI/<FY>/<nnnn> number, inside this same transaction so it can't be
+    // duplicated or skipped. Any client-sent tallyInvoiceNumber is ignored
+    // here; Tally's own sync uses /api/addinvoice, which keeps Tally's
+    // voucher numbers.
+    void tallyInvoiceNumber;
+    const companyIdForInvoice = Number(userData.companyId) || 0;
+    const proformaInvoiceNumber = await allocateProformaInvoiceNumber(companyIdForInvoice, transaction);
+
     const invoicePayload = {
       userId: userData.userId,
       companyId: userData.companyId || 0,
-      invoiceNumber: tallyInvoiceNumber,
+      invoiceNumber: proformaInvoiceNumber,
       customerName,
       quotationId: quotationId || null,
       status: status || "draft",

@@ -114,6 +114,9 @@ export const getSalesPersonTravelSummary = async (userId: number, date: string) 
       "lastMeetingId", "finalLegDistanceKm", "totalTravelDistanceKm",
       "vehicleAllowanceRateApplied", "vehicleAllowance", "distanceCalculationStatus",
     ],
+    // A day can hold several punch sessions; the latest one's travel total
+    // already covers the whole day (meeting legs + its closing leg).
+    order: [["id", "DESC"]],
   });
 
   const meetings = await Meeting.findAll({

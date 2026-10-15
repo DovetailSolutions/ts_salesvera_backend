@@ -108,6 +108,27 @@ export const exportAttendanceReport = async (req: Request, res: Response): Promi
   }
 };
 
+export const exportAttendanceBook = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+    const { buffer, filename, rowCount } = await AttendanceService.exportAttendanceBookExcel(
+      Number(userData.userId),
+      callerCompanyId,
+      req.query
+    );
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "X-Export-Row-Count": String(rowCount),
+      "Access-Control-Expose-Headers": "Content-Disposition, X-Export-Row-Count",
+    });
+    res.send(buffer);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 export const bulkMarkAttendance = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;

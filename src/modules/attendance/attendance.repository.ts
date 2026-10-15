@@ -52,6 +52,9 @@ export const countPresentToday = (childIds: number[], todayDateOnly: string) =>
       status: { [Op.in]: ["present", "out"] },
       date: todayDateOnly,
     },
+    // One employee with two punch sessions today is still one person present.
+    distinct: true,
+    col: "employee_id",
   });
 
 export const countOnLeaveToday = (childIds: number[], todayDateOnly: string) =>
@@ -64,8 +67,15 @@ export const countOnLeaveToday = (childIds: number[], todayDateOnly: string) =>
     } as any,
   });
 
+// A day can now hold several punch sessions (one row each) — always the
+// LATEST row, so Mark Attendance / punch-in act on the same row the register
+// shows instead of an arbitrary one.
 export const findAttendanceForDate = (employeeId: number | string, date: string) =>
-  Attendance.findOne({ where: { employee_id: employeeId, date } });
+  Attendance.findOne({ where: { employee_id: employeeId, date }, order: [["id", "DESC"]] });
+
+// Every row (session, leave, admin mark) for one employee+date, oldest first.
+export const findAttendanceRowsForDate = (employeeId: number | string, date: string) =>
+  Attendance.findAll({ where: { employee_id: employeeId, date }, order: [["id", "ASC"]] });
 
 export const createAttendanceRecord = (row: any) => Attendance.create(row);
 

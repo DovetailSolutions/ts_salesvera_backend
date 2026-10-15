@@ -1,20 +1,155 @@
 import cron from "node-cron";
 import { Op } from "sequelize";
 import { Attendance, User, Shift, Company } from "./dbConnection";
-import { getDayTypeFromWorkingHours, resolveHalfDayThresholdHours, computeShiftOverlapHours } from "../modules/attendance/attendance.service";
+import { applyDayClassification } from "../modules/attendance/attendance.service";
+import { resolvePolicy, shiftWindowOn } from "../modules/attendancePolicy/attendancePolicy.service";
 import { getISTDateString } from "../modules/shared/dateUtils";
 
 /**
  * ─────────────────────────────────────────────
- *  AUTO PUNCH-OUT CRON JOB
- *  Schedule : Every day at 11:59 PM (IST)
- *  Purpose  : Find all attendance records that
- *             are still "present" (punch-in done,
- *             punch-out NOT done) and auto close
- *             them with punch_out = 23:59:00 IST
- *             of their respective date.
+ *  AUTO PUNCH-OUT
+ *  Schedule : Every day at 11:59 PM (IST), plus a
+ *             catch-up run shortly after server start.
+ *  Purpose  : Close attendance sessions that were
+ *             punched in but never punched out.
+ *
+ *  - Uses each session's OWN date (never the next
+ *    day's shift window) and IST throughout.
+ *  - A saved company attendance policy decides
+ *    between a system punch-out (end of day, or
+ *    shift end) and marking the day absent.
+ *    Without a policy: punch-out at 23:59 of the
+ *    session's date, exactly as before.
+ *  - Every close is a conditional update (still
+ *    "present", punch_out still NULL), so a second
+ *    run, another server instance or an employee
+ *    punching out at the same moment can never
+ *    double-process or overwrite a session.
+ *  - System punch-outs are flagged autoPunchedOut.
+ *  - The day's final status comes from
+ *    applyDayClassification — the same path as a
+ *    normal punch-out (never forced to Present).
  * ─────────────────────────────────────────────
  */
+let autoPunchOutRunning = false;
+
+export const runAutoPunchOut = async (opts: { onlyBeforeToday?: boolean; source?: string } = {}) => {
+  if (autoPunchOutRunning) return { skippedRun: true };
+  autoPunchOutRunning = true;
+  const source = opts.source ?? "cron";
+  try {
+    const todayStr = getISTDateString();
+    const missed = await Attendance.findAll({
+      where: {
+        status: "present", // punched in, not yet punched out
+        punch_out: null,
+        // The catch-up run only touches earlier days — today's sessions may
+        // still be in progress.
+        date: opts.onlyBeforeToday ? { [Op.lt]: todayStr } : { [Op.lte]: todayStr },
+      },
+      order: [["id", "ASC"]],
+    });
+    if (missed.length === 0) return { closed: 0, markedAbsent: 0, skipped: 0 };
+
+    // Batch-resolve each employee's shift + company (Shift > Company).
+    const employeeIds = [...new Set(missed.map((r) => r.employee_id))];
+    const employees = await User.findAll({ where: { id: { [Op.in]: employeeIds } }, attributes: ["id", "shiftId"] });
+    const shiftIdByEmployee = new Map(employees.map((e: any) => [e.id, e.shiftId ?? null]));
+    const shiftIds = [...new Set(employees.map((e: any) => e.shiftId).filter((id: any): id is number => !!id))];
+    const shifts = shiftIds.length ? await Shift.findAll({ where: { id: { [Op.in]: shiftIds } } }) : [];
+    const shiftById = new Map(shifts.map((s: any) => [s.id, s]));
+    const companyIds = [...new Set(shifts.map((s: any) => s.companyId).filter((id: any): id is number => !!id))];
+    const companies = companyIds.length ? await Company.findAll({ where: { id: { [Op.in]: companyIds } } }) : [];
+    const companyById = new Map(companies.map((c: any) => [c.id, c]));
+
+    let closed = 0;
+    let markedAbsent = 0;
+    let skipped = 0;
+
+    for (const record of missed) {
+      try {
+        const dateStr = record.date instanceof Date ? record.date.toISOString().slice(0, 10) : String(record.date).slice(0, 10);
+        const punchIn = new Date(record.punch_in as Date);
+        const shiftId = shiftIdByEmployee.get(record.employee_id);
+        const shift: any = shiftId ? shiftById.get(shiftId) : null;
+        const company: any = shift?.companyId ? companyById.get(shift.companyId) : null;
+        const window = shiftWindowOn(shift, dateStr);
+        const overnight = !!window && String(shift?.endTime) <= String(shift?.startTime);
+
+        // A night shift that hasn't ended yet is still in progress — never
+        // close it or mark it absent mid-shift; a later run picks it up.
+        if (overnight && window!.end!.getTime() > Date.now()) {
+          skipped++;
+          continue;
+        }
+
+        const policy = await resolvePolicy(company?.id ?? null, shift?.id ?? null, dateStr);
+
+        if (policy?.config.missedPunchOut.action === "mark_absent") {
+          const [n] = await Attendance.update(
+            {
+              status: "absent",
+              dayType: null,
+              working_hours: null,
+              overtime: 0,
+              autoPunchedOut: false,
+              statusReason: "Missed punch-out — marked absent by attendance policy",
+              attendancePolicyId: policy.id,
+            } as any,
+            { where: { id: record.id, status: "present", punch_out: null } }
+          );
+          if (n === 0) {
+            skipped++; // closed meanwhile — leave it alone
+            continue;
+          }
+          await applyDayClassification({ employeeId: record.employee_id, date: dateStr, shift, company, missedPunchOut: true });
+          markedAbsent++;
+          continue;
+        }
+
+        // System punch-out time: 23:59 of the session's own date (previous
+        // behaviour), or the shift end when the policy asks for it — and,
+        // under a policy, always the shift end for a night shift.
+        let autoPunchOut = new Date(`${dateStr}T23:59:00+05:30`);
+        if (
+          policy &&
+          window?.end &&
+          punchIn < window.end &&
+          (policy.config.missedPunchOut.autoPunchOutAt === "shift_end" || overnight)
+        ) {
+          autoPunchOut = window.end;
+        }
+        if (autoPunchOut <= punchIn) {
+          console.warn(`[CRON] ⚠️  Skipping attendance ${record.id} (date: ${dateStr}) — punch_in is after the auto punch-out time`);
+          skipped++;
+          continue;
+        }
+
+        const workingHours = Number(((autoPunchOut.getTime() - punchIn.getTime()) / 3600000).toFixed(2));
+        const [n] = await Attendance.update(
+          { punch_out: autoPunchOut, working_hours: workingHours, overtime: 0, status: "out", autoPunchedOut: true } as any,
+          { where: { id: record.id, status: "present", punch_out: null } }
+        );
+        if (n === 0) {
+          skipped++; // closed meanwhile — leave it alone
+          continue;
+        }
+        await applyDayClassification({ employeeId: record.employee_id, date: dateStr, shift, company });
+        closed++;
+      } catch (recordError) {
+        console.error(`[CRON] ❌ Failed to auto punch-out attendance ${record.id}:`, recordError);
+      }
+    }
+
+    console.log(
+      `[CRON] 🏁 Auto punch-out (${source}) — closed: ${closed}, marked absent: ${markedAbsent}, skipped: ${skipped}, total: ${missed.length}`
+    );
+    return { closed, markedAbsent, skipped };
+  } finally {
+    autoPunchOutRunning = false;
+  }
+};
+
 export const startCronJobs = () => {
 
   // ──────────────────────────────────────────────
@@ -26,139 +161,7 @@ export const startCronJobs = () => {
     "59 23 * * *",
     async () => {
       try {
-        // FIX: was new Date().toISOString().slice(0,10) — toISOString()
-        // converts to UTC first, which rolls the calendar day backward for
-        // any real-world IST time before ~05:30. This job is only ever
-        // scheduled to fire at 23:59 IST (18:29 UTC same day) so the two
-        // dates happen to coincide right now, but that made the Op.lte
-        // upper-bound fragile against any future manual trigger or
-        // reschedule. getISTDateString() computes the IST calendar date via
-        // explicit +5:30 offset arithmetic, so it's correct regardless of
-        // when this job runs or the server's OS timezone.
-        const todayStr = getISTDateString();
-
-        // ── Step 1: Find all un-punched-out records up to today ──
-        const missed = await Attendance.findAll({
-          where: {
-            status: "present",   // punched in, not yet punched out
-            punch_out: null,     // safety double-check
-            date: {
-              [Op.lte]: todayStr, // today or any earlier forgotten date
-            },
-          },
-        });
-
-        if (missed.length === 0) {
-          return;
-        }
-
-        // ── Step 1b: Batch-resolve each employee's shift + company, same
-        // "Shift > Company > hardcoded" precedence used by every interactive
-        // attendance endpoint (mark-present, punch-out, bulk upload) — this
-        // job previously always applied overtime with a hardcoded 8h
-        // baseline regardless of whether the company had even enabled
-        // overtime tracking at registration (Company.overtimeAllowed), and
-        // never set dayType at all. Batched (not per-record) to keep this a
-        // fixed number of queries regardless of how many records are missed.
-        const employeeIds = [...new Set(missed.map((r) => r.employee_id))];
-        const employees = await User.findAll({
-          where: { id: { [Op.in]: employeeIds } },
-          attributes: ["id", "shiftId"],
-        });
-        const shiftIdByEmployee = new Map(employees.map((e: any) => [e.id, e.shiftId ?? null]));
-
-        const shiftIds = [...new Set(employees.map((e: any) => e.shiftId).filter((id: any): id is number => !!id))];
-        const shifts = shiftIds.length ? await Shift.findAll({ where: { id: { [Op.in]: shiftIds } } }) : [];
-        const shiftById = new Map(shifts.map((s: any) => [s.id, s]));
-
-        const companyIds = [...new Set(shifts.map((s: any) => s.companyId).filter((id: any): id is number => !!id))];
-        const companies = companyIds.length ? await Company.findAll({ where: { id: { [Op.in]: companyIds } } }) : [];
-        const companyById = new Map(companies.map((c: any) => [c.id, c]));
-
-        // ── Step 2: Auto punch-out each record ──
-        let successCount = 0;
-        let skipCount = 0;
-
-        for (const record of missed) {
-          try {
-            // Get the attendance date string (e.g. "2026-04-14")
-            const dateStr =
-              record.date instanceof Date
-                ? record.date.toISOString().slice(0, 10)
-                : String(record.date).slice(0, 10);
-
-            // Set auto punch-out at 23:59:00 IST of the attendance date
-            // "+05:30" = IST offset so DB stores the correct UTC equivalent
-            const autoPunchOut = new Date(`${dateStr}T23:59:00+05:30`);
-            const punchIn = new Date(record.punch_in as Date);
-
-            // Skip if punch_in is somehow after auto punch-out (data anomaly)
-            if (autoPunchOut <= punchIn) {
-              console.warn(
-                `[CRON] ⚠️  Skipping employee ${record.employee_id} (date: ${dateStr}) — punch_in is after 23:59`
-              );
-              skipCount++;
-              continue;
-            }
-
-            // ── Calculate working hours ──
-            const diffMs = autoPunchOut.getTime() - punchIn.getTime();
-            const workingHours = Number(
-              (diffMs / (1000 * 60 * 60)).toFixed(2)
-            );
-
-            const shiftId = shiftIdByEmployee.get(record.employee_id);
-            const shift: any = shiftId ? shiftById.get(shiftId) : null;
-            const company: any = shift?.companyId ? companyById.get(shift.companyId) : null;
-
-            // ── Overtime — only counted if this employee's company actually
-            // opted into overtime tracking at registration; baseline from
-            // their shift's own working hours, falling back to 8h.
-            const officeHours = shift?.workingHours && shift.workingHours > 0 ? shift.workingHours : 8;
-            const overtimeAllowed = company?.overtimeAllowed ?? false;
-            const overtime =
-              overtimeAllowed && workingHours > officeHours
-                ? Number((workingHours - officeHours).toFixed(2))
-                : 0;
-            // Shift-aware, same as the interactive punch-out endpoint
-            // (attendancePunchOut): someone who punched in but never punched
-            // out gets auto-closed at 23:59, which — measured as raw
-            // duration — could read as a huge multi-hour "session" even
-            // though almost none of it was during their actual shift.
-            // Capping to the shift's own window before classifying means
-            // dayType/status reflect what actually happened during the
-            // shift, not an artifact of the cron's fixed 23:59 close time.
-            // working_hours (stored below) stays the raw duration, same as
-            // punch-out — only the classification uses the shift-aware figure.
-            const shiftAwareHours = computeShiftOverlapHours(shift, dateStr, punchIn, autoPunchOut, workingHours);
-            const dayType = getDayTypeFromWorkingHours(shiftAwareHours, shift, company);
-            const halfDayThresholdHours = resolveHalfDayThresholdHours(shift, company);
-            const status = shiftAwareHours < halfDayThresholdHours ? "absent" : "out";
-
-            // ── Update the record ──
-            await record.update({
-              punch_out: autoPunchOut,
-              working_hours: workingHours,
-              overtime,
-              dayType,
-              status,
-            });
-
-
-            successCount++;
-
-          } catch (recordError) {
-            console.error(
-              `[CRON] ❌ Failed to auto punch-out employee ${record.employee_id}:`,
-              recordError
-            );
-          }
-        }
-
-        console.log(
-          `[CRON] 🏁 Job done — Success: ${successCount}, Skipped: ${skipCount}, Total: ${missed.length}`
-        );
-
+        await runAutoPunchOut({ source: "cron" });
       } catch (error) {
         console.error("[CRON] ❌ Auto punch-out job failed with error:", error);
       }
@@ -168,6 +171,15 @@ export const startCronJobs = () => {
       timezone: "Asia/Kolkata", // 11:59 PM IST
     }
   );
+
+  // Catch-up: if the server was down at 23:59, earlier days' sessions would
+  // stay open until the next night. Close them shortly after start —
+  // earlier days only, never today's possibly-active sessions.
+  setTimeout(() => {
+    runAutoPunchOut({ onlyBeforeToday: true, source: "startup catch-up" }).catch((error) =>
+      console.error("[CRON] ❌ Auto punch-out catch-up failed:", error)
+    );
+  }, 60 * 1000);
 
   // ─────────────────────────────────────────────
   //  REFRESH-SESSION CLEANUP
