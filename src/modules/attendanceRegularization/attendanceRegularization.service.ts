@@ -5,9 +5,11 @@ import { assertCanAct } from "../geoFencing/geoFencing.service";
 import { sendNotification } from "../../config/notificationService";
 import { NotificationType } from "../../app/model/Notification";
 import { getCompanyAdminIds, getCompanyScopedChildUserIdsFast, getDirectCreator } from "../shared/userHierarchy";
+import { hasCompanyAccess } from "../shared/companyAccess";
 import { getISTDateString, parseISTTime } from "../shared/dateUtils";
 import { ATTENDANCE_REGULARIZATION_DAYS } from "../../config/env";
 import * as Repo from "./attendanceRegularization.repository";
+import { reclassifyRegularizedDay } from "../attendance/attendance.service";
 
 // ============================================================
 // Attendance Regularization — Sale Person-initiated correction requests for
@@ -58,6 +60,40 @@ const MAX_DESCRIPTION_LENGTH = 2000;
 // listed either — same as before this fix, unchanged.
 const ELIGIBLE_ROLES = ["employee", "manager"];
 
+// Who may view / approve / reject another person's request. Reuses
+// geo-fencing's assertCanAct for admin / manager / super_admin (team and
+// company scoping), but:
+//  - FIX: the company owner ("user") wasn't in that list at all, so an owner
+//    could open the review queue yet got a 403 on every request; an owner may
+//    now review any manager's / employee's request of their own company.
+//  - FIX: its refusal talked about "geo-fencing"; this one says what it means.
+const assertCanReview = async (
+  callerId: number,
+  callerRole: string | undefined,
+  callerCompanyId: number | null,
+  targetUser: any,
+  request: any
+) => {
+  if (callerRole === "user") {
+    const sameCompany = !!callerCompanyId && Number(request.companyId) === Number(callerCompanyId);
+    if (!sameCompany || !(await hasCompanyAccess(Number(callerCompanyId), callerId, "user"))) {
+      throw new ServiceError("This request belongs to another company", 403);
+    }
+    if (!ELIGIBLE_ROLES.includes(String(targetUser.role))) {
+      throw new ServiceError("You can only review requests from managers and employees", 403);
+    }
+    return;
+  }
+  try {
+    await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: false });
+  } catch (err) {
+    if (err instanceof ServiceError && err.status === 403) {
+      throw new ServiceError("You can only review regularization requests from your own team", 403);
+    }
+    throw err;
+  }
+};
+
 const toPublicRequest = (row: any) => {
   const plain = row.get ? row.get({ plain: true }) : row;
   return { ...plain, requestTypeLabel: REQUEST_TYPE_LABELS[plain.requestType] ?? plain.requestType };
@@ -74,12 +110,12 @@ const validateAndNormalize = (body: any): {
 } => {
   const requestType = String(body?.requestType || "").toUpperCase();
   if (!REQUEST_TYPES.includes(requestType as any)) {
-    throw new ServiceError(`Invalid request type. Must be one of: ${REQUEST_TYPES.join(", ")}`);
+    throw new ServiceError(`Choose a valid request type: ${REQUEST_TYPES.map((t) => REQUEST_TYPE_LABELS[t]).join(", ")}`);
   }
 
   const attendanceDate = String(body?.attendanceDate || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(attendanceDate) || Number.isNaN(new Date(attendanceDate).getTime())) {
-    throw new ServiceError("A valid attendanceDate (YYYY-MM-DD) is required");
+    throw new ServiceError("A valid attendance date (YYYY-MM-DD) is required");
   }
   const today = getISTDateString();
   if (attendanceDate > today) {
@@ -156,6 +192,12 @@ const validateAndNormalize = (body: any): {
 
   if (requestedPunchIn && requestedPunchOut && requestedPunchIn.getTime() >= requestedPunchOut.getTime()) {
     throw new ServiceError("Punch-in time must be before punch-out time");
+  }
+  // A correction is for something that already happened — e.g. today's
+  // punch-out can't be requested for 8 PM at 3 PM.
+  const now = Date.now();
+  if ((requestedPunchIn && requestedPunchIn.getTime() > now) || (requestedPunchOut && requestedPunchOut.getTime() > now)) {
+    throw new ServiceError("Requested times can't be in the future");
   }
 
   return { requestType, attendanceDate, requestedPunchIn, requestedPunchOut, reason, description };
@@ -252,7 +294,9 @@ export const cancelRequest = async (callerId: number, requestId: number) => {
 // ── Self-service list ────────────────────────────────────────────────────
 export const getMyRequests = async (userId: number, opts: { page?: number; limit?: number; status?: string }) => {
   const { rows, count } = await Repo.findRequests({ userId, status: opts.status, page: opts.page, limit: opts.limit });
-  return { rows: rows.map(toPublicRequest), total: count };
+  // windowDays: how far back a request may go — so the form's date picker
+  // offers exactly the dates the server will accept.
+  return { rows: rows.map(toPublicRequest), total: count, windowDays: ATTENDANCE_REGULARIZATION_DAYS };
 };
 
 // ── Admin/Manager list — company-scoped, same pattern as
@@ -274,12 +318,17 @@ export const getRequests = async (
   callerId: number,
   callerRole: string | undefined,
   callerCompanyId: number | null,
-  opts: { status?: string; requestType?: string; userId?: number; dateFrom?: string; dateTo?: string; page?: number; limit?: number }
+  opts: { status?: string; requestType?: string; userId?: number; dateFrom?: string; dateTo?: string; search?: string; page?: number; limit?: number }
 ) => {
   let companyId: number | undefined = callerRole === "super_admin" ? undefined : (callerCompanyId ?? undefined);
   let userIdFilter: any = opts.userId;
 
-  if (callerRole === "manager") {
+  // FIX: only admin / owner / super_admin see the whole company. This used to
+  // be "manager only" scoped, so an EMPLOYEE who had attendance permissions
+  // (which the route also accepts for this module) got every colleague's
+  // requests — reasons and attachments included. Everyone else now sees
+  // just their own team, which for an employee is nobody.
+  if (!["admin", "user", "super_admin"].includes(String(callerRole))) {
     // Own company-scoped team (sale persons, and any managers under this
     // manager) — never another manager's team, never another company's.
     const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
@@ -305,6 +354,17 @@ export const getRequests = async (
     // exact same guarantee attendanceSecurity relies on.
   }
 
+  // Search across every page on the server — the list used to filter only
+  // the 20 rows already loaded, so matches on other pages never showed.
+  const text = String(opts.search ?? "").trim().slice(0, 100);
+  const search = text
+    ? {
+        text,
+        userIds: await Repo.findUserIdsMatching(text),
+        requestTypes: REQUEST_TYPES.filter((t) => REQUEST_TYPE_LABELS[t].toLowerCase().includes(text.toLowerCase())),
+      }
+    : undefined;
+
   const { rows, count } = await Repo.findRequests({
     companyId,
     status: opts.status,
@@ -312,6 +372,7 @@ export const getRequests = async (
     userId: userIdFilter,
     dateFrom: opts.dateFrom,
     dateTo: opts.dateTo,
+    search,
     page: opts.page,
     limit: opts.limit,
   });
@@ -339,7 +400,7 @@ export const getRequestDetail = async (
   // Self-owner may always view their own request; anyone else needs
   // reviewer authorization over that Sale Person.
   if (request.userId !== callerId) {
-    await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: false });
+    await assertCanReview(callerId, callerRole, callerCompanyId, targetUser, request);
   }
 
   const originalAttendance = request.attendanceId ? await Repo.findAttendanceForDate(request.userId, request.attendanceDate) : null;
@@ -365,7 +426,7 @@ export const approveRequest = async (
   // enforced by assertCanAct itself (a employee caller has no allowed
   // target roles at all, so this throws 403 unconditionally for them —
   // also blocks a Sale Person "approving" their own request).
-  await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: false });
+  await assertCanReview(callerId, callerRole, callerCompanyId, targetUser, preCheck);
 
   const result = await sequelize.transaction(async (t) => {
     const locked = await Repo.findRequestByIdForUpdate(requestId, t);
@@ -377,7 +438,12 @@ export const approveRequest = async (
       });
     }
 
-    let attendance = await Repo.findAttendanceForDate(locked.userId, locked.attendanceDate, t);
+    // FIX: was "any one row of the day" (unordered findOne). On a day with
+    // several punch sessions, a missed punch-out must close the session that
+    // was actually left open, not whichever row the database returned.
+    const dayRows: any[] = await Repo.findAttendanceRowsForDate(locked.userId, locked.attendanceDate, t);
+    const openSession = [...dayRows].reverse().find((r) => r.punch_in && !r.punch_out);
+    let attendance = (locked.requestType === "MISSED_PUNCH_OUT" && openSession) || dayRows[0] || null;
     const originalPunchIn = attendance?.punch_in ?? null;
     const originalPunchOut = attendance?.punch_out ?? null;
 
@@ -387,7 +453,10 @@ export const approveRequest = async (
     // without inventing times (see validateAndNormalize's WFH branch and
     // §35's documented exception).
     const isWorkFromHome = locked.requestType === "WORK_FROM_HOME";
-    const status = isWorkFromHome ? "present" : nextPunchOut ? "out" : "present";
+    // FIX: WFH was saved as "present" with no punch-out — exactly what the
+    // nightly missed-punch-out job looks for, so an approved WFH day was
+    // later auto-closed or even marked absent. It's a complete full day.
+    const status = isWorkFromHome ? "out" : nextPunchOut ? "out" : "present";
     // Deliberately NOT attendance.service.ts's full shift-overlap
     // computeShiftOverlapHours logic (§35) — a simple elapsed-time figure
     // is enough for an administrative correction; it's clearly
@@ -404,6 +473,7 @@ export const approveRequest = async (
       attendance.working_hours = workingHours as any;
       attendance.attendanceSource = "REGULARIZATION";
       attendance.regularizedFromRequestId = locked.id;
+      if (isWorkFromHome) attendance.dayType = "full_day" as any;
       await attendance.save({ transaction: t });
     } else {
       attendance = await Repo.createAttendanceRecord(
@@ -415,6 +485,7 @@ export const approveRequest = async (
           status,
           working_hours: workingHours,
           late: false,
+          ...(isWorkFromHome ? { dayType: "full_day" } : {}),
           attendanceSource: "REGULARIZATION",
           originalPunchIn: null,
           originalPunchOut: null,
@@ -427,8 +498,21 @@ export const approveRequest = async (
     await Repo.setRequestAttendanceId(requestId, attendance.id, t);
     await Repo.updateRequestStatus(requestId, "approved", callerId, comment ?? null, t);
 
-    return { attendance, originalPunchIn, originalPunchOut, nextPunchIn, nextPunchOut };
+    return { attendance, originalPunchIn, originalPunchOut, nextPunchIn, nextPunchOut, isWorkFromHome };
   });
+
+  // FIX: the day kept its OLD day type (e.g. "short day" from the wrong
+  // punch times) after the corrected times were approved, so the register
+  // still showed S/HD. Classify the corrected day once, with the same rules
+  // as a normal punch-out. The approval itself is already saved; a failure
+  // here is logged and never undoes it.
+  if (!result.isWorkFromHome) {
+    try {
+      await reclassifyRegularizedDay(Number(preCheck.userId), String(preCheck.attendanceDate).slice(0, 10), callerCompanyId);
+    } catch (err) {
+      console.error(`[Regularization] Could not reclassify ${preCheck.attendanceDate} for user ${preCheck.userId}:`, err);
+    }
+  }
 
   Repo.createAuditLog({
     userId: preCheck.userId,
@@ -472,7 +556,7 @@ export const rejectRequest = async (
   if (!preCheck) throw new ServiceError("Regularization request not found", 404);
   const targetUser = await Repo.findUserById(preCheck.userId);
   if (!targetUser) throw new ServiceError("User not found", 404);
-  await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: false });
+  await assertCanReview(callerId, callerRole, callerCompanyId, targetUser, preCheck);
 
   await sequelize.transaction(async (t) => {
     const locked = await Repo.findRequestByIdForUpdate(requestId, t);

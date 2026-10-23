@@ -1869,12 +1869,18 @@ export const applyDayClassification = async (params: {
   shift: any;
   company: any;
   missedPunchOut?: boolean;
+  // Set only by an approved regularization, to classify the corrected times
+  // once. Automatic runs (punch-out, the nightly job) never pass it, so they
+  // still leave a regularized day alone; a manually marked day is never
+  // recalculated either way.
+  includeRegularized?: boolean;
 }) => {
   const { employeeId, date, shift, company } = params;
   const rows: any[] = await AttendanceRepo.findAttendanceRowsForDate(employeeId, date);
   const sessions = rows.filter((r) => r.punch_in && r.punch_out && r.status !== "leaveApproved");
 
-  if (rows.some(isManualOrRegularized)) {
+  const isManual = (r: any) => String(r?.statusReason || "").startsWith(MANUAL_REASON_PREFIX);
+  if (rows.some((r) => (params.includeRegularized ? isManual(r) : isManualOrRegularized(r)))) {
     // Keep the corrected day; just make sure a newly closed session isn't
     // left looking "in progress".
     for (const r of sessions) {
@@ -1939,7 +1945,26 @@ export const applyDayClassification = async (params: {
       ...(r.id === sessions[0].id ? { late: result.late } : {}),
     });
   }
+  // The never-closed session of a missed punch-out carries the same day
+  // result — it's the day's newest row, which the register shows — so a day
+  // whose earlier sessions were completed isn't left showing "absent".
+  if (params.missedPunchOut) {
+    for (const r of rows) {
+      // Only rows the auto punch-out job already closed as missed — never a
+      // session that is still running ("present").
+      if (!r.punch_in || r.punch_out || r.status !== "absent" || isManualOrRegularized(r)) continue;
+      await r.update({ dayType, status, statusReason: result.reason, attendancePolicyId: policy.id, overtime: 0, earlyDeparture: false });
+    }
+  }
   return { ...result, status, policyId: policy.id };
+};
+
+// Classifies a day once after a regularization is approved, so its day type
+// (full / half / short) follows the corrected times instead of whatever the
+// day was classified as before the correction.
+export const reclassifyRegularizedDay = async (employeeId: number, date: string, callerCompanyId: number | null) => {
+  const { shift, company } = await resolveAttendanceContext(employeeId, callerCompanyId);
+  return applyDayClassification({ employeeId, date, shift, company, includeRegularized: true });
 };
 
 export const attendancePunchOut = async (finalUserId: number, callerCompanyId: number | null, body: any, files?: any[]) => {

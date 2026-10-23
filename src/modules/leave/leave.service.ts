@@ -30,20 +30,20 @@ export const validatePartialLeave = async (
 
   if (!allowedSessions) {
     if (rawSession || (rawDuration !== undefined && rawDuration !== null && rawDuration !== "")) {
-      throw new ServiceError("Leave session / duration only apply to half-day and short leave");
+      throw new ServiceError("Leave session and duration only apply to half-day and short leave");
     }
     return { leaveSession: null, durationMinutes: null };
   }
 
   if (rawSession !== null && !allowedSessions.includes(rawSession)) {
-    throw new ServiceError(`leaveSession must be one of: ${allowedSessions.join(", ")}`);
+    throw new ServiceError(`Leave session must be one of: ${allowedSessions.join(", ")}`);
   }
   let durationMinutes: number | null = null;
   if (rawDuration !== undefined && rawDuration !== null && rawDuration !== "") {
-    if (leaveType !== "short_leave") throw new ServiceError("durationMinutes only applies to short leave");
+    if (leaveType !== "short_leave") throw new ServiceError("Duration only applies to short leave");
     durationMinutes = Number(rawDuration);
     if (!Number.isInteger(durationMinutes) || durationMinutes < 15 || durationMinutes > 480) {
-      throw new ServiceError("durationMinutes must be a whole number between 15 and 480");
+      throw new ServiceError("Short leave duration must be a whole number of minutes between 15 and 480");
     }
   }
 
@@ -246,11 +246,12 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     }
   }
 
-  if (!from_date || !to_date || !reason) {
-    throw new ServiceError("from_date, to_date & reason are required");
+  // A reason of only spaces used to pass this check and be saved blank.
+  if (!from_date || !to_date || !String(reason ?? "").trim()) {
+    throw new ServiceError("From date, to date and reason are required");
   }
   if (!companyLeaveId) {
-    throw new ServiceError("companyLeaveId is required");
+    throw new ServiceError("Leave type is required");
   }
   if (!callerCompanyId) {
     throw new ServiceError("No company context — cannot resolve this company's leave types");
@@ -259,16 +260,16 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
   const from = new Date(from_date);
   const to = new Date(to_date);
   if (isNaN(from.getTime()) || isNaN(to.getTime())) throw new ServiceError("Invalid date format");
-  if (to < from) throw new ServiceError("to_date must be after from_date");
+  if (to < from) throw new ServiceError("To date cannot be before from date");
 
   const leaveTypeRow: any = await LeaveRepo.findCompanyLeaveByIdOnly(Number(companyLeaveId));
   if (!leaveTypeRow || Number(leaveTypeRow.companyId) !== Number(callerCompanyId)) {
-    throw new ServiceError("companyLeaveId is not a leave type configured for your company");
+    throw new ServiceError("The selected leave type is not configured for your company");
   }
   const leave_type = inferLegacyLeaveTypeEnum(leaveTypeRow.leaveName);
 
   if (leave_type === "half_day" && from.getTime() !== to.getTime()) {
-    throw new ServiceError("half_day leave must have from_date equal to to_date");
+    throw new ServiceError("A half-day leave must start and end on the same day");
   }
 
   const partial = await validatePartialLeave(
@@ -333,8 +334,8 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
 export const approveLeave = async (loggedInId: number, callerCompanyId: number | null, body: any) => {
   const { employee_id, leaveID, status } = body;
 
-  if (!employee_id) throw new ServiceError("Employee id is missing");
-  if (!leaveID) throw new ServiceError("leaveID id is missing");
+  if (!employee_id) throw new ServiceError("Employee is required");
+  if (!leaveID) throw new ServiceError("Leave request is required");
 
   // Prevent self-approval: A manager (or non-admin user) cannot approve their own leave request.
   if (Number(employee_id) === loggedInId) {
@@ -369,10 +370,10 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
 
     if (status === "approved") {
       if (leave.status === "approved") {
-        throw new ServiceError("Leave already approved", 400);
+        throw new ServiceError("This leave is already approved", 400);
       }
       if (leave.status === "rejected") {
-        throw new ServiceError("Leave is already rejected", 400);
+        throw new ServiceError("This leave is already rejected", 400);
       }
       if (leave.status !== "pending") {
         throw new ServiceError(`Cannot approve leave with status "${leave.status}"`, 400);
@@ -466,10 +467,10 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
       }
     } else if (status === "rejected") {
       if (leave.status === "rejected") {
-        throw new ServiceError("Leave already rejected", 400);
+        throw new ServiceError("This leave is already rejected", 400);
       }
       if (leave.status === "approved") {
-        throw new ServiceError("Leave is already approved", 400);
+        throw new ServiceError("This leave is already approved", 400);
       }
       if (leave.status !== "pending") {
         throw new ServiceError(`Cannot reject leave with status "${leave.status}"`, 400);
@@ -491,7 +492,7 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
         }
       );
     } else {
-      throw new ServiceError("Invalid status. Expected 'approved' or 'rejected'", 400);
+      throw new ServiceError("Status must be approved or rejected", 400);
     }
 
     return leave;
@@ -566,10 +567,10 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
   const { employeeId, year, balances } = body || {};
 
   if (!employeeId || (Array.isArray(employeeId) && employeeId.length === 0)) {
-    throw new ServiceError("employeeId is required");
+    throw new ServiceError("Select at least one employee");
   }
   if (!Array.isArray(balances) || balances.length === 0) {
-    throw new ServiceError("balances array (companyLeaveId + allocated per type) is required");
+    throw new ServiceError("Enter the leave balance for at least one leave type");
   }
   if (!callerCompanyId) {
     throw new ServiceError("No company context — cannot resolve this company's leave types");
@@ -595,6 +596,9 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
   // getISTDateString() instead so a request in the Dec 31/Jan 1 IST-vs-UTC
   // gap can't default to the wrong year's leave balance allocation.
   const targetYear = Number(year) || Number(getISTDateString().slice(0, 4));
+  if (!Number.isInteger(targetYear) || targetYear < 2000 || targetYear > 2100) {
+    throw new ServiceError("Year must be between 2000 and 2100");
+  }
 
   // Validate every requested companyLeaveId belongs to this company and cap
   // each allocation at that type's own configured leavesPerYear.
@@ -605,9 +609,14 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
     const companyLeaveId = Number(entry.companyLeaveId);
     const leaveType = leaveTypeById.get(companyLeaveId);
     if (!leaveType) {
-      throw new ServiceError(`companyLeaveId ${companyLeaveId} is not a leave type configured for this company`);
+      throw new ServiceError(`Leave type #${companyLeaveId} is not configured for this company`);
     }
-    const allocated = Math.max(0, Number(entry.allocated) || 0);
+    // A negative or non-numeric value used to be saved silently as 0.
+    const raw = entry.allocated === "" || entry.allocated === null || entry.allocated === undefined ? 0 : Number(entry.allocated);
+    if (!Number.isFinite(raw) || raw < 0) {
+      throw new ServiceError(`${(leaveType as any).leaveName} days must be 0 or more`);
+    }
+    const allocated = raw;
     if (allocated > (leaveType as any).leavesPerYear) {
       throw new ServiceError(
         `${(leaveType as any).leaveName} is capped at ${(leaveType as any).leavesPerYear} day(s)/year by this company's leave policy — cannot allocate ${allocated}`
@@ -808,8 +817,8 @@ export const getTodayLeaveRequests = async (loggedInId: number, callerCompanyId:
 export const cancelLeaveAndMarkPresent = async (loggedInId: number, callerCompanyId: number | null, body: any) => {
   const { employeeId, leaveID, date, punchIn } = body || {};
 
-  if (!employeeId) throw new ServiceError("employeeId is required");
-  if (!leaveID) throw new ServiceError("leaveID is required");
+  if (!employeeId) throw new ServiceError("Employee is required");
+  if (!leaveID) throw new ServiceError("Leave request is required");
 
   // Team members only — covers any employee/manager (or deeper) under this admin/manager.
   // Company-scoped: this cancels a leave and writes an attendance row for
@@ -822,6 +831,24 @@ export const cancelLeaveAndMarkPresent = async (loggedInId: number, callerCompan
 
   const leave = await LeaveRepo.findLeaveForEmployee(employeeId, leaveID);
   if (!leave) throw new ServiceError("Leave not found");
+
+  // FIX: the day marked present was never checked against the leave, so a
+  // leave for next week could be cancelled while TODAY (whatever the
+  // employee actually did today) was overwritten as present — the web form
+  // even defaulted the date to today. It must now be one of the leave's own
+  // days, and is checked before anything is changed.
+  const leaveFrom = String(leave.from_date).slice(0, 10);
+  const leaveTo = String(leave.to_date).slice(0, 10);
+  const requestedDate = date ? String(date).slice(0, 10) : getISTDateString();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) throw new ServiceError("Attendance date is invalid");
+  if (requestedDate < leaveFrom || requestedDate > leaveTo) {
+    throw new ServiceError(
+      leaveFrom === leaveTo
+        ? `The attendance date must be the leave date (${leaveFrom})`
+        : `The attendance date must be within the leave dates (${leaveFrom} to ${leaveTo})`
+    );
+  }
+  if (punchIn && isNaN(new Date(punchIn).getTime())) throw new ServiceError("Punch-in time is invalid");
 
   // Cancel the leave: restores the balance consumed at request time and
   // flips every Attendance row in the leave's range to leaveReject.
@@ -837,7 +864,7 @@ export const cancelLeaveAndMarkPresent = async (loggedInId: number, callerCompan
   // offset arithmetic, correct regardless of the server's OS timezone. (The
   // explicit-`date` branch above just reformats a caller-supplied date, not
   // "now", so it's left as-is.)
-  const attendanceDate = date ? String(date).slice(0, 10) : getISTDateString();
+  const attendanceDate = requestedDate;
   const punchInTime = punchIn ? new Date(punchIn) : new Date();
 
   const existing = await LeaveRepo.findOrCreateAttendanceForDate(employeeId, attendanceDate);

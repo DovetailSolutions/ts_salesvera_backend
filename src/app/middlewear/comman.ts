@@ -588,8 +588,11 @@ export const getCategory = async (
     const where: any = {};
 
     // 🔍 Search (case-insensitive)
+    // FIX: searched `name`, which isn't a column on categories (it's
+    // category_name) — every search failed with a DB error, which the
+    // Inventory page showed as "Failed to load inventory".
     if (search) {
-      where.name = {
+      where.category_name = {
         [Op.iLike]: `%${search}%`,
       };
     }
@@ -623,6 +626,17 @@ export const getCategory = async (
         through: { attributes: [] },
       });
     }
+
+    // Each category's sub-item ids, so the Inventory page can show per-row
+    // and total sub-item counts (it always showed 0 — nothing was loaded).
+    // Additive field; ids only, the full sub-items still come from
+    // /getsubcategory/:id.
+    include.push({
+      model: SubCategory,
+      as: "subCategories",
+      attributes: ["id"],
+      required: false,
+    });
 
     // -------------------------
     // FETCH DATA + COUNT

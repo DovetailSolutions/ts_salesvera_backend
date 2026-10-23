@@ -72,6 +72,8 @@ import { getAccessibleCompanyIds, stripCompanyBankFields } from "../../modules/s
 import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType, validatePartialLeave } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
+import * as InventoryService from "../../modules/inventory/inventory.service";
+import { ServiceError } from "../../modules/shared/serviceError";
 import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
@@ -1432,7 +1434,9 @@ export const GetMeetingList = async (
       where: meetingWhere,
       limit: limitNum,
       offset,
-      order: [["updatedAt", "DESC"]],
+      // Newest created first (updatedAt moved an old meeting to the top
+      // whenever it was checked out or edited); id breaks ties.
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
       distinct: true,
       subQuery: false,
 
@@ -2142,7 +2146,8 @@ export const GetExpense = async (
       },
       limit,
       offset,
-      order: [["createdAt", "DESC"]],
+      // Newest first; id breaks createdAt ties.
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
       include: [
         {
           model: ExpenseImage,
@@ -2496,18 +2501,26 @@ export const addQuotation = async (req: Request, res: Response): Promise<void> =
     const quotationNumber = await generateQuotationNumber();
 
     // ✅ Create quotation
-    const quotation = await Quotations.create({
-      userId: Number(userData.userId),
-      quotationNumber: quotationNumber,
-      companyId: data.companyId || 0,
-      customerName: data.customerName,
-      referenceNumber: data.referenceNumber,
-      quotation: data,
-      isConsumed: false,
-      guid: data.guid || null,
-      alterid: data.alterid || null,
-      status: "draft",
-      gstNumber: data.gstNumber || null
+    // Same transaction as its stock effect: creating a sale order takes the
+    // stock of its stock-tracked items (modules/inventory), or nothing is
+    // saved — same as /admin/addquotation.
+    const actor = { userId: Number(userData.userId), role: String(userData.role) };
+    const quotation = await sequelize.transaction(async (transaction) => {
+      const created = await Quotations.create({
+        userId: Number(userData.userId),
+        quotationNumber: quotationNumber,
+        companyId: data.companyId || 0,
+        customerName: data.customerName,
+        referenceNumber: data.referenceNumber,
+        quotation: data,
+        isConsumed: false,
+        guid: data.guid || null,
+        alterid: data.alterid || null,
+        status: "draft",
+        gstNumber: data.gstNumber || null
+      }, { transaction });
+      await InventoryService.applySaleOrderStock(created, null, created.status, actor, transaction);
+      return created;
     });
 
     res.status(201).json({
@@ -2724,24 +2737,39 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
       badRequest(res, "Quotation id is required");
       return;
     }
-    const quotationData = await Quotations.findByPk(id);
-    if (!quotationData) {
+    // Status change + its inventory effect (modules/inventory) in one
+    // transaction, with the order row locked — same as /admin/updatequotation.
+    const userData = req.userData as JwtPayload;
+    const actor = { userId: Number(userData?.userId), role: String(userData?.role) };
+    const found = await sequelize.transaction(async (transaction) => {
+      const quotationData = await Quotations.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!quotationData) return false;
+      await InventoryService.assertCanChangeSaleOrder(actor, Number((quotationData as any).userId));
+      const previousStatus = quotationData.status;
+      quotationData.status = status;
+      // FIX: guid/alterid (the Tally link) were overwritten with null whenever
+      // the caller sent only a status — e.g. the web "Accept" action — which
+      // silently cut the quotation's tie to Tally. Only update them when the
+      // caller actually sends them (the Tally sync always does).
+      if (req.body.guid !== undefined) quotationData.guid = req.body.guid || null;
+      if (req.body.alterid !== undefined) quotationData.alterid = req.body.alterid || null;
+      await InventoryService.applySaleOrderStock(quotationData, previousStatus, status, actor, transaction);
+      await quotationData.save({ transaction });
+      return true;
+    });
+    if (!found) {
       badRequest(res, "Quotation not found");
       return;
     }
-    quotationData.status = status;
-    // FIX: guid/alterid (the Tally link) were overwritten with null whenever
-    // the caller sent only a status — e.g. the web "Accept" action — which
-    // silently cut the quotation's tie to Tally. Only update them when the
-    // caller actually sends them (the Tally sync always does).
-    if (req.body.guid !== undefined) quotationData.guid = req.body.guid || null;
-    if (req.body.alterid !== undefined) quotationData.alterid = req.body.alterid || null;
-    await quotationData.save();
     createSuccess(res, "Quotation updated successfully");
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
+    if (error instanceof ServiceError && error.status === 403) {
+      forbidden(res, errorMessage);
+      return;
+    }
+    badRequest(res, errorMessage, error instanceof ServiceError ? error.meta ?? {} : {});
   }
 }
 
@@ -3725,62 +3753,9 @@ export const createClient = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  try {
-    const { userId } = req.userData as JwtPayload;
-    const {
-      name, email, mobile, companyName, panNumber, status,
-      state, customerType, city, pincode, country, address, gstNumber
-    } = req.body || {};
-
-    // Only name, state, country, companyName are mandatory
-    if (!name || !state || !country || !companyName) {
-      badRequest(res, "name, state, country, and companyName are required");
-      return;
-    }
-
-    // Duplicate check: only if email or mobile is provided
-    const duplicateChecks: any[] = [];
-    if (email) duplicateChecks.push({ email });
-    if (mobile) duplicateChecks.push({ mobile });
-
-    if (duplicateChecks.length > 0) {
-      const isExist = await MeetingUser.findOne({
-        where: {
-          [Op.or]: duplicateChecks,
-        },
-      });
-
-      if (isExist) {
-        badRequest(res, "Client already exists with this email or mobile");
-        return;
-      }
-    }
-
-    // Create new client information (MeetingUser)
-    await MeetingUser.create({
-      name,
-      email,
-      mobile,
-      userId,
-      companyName,
-      customerType: customerType || "new",
-      state,
-      city,
-      pincode,
-      country,
-      address,
-      gstNumber,
-      panNumber,
-      status: status || "draft"
-    });
-
-    createSuccess(res, "Client created successfully");
-  } catch (error) {
-    badRequest(
-      res,
-      error instanceof Error ? error.message : "Something went wrong"
-    );
-  }
+  // Was an independent copy of POST /admin/create-client; both now share
+  // one implementation (and its company-scoped, race-safe duplicate check).
+  return AdminController.createClient(req, res);
 };
 
 

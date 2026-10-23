@@ -105,13 +105,14 @@ export const getMyRequests = async (req: Request, res: Response): Promise<void> 
 export const listRequests = async (req: Request, res: Response): Promise<void> => {
   try {
     const { callerId, callerRole, callerCompanyId } = callerContext(req);
-    const { status, requestType, userId, dateFrom, dateTo, page, limit } = req.query as any;
+    const { status, requestType, userId, dateFrom, dateTo, search, page, limit } = req.query as any;
     const result = await Service.getRequests(callerId, callerRole, callerCompanyId, {
       status,
       requestType,
       userId: userId ? Number(userId) : undefined,
       dateFrom,
       dateTo,
+      search: typeof search === "string" ? search : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });

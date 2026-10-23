@@ -91,7 +91,7 @@ export const shiftWindowOn = (shift: any, dateStr: string): ClassifierShift | nu
 const assertShiftInCompany = async (shiftId: unknown, companyId: number): Promise<number | null> => {
   if (shiftId === null || shiftId === undefined || shiftId === "") return null;
   const id = Number(shiftId);
-  if (!Number.isInteger(id) || id <= 0) throw new ServiceError("shiftId is invalid");
+  if (!Number.isInteger(id) || id <= 0) throw new ServiceError("The selected shift is invalid");
   const shift: any = await Shift.findByPk(id, { attributes: ["id", "companyId"] });
   if (!shift || Number(shift.companyId) !== companyId) {
     throw new ServiceError("This shift does not belong to your company", 403);
@@ -145,10 +145,10 @@ export const savePolicy = async (actor: PolicyActor, body: any) => {
 
   const today = getISTDateString();
   const effectiveFrom = body?.effectiveFrom ?? today;
-  if (!isDateOnly(effectiveFrom)) throw new ServiceError("effectiveFrom must be a date (YYYY-MM-DD)");
+  if (!isDateOnly(effectiveFrom)) throw new ServiceError("Effective from must be a valid date (YYYY-MM-DD)");
   // A new rule may start today or later — never in the past, so saving a
   // policy can't be used to re-label attendance that already happened.
-  if (effectiveFrom < today) throw new ServiceError("effectiveFrom cannot be in the past");
+  if (effectiveFrom < today) throw new ServiceError("Effective from date cannot be in the past");
 
   const row = await AttendancePolicy.create({
     companyId,
@@ -175,10 +175,15 @@ export const previewPolicy = async (actor: PolicyActor, body: any) => {
   const shiftDef = shiftRow ?? { startTime: "09:30:00", endTime: "18:30:00", breakMinutes: 0, workingHours: config.fullDayHours };
   const date = getISTDateString();
   const shift = shiftWindowOn(shiftDef, date)!;
-  const at = (hhmm: string, plusDays = 0) => new Date(parseISTTime(date, `${hhmm}:00`).getTime() + plusDays * 86400000);
   const startHHMM = String(shiftDef.startTime).slice(0, 5);
   const endHHMM = String(shiftDef.endTime).slice(0, 5);
   const halfEnd = new Date(shift.start!.getTime() + config.halfDayHours * 3600000 + 60000);
+  // FIX: was a fixed 11:30 – 22:00, which on a shift starting after 11:30
+  // (e.g. a night shift) was an EARLY arrival labelled "Late". Now always
+  // 2 h after this shift's start, staying 3.5 h past its end (the same
+  // 11:30 – 22:00 on the 09:30 – 18:30 sample shift).
+  const lateIn = new Date(shift.start!.getTime() + 2 * 3600000);
+  const lateOut = new Date(shift.end!.getTime() + 3.5 * 3600000);
 
   const scenario = (title: string, input: any) => ({
     title,
@@ -190,8 +195,8 @@ export const previewPolicy = async (actor: PolicyActor, body: any) => {
     shift: { startTime: startHHMM, endTime: endHHMM, isDefault: !shiftRow },
     examples: [
       scenario(`On time ${startHHMM} – ${endHHMM}`, { sessions: [{ punchIn: shift.start, punchOut: shift.end }] }),
-      scenario("Late: 11:30 – 22:00", { sessions: [{ punchIn: at("11:30"), punchOut: at("22:00") }] }),
-      scenario(`Only half-day hours: ${startHHMM} – ${formatISTTime(halfEnd)}`, {
+      scenario(`Late arrival: ${formatISTTime(lateIn)} – ${formatISTTime(lateOut)}`, { sessions: [{ punchIn: lateIn, punchOut: lateOut }] }),
+      scenario(`Half-day hours only: ${startHHMM} – ${formatISTTime(halfEnd)}`, {
         sessions: [{ punchIn: shift.start, punchOut: halfEnd }],
       }),
       scenario("Two sessions with a lunch break", {
@@ -206,11 +211,19 @@ export const previewPolicy = async (actor: PolicyActor, body: any) => {
       scenario("Missed punch-out", config.missedPunchOut.action === "mark_absent"
         ? { missedPunchOut: true }
         : { sessions: [{ punchIn: shift.start, punchOut: shift.end, autoPunchedOut: true }] }),
-      scenario("Approved morning half-day leave, works second half", {
+      // Only differs from the line above under "mark absent": the completed
+      // morning session still counts; the unclosed afternoon one doesn't.
+      ...(config.missedPunchOut.action === "mark_absent"
+        ? [scenario("Missed punch-out after lunch (morning session completed)", {
+            missedPunchOut: true,
+            sessions: [{ punchIn: shift.start, punchOut: new Date(shift.start!.getTime() + 4.5 * 3600000) }],
+          })]
+        : []),
+      scenario("Approved first-half leave, works second half", {
         leave: { kind: "half_day", session: "first_half" },
         sessions: [{ punchIn: new Date((shift.start!.getTime() + shift.end!.getTime()) / 2), punchOut: shift.end }],
       }),
-      scenario(`Approved ${config.leave.shortLeaveMaxMinutes}-min evening short leave`, {
+      scenario(`Approved ${config.leave.shortLeaveMaxMinutes}-minute evening short leave`, {
         leave: { kind: "short_leave", session: "evening", durationMinutes: config.leave.shortLeaveMaxMinutes },
         sessions: [{ punchIn: shift.start, punchOut: new Date(shift.end!.getTime() - config.leave.shortLeaveMaxMinutes * 60000) }],
       }),
