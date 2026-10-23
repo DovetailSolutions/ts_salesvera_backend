@@ -43,6 +43,13 @@ export const runAutoPunchOut = async (opts: { onlyBeforeToday?: boolean; source?
       where: {
         status: "present", // punched in, not yet punched out
         punch_out: null,
+        // FIX: only real open punch sessions. An approved regularization
+        // (e.g. Work From Home, which has no punch times at all) was picked
+        // up here too — closed at 23:59 with hours counted from 1970, or
+        // marked absent under a "mark absent" policy. A regularized day is
+        // an admin decision and is never changed automatically.
+        punch_in: { [Op.ne]: null },
+        [Op.or]: [{ attendanceSource: null }, { attendanceSource: { [Op.ne]: "REGULARIZATION" } }],
         // The catch-up run only touches earlier days — today's sessions may
         // still be in progress.
         date: opts.onlyBeforeToday ? { [Op.lt]: todayStr } : { [Op.lte]: todayStr },

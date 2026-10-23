@@ -19,6 +19,10 @@ export interface SubCategoryAttributes {
   totaledit?: boolean;
   discount?: string;
   discountedit?: boolean;
+  // Inventory (migration 0037): only trackStock items have stock that sale
+  // orders reduce — see modules/inventory/inventory.service.ts.
+  trackStock?: boolean;
+  stockQuantity?: number | null;
 }
 
 export interface SubCategoryCreationAttributes
@@ -44,6 +48,8 @@ export class SubCategory
   public gstedit?: boolean;
   public totaledit?: boolean;
   public discount?: string;
+  public trackStock?: boolean;
+  public stockQuantity?: number | null;
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
       {
@@ -117,6 +123,20 @@ export class SubCategory
         totaledit: {
           type: DataTypes.BOOLEAN,
           defaultValue: false,
+        },
+        trackStock: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        stockQuantity: {
+          type: DataTypes.DECIMAL(14, 3),
+          allowNull: true,
+          // pg returns NUMERIC as a string; expose a plain number.
+          get(this: any) {
+            const raw = this.getDataValue("stockQuantity");
+            return raw === null || raw === undefined ? null : Number(raw);
+          },
         },
         status: {
           type: DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),

@@ -144,7 +144,7 @@ const oneOf = <T extends string>(errors: string[], label: string, v: unknown, al
 // problem at once, so the admin can fix the form in one go.
 export const validatePolicy = (rawMode: unknown, rawConfig: unknown): { mode: AttendanceMode; config: AttendancePolicyConfig } => {
   const errors: string[] = [];
-  const mode = oneOf(errors, "Mode", rawMode, ["strict", "flexible"] as const);
+  const mode = oneOf(errors, "Attendance mode", rawMode, ["strict", "flexible"] as const);
   const c: any = isObj(rawConfig) ? rawConfig : {};
   const d = DEFAULT_POLICY_CONFIG;
   const sub = (k: string) => (isObj(c[k]) ? c[k] : {});
@@ -157,44 +157,44 @@ export const validatePolicy = (rawMode: unknown, rawConfig: unknown): { mode: At
     breakMinutesOverride:
       c.breakMinutesOverride === null || c.breakMinutesOverride === undefined || c.breakMinutesOverride === ""
         ? null
-        : int(errors, "Break minutes", c.breakMinutesOverride, 0, 240),
-    lateGraceMinutes: int(errors, "Late grace minutes", c.lateGraceMinutes ?? d.lateGraceMinutes, 0, 600),
-    earlyDepartureGraceMinutes: int(errors, "Early departure grace minutes", c.earlyDepartureGraceMinutes ?? d.earlyDepartureGraceMinutes, 0, 600),
+        : int(errors, "Break duration override", c.breakMinutesOverride, 0, 240),
+    lateGraceMinutes: int(errors, "Late arrival grace period", c.lateGraceMinutes ?? d.lateGraceMinutes, 0, 600),
+    earlyDepartureGraceMinutes: int(errors, "Early departure grace period", c.earlyDepartureGraceMinutes ?? d.earlyDepartureGraceMinutes, 0, 600),
     strict: {
-      countOnlyShiftHours: bool(errors, "Count only shift hours", sub("strict").countOnlyShiftHours ?? d.strict.countOnlyShiftHours),
+      countOnlyShiftHours: bool(errors, "Count only in-shift hours", sub("strict").countOnlyShiftHours ?? d.strict.countOnlyShiftHours),
       lateBeyondMarksHalfDay: {
-        enabled: bool(errors, "Late-beyond rule", sub("strict").lateBeyondMarksHalfDay?.enabled ?? d.strict.lateBeyondMarksHalfDay.enabled),
-        minutes: int(errors, "Late-beyond minutes", sub("strict").lateBeyondMarksHalfDay?.minutes ?? d.strict.lateBeyondMarksHalfDay.minutes, 1, 720),
+        enabled: bool(errors, "Late arrival half-day rule", sub("strict").lateBeyondMarksHalfDay?.enabled ?? d.strict.lateBeyondMarksHalfDay.enabled),
+        minutes: int(errors, "Late arrival half-day limit", sub("strict").lateBeyondMarksHalfDay?.minutes ?? d.strict.lateBeyondMarksHalfDay.minutes, 1, 720),
       },
       earlyDepartureBeyondMarksHalfDay: {
-        enabled: bool(errors, "Early-departure-beyond rule", sub("strict").earlyDepartureBeyondMarksHalfDay?.enabled ?? d.strict.earlyDepartureBeyondMarksHalfDay.enabled),
-        minutes: int(errors, "Early-departure-beyond minutes", sub("strict").earlyDepartureBeyondMarksHalfDay?.minutes ?? d.strict.earlyDepartureBeyondMarksHalfDay.minutes, 1, 720),
+        enabled: bool(errors, "Early departure half-day rule", sub("strict").earlyDepartureBeyondMarksHalfDay?.enabled ?? d.strict.earlyDepartureBeyondMarksHalfDay.enabled),
+        minutes: int(errors, "Early departure half-day limit", sub("strict").earlyDepartureBeyondMarksHalfDay?.minutes ?? d.strict.earlyDepartureBeyondMarksHalfDay.minutes, 1, 720),
       },
     },
     punchIn: {
-      restrictToWindow: bool(errors, "Restrict punch-in window", sub("punchIn").restrictToWindow ?? d.punchIn.restrictToWindow),
-      earlyMinutes: int(errors, "Early punch-in minutes", sub("punchIn").earlyMinutes ?? d.punchIn.earlyMinutes, 0, 720),
-      lateMinutes: int(errors, "Late punch-in minutes", sub("punchIn").lateMinutes ?? d.punchIn.lateMinutes, 0, 720),
+      restrictToWindow: bool(errors, "Restrict punch-in to a time window", sub("punchIn").restrictToWindow ?? d.punchIn.restrictToWindow),
+      earlyMinutes: int(errors, "Earliest punch-in", sub("punchIn").earlyMinutes ?? d.punchIn.earlyMinutes, 0, 720),
+      lateMinutes: int(errors, "Latest punch-in", sub("punchIn").lateMinutes ?? d.punchIn.lateMinutes, 0, 720),
     },
     punchOut: {
-      beforeShiftEnd: oneOf(errors, "Early punch-out handling", sub("punchOut").beforeShiftEnd ?? d.punchOut.beforeShiftEnd, ["allow", "flag", "block"] as const),
+      beforeShiftEnd: oneOf(errors, "Early punch-out", sub("punchOut").beforeShiftEnd ?? d.punchOut.beforeShiftEnd, ["allow", "flag", "block"] as const),
     },
     overtime: {
-      enabled: bool(errors, "Overtime", sub("overtime").enabled ?? d.overtime.enabled),
-      minimumMinutes: int(errors, "Minimum overtime minutes", sub("overtime").minimumMinutes ?? d.overtime.minimumMinutes, 0, 600),
+      enabled: bool(errors, "Track overtime", sub("overtime").enabled ?? d.overtime.enabled),
+      minimumMinutes: int(errors, "Minimum overtime", sub("overtime").minimumMinutes ?? d.overtime.minimumMinutes, 0, 600),
     },
     missedPunchOut: {
       action: oneOf(errors, "Missed punch-out action", sub("missedPunchOut").action ?? d.missedPunchOut.action, ["auto_punch_out", "mark_absent"] as const),
-      autoPunchOutAt: oneOf(errors, "Auto punch-out time", sub("missedPunchOut").autoPunchOutAt ?? d.missedPunchOut.autoPunchOutAt, ["end_of_day", "shift_end"] as const),
+      autoPunchOutAt: oneOf(errors, "System punch-out time", sub("missedPunchOut").autoPunchOutAt ?? d.missedPunchOut.autoPunchOutAt, ["end_of_day", "shift_end"] as const),
     },
-    manualCorrectionRequiresReason: bool(errors, "Manual correction reason", c.manualCorrectionRequiresReason ?? d.manualCorrectionRequiresReason),
+    manualCorrectionRequiresReason: bool(errors, "Require a reason for manual corrections", c.manualCorrectionRequiresReason ?? d.manualCorrectionRequiresReason),
     leave: {
-      halfDayAllowed: bool(errors, "Half-day leave allowed", sub("leave").halfDayAllowed ?? d.leave.halfDayAllowed),
-      shortLeaveAllowed: bool(errors, "Short leave allowed", sub("leave").shortLeaveAllowed ?? d.leave.shortLeaveAllowed),
-      shortLeaveMaxMinutes: int(errors, "Short leave max minutes", sub("leave").shortLeaveMaxMinutes ?? d.leave.shortLeaveMaxMinutes, 15, 480),
-      shortLeaveMaxPerMonth: int(errors, "Short leaves per month", sub("leave").shortLeaveMaxPerMonth ?? d.leave.shortLeaveMaxPerMonth, 0, 31),
-      shortLeaveCountsAsWorked: bool(errors, "Short leave counts as worked", sub("leave").shortLeaveCountsAsWorked ?? d.leave.shortLeaveCountsAsWorked),
-      allowRequestAfterShiftStart: bool(errors, "Request after shift start", sub("leave").allowRequestAfterShiftStart ?? d.leave.allowRequestAfterShiftStart),
+      halfDayAllowed: bool(errors, "Allow half-day leave", sub("leave").halfDayAllowed ?? d.leave.halfDayAllowed),
+      shortLeaveAllowed: bool(errors, "Allow short leave", sub("leave").shortLeaveAllowed ?? d.leave.shortLeaveAllowed),
+      shortLeaveMaxMinutes: int(errors, "Maximum short leave duration", sub("leave").shortLeaveMaxMinutes ?? d.leave.shortLeaveMaxMinutes, 15, 480),
+      shortLeaveMaxPerMonth: int(errors, "Maximum short leaves per month", sub("leave").shortLeaveMaxPerMonth ?? d.leave.shortLeaveMaxPerMonth, 0, 31),
+      shortLeaveCountsAsWorked: bool(errors, "Count approved short leave as worked time", sub("leave").shortLeaveCountsAsWorked ?? d.leave.shortLeaveCountsAsWorked),
+      allowRequestAfterShiftStart: bool(errors, "Allow same-day requests after shift start", sub("leave").allowRequestAfterShiftStart ?? d.leave.allowRequestAfterShiftStart),
     },
   };
 
@@ -207,7 +207,7 @@ export const validatePolicy = (rawMode: unknown, rawConfig: unknown): { mode: At
     errors.push("Short day hours must be less than half day hours");
   }
   if (config.leave.shortLeaveMaxMinutes / 60 >= config.fullDayHours) {
-    errors.push("Short leave max minutes must be shorter than a full day");
+    errors.push("Maximum short leave duration must be shorter than a full day");
   }
 
   if (errors.length) {

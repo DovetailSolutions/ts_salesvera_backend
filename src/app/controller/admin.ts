@@ -60,6 +60,9 @@ import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
 import { allocateProformaInvoiceNumber } from "../../modules/shared/proformaInvoiceNumber";
 import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
 import { ServiceError } from "../../modules/shared/serviceError";
+import * as ClientService from "../../modules/client/client.service";
+import * as ClientController from "../../modules/client/client.controller";
+import * as InventoryService from "../../modules/inventory/inventory.service";
 
 const getPagination = (req: Request) => {
   const page = Number(req.query.page || 1);
@@ -804,7 +807,18 @@ export const getMeeting = async (
         limit: limitNum,
         offset,
 
-        order: [["createdAt", "DESC"]],
+        // Newest first; id breaks createdAt ties (a bulk upload creates many
+        // clients in the same instant). The meeting list (not empty=true, which
+        // is the client list) puts the client with the most recent meeting on
+        // top — each row shows its latest meeting, and ordering by client
+        // creation buried new meetings with older clients.
+        order: [
+          ...(empty === "true"
+            ? []
+            : [[literal(`(SELECT MAX(COALESCE(m."meeting_time_in", m."createdAt")) FROM "meetings" m WHERE m."meeting_user_id" = "MeetingUser"."id")`), "DESC NULLS LAST"] as any]),
+          ["createdAt", "DESC"],
+          ["id", "DESC"],
+        ],
       });
 
     createSuccess(res, "User Meeting fetched successfully", {
@@ -1398,6 +1412,13 @@ export const BulkUploads = async (
       .on("end", async () => {
         try {
           const uniqueRows: any[] = [];
+          const seenEmails = new Set<string>();
+          const seenMobiles = new Set<string>();
+          let companyOwnerIds: number[] | null = null;
+          if (userData?.companyId) {
+            const scope = await ClientService.resolveCompanyClientScope(Number(userData.companyId));
+            companyOwnerIds = [...Array.from(scope.ownerIds), Number(loginUser)];
+          }
           for (const r of results) {
             // FIX: was querying adminId/managerId/personName/mobileNumber/
             // companyEmail — none of those columns exist on MeetingUser at
@@ -1407,21 +1428,21 @@ export const BulkUploads = async (
             // against results.map(...) — the WHOLE uploaded batch — instead
             // of just this row's own values, which would have falsely
             // flagged unrelated rows as duplicates of each other even with
-            // correct column names. Now: same uploader (userId) plus a
-            // matching email or mobile: a row with neither can't collide
-            // with anything, so it's always treated as new.
-            const matchConditions: any[] = [];
-            if (r.email) matchConditions.push({ email: r.email });
-            if (r.mobile) matchConditions.push({ mobile: r.mobile });
-
-            const exists = matchConditions.length > 0
-              ? await MeetingUser.findOne({
-                  where: { userId: loginUser, [Op.or]: matchConditions },
-                })
-              : null;
+            // correct column names. Now the same rule as create-client: a
+            // duplicate is a matching email (case-insensitive) or mobile
+            // (formatting ignored) on any client of the uploader's company,
+            // or on an earlier row of this same file. A row with neither
+            // can't collide with anything, so it's always treated as new.
+            const email = ClientService.normalizeEmail(r.email);
+            const mobile = ClientService.normalizeMobile(r.mobile)?.replace(/\D/g, "") || null;
+            const seenInFile = (email && seenEmails.has(email)) || (mobile && seenMobiles.has(mobile));
+            const exists = seenInFile
+              || (await ClientService.findDuplicateFields(companyOwnerIds, email, mobile)).length > 0;
             // If NOT found → add to insert list
             if (!exists) {
               uniqueRows.push(r);
+              if (email) seenEmails.add(email);
+              if (mobile) seenMobiles.add(mobile);
             }
           }
 
@@ -1980,7 +2001,8 @@ export const GetExpense = async (
       where: expenseWhere,
       limit,
       offset,
-      order: [["createdAt", "DESC"]],
+      // Newest first; id breaks createdAt ties.
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
       distinct: true,
       include: [
         {
@@ -2747,60 +2769,19 @@ export const createClient = async (
   req: Request,
   res: Response
 ): Promise<void> => {
+  // Validation, the company-scoped duplicate check and the insert live in
+  // modules/client/client.service.ts, shared with POST /api/create-client.
+  // FIX: the duplicate check used to be global (one company's client
+  // blocked every other company's) and racy (two simultaneous requests
+  // could both pass it) — see createClient there.
   try {
-    const { userId } = req.userData as JwtPayload;
-    const { 
-      name, email, mobile, companyName, panNumber, status, 
-      state, customerType, city, pincode, country, address, gstNumber 
-    } = req.body || {};
-
-    // Only name, state, country, companyName are mandatory
-    if (!name || !state || !country || !companyName) {
-      badRequest(res, "name, state, country, and companyName are required");
-      return;
-    }
-
-    // Duplicate check: only if email or mobile is provided
-    const duplicateChecks: any[] = [];
-    if (email) duplicateChecks.push({ email });
-    if (mobile) duplicateChecks.push({ mobile });
-
-    if (duplicateChecks.length > 0) {
-      const isExist = await MeetingUser.findOne({
-        where: {
-          [Op.or]: duplicateChecks,
-        },
-      });
-
-      if (isExist) {
-        badRequest(res, "Client already exists with this email or mobile");
-        return;
-      }
-    }
-
-    // Create new client information (MeetingUser)
-    await MeetingUser.create({
-      name,
-      email,
-      mobile,
-      userId,
-      companyName,
-      customerType: customerType || "new",
-      state,
-      city,
-      pincode,
-      country,
-      address,
-      gstNumber,
-      panNumber,
-      status: status || "draft"
-    });
-
+    await ClientService.createClient(ClientController.actorOf(req), req.body);
     createSuccess(res, "Client created successfully");
   } catch (error) {
     badRequest(
       res,
-      error instanceof Error ? error.message : "Something went wrong"
+      error instanceof Error ? error.message : "Something went wrong",
+      error instanceof ServiceError ? error.meta ?? {} : {}
     );
   }
 };
@@ -2969,7 +2950,9 @@ export const addSubCategory = async (
       badRequest(res, "Unauthorized request");
       return;
     }
-    const { sub_category_name, amount, tax,status,gstedit,totaledit, CategoryId,gst,unit,hsnCode,baseUnit,secondaryUnit } = req.body;
+    // FIX: discountedit was never read here, so "Disc Edit" switched on when
+    // adding a sub-item was silently saved as off (editing saved it fine).
+    const { sub_category_name, amount, tax,status,gstedit,totaledit,discountedit, CategoryId,gst,unit,hsnCode,baseUnit,secondaryUnit } = req.body;
     if (!sub_category_name?.trim()) {
       badRequest(res, "Sub category name is required");
       return;
@@ -2996,6 +2979,9 @@ export const addSubCategory = async (
       badRequest(res, "Sub category already exists");
       return;
     }
+    // Optional inventory fields (modules/inventory) — absent for services and
+    // for every caller that doesn't send them, which then behaves as before.
+    const stockInput = InventoryService.parseStockInput(req.body);
     const subCategory = await SubCategory.create({
       sub_category_name: cleanName,
       CategoryId,
@@ -3010,8 +2996,16 @@ export const addSubCategory = async (
       baseUnit:baseUnit ?? null,
       secondaryUnit:secondaryUnit ?? null,
       gstedit:gstedit ?? null,
-      totaledit:totaledit ?? null
+      totaledit:totaledit ?? null,
+      discountedit:discountedit ?? null
     });
+    if (stockInput.trackStock !== undefined || stockInput.stockQuantity !== undefined) {
+      const actor = { userId: Number(loggedInId), role: String(userData?.role) };
+      await sequelize.transaction((transaction) =>
+        InventoryService.applyStockInput(Number(subCategory.id), stockInput, actor, transaction)
+      );
+      await subCategory.reload();
+    }
     createSuccess(res, "Sub category created successfully", subCategory);
   } catch (error) {
     const errorMessage =
@@ -3115,8 +3109,30 @@ export const updateSubCategory = async (req: Request, res: Response) => {
       }
     }
 
+    // Inventory fields are only honoured for the inventory's owner (the same
+    // admin whose categories this user sees) — everything else is unchanged.
+    const stockInput = InventoryService.parseStockInput(req.body);
+    const hasStockInput = stockInput.trackStock !== undefined || stockInput.stockQuantity !== undefined;
+    if (hasStockInput) {
+      const ownerId = await InventoryService.resolveInventoryOwnerId(Number(loggedInId), String(userData?.role));
+      const parent: any = await Category.findByPk(existingSubCategory.CategoryId, { attributes: ["id", "adminId"] });
+      const owned = Number(existingSubCategory.adminId) === ownerId || Number(parent?.adminId) === ownerId;
+      if (userData?.role !== "super_admin" && !owned) {
+        badRequest(res, "You can only change stock for your own inventory");
+        return;
+      }
+    }
+
     // Update using instance (better approach)
     await existingSubCategory.update(object);
+
+    if (hasStockInput) {
+      const actor = { userId: Number(loggedInId), role: String(userData?.role) };
+      await sequelize.transaction((transaction) =>
+        InventoryService.applyStockInput(Number(existingSubCategory.id), stockInput, actor, transaction)
+      );
+      await existingSubCategory.reload();
+    }
 
     createSuccess(
       res,
@@ -3896,18 +3912,26 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
     const quotationNumber = await generateQuotationNumber();
 
     // ✅ Create quotation
-    const quotation = await Quotations.create({
-      userId: Number(userData.userId),
-      quotationNumber: quotationNumber,
-      companyId: data.companyId || 0,
-      customerName: data.customerName,
-      referenceNumber: data.referenceNumber,
-      quotation: data,
-      status: data.status || "draft",
-      isConsumed: false,
-      guid: data.guid || null,
-      alterid: data.alterid || null,
-      gstNumber: data.gstNumber || null,
+    // Same transaction as its stock effect: an order created straight as
+    // "accepted" deducts stock exactly as accepting it later would
+    // (modules/inventory); drafts — what the web form sends — never do.
+    const actor = { userId: Number(userData.userId), role: String(userData.role) };
+    const quotation = await sequelize.transaction(async (transaction) => {
+      const created = await Quotations.create({
+        userId: Number(userData.userId),
+        quotationNumber: quotationNumber,
+        companyId: data.companyId || 0,
+        customerName: data.customerName,
+        referenceNumber: data.referenceNumber,
+        quotation: data,
+        status: data.status || "draft",
+        isConsumed: false,
+        guid: data.guid || null,
+        alterid: data.alterid || null,
+        gstNumber: data.gstNumber || null,
+      }, { transaction });
+      await InventoryService.applySaleOrderStock(created, null, created.status, actor, transaction);
+      return created;
     });
 
     res.status(201).json({
@@ -3917,6 +3941,10 @@ export const addQuotation2 = async (req: Request, res: Response): Promise<void> 
     });
 
   } catch (error) {
+    if (error instanceof ServiceError) {
+      badRequest(res, error.message, error.meta ?? {});
+      return;
+    }
     console.error("Add Quotation Error:", error);
     res.status(500).json({
       success: false,
@@ -4010,7 +4038,9 @@ if (companyName) {
     // ✅ Query
     const { count, rows } = await Quotations.findAndCountAll({
       where: whereCondition,
-      order: [["createdAt", "ASC"]],
+      // Newest first — the sale order list and the dashboards' "Recent Sales
+      // Orders" both expect the latest at the top. id breaks createdAt ties.
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
       limit,
       offset,
     });
@@ -4066,19 +4096,36 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
       badRequest(res, "Quotation id is required");
       return;
     }
-    const quotationData = await Quotations.findByPk(id);
-    if(!quotationData){
+    // The status change and its inventory effect (accepting deducts stock,
+    // leaving "accepted" puts it back — modules/inventory) commit together
+    // or not at all; the order row is locked so a double click can't
+    // deduct twice.
+    const userData = req.userData as JwtPayload;
+    const actor = { userId: Number(userData?.userId), role: String(userData?.role) };
+    const found = await sequelize.transaction(async (transaction) => {
+      const quotationData = await Quotations.findByPk(id, { transaction, lock: transaction.LOCK.UPDATE });
+      if(!quotationData) return false;
+      await InventoryService.assertCanChangeSaleOrder(actor, Number((quotationData as any).userId));
+      const previousStatus = quotationData.status;
+      quotationData.status = status;
+      quotationData.TallyAPISync = true
+      await InventoryService.applySaleOrderStock(quotationData, previousStatus, status, actor, transaction);
+      await quotationData.save({ transaction });
+      return true;
+    });
+    if(!found){
       badRequest(res, "Quotation not found");
       return;
     }
-    quotationData.status = status;
-    quotationData.TallyAPISync = true
-    await quotationData.save();
     createSuccess(res, "Quotation updated successfully");
   }catch(error){
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
-    badRequest(res, errorMessage);
+    if (error instanceof ServiceError && error.status === 403) {
+      forbidden(res, errorMessage);
+      return;
+    }
+    badRequest(res, errorMessage, error instanceof ServiceError ? error.meta ?? {} : {});
   }
 };
 
@@ -4111,41 +4158,17 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
     const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    // ✅ Get all team user IDs (BFS traversal)
-    let teamUserIds: number[] = [];
-    let queue: number[] = [userData.userId];
-
-    while (queue.length > 0) {
-      const users = await User.findAll({
-        where: { id: { [Op.in]: queue } },
-        attributes: ["id"],
-        include: [
-          {
-            model: User,
-            as: "createdUsers",
-            attributes: ["id"],
-          },
-        ],
-      });
-
-      let nextQueue: number[] = [];
-
-      for (const user of users as any[]) {
-        if (!teamUserIds.includes(user.id)) {
-          teamUserIds.push(user.id);
-        }
-
-        const children = user.createdUsers || [];
-
-        for (const child of children) {
-          if (!teamUserIds.includes(child.id)) {
-            nextQueue.push(child.id);
-          }
-        }
-      }
-
-      queue = nextQueue;
-    }
+    // ✅ Caller + their whole team. FIX: was an unscoped walk of everyone the
+    // caller ever created, so an owner/multi-company admin saw every
+    // company's clients regardless of the company they were acting in —
+    // now the same company-scoped team getClientDetails already uses.
+    const teamUserIds: number[] = [
+      Number(userData.userId),
+      ...(await getCompanyScopedChildUserIdsFast(
+        Number(userData.userId),
+        userData.companyId ? Number(userData.companyId) : null
+      )),
+    ];
 
     // ✅ Where condition
     const obj: any = {
@@ -4192,6 +4215,34 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+// FIX: any client (contact details, GST/PAN) was readable by id with no
+// ownership check. Same visibility as the client list (getClient): the
+// caller's own clients and their company-scoped team's — including a client
+// someone on the team has met, even if another user created it. A client
+// that was revoked/reassigned/transferred away from the caller no longer
+// opens through the caller's own past meetings with it (Client Assignment,
+// modules/client) — otherwise revoking would only hide it from the list.
+const canViewClient = async (userData: JwtPayload, client: any): Promise<boolean> => {
+  if (userData.role === "super_admin") return true;
+  const callerId = Number(userData.userId);
+  const clientId = Number(client.id);
+  const teamIds = await getCompanyScopedChildUserIdsFast(
+    callerId,
+    userData.companyId ? Number(userData.companyId) : null
+  );
+  const visibleUserIds = [callerId, ...teamIds];
+  if (visibleUserIds.includes(Number(client.userId))) return true;
+
+  const meetingUserIds = (await ClientService.wasMovedAwayFrom(clientId, callerId))
+    ? teamIds
+    : visibleUserIds;
+  if (meetingUserIds.length === 0) return false;
+  return !!(await Meeting.findOne({
+    where: { meetingUserId: clientId, userId: { [Op.in]: meetingUserIds } },
+    attributes: ["id"],
+  }));
+};
+
 export const updateClient = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -4217,6 +4268,12 @@ export const updateClient = async (req: Request, res: Response): Promise<void> =
 
     if (!client) {
       badRequest(res, "Client not found");
+      return;
+    }
+    // FIX: any logged-in user could change any client's status — in any
+    // company — just by knowing its id. Same visibility as getClientDetails.
+    if (!(await canViewClient(userData, client))) {
+      res.status(403).json({ success: false, message: "You do not have access to this client" });
       return;
     }
     client.status = req.body.status;
@@ -4258,29 +4315,9 @@ export const getClientDetails = async (req: Request, res: Response): Promise<voi
       return;
     }
 
-    // FIX: any client (contact details, GST/PAN) was readable by id with no
-    // ownership check. Same visibility as the client list (getClient): the
-    // caller's own clients and their company-scoped team's — including a
-    // client someone on the team has met, even if another user created it.
-    if (userData.role !== "super_admin") {
-      const callerId = Number(userData.userId);
-      const teamIds = await getCompanyScopedChildUserIdsFast(
-        callerId,
-        userData.companyId ? Number(userData.companyId) : null
-      );
-      const visibleUserIds = [callerId, ...teamIds];
-      const ownerId = Number((client as any).userId);
-      const ownedByTeam = visibleUserIds.includes(ownerId);
-      const metByTeam = ownedByTeam
-        ? true
-        : !!(await Meeting.findOne({
-            where: { meetingUserId: clientId, userId: { [Op.in]: visibleUserIds } },
-            attributes: ["id"],
-          }));
-      if (!metByTeam) {
-        res.status(403).json({ success: false, message: "You do not have access to this client" });
-        return;
-      }
+    if (!(await canViewClient(userData, client))) {
+      res.status(403).json({ success: false, message: "You do not have access to this client" });
+      return;
     }
 
     // 1. User meetings attended with this client
@@ -5014,7 +5051,8 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
       where: whereCondition,
       limit: pageSize,
       offset: offset,
-      order: [["createdAt", "DESC"]],
+      // Newest first; id breaks createdAt ties (e.g. a Tally import batch).
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
     });
 
     // ✅ DO NOT CHANGE RESPONSE STRUCTURE

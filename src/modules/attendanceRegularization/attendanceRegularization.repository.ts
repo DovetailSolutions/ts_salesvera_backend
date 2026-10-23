@@ -12,6 +12,18 @@ export const findUserById = (userId: number) =>
     attributes: ["id", "firstName", "lastName", "email", "role", "status"],
   });
 
+// Ids of users whose name or email matches — for the list search. The
+// request query applies its own company / team scope on top.
+export const findUserIdsMatching = async (search: string): Promise<number[]> => {
+  const like = { [Op.iLike]: `%${search}%` };
+  const rows = await (User as any).findAll({
+    where: { [Op.or]: [{ firstName: like }, { lastName: like }, { email: like }] },
+    attributes: ["id"],
+    limit: 1000,
+  });
+  return rows.map((r: any) => Number(r.id));
+};
+
 export const findUsersByIds = (userIds: number[]) =>
   (User as any).findAll({
     where: { id: { [Op.in]: userIds } },
@@ -54,6 +66,7 @@ export const findRequests = ({
   requestType,
   dateFrom,
   dateTo,
+  search,
   page = 1,
   limit = 20,
 }: {
@@ -63,6 +76,9 @@ export const findRequests = ({
   requestType?: string;
   dateFrom?: string;
   dateTo?: string;
+  // Matches any of: these employees, these request types, the reason or the
+  // request code — combined with (never replacing) the filters above.
+  search?: { text: string; userIds: number[]; requestTypes: string[] };
   page?: number;
   limit?: number;
 }) => {
@@ -75,6 +91,13 @@ export const findRequests = ({
     where.attendanceDate = {};
     if (dateFrom) where.attendanceDate[Op.gte] = dateFrom;
     if (dateTo) where.attendanceDate[Op.lte] = dateTo;
+  }
+  if (search?.text) {
+    const like = { [Op.iLike]: `%${search.text}%` };
+    const anyOf: any[] = [{ reason: like }, { businessCode: like }];
+    if (search.userIds.length) anyOf.push({ userId: { [Op.in]: search.userIds } });
+    if (search.requestTypes.length) anyOf.push({ requestType: { [Op.in]: search.requestTypes } });
+    where[Op.and] = [{ [Op.or]: anyOf }];
   }
   const offset = (Math.max(page, 1) - 1) * limit;
   return (AttendanceRegularization as any).findAndCountAll({
@@ -108,7 +131,11 @@ export const setRequestAttendanceId = (id: number, attendanceId: number, transac
 // helpers below, not attendance.service.ts's punch-in business logic
 // (deliberately bypassed — see the service's approve() for why).
 export const findAttendanceForDate = (employeeId: number, date: string, transaction?: Transaction) =>
-  (Attendance as any).findOne({ where: { employee_id: employeeId, date }, transaction });
+  (Attendance as any).findOne({ where: { employee_id: employeeId, date }, order: [["id", "ASC"]], transaction });
+
+// Every row (punch session) of the day, oldest first.
+export const findAttendanceRowsForDate = (employeeId: number, date: string, transaction?: Transaction) =>
+  (Attendance as any).findAll({ where: { employee_id: employeeId, date }, order: [["id", "ASC"]], transaction });
 
 export const createAttendanceRecord = (row: any, transaction?: Transaction) =>
   (Attendance as any).create(row, { transaction });

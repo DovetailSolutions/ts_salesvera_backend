@@ -8,7 +8,9 @@ import type { AttendanceMode, AttendancePolicyConfig } from "./attendancePolicy.
 //
 // Precedence (highest first):
 //   1. Approved full-day leave        → leave (punches don't change it)
-//   2. Missed punch-out + mark_absent → absent
+//   2. Missed punch-out + mark_absent → absent, when no session of the day
+//      was completed; otherwise the completed sessions decide (rule 3) and
+//      the unclosed one counts for nothing
 //   3. Eligible hours vs thresholds   → full / half / short / absent
 //        eligible = worked (all sessions of the day, or only the in-shift
 //                   part in strict "count only shift hours")
@@ -89,8 +91,13 @@ export const classifyAttendanceDay = (input: ClassifyInput): ClassifyResult => {
     return { ...base, status: "leaveApproved", dayType: null, label: "L", reason: "Approved full-day leave" };
   }
 
-  // 2. Missed punch-out under a "mark absent" policy.
-  if (input.missedPunchOut && config.missedPunchOut.action === "mark_absent") {
+  // 2. Missed punch-out under a "mark absent" policy. FIX: this used to mark
+  // the whole day absent even when earlier sessions were properly closed
+  // (e.g. a morning session, then a missed punch-out after lunch) — those
+  // hours were thrown away. Now only a day with no completed session is
+  // absent; otherwise the completed sessions are classified as usual.
+  const missedUnderMarkAbsent = !!input.missedPunchOut && config.missedPunchOut.action === "mark_absent";
+  if (missedUnderMarkAbsent && sessions.length === 0) {
     return { ...base, status: "absent", dayType: null, label: "A", reason: "Missed punch-out — marked absent by attendance policy" };
   }
 
@@ -130,8 +137,10 @@ export const classifyAttendanceDay = (input: ClassifyInput): ClassifyResult => {
     const last = sessions[sessions.length - 1];
     const lateBy = Math.round((firstIn - expectedStart) / 60000);
     if (lateBy > config.lateGraceMinutes) { late = true; lateMinutes = lateBy; }
-    // A system punch-out isn't the employee leaving early.
-    if (!last.autoPunchedOut) {
+    // A system punch-out isn't the employee leaving early — nor is the end of
+    // the last completed session when a later one was never punched out
+    // (when they actually left is unknown).
+    if (!last.autoPunchedOut && !missedUnderMarkAbsent) {
       const earlyBy = Math.round((expectedEnd - last.punchOut.getTime()) / 60000);
       if (earlyBy > config.earlyDepartureGraceMinutes) { earlyDeparture = true; earlyMinutes = earlyBy; }
     }
@@ -184,10 +193,21 @@ export const classifyAttendanceDay = (input: ClassifyInput): ClassifyResult => {
     }
   }
 
+  // Early punch-out "allow" means leaving early is fine and isn't flagged —
+  // only "flag" (and "block", for whatever still gets through) records it.
+  // FIX: "allow" used to flag exactly like "flag". The strict early-departure
+  // half-day rule above is its own switch and still applies either way.
+  const flagEarly = config.punchOut.beforeShiftEnd !== "allow";
+
   if (late) parts.push(`late ${lateMinutes} min`);
-  if (earlyDeparture) parts.push(`left ${earlyMinutes} min early`);
+  if (earlyDeparture && flagEarly) parts.push(`left ${earlyMinutes} min early`);
   if (overtimeHours > 0) parts.push(`overtime ${fmtH(overtimeHours)}`);
   if (sessions.some((s) => s.autoPunchedOut)) parts.push("auto punch-out");
+  if (missedUnderMarkAbsent) parts.push("missed punch-out on a later session — not counted");
 
-  return { status, dayType, label, reason: parts.join("; ").slice(0, 255), ...facts };
+  return {
+    status, dayType, label, reason: parts.join("; ").slice(0, 255), ...facts,
+    earlyDeparture: flagEarly && earlyDeparture,
+    earlyMinutes: flagEarly ? earlyMinutes : 0,
+  };
 };
