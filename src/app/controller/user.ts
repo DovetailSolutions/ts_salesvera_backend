@@ -764,6 +764,8 @@ export const getMyClients = async (
     const userData = req.userData as JwtPayload;
     const userId = Number(userData?.userId);
 
+    console.log(`getMyClients called by userId=${userData}, query=${JSON.stringify(req.query)}`);
+
     if (!userId) {
       badRequest(res, "Unauthorized request");
       return;
