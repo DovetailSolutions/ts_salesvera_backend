@@ -187,6 +187,8 @@ export const previewPolicy = async (actor: PolicyActor, body: any) => {
 
   const scenario = (title: string, input: any) => ({
     title,
+    // Lets the admin page leave out leave examples while its leave settings are hidden.
+    involvesLeave: !!input.leave,
     ...classifyAttendanceDay({ mode, config, shift, sessions: [], ...input }),
   });
 

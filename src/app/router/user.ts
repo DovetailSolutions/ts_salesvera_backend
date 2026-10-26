@@ -39,6 +39,7 @@ router.post(
   Controller.CreateMeeting
 ); 
 router.get("/clientmeeting",tokenCheck,Controller.getLastMeeting)
+router.get("/my-clients", tokenCheck, Controller.getMyClients)
 router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", tokenCheck, Controller.scheduled);

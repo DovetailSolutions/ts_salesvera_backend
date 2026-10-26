@@ -751,6 +751,77 @@ export const getLastMeeting = async (
   }
 };
 
+// GET /api/my-clients — only the clients currently owned by (assigned to)
+// the logged-in user, i.e. meeting_users.user_id = token userId. Unlike
+// /clientmeeting this does NOT expand to the org-wide user list.
+// Query: page, limit, search (name/companyName/email/mobile/city),
+//        customerType, city, state.
+export const getMyClients = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const userId = Number(userData?.userId);
+
+    if (!userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const { page = 1, limit = 10, search, customerType, city, state } = req.query as any;
+
+    const pageNumber = Math.max(1, Math.floor(Number(page)) || 1);
+    const pageLimit = Math.min(Math.max(1, Math.floor(Number(limit)) || 10), 100);
+    const offset = (pageNumber - 1) * pageLimit;
+
+    const whereCondition: any = { userId };
+
+    if (customerType) whereCondition.customerType = String(customerType).trim();
+    if (city) whereCondition.city = { [Op.iLike]: String(city).trim() };
+    if (state) whereCondition.state = { [Op.iLike]: String(state).trim() };
+
+    const searchText = String(search ?? "").trim();
+    if (searchText) {
+      const searchTerm = { [Op.iLike]: `%${searchText}%` };
+      whereCondition[Op.or] = [
+        { name: searchTerm },
+        { companyName: searchTerm },
+        { email: searchTerm },
+        { mobile: searchTerm },
+        { city: searchTerm },
+      ];
+    }
+
+    const { rows, count } = await MeetingUser.findAndCountAll({
+      where: whereCondition,
+      attributes: [
+        "id", "name", "email", "mobile", "companyName", "customerType",
+        "city", "state", "country", "pincode", "address", "gstNumber",
+        "userId", "createdAt",
+      ],
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
+      limit: pageLimit,
+      offset,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: rows,
+      pagination: {
+        page: pageNumber,
+        limit: pageLimit,
+        totalRecords: count,
+        totalPages: Math.ceil(count / pageLimit),
+      },
+    });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
 export const CreateMeeting = async (
   req: Request,
   res: Response

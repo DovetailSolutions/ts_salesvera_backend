@@ -36,6 +36,7 @@ import {
   Quotations,
   Company,
   CompanyManager,
+  CompanyAdmin,
   Branch,Shift,
   Department,
   Holiday,
@@ -1589,6 +1590,58 @@ export const test = async (req: Request, res: Response): Promise<void> => {
     const userJson = (result as any).toJSON();
     let createdUsers = userJson.createdUsers || [];
 
+    // Owner ("user" role) view only: the query above stops two levels down
+    // (owner -> admin -> manager), so employees a MANAGER created never
+    // reached the owner's Employee Management list. Fetch that third level
+    // and attach it under each manager; the company filter below covers it.
+    const isOwner = (userData as any)?.role === "user";
+    if (isOwner) {
+      const managers = createdUsers.flatMap((a: any) => a.createdUsers || []);
+      const managerIds = managers.map((m: any) => Number(m.id));
+      if (managerIds.length > 0) {
+        const rows: any[] = await (User as any).findAll({
+          where: { id: { [Op.in]: managerIds } },
+          attributes: ["id"],
+          include: [
+            {
+              model: User,
+              as: "createdUsers",
+              attributes: [
+                "id",
+                "employeeCode",
+                "firstName",
+                "lastName",
+                "email",
+                "phone",
+                "role",
+                "createdAt",
+                "branchId",
+                "shiftId",
+                "departmentId",
+                "canViewAllBranches",
+              ],
+              through: { attributes: [] },
+              required: false,
+              include: [
+                { model: Branch, as: "branch", attributes: ["id", "branchName", "branchCode"], required: false },
+                { model: Shift, as: "shift", attributes: ["id", "shiftName", "startTime", "endTime"], required: false },
+                { model: Department, as: "department", attributes: ["id", "deptName", "deptCode"], required: false },
+              ],
+            },
+          ],
+        });
+        const employeesByManager = new Map<number, any[]>(
+          rows.map((r: any) => {
+            const plain = r.get({ plain: true });
+            return [Number(plain.id), plain.createdUsers || []];
+          })
+        );
+        managers.forEach((m: any) => {
+          m.createdUsers = employeesByManager.get(Number(m.id)) || [];
+        });
+      }
+    }
+
     // FIX: this endpoint (the "user"-role User Management team list) walked
     // createdBy/createdUsers with NO company filtering at all — a "user"
     // (tenant owner) who owns multiple companies saw every admin/manager
@@ -1607,9 +1660,35 @@ export const test = async (req: Request, res: Response): Promise<void> => {
       const level2Ids = createdUsers.flatMap((a: any) =>
         (a.createdUsers || []).map((m: any) => Number(m.id))
       );
-      const companyIdsByUser = await collectUserCompanyIds([...level1Ids, ...level2Ids]);
+      // Third level is only present for the owner (see above).
+      const level3Ids = createdUsers.flatMap((a: any) =>
+        (a.createdUsers || []).flatMap((m: any) => (m.createdUsers || []).map((e: any) => Number(e.id)))
+      );
+      const companyIdsByUser = await collectUserCompanyIds([...level1Ids, ...level2Ids, ...level3Ids]);
+
+      // Owner ("user" role) view only: an admin who is the designated admin
+      // of a company (Company.adminId / company_admins) belongs to exactly
+      // those companies. Leftover branch allocations — the primary-branch
+      // sync hook only ever adds rows, so moving an admin to another
+      // company's branch leaves the old one behind — must not make them show
+      // up under a company they no longer administer.
+      const adminCompanies = new Map<number, Set<number>>();
+      if ((userData as any)?.role === "user" && level1Ids.length > 0) {
+        const [designated, links] = await Promise.all([
+          (Company as any).findAll({ where: { adminId: { [Op.in]: level1Ids } }, attributes: ["id", "adminId"] }),
+          (CompanyAdmin as any).findAll({ where: { adminId: { [Op.in]: level1Ids } }, attributes: ["adminId", "companyId"] }),
+        ]);
+        const add = (adminId: number, companyId: number) => {
+          if (!adminCompanies.has(adminId)) adminCompanies.set(adminId, new Set<number>());
+          adminCompanies.get(adminId)!.add(companyId);
+        };
+        designated.forEach((c: any) => add(Number(c.adminId), Number(c.id)));
+        links.forEach((l: any) => add(Number(l.adminId), Number(l.companyId)));
+      }
 
       const belongsToActiveCompany = (id: number) => {
+        const designatedFor = adminCompanies.get(id);
+        if (designatedFor) return designatedFor.has(callerCompanyId);
         const companies = companyIdsByUser.get(id);
         // Indeterminate membership — keep (fail open), same as
         // getCompanyScopedChildUserIds.
@@ -1622,13 +1701,25 @@ export const test = async (req: Request, res: Response): Promise<void> => {
         .map((a: any) => ({
           ...a,
           createdUsers: Array.isArray(a.createdUsers)
-            ? a.createdUsers.filter((m: any) => belongsToActiveCompany(Number(m.id)))
+            ? a.createdUsers
+                .filter((m: any) => belongsToActiveCompany(Number(m.id)))
+                .map((m: any) =>
+                  Array.isArray(m.createdUsers)
+                    ? { ...m, createdUsers: m.createdUsers.filter((e: any) => belongsToActiveCompany(Number(e.id))) }
+                    : m
+                )
             : a.createdUsers,
         }));
     }
 
     const total = createdUsers.length;
-    createdUsers = createdUsers.slice(offset, offset + limitNum);
+    // The owner's Employee Management page loads the whole tree once and
+    // pages it client-side without sending a limit — cutting it to the
+    // default 10 here silently dropped every admin past the tenth (and
+    // everyone under them). Only page when a limit was actually asked for.
+    if (!isOwner || req.query.limit !== undefined) {
+      createdUsers = createdUsers.slice(offset, offset + limitNum);
+    }
     userJson.createdUsers = createdUsers;
 
     createSuccess(res, "Users fetched successfully", {
