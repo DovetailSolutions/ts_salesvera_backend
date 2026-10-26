@@ -35,13 +35,19 @@ const assertAccess = async (
 ): Promise<void> => {
   if (targetUserId === callerId) return; // self-service, always allowed
 
-  if (!callerRole || !["admin", "super_admin", "manager"].includes(callerRole)) {
+  if (!callerRole || !["admin", "super_admin", "manager", "user"].includes(callerRole)) {
     throw new ServiceError("You do not have permission to access this employee's record.", 403);
   }
 
-  const allowed = await userHasPermission(callerId, callerRole, permissionModule, permissionAction);
-  if (!allowed) {
-    throw new ServiceError("You do not have permission to access this employee's record.", 403);
+  // The owner ("user" role) sits above every admin of their companies and has
+  // no way to grant themselves these per-module permissions, so they skip the
+  // grant check — the team check below still limits them to the people in
+  // the company they're currently acting in.
+  if (callerRole !== "user") {
+    const allowed = await userHasPermission(callerId, callerRole, permissionModule, permissionAction);
+    if (!allowed) {
+      throw new ServiceError("You do not have permission to access this employee's record.", 403);
+    }
   }
 
   const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
