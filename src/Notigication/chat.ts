@@ -20,6 +20,20 @@ import {getAllSubordinateIds} from "../app/middlewear/comman"
 import { uploadBufferToSpaces } from "../config/spaces";
 import { collectUserCompanyIds } from "../modules/shared/userHierarchy";
 
+// Group members must come from the caller's current company — the same
+// audience the UserList contact picker shows (company-scoped there too).
+// Only users positively belonging to other companies are refused;
+// indeterminate membership stays allowed, as in UserList.
+const membersOutsideCompany = async (memberIds: any[], companyId: any): Promise<number[]> => {
+  if (!companyId) return [];
+  const ids = memberIds.map(Number).filter((n) => Number.isFinite(n));
+  const companiesByUser = await collectUserCompanyIds(ids);
+  return ids.filter((id) => {
+    const companies = companiesByUser.get(id);
+    return !!companies && companies.size > 0 && !companies.has(Number(companyId));
+  });
+};
+
 const uploadToS3 = async (
   base64Data: string,
   fileName: string,
@@ -297,26 +311,29 @@ export const initChatSocket = (io: Server) => {
     // Join personal user room so real-time messages & group invites are received
     socket.join(`user_${userId}`);
 
-    // Auto-join all chat rooms this user belongs to
-    try {
-      const participations = await ChatParticipant.findAll({
-        where: { userId },
-        include: [{ model: ChatRoom, attributes: ["roomId"] }],
-      });
-      participations.forEach((p: any) => {
-        if (p.ChatRoom?.roomId) {
-          socket.join(p.ChatRoom.roomId);
-        }
-      });
-    } catch (joinErr) {
-      console.error("Auto-join rooms error:", joinErr);
-    }
+    // Auto-join rooms + mark online in the background. Awaiting these here
+    // delayed every socket.on(...) registration below, so anything a client
+    // emitted right after connecting (e.g. sendMessage) was silently dropped.
+    (async () => {
+      try {
+        const participations = await ChatParticipant.findAll({
+          where: { userId },
+          include: [{ model: ChatRoom, attributes: ["roomId"] }],
+        });
+        participations.forEach((p: any) => {
+          if (p.ChatRoom?.roomId) {
+            socket.join(p.ChatRoom.roomId);
+          }
+        });
+      } catch (joinErr) {
+        console.error("Auto-join rooms error:", joinErr);
+      }
 
+      await User.update({ onlineSatus: "online" }, { where: { id: userId } });
 
-    await User.update({ onlineSatus: "online" }, { where: { id: userId } });
-
-    // 📡 Broadcast this user's online status to ALL connected clients
-    io.emit("userStatusChange", { userId, onlineSatus: "online" });
+      // 📡 Broadcast this user's online status to ALL connected clients
+      io.emit("userStatusChange", { userId, onlineSatus: "online" });
+    })().catch((err) => console.error("Socket connect bookkeeping error:", err));
 
     // --------------------------------------------------------
     // 🟦 JOIN ROOM
@@ -329,6 +346,15 @@ export const initChatSocket = (io: Server) => {
 
           // 🔥 Create room if not exists
           if (!room) {
+            // A new group made here skipped the member checks createGroup
+            // does, so anyone could pull another company's user into a chat.
+            if (type === "group" && members.length > 0) {
+              const outside = await membersOutsideCompany(members, socket.data.user?.companyId);
+              if (outside.length > 0) {
+                return socket.emit("errorMessage", { error: "Cannot add users from a different company." });
+              }
+            }
+
             const newRoomId = roomId || uuid();
 
             room = await ChatRoom.create({
@@ -472,18 +498,15 @@ export const initChatSocket = (io: Server) => {
         await (room as any).changed('updatedAt', true);
         await room.save().catch(() => {});
 
-        // 1. Emit to room
-        io.to(roomId).emit("receiveMessage", messagePayload);
-
-        // 2. Notify all participants in real-time
         const participants = await ChatParticipant.findAll({
           where: { chatRoomId: room.id },
         });
 
-        // 3. Emit to all participants' user rooms (covers cases where socket hasn't joined roomId yet)
-        for (const p of participants) {
-          io.to(`user_${p.userId}`).emit("receiveMessage", messagePayload);
-        }
+        // One emit to the room AND every participant's user room (covers
+        // sockets that haven't joined roomId). Socket.IO delivers a multi-room
+        // emit once per socket; the previous separate emits reached every
+        // socket in both rooms twice, doubling chat unread counts.
+        io.to(roomId).to(participants.map((p) => `user_${p.userId}`)).emit("receiveMessage", messagePayload);
         const senderName = sender
           ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
           : "Someone";
@@ -616,15 +639,12 @@ export const initChatSocket = (io: Server) => {
         await (room as any).changed('updatedAt', true);
         await room.save().catch(() => {});
 
-        io.to(roomId).emit("receiveFileMessage", filePayload);
-
         const participants = await ChatParticipant.findAll({
           where: { chatRoomId: room.id },
         });
 
-        for (const p of participants) {
-          io.to(`user_${p.userId}`).emit("receiveFileMessage", filePayload);
-        }
+        // Single multi-room emit — same once-per-socket reason as sendMessage.
+        io.to(roomId).to(participants.map((p) => `user_${p.userId}`)).emit("receiveFileMessage", filePayload);
         const senderName = sender
           ? `${sender.firstName ?? ""} ${sender.lastName ?? ""}`.trim()
           : "Someone";
@@ -1024,6 +1044,11 @@ export const initChatSocket = (io: Server) => {
             return socket.emit("createGroup", { error: "Cannot add users from a different tenant." });
           }
         }
+        // One owner's tenant spans several companies — also keep members to
+        // the caller's current company, matching the UserList contact picker.
+        if ((await membersOutsideCompany(members, socket.data.user?.companyId)).length > 0) {
+          return socket.emit("createGroup", { error: "Cannot add users from a different company." });
+        }
 
         const newRoomId = uuid();
 
@@ -1111,6 +1136,9 @@ export const initChatSocket = (io: Server) => {
           if (validMembers.length !== newMembers.length) {
             return socket.emit("addGroupMembers", { error: "Cannot add users from a different tenant." });
           }
+        }
+        if ((await membersOutsideCompany(newMembers, socket.data.user?.companyId)).length > 0) {
+          return socket.emit("addGroupMembers", { error: "Cannot add users from a different company." });
         }
 
         // Add the new members

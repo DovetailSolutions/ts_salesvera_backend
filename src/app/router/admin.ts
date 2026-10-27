@@ -136,7 +136,7 @@ router.post('/updatequotation/:id',tokenCheck, checkPermission("quotation", "upd
 
 
 router.get("/get-client",tokenCheck,AdminController.getClient);
-router.get("/getMyClients", tokenCheck, authorizeRoles("manager"), AdminController.getMyClients);
+router.get("/my-clients", tokenCheck, authorizeRoles("manager"), AdminController.getMyClients);
 router.get("/get-client-details/:id", tokenCheck, AdminController.getClientDetails);
 router.get("/client-details/:id", tokenCheck, AdminController.getClientDetails);
 router.post("/update-client/:id",tokenCheck,AdminController.updateClient);

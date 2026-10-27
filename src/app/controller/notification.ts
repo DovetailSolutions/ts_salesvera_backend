@@ -51,6 +51,11 @@ export const markAsRead = async (req: Request, res: Response): Promise<void> => 
     const userData = (req as any).userData as JwtPayload;
     const userId = userData.userId;
     const { id } = req.params;
+    // A non-numeric id reached Postgres as-is and failed as a 500.
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ success: false, message: "Invalid notification id" });
+      return;
+    }
 
     const notification = await Notification.findOne({
       where: { id, receiverId: userId },
@@ -101,6 +106,10 @@ export const deleteNotification = async (req: Request, res: Response): Promise<v
     const userData = (req as any).userData as JwtPayload;
     const userId = userData.userId;
     const { id } = req.params;
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ success: false, message: "Invalid notification id" });
+      return;
+    }
 
     const deleted = await Notification.destroy({
       where: { id, receiverId: userId },
