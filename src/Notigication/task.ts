@@ -4,7 +4,7 @@ import { Task, TaskHistory, TaskComment, User, Permission, UserPermission } from
 import { getUserPermissionsFromCache } from "../config/permissionCache";
 import { sendNotification } from "../config/notificationService";
 import { NotificationType } from "../app/model/Notification";
-import { getDirectCreator, getCompanyScopedChildUserIds } from "../modules/shared/userHierarchy";
+import { getDirectCreator, getCompanyScopedChildUserIds, collectUserCompanyIds } from "../modules/shared/userHierarchy";
 import { getISTDateString } from "../modules/shared/dateUtils";
 
 const loadUserPermissionsFromDB = async (userId: number): Promise<string[]> => {
@@ -14,6 +14,16 @@ const loadUserPermissionsFromDB = async (userId: number): Promise<string[]> => {
     attributes: [],
   });
   return userPerms.map((up: any) => `${up.permission.module}:${up.permission.action}`);
+};
+
+// The tenant check alone let a manager assign (and notify) an employee of a
+// DIFFERENT company under the same owner. Refuse an assignee who positively
+// belongs to other companies only; indeterminate membership stays allowed,
+// same fail-open rule as getCompanyScopedChildUserIds.
+const assigneeInCompany = async (assigneeId: number, companyId: number | null | undefined): Promise<boolean> => {
+  if (!companyId) return true;
+  const companies = (await collectUserCompanyIds([Number(assigneeId)])).get(Number(assigneeId));
+  return !companies || companies.size === 0 || companies.has(Number(companyId));
 };
 
 const hasPermission = async (userId: number, companyId: number, role: string, action: string): Promise<boolean> => {
@@ -131,6 +141,9 @@ export const initTaskSocket = (io: Server): void => {
           const caller = await (User as any).findByPk(uid, { attributes: ["tenantId"] });
           if (caller?.tenantId && caller.tenantId !== assignee.tenantId) {
             return socket.emit("taskError", { message: "Cannot assign tasks to users outside your tenant" });
+          }
+          if (!(await assigneeInCompany(assignee.id, companyId))) {
+            return socket.emit("taskError", { message: "Cannot assign tasks to users outside your company" });
           }
         }
 
@@ -343,6 +356,9 @@ export const initTaskSocket = (io: Server): void => {
               const caller = await (User as any).findByPk(uid, { attributes: ["tenantId"] });
               if (caller?.tenantId && caller.tenantId !== assignee.tenantId) {
                 return socket.emit("taskError", { message: "Cannot assign tasks to users outside your tenant" });
+              }
+              if (!(await assigneeInCompany(assignee.id, companyId))) {
+                return socket.emit("taskError", { message: "Cannot assign tasks to users outside your company" });
               }
             }
             const assigneeRole: string = assignee.role;
