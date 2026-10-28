@@ -23,6 +23,8 @@ export interface SubCategoryAttributes {
   // orders reduce — see modules/inventory/inventory.service.ts.
   trackStock?: boolean;
   stockQuantity?: number | null;
+  // Migration 0038: a tracked item may still be ordered at/below zero stock.
+  allowOutOfStock?: boolean;
 }
 
 export interface SubCategoryCreationAttributes
@@ -50,6 +52,7 @@ export class SubCategory
   public discount?: string;
   public trackStock?: boolean;
   public stockQuantity?: number | null;
+  public allowOutOfStock?: boolean;
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
       {
@@ -137,6 +140,11 @@ export class SubCategory
             const raw = this.getDataValue("stockQuantity");
             return raw === null || raw === undefined ? null : Number(raw);
           },
+        },
+        allowOutOfStock: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
         },
         status: {
           type: DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),

@@ -2254,12 +2254,12 @@ export const applyTravelSummaryOnPunchOut = async (
 
 // ---- Sale Person daily travel summary ----
 
-export const getMyTravelSummary = async (finalUserId: number, date: string) => {
-  return getSalesPersonTravelSummary(finalUserId, date);
+export const getMyTravelSummary = async (finalUserId: number, date: string, companyId?: number | null) => {
+  return getSalesPersonTravelSummary(finalUserId, date, companyId);
 };
 
-export const getMyTravelSummaryRange = async (finalUserId: number, startDate: string, endDate: string) => {
-  return getSalesPersonTravelSummaryRange(finalUserId, startDate, endDate);
+export const getMyTravelSummaryRange = async (finalUserId: number, startDate: string, endDate: string, companyId?: number | null) => {
+  return getSalesPersonTravelSummaryRange(finalUserId, startDate, endDate, companyId);
 };
 
 // Admin/manager view — company-scoped: the target must actually be a member
@@ -2276,7 +2276,9 @@ export const getSalesPersonTravelForAdmin = async (
   if (targetUserId !== loggedInId && !childIds.includes(targetUserId)) {
     throw new ServiceError("You do not have access to this user's travel data", 403);
   }
-  return getSalesPersonTravelSummary(targetUserId, date);
+  // The target is in the caller's company (checked above), so its rate
+  // history applies — not the tenantId fallback that always read ₹10.
+  return getSalesPersonTravelSummary(targetUserId, date, callerCompanyId);
 };
 
 // Manager/admin "My Team" travel overview (spec item 52) — one row per

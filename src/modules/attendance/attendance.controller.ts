@@ -184,7 +184,8 @@ export const getMyTravelSummary = async (req: Request, res: Response): Promise<v
   try {
     const userData = req.userData as JwtPayload;
     const date = (req.params.date as string) || getISTDateString();
-    const result = await AttendanceService.getMyTravelSummary(Number(userData?.userId), date);
+    const companyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const result = await AttendanceService.getMyTravelSummary(Number(userData?.userId), date, companyId);
     createSuccess(res, "Travel summary fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);
@@ -200,7 +201,8 @@ export const getMyTravelSummaryRange = async (req: Request, res: Response): Prom
       badRequest(res, "startDate and endDate are required (YYYY-MM-DD)");
       return;
     }
-    const result = await AttendanceService.getMyTravelSummaryRange(Number(userData?.userId), startDate, endDate);
+    const companyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    const result = await AttendanceService.getMyTravelSummaryRange(Number(userData?.userId), startDate, endDate, companyId);
     createSuccess(res, "Travel summary fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);

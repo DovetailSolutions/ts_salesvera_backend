@@ -74,7 +74,12 @@ import * as LeaveController from "../../modules/leave/leave.controller";
 import * as AdminController from "./admin";
 import * as InventoryService from "../../modules/inventory/inventory.service";
 import { ServiceError } from "../../modules/shared/serviceError";
-import { isValidCoordinate, isPlausibleLeg } from "../../modules/attendance/travelDistance.service";
+import { isValidCoordinate, isPlausibleLeg, getSalesPersonTravelSummary } from "../../modules/attendance/travelDistance.service";
+
+// Expense category for claiming a day's tracked mileage allowance. Its amount
+// is always computed here from that day's travel summary — never taken from
+// the request — so a claim can't exceed what was actually travelled.
+export const DAILY_TRAVEL_EXPENSE_CATEGORY = "Daily Travel & Mileage";
 
 const VALID_LEAVE_TYPES = ["sick", "casual", "paid", "unpaid", "short_leave", "half_day"];
 
@@ -2125,6 +2130,36 @@ export const CreateExpense = async (req: Request, res: Response) => {
       }
       if (item.totalDistance !== undefined && item.totalDistance !== null && item.totalDistance !== "" && Number.isNaN(Number(item.totalDistance))) {
         throw new Error("totalDistance must be a number");
+      }
+
+      if (item.category === DAILY_TRAVEL_EXPENSE_CATEGORY) {
+        const claimDate = String(item.date || "").slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(claimDate)) {
+          throw new Error("Select the travel date to claim");
+        }
+        const alreadyClaimed = await Expense.findOne({
+          where: {
+            userId,
+            category: DAILY_TRAVEL_EXPENSE_CATEGORY,
+            date: claimDate,
+            approvedByAdmin: { [Op.ne]: "rejected" },
+            approvedBySuperAdmin: { [Op.ne]: "rejected" },
+          },
+          transaction,
+        });
+        if (alreadyClaimed) {
+          throw new Error(`Daily travel for ${claimDate} has already been claimed`);
+        }
+        const callerCompanyId = (req as any).userData?.companyId ? Number((req as any).userData.companyId) : null;
+        const summary: any = await getSalesPersonTravelSummary(Number(userId), claimDate, callerCompanyId);
+        const allowance = Number(summary?.vehicleAllowance) || 0;
+        if (allowance <= 0) {
+          throw new Error(`No travel allowance to claim for ${claimDate}`);
+        }
+        item.amount = String(allowance);
+        item.total_amount = String(allowance);
+        item.date = claimDate;
+        item.totalDistance = Number(summary?.totalDistanceKm) || 0;
       }
 
       const expense = await Expense.create(
