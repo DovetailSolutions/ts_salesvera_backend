@@ -30,6 +30,21 @@ export interface AttendancePolicyConfig {
   lateGraceMinutes: number;
   earlyDepartureGraceMinutes: number;
 
+  // ── Flexible timing (flexible mode only): no fixed start/end time. The
+  // day is decided by hours alone — no late / early-departure flags, no
+  // punch-in window or shift-start gate, early punch-out never blocked.
+  flexibleTiming: boolean;
+
+  // ── Late-count rule (both modes): every Nth late arrival in a calendar
+  // month (the Nth, 2Nth, …) makes that day at most a half day.
+  lateCount: { enabled: boolean; every: number };
+
+  // ── Comp-off: a full day (P) worked on a weekly off or holiday earns 1
+  // day of "Comp Off" leave, a half day (HD) 0.5. The yearly limit, expiry
+  // and approval come from the company's Comp Off settings (see
+  // modules/compOff).
+  compOff: { enabled: boolean };
+
   // ── Strict-mode-only rules (ignored in flexible mode)
   strict: {
     // Count only the time inside the shift window.
@@ -80,6 +95,13 @@ export interface AttendancePolicyConfig {
     // May a half-day / short leave for today be requested after the shift
     // has already started?
     allowRequestAfterShiftStart: boolean;
+    // Weekly offs / holidays and full-day leave requests:
+    //   all_days     — every calendar day from–to is charged (previous behaviour)
+    //   sandwich     — an off day is charged only when full-day leave is on
+    //                  both sides of it, including a separate leave request
+    //                  (Fri + Mon leave also charges Sat/Sun)
+    //   working_days — only working days are charged
+    sandwich: "all_days" | "sandwich" | "working_days";
   };
 }
 
@@ -91,6 +113,9 @@ export const DEFAULT_POLICY_CONFIG: AttendancePolicyConfig = {
   breakMinutesOverride: null,
   lateGraceMinutes: 15,
   earlyDepartureGraceMinutes: 15,
+  flexibleTiming: false,
+  lateCount: { enabled: false, every: 3 },
+  compOff: { enabled: false },
   strict: {
     countOnlyShiftHours: false,
     lateBeyondMarksHalfDay: { enabled: false, minutes: 120 },
@@ -108,8 +133,14 @@ export const DEFAULT_POLICY_CONFIG: AttendancePolicyConfig = {
     shortLeaveMaxPerMonth: 2,
     shortLeaveCountsAsWorked: true,
     allowRequestAfterShiftStart: false,
+    sandwich: "all_days",
   },
 };
+
+// Flexible timing only applies in flexible mode; a strict policy keeps its
+// late / early rules even if the flag was left on from an earlier edit.
+export const isFlexibleTiming = (mode: AttendanceMode, config: AttendancePolicyConfig): boolean =>
+  mode === "flexible" && config.flexibleTiming === true;
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -160,6 +191,14 @@ export const validatePolicy = (rawMode: unknown, rawConfig: unknown): { mode: At
         : int(errors, "Break duration override", c.breakMinutesOverride, 0, 240),
     lateGraceMinutes: int(errors, "Late arrival grace period", c.lateGraceMinutes ?? d.lateGraceMinutes, 0, 600),
     earlyDepartureGraceMinutes: int(errors, "Early departure grace period", c.earlyDepartureGraceMinutes ?? d.earlyDepartureGraceMinutes, 0, 600),
+    flexibleTiming: bool(errors, "Flexible timing", c.flexibleTiming ?? d.flexibleTiming),
+    lateCount: {
+      enabled: bool(errors, "Late-count rule", sub("lateCount").enabled ?? d.lateCount.enabled),
+      every: int(errors, "Late arrivals per half day", sub("lateCount").every ?? d.lateCount.every, 1, 31),
+    },
+    compOff: {
+      enabled: bool(errors, "Earn comp-off", sub("compOff").enabled ?? d.compOff.enabled),
+    },
     strict: {
       countOnlyShiftHours: bool(errors, "Count only in-shift hours", sub("strict").countOnlyShiftHours ?? d.strict.countOnlyShiftHours),
       lateBeyondMarksHalfDay: {
@@ -195,6 +234,7 @@ export const validatePolicy = (rawMode: unknown, rawConfig: unknown): { mode: At
       shortLeaveMaxPerMonth: int(errors, "Maximum short leaves per month", sub("leave").shortLeaveMaxPerMonth ?? d.leave.shortLeaveMaxPerMonth, 0, 31),
       shortLeaveCountsAsWorked: bool(errors, "Count approved short leave as worked time", sub("leave").shortLeaveCountsAsWorked ?? d.leave.shortLeaveCountsAsWorked),
       allowRequestAfterShiftStart: bool(errors, "Allow same-day requests after shift start", sub("leave").allowRequestAfterShiftStart ?? d.leave.allowRequestAfterShiftStart),
+      sandwich: oneOf(errors, "Weekly offs and holidays in leave", sub("leave").sandwich ?? d.leave.sandwich, ["all_days", "sandwich", "working_days"] as const),
     },
   };
 

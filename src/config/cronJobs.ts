@@ -248,4 +248,52 @@ export const startCronJobs = () => {
     },
     { timezone: "Asia/Kolkata" }
   );
+
+  // ─────────────────────────────────────────────
+  //  BIRTHDAY CELEBRATIONS
+  //  Schedule : Every hour at :05, plus a catch-up
+  //             run shortly after server start.
+  //  Purpose  : For each company that enabled the
+  //             feature, publish one combined birthday
+  //             announcement once the company's LOCAL
+  //             time (companies.timezone, IST fallback)
+  //             reaches its configured send hour.
+  //
+  //  Hourly rather than once a day so companies in
+  //  different timezones each get theirs on their own
+  //  local date, and a missed tick (restart/downtime)
+  //  is caught up on the next one. Idempotent across
+  //  ticks, restarts and instances — see
+  //  birthday_runs (migration 0039).
+  // ─────────────────────────────────────────────
+  const runBirthdays = async (source: string) => {
+    try {
+      const { runBirthdayJob } = await import("../modules/birthday/birthday.service");
+      await runBirthdayJob({ source });
+    } catch (error) {
+      console.error("[CRON] ❌ Birthday celebrations job failed:", error);
+    }
+  };
+  cron.schedule("5 * * * *", () => runBirthdays("cron"), { timezone: "Asia/Kolkata" });
+  setTimeout(() => runBirthdays("startup catch-up"), 90 * 1000);
+
+  // ─────────────────────────────────────────────
+  //  COMP-OFF EXPIRY
+  //  Schedule : Daily at 00:20 IST
+  //  Purpose  : Expire approved comp-off days whose
+  //             expiry date (company compOffExpiryDays
+  //             after the day worked) has passed, and
+  //             take the unused part off the Comp Off
+  //             balance. Safe to re-run — see
+  //             expireCompOffCredits (compOff.service.ts).
+  // ─────────────────────────────────────────────
+  cron.schedule("20 0 * * *", async () => {
+    try {
+      const { expireCompOffCredits } = await import("../modules/compOff/compOff.service");
+      const result = await expireCompOffCredits();
+      if (result.expired) console.log(`[CRON] Comp-off expiry: ${result.expired} of ${result.checked} expired`);
+    } catch (error) {
+      console.error("[CRON] ❌ Comp-off expiry job failed:", error);
+    }
+  }, { timezone: "Asia/Kolkata" });
 };

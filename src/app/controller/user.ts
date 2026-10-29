@@ -71,6 +71,7 @@ import { getJobPersonalDetails } from "../../modules/shared/jobPersonalDetails";
 import { getAccessibleCompanyIds, stripCompanyBankFields } from "../../modules/shared/companyAccess";
 import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType, validatePartialLeave } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
+import { resolveChargedDays } from "../../modules/leave/leaveCharge";
 import * as AdminController from "./admin";
 import * as InventoryService from "../../modules/inventory/inventory.service";
 import { ServiceError } from "../../modules/shared/serviceError";
@@ -1767,6 +1768,7 @@ export const requestLeave = async (
     const year = Number(getISTDateString(from).slice(0, 4));
     let typeBalance: any = null;
     let resolvedCompanyLeaveId: number | null = null;
+    let chargedDays: number | null = null;
 
     // Clients that send only leave_type (no companyLeaveId) are checked
     // against the same company-configured balance my-leave-balance shows.
@@ -1788,6 +1790,11 @@ export const requestLeave = async (
         leave_type = inferLegacyLeaveTypeEnum((leaveTypeRow as any).leaveName);
         days = countLeaveRequestDays({ leave_type, from_date: from, to_date: to });
       }
+      // Attendance policy's sandwich / working-days rule (null = all days).
+      chargedDays = await resolveChargedDays({
+        employeeId: Number(finalUserId), companyId: userData?.companyId, leaveType: leave_type, from, to,
+      });
+      if (chargedDays !== null) days = chargedDays;
 
       // Unpaid leave has no paid balance to check against — it's never
       // deducted (see approveLeave in leave.service.ts), so skip resolving/
@@ -1865,6 +1872,7 @@ export const requestLeave = async (
       companyLeaveId: resolvedCompanyLeaveId,
       leaveSession: partial.leaveSession,
       durationMinutes: partial.durationMinutes,
+      chargedDays,
     } as any);
 
     // Note: Balance is NOT permanently deducted while pending.

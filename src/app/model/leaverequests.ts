@@ -18,11 +18,15 @@ interface LeaveAttributes {
   // leave's length. Null for full-day requests and every older request.
   leaveSession?: "first_half" | "second_half" | "morning" | "evening" | null;
   durationMinutes?: number | null;
+  // Migration 0040: days taken from the balance, fixed at request time under
+  // the attendance policy's sandwich / working-days rule. Null = the
+  // previous calendar-day count (see countLeaveRequestDays).
+  chargedDays?: number | null;
 }
 
 type LeaveCreationAttributes = Optional<
   LeaveAttributes,
-  "id" | "reason" | "status" | "leaveSession" | "durationMinutes"
+  "id" | "reason" | "status" | "leaveSession" | "durationMinutes" | "chargedDays"
 >;
 
 export class Leave
@@ -39,6 +43,7 @@ export class Leave
   public companyLeaveId!: number | null;
   public leaveSession!: "first_half" | "second_half" | "morning" | "evening" | null;
   public durationMinutes!: number | null;
+  public chargedDays!: number | null;
 
   static initModel(sequelize: Sequelize): typeof Leave {
     Leave.init(
@@ -83,6 +88,10 @@ export class Leave
         },
         durationMinutes: {
           type: DataTypes.INTEGER,
+          allowNull: true,
+        },
+        chargedDays: {
+          type: DataTypes.DOUBLE,
           allowNull: true,
         },
       },
