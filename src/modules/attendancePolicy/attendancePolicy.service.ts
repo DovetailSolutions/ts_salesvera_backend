@@ -2,7 +2,7 @@ import { Op } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
 import { hasCompanyAccess } from "../shared/companyAccess";
 import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
-import { Shift } from "../../config/dbConnection";
+import { Shift, CompanyLeave } from "../../config/dbConnection";
 import { AttendancePolicy } from "./attendancePolicy.model";
 import { DEFAULT_POLICY_CONFIG, validatePolicy, isFlexibleTiming, AttendanceMode, AttendancePolicyConfig } from "./attendancePolicy.config";
 import { classifyAttendanceDay, ClassifierShift } from "./attendancePolicy.classifier";
@@ -128,8 +128,15 @@ export const getPolicies = async (actor: PolicyActor) => {
     if (String(r.effectiveFrom) <= today && !effective[key]) effective[key] = r;
   }
 
+  // The comp-off rule credits the company's "Comp Off" leave type (created
+  // from company settings → Leave Types → "Comp Off Days Allowed Per Year");
+  // the page warns while it's missing. Same name rule as modules/compOff.
+  const leaveTypes: any[] = await CompanyLeave.findAll({ where: { companyId }, attributes: ["leaveName"] });
+  const compOffLeaveTypeExists = leaveTypes.some((t) => String(t.leaveName || "").trim().toLowerCase() === "comp off");
+
   return {
     defaults: DEFAULT_POLICY_CONFIG,
+    compOffLeaveTypeExists,
     shifts,
     effective: Object.fromEntries(Object.entries(effective).map(([k, r]) => [k, toResolved(r)])),
     history: rows.map((r) => ({
