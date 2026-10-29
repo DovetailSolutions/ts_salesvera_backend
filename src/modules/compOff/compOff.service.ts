@@ -325,7 +325,16 @@ const compOffContext = async (employeeId: number, companyId: number, date: strin
   const company: any = await Company.findByPk(companyId, {
     attributes: ["id", "compOffMinHours", "compOffExpiryDays", "compOffApprovalRequired"],
   });
-  return { employee, leaveType, company, enabled: !!policy?.config.compOff?.enabled && !!leaveType };
+  const policyOn = !!policy?.config.compOff?.enabled;
+  return {
+    employee,
+    leaveType,
+    company,
+    enabled: policyOn && !!leaveType,
+    // Earning switched on, but there's no Comp Off leave type to credit yet
+    // (company settings → Leave Types → "Comp Off Days Allowed Per Year").
+    missingLeaveType: policyOn && !leaveType,
+  };
 };
 
 const usedThisYear = async (employeeId: number, leaveTypeId: number, year: number) => {
@@ -356,6 +365,7 @@ export const getMyCompOff = async (employeeId: number, companyId: number | null)
   const yearlyLimit = Number(ctx.company?.compOffMinHours) || 0;
   return {
     enabled: ctx.enabled,
+    setupIssue: ctx.missingLeaveType ? "no_leave_type" : null,
     year,
     yearlyLimit: yearlyLimit || null,
     earnedThisYear: ctx.leaveType ? await usedThisYear(employeeId, ctx.leaveType.id, year) : 0,
