@@ -71,9 +71,14 @@ export interface NotificationPayload {
   title: string;
   body: string;
   data?: Record<string, any>;
+  // Skip the per-receiver Firebase push — for callers that batch pushes
+  // themselves and need the result (e.g. birthday.service.ts). Default false.
+  skipPush?: boolean;
 }
 
-export const sendNotification = async (payload: NotificationPayload): Promise<void> => {
+// Same as sendNotification, but resolves to the persisted notification row,
+// or null if it was muted or failed to persist (used by birthday.service.ts).
+export const sendNotificationWithResult = async (payload: NotificationPayload): Promise<Notification | null> => {
   const {
     senderId = null,
     type = NotificationType.SYSTEM,
@@ -91,7 +96,7 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
     const prefColumn = MUTABLE_TYPE_COLUMN[type];
     if (prefColumn) {
       const receiver = await User.findByPk(receiverId, { attributes: [prefColumn] });
-      if (receiver && (receiver as any)[prefColumn] === false) return;
+      if (receiver && (receiver as any)[prefColumn] === false) return null;
     }
 
     // 1️⃣ Persist to DB
@@ -132,7 +137,7 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
     }
 
     // 3️⃣ Real-time delivery via Firebase
-    try {
+    if (!payload.skipPush) try {
       const devices = await Device.findAll({
         where: { userId: receiverId, isActive: true }
       });
@@ -158,7 +163,13 @@ export const sendNotification = async (payload: NotificationPayload): Promise<vo
     } catch (pushError) {
       console.error("⚠️ Push Notification failed:", pushError);
     }
+    return notification;
   } catch (error) {
     console.error("❌ sendNotification error:", error);
+    return null;
   }
+};
+
+export const sendNotification = async (payload: NotificationPayload): Promise<void> => {
+  await sendNotificationWithResult(payload);
 };

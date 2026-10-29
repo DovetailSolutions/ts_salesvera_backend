@@ -15,6 +15,7 @@ import * as SubscriptionRepo from "../subscription/subscription.repository";
 import * as SubscriptionLimit from "../subscription/subscriptionLimit.service";
 import { AccessAuditLog } from "../../config/dbConnection";
 import * as AccessNotify from "../accessExtension/accessNotification.service";
+import { parseJoiningDate, saveJoiningDate } from "../employeeProfile/joiningDate";
 
 // ============================================================
 // Super Admin Service - Handles System-Wide Aggregations,
@@ -674,6 +675,7 @@ export const createUserAsSuperAdmin = async (
     departmentId?: number;
     shiftId?: number;
     companyId?: number;
+    dateOfJoining?: string;
   },
   superAdminUserId: number
 ) => {
@@ -682,6 +684,7 @@ export const createUserAsSuperAdmin = async (
   if (!email || !email.trim()) throw new ServiceError("Email is required", 400);
   if (!firstName || !firstName.trim()) throw new ServiceError("First Name is required", 400);
   if (!role) throw new ServiceError("Role is required", 400);
+  const dateOfJoining = parseJoiningDate(data.dateOfJoining);
 
   const existing = await User.findOne({ where: { email: email.trim().toLowerCase() } });
   if (existing) throw new ServiceError("User with this email already exists", 400);
@@ -729,6 +732,19 @@ export const createUserAsSuperAdmin = async (
         shiftId: shiftId ? Number(shiftId) : null,
       })
   );
+
+  // Date of joining for admin / manager / employee — today when not given.
+  try {
+    await saveJoiningDate({
+      userId: newUser.id as number,
+      role,
+      dateOfJoining,
+      companyId: companyId ? Number(companyId) : null,
+      createdBy: superAdminUserId,
+    });
+  } catch (e) {
+    console.error("Failed to save date of joining for new user:", e);
+  }
 
   if (role === "user" && !resolvedTenantId) {
     await newUser.update({ tenantId: newUser.id as number });

@@ -77,6 +77,15 @@ export const findAttendanceForDate = (employeeId: number | string, date: string)
 export const findAttendanceRowsForDate = (employeeId: number | string, date: string) =>
   Attendance.findAll({ where: { employee_id: employeeId, date }, order: [["id", "ASC"]] });
 
+// Distinct days earlier in `date`'s calendar month that are flagged late —
+// the attendance policy's late-count rule counts these.
+export const countLateDaysInMonthBefore = (employeeId: number | string, date: string) =>
+  Attendance.count({
+    where: { employee_id: employeeId, late: true, date: { [Op.gte]: `${date.slice(0, 7)}-01`, [Op.lt]: date } },
+    distinct: true,
+    col: "date",
+  });
+
 export const createAttendanceRecord = (row: any) => Attendance.create(row);
 
 export const findEmployeeAttendancePaginated = (

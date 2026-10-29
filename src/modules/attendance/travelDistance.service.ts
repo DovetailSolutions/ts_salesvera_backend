@@ -100,7 +100,9 @@ export const recordTravelSegment = async (params: {
 };
 
 // Daily travel summary (self-service and admin views share this)
-export const getSalesPersonTravelSummary = async (userId: number, date: string) => {
+// companyId: optional — the caller's company from their token. When given it
+// is used for the rate lookup instead of the user's tenantId (see below).
+export const getSalesPersonTravelSummary = async (userId: number, date: string, companyId?: number | null) => {
   const startOfDay = new Date(`${date}T00:00:00.000+05:30`);
   const endOfDay = new Date(`${date}T23:59:59.999+05:30`);
 
@@ -218,10 +220,16 @@ export const getSalesPersonTravelSummary = async (userId: number, date: string) 
   // whatever is effective today.
   let vehicleAllowanceRateApplied = attendance?.vehicleAllowanceRateApplied;
   if (vehicleAllowanceRateApplied == null) {
-    const user = await User.findByPk(userId, { attributes: ["tenantId"] });
-    const companyId = (user as any)?.tenantId;
-    vehicleAllowanceRateApplied = companyId
-      ? await findEffectiveVehicleAllowanceRateForDate(companyId, date, userId)
+    // tenantId is the OWNER's user id, not a company id — looking that up
+    // found no rate history and fell back to ₹10, ignoring the rate the
+    // admin set (e.g. ₹0). Prefer the real company when the caller has it.
+    let rateCompanyId = companyId ?? null;
+    if (rateCompanyId == null) {
+      const user = await User.findByPk(userId, { attributes: ["tenantId"] });
+      rateCompanyId = (user as any)?.tenantId ?? null;
+    }
+    vehicleAllowanceRateApplied = rateCompanyId
+      ? await findEffectiveVehicleAllowanceRateForDate(rateCompanyId, date, userId)
       : 10;
   }
 
@@ -314,7 +322,8 @@ const enumerateDateRange = (startDate: string, endDate: string): string[] => {
 export const getSalesPersonTravelSummaryRange = async (
   userId: number,
   startDate: string,
-  endDate: string
+  endDate: string,
+  companyId?: number | null
 ) => {
   if (!DATE_ONLY_RE.test(startDate) || !DATE_ONLY_RE.test(endDate)) {
     throw new ServiceError("startDate and endDate must be in YYYY-MM-DD format");
@@ -328,7 +337,7 @@ export const getSalesPersonTravelSummaryRange = async (
     throw new ServiceError(`Date range too large — max ${MAX_TRAVEL_RANGE_DAYS} days per request`);
   }
 
-  const days = await Promise.all(dates.map((date) => getSalesPersonTravelSummary(userId, date)));
+  const days = await Promise.all(dates.map((date) => getSalesPersonTravelSummary(userId, date, companyId)));
 
   const totalDistanceKm = Number(days.reduce((acc, d) => acc + (d.totalDistanceKm || 0), 0).toFixed(3));
   const totalVehicleAllowance = Number(days.reduce((acc, d) => acc + (d.vehicleAllowance || 0), 0).toFixed(2));

@@ -1,11 +1,12 @@
 import { User, CompanyLeave, Leave, Attendance, EmployeeLeaveTypeBalance, Shift, sequelize } from "../../config/dbConnection";
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
 import { hasCompanyAccess } from "../shared/companyAccess";
 import { getISTDateString } from "../shared/dateUtils";
 import * as LeaveRepo from "./leave.repository";
 import { resolvePolicy, shiftWindowOn } from "../attendancePolicy/attendancePolicy.service";
+import { resolveChargedDays } from "./leaveCharge";
 
 // Half-day / short-leave detail (migration 0035). Morning/evening and
 // first/second half are relative to the employee's own shift, never a fixed
@@ -125,11 +126,18 @@ export const countLeaveDays = (from_date: string | Date, to_date: string | Date)
 };
 
 // Days a leave request takes from its balance — a half-day leave is 0.5.
+// A request created under a sandwich / working-days policy carries its own
+// fixed count (chargedDays, see leaveCharge.ts); every other one keeps the
+// calendar-day count.
 export const countLeaveRequestDays = (leave: {
   leave_type?: string | null;
   from_date: string | Date;
   to_date: string | Date;
-}): number => (leave.leave_type === "half_day" ? 0.5 : countLeaveDays(leave.from_date, leave.to_date));
+  chargedDays?: number | string | null;
+}): number =>
+  leave.chargedDays !== null && leave.chargedDays !== undefined
+    ? Number(leave.chargedDays)
+    : leave.leave_type === "half_day" ? 0.5 : countLeaveDays(leave.from_date, leave.to_date);
 
 // Legacy leave_type values (on requests saved without companyLeaveId) that
 // draw from a leave type inferred as `inferredType`. Half-day comes out of casual.
@@ -286,7 +294,10 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     throw new ServiceError("This employee already has a leave request overlapping this date range");
   }
 
-  const days = countLeaveRequestDays({ leave_type, from_date: from, to_date: to });
+  const chargedDays = await resolveChargedDays({
+    employeeId: targetEmployeeId, companyId: callerCompanyId, leaveType: leave_type, from, to,
+  });
+  const days = chargedDays ?? countLeaveRequestDays({ leave_type, from_date: from, to_date: to });
   // FIX: was `from.getFullYear()` — same double-bug pattern as
   // rejectLeaveAndRestoreBalance above: `from` is a UTC-midnight instant
   // parsed from a caller-supplied "YYYY-MM-DD" date, and the local getter
@@ -326,6 +337,7 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     companyLeaveId: leaveTypeRow.id,
     leaveSession: partial.leaveSession as any,
     durationMinutes: partial.durationMinutes,
+    chargedDays,
   });
 
   return leave;
@@ -625,10 +637,20 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
     return { companyLeaveId, allocated };
   });
 
+  // Once any attendance policy of the company earns comp-off, the Comp Off
+  // balance is computed from earned days (modules/compOff) — a manual value
+  // would overwrite it, so that one type is left as it is.
+  const [earning]: any[] = await sequelize.query(
+    `SELECT 1 FROM attendance_policies WHERE "companyId" = :companyId AND config->'compOff'->>'enabled' = 'true' LIMIT 1`,
+    { replacements: { companyId: Number(callerCompanyId) }, type: QueryTypes.SELECT }
+  );
+  const isEarnedCompOff = (lt: any) => !!earning && String(lt?.leaveName || "").trim().toLowerCase() === "comp off";
+
   const results = [];
   for (const empId of employeeIds) {
     for (const { companyLeaveId, allocated } of requested) {
       const leaveType = leaveTypeById.get(companyLeaveId);
+      if (isEarnedCompOff(leaveType)) continue;
       const balance = await resolveLeaveTypeBalance(empId, leaveType as any, targetYear, loggedInId);
       balance.allocated = allocated;
       balance.assignedBy = loggedInId;

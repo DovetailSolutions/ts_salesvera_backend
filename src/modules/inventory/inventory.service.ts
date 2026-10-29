@@ -136,7 +136,9 @@ const deductForOrder = async (quotation: any, actor: Actor, transaction: Transac
       throw new ServiceError(`Enter a valid quantity (greater than 0) for ${name}`);
     }
     const available = Number(sub.stockQuantity ?? 0);
-    if (line.quantity > available) {
+    // "Allow orders when out of stock": the balance may go below zero (a
+    // backorder) instead of the order being refused.
+    if (line.quantity > available && !sub.allowOutOfStock) {
       throw new ServiceError(
         `Insufficient stock for ${name}. Available quantity: ${available}. Requested quantity: ${line.quantity}.`,
         400,
@@ -224,11 +226,19 @@ export const applySaleOrderStock = async (
   else if (!holds && deducted) await restoreForOrder(quotation, actor, String(nextStatus), transaction);
 };
 
+type StockInput = { trackStock?: boolean; stockQuantity?: number | null; allowOutOfStock?: boolean };
+
+// True when the request carries any stock field at all.
+export const hasStockInput = (input: StockInput) =>
+  input.trackStock !== undefined || input.stockQuantity !== undefined || input.allowOutOfStock !== undefined;
+
 // Stock fields from the Inventory form. trackStock switches tracking on/off;
-// stockQuantity sets the on-hand amount (recorded as an adjustment).
-export const parseStockInput = (body: any): { trackStock?: boolean; stockQuantity?: number | null } => {
-  const out: { trackStock?: boolean; stockQuantity?: number | null } = {};
+// stockQuantity sets the on-hand amount (recorded as an adjustment);
+// allowOutOfStock lets sale orders take the item below zero.
+export const parseStockInput = (body: any): StockInput => {
+  const out: StockInput = {};
   if (body?.trackStock !== undefined) out.trackStock = body.trackStock === true || body.trackStock === "true";
+  if (body?.allowOutOfStock !== undefined) out.allowOutOfStock = body.allowOutOfStock === true || body.allowOutOfStock === "true";
   if (body?.stockQuantity !== undefined && body.stockQuantity !== "" && body.stockQuantity !== null) {
     const n = Number(body.stockQuantity);
     if (!Number.isFinite(n) || n < 0) throw new ServiceError("Stock quantity must be 0 or more");
@@ -240,16 +250,17 @@ export const parseStockInput = (body: any): { trackStock?: boolean; stockQuantit
 
 export const applyStockInput = async (
   subCategoryId: number,
-  input: { trackStock?: boolean; stockQuantity?: number | null },
+  input: StockInput,
   actor: Actor,
   transaction: Transaction
 ) => {
-  if (input.trackStock === undefined && input.stockQuantity === undefined) return;
+  if (!hasStockInput(input)) return;
   const [sub] = await lockSubItems([Number(subCategoryId)], transaction);
   if (!sub) return;
 
   const changes: any = {};
   if (input.trackStock !== undefined) changes.trackStock = input.trackStock;
+  if (input.allowOutOfStock !== undefined) changes.allowOutOfStock = input.allowOutOfStock;
   const tracking = input.trackStock ?? !!sub.trackStock;
   if (tracking && input.stockQuantity !== undefined) changes.stockQuantity = input.stockQuantity;
   if (tracking && sub.stockQuantity === null && changes.stockQuantity === undefined) changes.stockQuantity = 0;

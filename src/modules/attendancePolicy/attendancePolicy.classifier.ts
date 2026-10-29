@@ -1,4 +1,4 @@
-import type { AttendanceMode, AttendancePolicyConfig } from "./attendancePolicy.config";
+import { isFlexibleTiming, type AttendanceMode, type AttendancePolicyConfig } from "./attendancePolicy.config";
 
 // ============================================================
 // The single attendance-day classifier used when a company has saved an
@@ -17,11 +17,14 @@ import type { AttendanceMode, AttendancePolicyConfig } from "./attendancePolicy.
 //                   − break (if deducted)
 //                   + approved short leave (if it counts as worked)
 //   4. Strict-mode late / early rules → caps a full day at half day
+//   5. Late-count rule (either mode)  → the Nth, 2Nth, … late arrival of
+//      the month caps a full day at half day
 //
 // Manual admin marks and approved regularizations sit ABOVE all of this:
 // the caller (attendance.service.ts) never re-classifies a day that has one.
 // Late / early departure / overtime are returned as separate facts and only
-// change the status through rule 4.
+// change the status through rule 4. Under flexible timing there is no fixed
+// start/end, so late / early departure are never flagged.
 // ============================================================
 
 export interface ClassifierShift {
@@ -50,6 +53,9 @@ export interface ClassifyInput {
   sessions: ClassifierSession[];
   leave?: ClassifierLeave | null;
   missedPunchOut?: boolean;
+  // Earlier days of the same calendar month already flagged late — for the
+  // late-count rule (rule 5). The caller looks these up; 0 when omitted.
+  priorLateDaysThisMonth?: number;
 }
 
 export interface ClassifyResult {
@@ -124,7 +130,7 @@ export const classifyAttendanceDay = (input: ClassifyInput): ClassifyResult => {
   // Late / early flags, relative to the shift — shifted by an approved
   // morning/first-half leave (late) or evening/second-half leave (early).
   let late = false, lateMinutes = 0, earlyDeparture = false, earlyMinutes = 0;
-  if (shift?.start && shift?.end && sessions.length) {
+  if (shift?.start && shift?.end && sessions.length && !isFlexibleTiming(mode, config)) {
     const shiftMs = shift.end.getTime() - shift.start.getTime();
     let expectedStart = shift.start.getTime();
     let expectedEnd = shift.end.getTime();
@@ -190,6 +196,16 @@ export const classifyAttendanceDay = (input: ClassifyInput): ClassifyResult => {
     } else if (eb.enabled && earlyDeparture && earlyMinutes > eb.minutes) {
       dayType = "half_day"; label = "HD";
       parts[0] = `Half day — left ${earlyMinutes} min early (strict limit ${eb.minutes} min)`;
+    }
+  }
+
+  // 5. Late-count rule. A day already lowered by rule 4 (or below a full
+  // day on hours) isn't lowered again.
+  if (config.lateCount.enabled && late && dayType === "full_day") {
+    const nth = Math.max(0, Number(input.priorLateDaysThisMonth) || 0) + 1;
+    if (nth % config.lateCount.every === 0) {
+      dayType = "half_day"; label = "HD";
+      parts[0] = `Half day — late arrival no. ${nth} this month (every ${config.lateCount.every} late arrivals = half day)`;
     }
   }
 

@@ -4,7 +4,7 @@ import { hasCompanyAccess } from "../shared/companyAccess";
 import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
 import { Shift } from "../../config/dbConnection";
 import { AttendancePolicy } from "./attendancePolicy.model";
-import { DEFAULT_POLICY_CONFIG, validatePolicy, AttendanceMode, AttendancePolicyConfig } from "./attendancePolicy.config";
+import { DEFAULT_POLICY_CONFIG, validatePolicy, isFlexibleTiming, AttendanceMode, AttendancePolicyConfig } from "./attendancePolicy.config";
 import { classifyAttendanceDay, ClassifierShift } from "./attendancePolicy.classifier";
 
 // ============================================================
@@ -29,7 +29,10 @@ export interface ResolvedPolicy {
 }
 
 const WRITE_ROLES = ["admin", "user", "super_admin"]; // admin, company owner
-const READ_ROLES = [...WRITE_ROLES, "manager"];
+// Managers don't manage attendance policies, so they can't read them here
+// either; employees and managers still see their own rules through
+// getMyPolicySummary below.
+const READ_ROLES = WRITE_ROLES;
 
 const requireCompany = async (actor: PolicyActor, write: boolean): Promise<number> => {
   const allowed = write ? WRITE_ROLES : READ_ROLES;
@@ -197,7 +200,13 @@ export const previewPolicy = async (actor: PolicyActor, body: any) => {
     shift: { startTime: startHHMM, endTime: endHHMM, isDefault: !shiftRow },
     examples: [
       scenario(`On time ${startHHMM} – ${endHHMM}`, { sessions: [{ punchIn: shift.start, punchOut: shift.end }] }),
-      scenario(`Late arrival: ${formatISTTime(lateIn)} – ${formatISTTime(lateOut)}`, { sessions: [{ punchIn: lateIn, punchOut: lateOut }] }),
+      scenario(`${isFlexibleTiming(mode, config) ? "Starts 2 h after shift start" : "Late arrival"}: ${formatISTTime(lateIn)} – ${formatISTTime(lateOut)}`, { sessions: [{ punchIn: lateIn, punchOut: lateOut }] }),
+      ...(config.lateCount.enabled && !isFlexibleTiming(mode, config)
+        ? [scenario(`Late arrival no. ${config.lateCount.every} this month: ${formatISTTime(lateIn)} – ${formatISTTime(lateOut)}`, {
+            sessions: [{ punchIn: lateIn, punchOut: lateOut }],
+            priorLateDaysThisMonth: config.lateCount.every - 1,
+          })]
+        : []),
       scenario(`Half-day hours only: ${startHHMM} – ${formatISTTime(halfEnd)}`, {
         sessions: [{ punchIn: shift.start, punchOut: halfEnd }],
       }),
@@ -238,14 +247,17 @@ export const getMyPolicySummary = async (companyId: number | null, shift: any, d
   const policy = await resolvePolicy(companyId, shift?.id, date);
   if (!policy) return null;
   const c = policy.config;
+  const flexibleTiming = isFlexibleTiming(policy.mode, c);
   return {
     mode: policy.mode,
     effectiveFrom: policy.effectiveFrom,
     fullDayHours: c.fullDayHours,
     halfDayHours: c.halfDayHours,
     shortDayHours: c.shortDayHours,
+    flexibleTiming,
     lateGraceMinutes: c.lateGraceMinutes,
-    punchInWindow: c.punchIn.restrictToWindow ? { earlyMinutes: c.punchIn.earlyMinutes, lateMinutes: c.punchIn.lateMinutes } : null,
+    lateCountEvery: c.lateCount.enabled && !flexibleTiming ? c.lateCount.every : null,
+    punchInWindow: c.punchIn.restrictToWindow && !flexibleTiming ?{ earlyMinutes: c.punchIn.earlyMinutes, lateMinutes: c.punchIn.lateMinutes } : null,
     missedPunchOut: c.missedPunchOut.action,
     leave: {
       halfDayAllowed: c.leave.halfDayAllowed,

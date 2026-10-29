@@ -15,6 +15,8 @@ import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User, 
 import * as AttendanceSecurity from "../attendanceSecurity/attendanceSecurity.service";
 import { resolvePolicy, shiftWindowOn, getMyPolicySummary } from "../attendancePolicy/attendancePolicy.service";
 import { classifyAttendanceDay } from "../attendancePolicy/attendancePolicy.classifier";
+import { isFlexibleTiming } from "../attendancePolicy/attendancePolicy.config";
+import { recordCompOffForDay } from "../compOff/compOff.service";
 
 // ============================================================
 // Attendance service — validation + orchestration. Byte-for-byte port of the
@@ -1557,12 +1559,16 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
 
   // Attendance policy (null = none saved → previous behaviour everywhere).
   const punchInPolicy = await resolvePolicy(company?.id ?? null, shift?.id ?? null, today);
+  const punchInFlexibleTiming = !!punchInPolicy && isFlexibleTiming(punchInPolicy.mode, punchInPolicy.config);
 
   // Shift-start gate — can't punch in for today until the assigned shift is
   // about to start (within EARLY_MARK_LEAD_MINUTES of its start time). No
   // assigned shift skips this entirely. A policy with a punch-in window
   // replaces this fixed 30-minute rule with its own window (server clock).
-  if (punchInPolicy?.config.punchIn.restrictToWindow) {
+  // A flexible-timing policy has no fixed start, so neither gate applies.
+  if (punchInFlexibleTiming) {
+    // any time of day
+  } else if (punchInPolicy?.config.punchIn.restrictToWindow) {
     const window = shiftWindowOn(shift, today);
     if (window?.start) {
       const now = Date.now();
@@ -1651,7 +1657,7 @@ export const attendancePunchIn = async (finalUserId: number, callerCompanyId: nu
   const isFirstSessionToday = !todaysRows.some((r) => r.punch_in);
 
   let late = false;
-  if (isFirstSessionToday) {
+  if (isFirstSessionToday && !punchInFlexibleTiming) {
     const officeStartTime = shift?.startTime || "09:30:00";
     const graceMinutes = punchInPolicy ? punchInPolicy.config.lateGraceMinutes : company?.lateMarkAfter ?? 0;
     // FIX: was new Date(y, m-1, d, startHour, startMin+grace, 0) — the
@@ -1918,6 +1924,9 @@ export const applyDayClassification = async (params: {
   }
 
   const leave = await findApprovedPartialLeave(employeeId, date);
+  const priorLateDaysThisMonth = policy.config.lateCount.enabled
+    ? await AttendanceRepo.countLateDaysInMonthBefore(employeeId, date)
+    : 0;
   const result = classifyAttendanceDay({
     mode: policy.mode,
     config: policy.config,
@@ -1930,6 +1939,7 @@ export const applyDayClassification = async (params: {
     }),
     leave,
     missedPunchOut: params.missedPunchOut,
+    priorLateDaysThisMonth,
   });
   const dayType = result.dayType;
   const status = result.status === "leaveApproved" ? "out" : result.status;
@@ -1954,6 +1964,15 @@ export const applyDayClassification = async (params: {
       // session that is still running ("present").
       if (!r.punch_in || r.punch_out || r.status !== "absent" || isManualOrRegularized(r)) continue;
       await r.update({ dayType, status, statusReason: result.reason, attendancePolicyId: policy.id, overtime: 0, earlyDeparture: false });
+    }
+  }
+  // Comp-off for work on a weekly off / holiday (policy compOff rule). A
+  // failure here must never undo or block the punch-out itself.
+  if (policy.config.compOff.enabled) {
+    try {
+      await recordCompOffForDay({ employeeId, companyId: company?.id ?? shift?.companyId ?? null, date, policy, dayType });
+    } catch (err) {
+      console.error(`Comp-off update failed for employee ${employeeId} on ${date}:`, err);
     }
   }
   return { ...result, status, policyId: policy.id };
@@ -2064,7 +2083,10 @@ export const attendancePunchOut = async (finalUserId: number, callerCompanyId: n
   // regularization instead. Checked against the server clock, and only for
   // a session of today (a forgotten older session can always be closed).
   const punchOutPolicy = await resolvePolicy(company?.id ?? null, shift?.id ?? null, sessionDate);
-  if (punchOutPolicy && sessionDate === today && punchOutPolicy.config.punchOut.beforeShiftEnd === "block") {
+  if (
+    punchOutPolicy && sessionDate === today && punchOutPolicy.config.punchOut.beforeShiftEnd === "block" &&
+    !isFlexibleTiming(punchOutPolicy.mode, punchOutPolicy.config)
+  ) {
     const window = shiftWindowOn(shift, sessionDate);
     const graceMs = punchOutPolicy.config.earlyDepartureGraceMinutes * 60000;
     if (window?.end && Date.now() < window.end.getTime() - graceMs) {
@@ -2254,12 +2276,12 @@ export const applyTravelSummaryOnPunchOut = async (
 
 // ---- Sale Person daily travel summary ----
 
-export const getMyTravelSummary = async (finalUserId: number, date: string) => {
-  return getSalesPersonTravelSummary(finalUserId, date);
+export const getMyTravelSummary = async (finalUserId: number, date: string, companyId?: number | null) => {
+  return getSalesPersonTravelSummary(finalUserId, date, companyId);
 };
 
-export const getMyTravelSummaryRange = async (finalUserId: number, startDate: string, endDate: string) => {
-  return getSalesPersonTravelSummaryRange(finalUserId, startDate, endDate);
+export const getMyTravelSummaryRange = async (finalUserId: number, startDate: string, endDate: string, companyId?: number | null) => {
+  return getSalesPersonTravelSummaryRange(finalUserId, startDate, endDate, companyId);
 };
 
 // Admin/manager view — company-scoped: the target must actually be a member
@@ -2276,7 +2298,9 @@ export const getSalesPersonTravelForAdmin = async (
   if (targetUserId !== loggedInId && !childIds.includes(targetUserId)) {
     throw new ServiceError("You do not have access to this user's travel data", 403);
   }
-  return getSalesPersonTravelSummary(targetUserId, date);
+  // The target is in the caller's company (checked above), so its rate
+  // history applies — not the tenantId fallback that always read ₹10.
+  return getSalesPersonTravelSummary(targetUserId, date, callerCompanyId);
 };
 
 // Manager/admin "My Team" travel overview (spec item 52) — one row per

@@ -61,6 +61,7 @@ import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
 import { allocateProformaInvoiceNumber } from "../../modules/shared/proformaInvoiceNumber";
 import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
 import { ServiceError } from "../../modules/shared/serviceError";
+import { parseJoiningDate, saveJoiningDate } from "../../modules/employeeProfile/joiningDate";
 import * as ClientService from "../../modules/client/client.service";
 import * as ClientController from "../../modules/client/client.controller";
 import * as InventoryService from "../../modules/inventory/inventory.service";
@@ -1143,6 +1144,8 @@ export const BulkAddSalePerson = async (
           email: row.email?.trim().toLowerCase() || "",
           phone: row.phone?.trim() || "",
           dob: row.dob?.trim() || "",
+          // Optional column; blank → the upload date.
+          dateOfJoining: row.dateofjoining?.trim() || "",
         });
       })
       .on("end", async () => {
@@ -1161,6 +1164,12 @@ export const BulkAddSalePerson = async (
               !r.dob
             ) {
               invalidRows.push(r);
+              continue;
+            }
+            try {
+              r.dateOfJoining = parseJoiningDate(r.dateOfJoining);
+            } catch {
+              invalidRows.push(r); // a date of joining that isn't a valid date
               continue;
             }
 
@@ -1309,6 +1318,14 @@ export const BulkAddSalePerson = async (
               } as any);
 
               await (item as any).setCreators([creatorId]);
+
+              await saveJoiningDate({
+                userId: item.getDataValue("id") as number,
+                role: "employee",
+                dateOfJoining: r.dateOfJoining,
+                companyId: callerCompanyId ? Number(callerCompanyId) : null,
+                createdBy: creatorId,
+              }).catch((err) => console.error(`Failed to save date of joining for ${r.email}:`, err));
 
               sendEmail(
                 "Welcome to SalesVera - Your Login Credentials",
@@ -2007,7 +2024,7 @@ export const GetExpense = async (
     const allUserIds: number[] = [loggedInId, ...childIds];
     const {
       approvedByAdmin, approvedBySuperAdmin, self, userId: queryUserId,
-      scope, status, withSummary,
+      scope, status, withSummary, category,
     } = req.query;
     const isAdminRole = role === "admin" || role === "super_admin";
 
@@ -2029,6 +2046,13 @@ export const GetExpense = async (
 
     if (approvedBySuperAdmin !== undefined && approvedBySuperAdmin !== "") {
       expenseWhere.approvedBySuperAdmin = approvedBySuperAdmin;
+    }
+
+    // category: whole-value match ignoring case — older claims were saved as
+    // both "travel" and "Travel". LIKE wildcards are escaped so this stays an
+    // equality check (e.g. "Daily Travel & Mileage" claims only).
+    if (typeof category === "string" && category.trim() !== "") {
+      expenseWhere.category = { [Op.iLike]: category.trim().replace(/[\\%_]/g, "\\$&") };
     }
 
     // status: derived from the two approval columns, mirroring the web
@@ -2087,7 +2111,7 @@ export const GetExpense = async (
     const { rows, count } = await Expense.findAndCountAll({
       attributes: [
         "id", "userId", "title", "total_amount", "approvedByAdmin", "approvedBySuperAdmin",
-        "date", "category", "amount", "description", "location", "createdAt", "updatedAt"
+        "date", "category", "amount", "description", "location", "totalDistance", "createdAt", "updatedAt"
       ],
       where: expenseWhere,
       limit,
@@ -3090,7 +3114,7 @@ export const addSubCategory = async (
       totaledit:totaledit ?? null,
       discountedit:discountedit ?? null
     });
-    if (stockInput.trackStock !== undefined || stockInput.stockQuantity !== undefined) {
+    if (InventoryService.hasStockInput(stockInput)) {
       const actor = { userId: Number(loggedInId), role: String(userData?.role) };
       await sequelize.transaction((transaction) =>
         InventoryService.applyStockInput(Number(subCategory.id), stockInput, actor, transaction)
@@ -3203,7 +3227,7 @@ export const updateSubCategory = async (req: Request, res: Response) => {
     // Inventory fields are only honoured for the inventory's owner (the same
     // admin whose categories this user sees) — everything else is unchanged.
     const stockInput = InventoryService.parseStockInput(req.body);
-    const hasStockInput = stockInput.trackStock !== undefined || stockInput.stockQuantity !== undefined;
+    const hasStockInput = InventoryService.hasStockInput(stockInput);
     if (hasStockInput) {
       const ownerId = await InventoryService.resolveInventoryOwnerId(Number(loggedInId), String(userData?.role));
       const parent: any = await Category.findByPk(existingSubCategory.CategoryId, { attributes: ["id", "adminId"] });
