@@ -296,4 +296,23 @@ export const startCronJobs = () => {
       console.error("[CRON] ❌ Comp-off expiry job failed:", error);
     }
   }, { timezone: "Asia/Kolkata" });
+
+  // ─────────────────────────────────────────────
+  //  COMP-OFF EXPIRY REMINDER
+  //  Schedule : Daily at 10:00 IST (daytime, so the
+  //             push doesn't arrive at night)
+  //  Purpose  : Tell employees about approved comp-off
+  //             that expires within the next 3 days and
+  //             still has unused days. Sent once per
+  //             comp-off — see remindExpiringCompOff.
+  // ─────────────────────────────────────────────
+  cron.schedule("0 10 * * *", async () => {
+    try {
+      const { remindExpiringCompOff } = await import("../modules/compOff/compOff.service");
+      const result = await remindExpiringCompOff();
+      if (result.reminded) console.log(`[CRON] Comp-off expiry reminders: ${result.reminded} sent`);
+    } catch (error) {
+      console.error("[CRON] ❌ Comp-off expiry reminder job failed:", error);
+    }
+  }, { timezone: "Asia/Kolkata" });
 };

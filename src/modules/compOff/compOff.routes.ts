@@ -5,8 +5,9 @@ import * as CompOffController from "./compOff.controller";
 
 // ============================================================
 // Comp-off routes — mounted on /admin in server.ts, behind the same leave
-// permissions as leave requests. The service limits every read and review
-// to the caller's active company and their own team.
+// permissions as leave requests. Admins / the company owner list and review;
+// managers may only list their own team's (review → 403). The service limits
+// every read and review to the caller's active company and their own team.
 // ============================================================
 const router = Router();
 

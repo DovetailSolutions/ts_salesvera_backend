@@ -7,10 +7,17 @@ import { sequelize, Announcement, AnnouncementRecipient } from "../../config/dbC
 // because the idempotency/lease semantics (INSERT ... ON CONFLICT DO
 // NOTHING, conditional lease UPDATE ... RETURNING) are the whole point of
 // these tables and are clearer stated directly.
+//
+// Both tables hold two kinds of celebration (migration 0045): 'birthday'
+// and 'anniversary' (work anniversary). Every function takes the kind and
+// defaults to 'birthday'.
 // ============================================================
+
+export type CelebrationKind = "birthday" | "anniversary";
 
 export interface BirthdaySettingsRow {
   companyId: number;
+  kind: CelebrationKind;
   enabled: boolean;
   messageTemplate: string | null;
   pushEnabled: boolean;
@@ -22,6 +29,7 @@ export interface BirthdaySettingsRow {
 export interface BirthdayRunRow {
   id: number;
   companyId: number;
+  kind: CelebrationKind;
   birthdayDate: string;
   timezone: string;
   celebrantIds: number[];
@@ -48,16 +56,17 @@ export interface BirthdayRunRow {
 const normalizeRun = (row: any): BirthdayRunRow | null =>
   row ? { ...row, birthdayDate: String(row.birthdayDate).slice(0, 10) } : null;
 
-export const getSettings = async (companyId: number): Promise<BirthdaySettingsRow | null> => {
+export const getSettings = async (companyId: number, kind: CelebrationKind = "birthday"): Promise<BirthdaySettingsRow | null> => {
   const rows = await sequelize.query<BirthdaySettingsRow>(
-    `SELECT * FROM "birthday_settings" WHERE "companyId" = :companyId`,
-    { replacements: { companyId }, type: QueryTypes.SELECT }
+    `SELECT * FROM "birthday_settings" WHERE "companyId" = :companyId AND "kind" = :kind`,
+    { replacements: { companyId, kind }, type: QueryTypes.SELECT }
   );
   return rows[0] ?? null;
 };
 
 export const upsertSettings = async (s: {
   companyId: number;
+  kind: CelebrationKind;
   enabled: boolean;
   messageTemplate: string | null;
   pushEnabled: boolean;
@@ -65,9 +74,9 @@ export const upsertSettings = async (s: {
   updatedBy: number;
 }): Promise<BirthdaySettingsRow> => {
   const rows = await sequelize.query<BirthdaySettingsRow>(
-    `INSERT INTO "birthday_settings" ("companyId","enabled","messageTemplate","pushEnabled","sendHour","updatedBy","createdAt","updatedAt")
-     VALUES (:companyId,:enabled,:messageTemplate,:pushEnabled,:sendHour,:updatedBy,NOW(),NOW())
-     ON CONFLICT ("companyId") DO UPDATE SET
+    `INSERT INTO "birthday_settings" ("companyId","kind","enabled","messageTemplate","pushEnabled","sendHour","updatedBy","createdAt","updatedAt")
+     VALUES (:companyId,:kind,:enabled,:messageTemplate,:pushEnabled,:sendHour,:updatedBy,NOW(),NOW())
+     ON CONFLICT ("companyId","kind") DO UPDATE SET
        "enabled" = EXCLUDED."enabled",
        "messageTemplate" = EXCLUDED."messageTemplate",
        "pushEnabled" = EXCLUDED."pushEnabled",
@@ -84,23 +93,24 @@ export const listEnabledSettings = async (companyIds?: number[]): Promise<Birthd
   const filter = companyIds ? `AND "companyId" IN (:companyIds)` : "";
   if (companyIds && companyIds.length === 0) return [];
   return sequelize.query<BirthdaySettingsRow>(
-    `SELECT * FROM "birthday_settings" WHERE "enabled" = TRUE ${filter} ORDER BY "companyId"`,
+    `SELECT * FROM "birthday_settings" WHERE "enabled" = TRUE ${filter} ORDER BY "companyId", "kind"`,
     { replacements: { companyIds: companyIds ?? [] }, type: QueryTypes.SELECT }
   );
 };
 
-export const findRun = async (companyId: number, birthdayDate: string): Promise<BirthdayRunRow | null> => {
+export const findRun = async (companyId: number, birthdayDate: string, kind: CelebrationKind = "birthday"): Promise<BirthdayRunRow | null> => {
   const rows = await sequelize.query(
-    `SELECT * FROM "birthday_runs" WHERE "companyId" = :companyId AND "birthdayDate" = :birthdayDate`,
-    { replacements: { companyId, birthdayDate }, type: QueryTypes.SELECT }
+    `SELECT * FROM "birthday_runs" WHERE "companyId" = :companyId AND "kind" = :kind AND "birthdayDate" = :birthdayDate`,
+    { replacements: { companyId, kind, birthdayDate }, type: QueryTypes.SELECT }
   );
   return normalizeRun(rows[0]);
 };
 
-// Claims the (company, date) slot and takes the processing lease in one
+// Claims the (company, kind, date) slot and takes the processing lease in one
 // statement. Returns null when another tick/instance already claimed it.
 export const claimRun = async (r: {
   companyId: number;
+  kind: CelebrationKind;
   birthdayDate: string;
   timezone: string;
   celebrantIds: number[];
@@ -109,10 +119,10 @@ export const claimRun = async (r: {
 }): Promise<BirthdayRunRow | null> => {
   const rows = await sequelize.query(
     `INSERT INTO "birthday_runs"
-       ("companyId","birthdayDate","timezone","celebrantIds","recipientIds","attempts","leaseUntil","createdAt","updatedAt")
-     VALUES (:companyId,:birthdayDate,:timezone,CAST(:celebrantIds AS JSONB),CAST(:recipientIds AS JSONB),1,
+       ("companyId","kind","birthdayDate","timezone","celebrantIds","recipientIds","attempts","leaseUntil","createdAt","updatedAt")
+     VALUES (:companyId,:kind,:birthdayDate,:timezone,CAST(:celebrantIds AS JSONB),CAST(:recipientIds AS JSONB),1,
              NOW() + (:leaseSeconds * INTERVAL '1 second'),NOW(),NOW())
-     ON CONFLICT ("companyId","birthdayDate") DO NOTHING
+     ON CONFLICT ("companyId","kind","birthdayDate") DO NOTHING
      RETURNING *`,
     {
       replacements: {
@@ -189,7 +199,7 @@ export const publishAnnouncementForRun = async (
       { replacements: { announcementId: announcement.id, runId }, transaction: tx }
     )) as [unknown, any];
     if ((affected?.rowCount ?? affected) !== 1) {
-      throw new Error("Birthday run already has an announcement — rolled back duplicate");
+      throw new Error("Celebration run already has an announcement — rolled back duplicate");
     }
     return announcement.id;
   });
@@ -207,10 +217,10 @@ export const findNotifiedReceiverIds = async (announcementId: number, receiverId
   return new Set(rows.map((r) => Number(r.receiverId)));
 };
 
-export const listRuns = async (companyId: number, limit: number): Promise<BirthdayRunRow[]> => {
+export const listRuns = async (companyId: number, limit: number, kind: CelebrationKind = "birthday"): Promise<BirthdayRunRow[]> => {
   const rows = await sequelize.query(
-    `SELECT * FROM "birthday_runs" WHERE "companyId" = :companyId ORDER BY "birthdayDate" DESC, "id" DESC LIMIT :limit`,
-    { replacements: { companyId, limit }, type: QueryTypes.SELECT }
+    `SELECT * FROM "birthday_runs" WHERE "companyId" = :companyId AND "kind" = :kind ORDER BY "birthdayDate" DESC, "id" DESC LIMIT :limit`,
+    { replacements: { companyId, kind, limit }, type: QueryTypes.SELECT }
   );
   return rows.map((r) => normalizeRun(r)!) ;
 };

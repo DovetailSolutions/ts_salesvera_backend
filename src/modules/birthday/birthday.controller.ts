@@ -6,8 +6,8 @@ import * as BirthdayService from "./birthday.service";
 
 export const getSettings = async (req: Request, res: Response): Promise<void> => {
   try {
-    const result = await BirthdayService.getSettings(req.userData as JwtPayload, req.query.companyId);
-    createSuccess(res, "Birthday settings fetched successfully", result);
+    const result = await BirthdayService.getSettings(req.userData as JwtPayload, req.query);
+    createSuccess(res, "Celebration settings fetched successfully", result);
   } catch (error) {
     handleServiceError(res, error);
   }

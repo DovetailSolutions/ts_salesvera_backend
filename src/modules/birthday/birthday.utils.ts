@@ -9,6 +9,11 @@ export const DEFAULT_TIMEZONE = "Asia/Kolkata";
 export const DEFAULT_TEMPLATE =
   "🎉 Happy Birthday, {{name}}! Wishing you a wonderful birthday filled with happiness, success, and good health. Best wishes from your {{company}} team!";
 
+// Work anniversary — {{name}} renders each celebrant with their years,
+// e.g. "Rahul Sharma (3 years) and Priya Mehta (1 year)".
+export const DEFAULT_ANNIVERSARY_TEMPLATE =
+  "🎊 Happy Work Anniversary, {{name}}! Thank you for your dedication and everything you bring to {{company}}. Here's to many more years together!";
+
 // {{name}}    → every celebrant's name, joined ("Rahul", "Rahul and Priya",
 //               "Rahul, Priya and Amit") — one combined announcement per day.
 // {{company}} → the company's name.
@@ -66,6 +71,18 @@ export const isBirthdayOn = (dob: ParsedDob, ymd: string): boolean => {
   if (dob.month === m && dob.day === d) return true;
   return dob.month === 2 && dob.day === 29 && m === 2 && d === 28 && !isLeapYear(y);
 };
+
+// ── Work anniversaries ───────────────────────────────────────────────────
+// From employee_extra_details.dateOfJoining (YYYY-MM-DD). Celebrated on the
+// same day and month each year from the first full year on (never on the
+// joining day itself), with the same 29 February rule as birthdays.
+export const anniversaryYearsOn = (joined: ParsedDob, ymd: string): number | null => {
+  if (!isBirthdayOn(joined, ymd)) return null;
+  const years = Number(ymd.slice(0, 4)) - joined.year;
+  return years >= 1 ? years : null;
+};
+
+export const yearsLabel = (years: number) => `${years} year${years === 1 ? "" : "s"}`;
 
 // ── Timezone handling ────────────────────────────────────────────────────
 // companies.timezone holds IANA names ("Asia/Kolkata", "Asia/Tokyo") or NULL.

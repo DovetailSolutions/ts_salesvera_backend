@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import admin from "firebase-admin";
-import { User, Company, Device } from "../../config/dbConnection";
+import { User, Company, Device, EmployeeExtraDetails } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { hasCompanyAccess, resolveCompanyEmployeeIds } from "../shared/companyAccess";
 import { collectUserCompanyIds } from "../shared/userHierarchy";
@@ -11,9 +11,12 @@ import { emitAnnouncementCreated } from "../../Notigication/announcement";
 import * as BirthdayRepo from "./birthday.repository";
 import {
   DEFAULT_TEMPLATE,
+  DEFAULT_ANNIVERSARY_TEMPLATE,
   SUPPORTED_PLACEHOLDERS,
   parseDob,
   isBirthdayOn,
+  anniversaryYearsOn,
+  yearsLabel,
   resolveTimezone,
   localDateParts,
   addDaysYmd,
@@ -21,6 +24,63 @@ import {
   joinNames,
   renderTemplate,
 } from "./birthday.utils";
+
+// ── Celebration kinds ────────────────────────────────────────────────────
+// The same engine (settings, idempotent daily run, delivery audit) publishes
+// birthdays and work anniversaries; only these details differ.
+type Kind = BirthdayRepo.CelebrationKind;
+
+const KINDS: Record<Kind, { title: string; defaultTemplate: string; notificationKind: string; noneReason: string }> = {
+  birthday: {
+    title: "🎂 Birthday Celebration",
+    defaultTemplate: DEFAULT_TEMPLATE,
+    notificationKind: "birthday",
+    noneReason: "no_birthdays",
+  },
+  anniversary: {
+    title: "🎊 Work Anniversary",
+    defaultTemplate: DEFAULT_ANNIVERSARY_TEMPLATE,
+    notificationKind: "work_anniversary",
+    noneReason: "no_anniversaries",
+  },
+};
+
+// Admin API "kind" parameter — omitted means birthday (the original API).
+export const parseKind = (raw: unknown): Kind => {
+  if (raw === undefined || raw === null || raw === "") return "birthday";
+  if (raw === "birthday" || raw === "anniversary") return raw;
+  throw new ServiceError("kind must be 'birthday' or 'anniversary'");
+};
+
+// employee_extra_details.dateOfJoining per user (YYYY-MM-DD).
+const loadJoiningDates = async (userIds: number[]): Promise<Map<number, string>> => {
+  if (userIds.length === 0) return new Map();
+  const rows: any[] = await (EmployeeExtraDetails as any).findAll({
+    where: { userId: { [Op.in]: userIds }, dateOfJoining: { [Op.ne]: null } },
+    attributes: ["userId", "dateOfJoining"],
+  });
+  return new Map(rows.map((r) => [Number(r.userId), String(r.dateOfJoining).slice(0, 10)]));
+};
+
+// Who is celebrated on `ymd`, with their years for an anniversary.
+const celebrantsOn = async (kind: Kind, members: any[], ymd: string): Promise<Array<{ id: number; years?: number }>> => {
+  if (kind === "birthday") {
+    return members
+      .filter((m) => {
+        const dob = parseDob(m.dob, ymd);
+        return dob ? isBirthdayOn(dob, ymd) : false;
+      })
+      .map((m) => ({ id: Number(m.id) }));
+  }
+  const joined = await loadJoiningDates(members.map((m) => Number(m.id)));
+  const out: Array<{ id: number; years: number }> = [];
+  for (const m of members) {
+    const date = parseDob(joined.get(Number(m.id)), ymd);
+    const years = date ? anniversaryYearsOn(date, ymd) : null;
+    if (years) out.push({ id: Number(m.id), years });
+  }
+  return out;
+};
 
 // Celebrants and recipients: managers and employees only. Admins and the
 // tenant owner ("user") are deliberately not included — the feature's
@@ -34,8 +94,6 @@ const INVALID_TOKEN_CODES = new Set([
   "messaging/invalid-registration-token",
   "messaging/invalid-argument",
 ]);
-const ANNOUNCEMENT_TITLE = "🎂 Birthday Celebration";
-
 const displayName = (u: any) => [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || "Team member";
 
 // Error text for the audit row — message only (never the error object, which
@@ -167,25 +225,24 @@ export const runBirthdayJob = async (opts: { now?: Date; companyIds?: number[]; 
 };
 
 const processCompany = async (settings: BirthdayRepo.BirthdaySettingsRow, now: Date) => {
+  const kind: Kind = settings.kind ?? "birthday";
   const company = await loadCompany(settings.companyId);
-  if (!company) return { outcome: "skipped", reason: "company_not_found" };
+  if (!company) return { kind, outcome: "skipped", reason: "company_not_found" };
 
   const timezone = resolveTimezone(company.timezone);
   const { ymd, hour } = localDateParts(now, timezone);
-  if (hour < settings.sendHour) return { outcome: "skipped", reason: "before_send_hour", date: ymd };
+  if (hour < settings.sendHour) return { kind, outcome: "skipped", reason: "before_send_hour", date: ymd };
 
-  let run = await BirthdayRepo.findRun(company.id, ymd);
+  let run = await BirthdayRepo.findRun(company.id, ymd, kind);
 
   if (!run) {
     const members = await resolveCompanyMembers(company);
-    const celebrants = members.filter((m) => {
-      const dob = parseDob(m.dob, ymd);
-      return dob ? isBirthdayOn(dob, ymd) : false;
-    });
-    if (celebrants.length === 0) return { outcome: "skipped", reason: "no_birthdays", date: ymd };
+    const celebrants = await celebrantsOn(kind, members, ymd);
+    if (celebrants.length === 0) return { kind, outcome: "skipped", reason: KINDS[kind].noneReason, date: ymd };
 
     run = await BirthdayRepo.claimRun({
       companyId: company.id,
+      kind,
       birthdayDate: ymd,
       timezone,
       celebrantIds: celebrants.map((c) => Number(c.id)),
@@ -193,16 +250,16 @@ const processCompany = async (settings: BirthdayRepo.BirthdaySettingsRow, now: D
       leaseSeconds: LEASE_SECONDS,
     });
     // Lost the race to another tick/instance — it owns this date.
-    if (!run) return { outcome: "skipped", reason: "already_claimed", date: ymd };
+    if (!run) return { kind, outcome: "skipped", reason: "already_claimed", date: ymd };
   } else {
-    if (!runNeedsWork(run)) return { outcome: "skipped", reason: "already_processed", date: ymd, runId: run.id };
+    if (!runNeedsWork(run)) return { kind, outcome: "skipped", reason: "already_processed", date: ymd, runId: run.id };
     run = await BirthdayRepo.acquireLease(run.id, LEASE_SECONDS, MAX_ATTEMPTS);
-    if (!run) return { outcome: "skipped", reason: "locked_or_attempts_exhausted", date: ymd };
+    if (!run) return { kind, outcome: "skipped", reason: "locked_or_attempts_exhausted", date: ymd };
   }
 
   await executeRun(run, company, settings);
-  const final = await BirthdayRepo.findRun(company.id, ymd);
-  return { outcome: "processed", date: ymd, runId: run.id, status: final?.status };
+  const final = await BirthdayRepo.findRun(company.id, ymd, kind);
+  return { kind, outcome: "processed", date: ymd, runId: run.id, status: final?.status };
 };
 
 const runNeedsWork = (run: BirthdayRepo.BirthdayRunRow) =>
@@ -220,27 +277,36 @@ const runNeedsWork = (run: BirthdayRepo.BirthdayRunRow) =>
 const executeRun = async (run: BirthdayRepo.BirthdayRunRow, company: any, settings: BirthdayRepo.BirthdaySettingsRow) => {
   const errors: string[] = [];
   const recipientIds = (run.recipientIds ?? []).map(Number);
+  const kind: Kind = run.kind ?? "birthday";
+  const { title, defaultTemplate, notificationKind } = KINDS[kind];
 
   const celebrantUsers: any[] = await (User as any).findAll({
     where: { id: { [Op.in]: run.celebrantIds } },
     attributes: ["id", "firstName", "lastName"],
   });
   const byId = new Map(celebrantUsers.map((u) => [Number(u.id), u]));
+  // Work anniversary: each name carries its years on this run's date.
+  const joined = kind === "anniversary" ? await loadJoiningDates(run.celebrantIds.map(Number)) : new Map<number, string>();
+  const labelOf = (u: any) => {
+    if (kind !== "anniversary") return displayName(u);
+    const date = parseDob(joined.get(Number(u.id)), run.birthdayDate);
+    const years = date ? anniversaryYearsOn(date, run.birthdayDate) : null;
+    return years ? `${displayName(u)} (${yearsLabel(years)})` : displayName(u);
+  };
   const names = run.celebrantIds
     .map((id) => byId.get(Number(id)))
     .filter(Boolean)
-    .map(displayName)
+    .map(labelOf)
     .sort((a, b) => a.localeCompare(b));
 
-  let template = settings.messageTemplate || DEFAULT_TEMPLATE;
+  let template = settings.messageTemplate || defaultTemplate;
   if (!validateTemplate(template).valid) {
     // Saved templates are validated on write, so this is only a guard
     // against a hand-edited row breaking the job.
     errors.push("Saved template invalid — default template used");
-    template = DEFAULT_TEMPLATE;
+    template = defaultTemplate;
   }
   const message = renderTemplate(template, { name: joinNames(names), company: company.companyName ?? "SalesVera" });
-  const title = ANNOUNCEMENT_TITLE;
 
   // A. Company announcement (feed + per-recipient read tracking/unread count)
   let announcementId = run.announcementId;
@@ -288,7 +354,7 @@ const executeRun = async (run: BirthdayRepo.BirthdayRunRow, company: any, settin
           type: NotificationType.ANNOUNCEMENT,
           title,
           body: message,
-          data: { announcementId: String(announcementId), kind: "birthday" },
+          data: { announcementId: String(announcementId), kind: notificationKind },
           skipPush: true,
         });
         n ? delivered++ : failed++;
@@ -318,7 +384,7 @@ const executeRun = async (run: BirthdayRepo.BirthdayRunRow, company: any, settin
 
   // D. Firebase push
   if (run.pushStatus === "pending" || run.pushStatus === "failed") {
-    Object.assign(update, await deliverPush(recipientIds, title, message, announcementId, settings.pushEnabled, errors));
+    Object.assign(update, await deliverPush(recipientIds, title, message, announcementId, settings.pushEnabled, errors, notificationKind));
   }
 
   const inApp = update.inAppStatus ?? run.inAppStatus;
@@ -339,7 +405,8 @@ const deliverPush = async (
   body: string,
   announcementId: number,
   pushEnabled: boolean,
-  errors: string[]
+  errors: string[],
+  notificationKind: string
 ): Promise<Partial<BirthdayRepo.BirthdayRunRow>> => {
   if (!pushEnabled) return { pushStatus: "disabled" };
   if (!isFirebaseConfigured()) return { pushStatus: "not_configured" };
@@ -360,7 +427,7 @@ const deliverPush = async (
       token: batch,
       title,
       body,
-      data: { type: NotificationType.ANNOUNCEMENT, announcementId: String(announcementId), kind: "birthday" },
+      data: { type: NotificationType.ANNOUNCEMENT, announcementId: String(announcementId), kind: notificationKind },
     });
     if (!result.success) {
       failure += batch.length;
@@ -391,7 +458,7 @@ const deliverPush = async (
 export const resolveTargetCompany = async (userData: any, requestedCompanyId?: any) => {
   const callerId = Number(userData.userId);
   const role = String(userData.role);
-  if (!["admin", "user"].includes(role)) throw new ServiceError("Only company admins can manage birthday celebrations", 403);
+  if (!["admin", "user"].includes(role)) throw new ServiceError("Only company admins can manage celebrations", 403);
 
   const companyId = requestedCompanyId != null && requestedCompanyId !== "" ? Number(requestedCompanyId) : userData.companyId;
   if (companyId == null || !Number.isInteger(Number(companyId))) {
@@ -405,27 +472,31 @@ export const resolveTargetCompany = async (userData: any, requestedCompanyId?: a
   return company;
 };
 
-const presentSettings = (company: any, row: BirthdayRepo.BirthdaySettingsRow | null) => ({
+const presentSettings = (company: any, row: BirthdayRepo.BirthdaySettingsRow | null, kind: Kind) => ({
   companyId: company.id,
+  kind,
   enabled: row?.enabled ?? false,
-  messageTemplate: row?.messageTemplate || DEFAULT_TEMPLATE,
+  messageTemplate: row?.messageTemplate || KINDS[kind].defaultTemplate,
   pushEnabled: row?.pushEnabled ?? true,
   sendHour: row?.sendHour ?? 9,
   updatedAt: row?.updatedAt ?? null,
   timezone: resolveTimezone(company.timezone),
-  defaultTemplate: DEFAULT_TEMPLATE,
+  defaultTemplate: KINDS[kind].defaultTemplate,
+  title: KINDS[kind].title,
   supportedPlaceholders: SUPPORTED_PLACEHOLDERS.map((p) => `{{${p}}}`),
   pushConfigured: isFirebaseConfigured(),
 });
 
-export const getSettings = async (userData: any, companyId?: any) => {
-  const company = await resolveTargetCompany(userData, companyId);
-  return presentSettings(company, await BirthdayRepo.getSettings(company.id));
+export const getSettings = async (userData: any, query: any = {}) => {
+  const kind = parseKind(query?.kind);
+  const company = await resolveTargetCompany(userData, query?.companyId);
+  return presentSettings(company, await BirthdayRepo.getSettings(company.id, kind), kind);
 };
 
 export const updateSettings = async (userData: any, body: any) => {
+  const kind = parseKind(body?.kind);
   const company = await resolveTargetCompany(userData, body?.companyId);
-  const current = await BirthdayRepo.getSettings(company.id);
+  const current = await BirthdayRepo.getSettings(company.id, kind);
 
   const enabled = body?.enabled !== undefined ? body.enabled : current?.enabled ?? false;
   const pushEnabled = body?.pushEnabled !== undefined ? body.pushEnabled : current?.pushEnabled ?? true;
@@ -441,61 +512,69 @@ export const updateSettings = async (userData: any, body: any) => {
     const { valid, errors } = validateTemplate(messageTemplate);
     if (!valid) throw new ServiceError(errors.join(". "), 400, { errors });
     // Storing the default verbatim as NULL keeps it following future default changes.
-    if (messageTemplate === DEFAULT_TEMPLATE) messageTemplate = null;
+    if (messageTemplate === KINDS[kind].defaultTemplate) messageTemplate = null;
   }
 
   const row = await BirthdayRepo.upsertSettings({
     companyId: company.id,
+    kind,
     enabled,
     messageTemplate,
     pushEnabled,
     sendHour,
     updatedBy: Number(userData.userId),
   });
-  return presentSettings(company, row);
+  return presentSettings(company, row, kind);
 };
 
 export const previewTemplate = async (userData: any, body: any) => {
+  const kind = parseKind(body?.kind);
   const company = await resolveTargetCompany(userData, body?.companyId);
-  const template = body?.messageTemplate ?? DEFAULT_TEMPLATE;
+  const template = body?.messageTemplate ?? KINDS[kind].defaultTemplate;
   const { valid, errors } = validateTemplate(template);
   const sampleNames = Array.isArray(body?.sampleNames) && body.sampleNames.length
     ? body.sampleNames.slice(0, 10).map((n: any) => String(n).slice(0, 100))
-    : ["Rahul"];
+    : [kind === "anniversary" ? `Rahul (${yearsLabel(3)})` : "Rahul"];
   return {
     valid,
     errors,
-    title: ANNOUNCEMENT_TITLE,
+    title: KINDS[kind].title,
     message: valid ? renderTemplate(template, { name: joinNames(sampleNames), company: company.companyName ?? "SalesVera" }) : null,
   };
 };
 
-// Today's and upcoming birthdays (company local date). Only day + month is
-// returned — never the birth year or age.
+// Today's and upcoming celebrations (company local date). Only day + month is
+// returned — never the birth year or age. For a work anniversary, `years` is
+// the anniversary being reached; `missingDob` then lists people with no valid
+// date of joining (the field name is kept for the existing birthday API).
 export const getBirthdays = async (userData: any, query: any) => {
+  const kind = parseKind(query?.kind);
   const company = await resolveTargetCompany(userData, query?.companyId);
   const days = Math.min(90, Math.max(1, Number(query?.days) || 30));
   const timezone = resolveTimezone(company.timezone);
   const { ymd: today } = localDateParts(new Date(), timezone);
 
   const members = await resolveCompanyMembers(company);
+  const joined = kind === "anniversary" ? await loadJoiningDates(members.map((m) => Number(m.id))) : null;
   const upcoming: any[] = [];
   const missingDob: any[] = [];
   for (const m of members) {
-    const dob = parseDob(m.dob, today);
-    if (!dob) {
+    const date = joined ? parseDob(joined.get(Number(m.id)), today) : parseDob(m.dob, today);
+    if (!date) {
       missingDob.push({ userId: m.id, name: displayName(m), role: m.role });
       continue;
     }
     for (let i = 0; i <= days; i++) {
-      const date = addDaysYmd(today, i);
-      if (isBirthdayOn(dob, date)) {
+      const day = addDaysYmd(today, i);
+      const years = joined ? anniversaryYearsOn(date, day) : null;
+      if (joined ? years : isBirthdayOn(date, day)) {
         upcoming.push({
           userId: m.id,
           name: displayName(m),
           role: m.role,
-          birthday: `${String(dob.day).padStart(2, "0")}-${String(dob.month).padStart(2, "0")}`,
-          nextDate: date,
+          birthday: `${String(date.day).padStart(2, "0")}-${String(date.month).padStart(2, "0")}`,
+          ...(years ? { years } : {}),
+          nextDate: day,
           daysAway: i,
           isToday: i === 0,
         });
@@ -505,6 +584,7 @@ export const getBirthdays = async (userData: any, query: any) => {
   }
   upcoming.sort((a, b) => a.daysAway - b.daysAway || a.name.localeCompare(b.name));
   return {
+    kind,
     today,
     timezone,
     days,
@@ -515,9 +595,10 @@ export const getBirthdays = async (userData: any, query: any) => {
 };
 
 export const getRecentRuns = async (userData: any, query: any) => {
+  const kind = parseKind(query?.kind);
   const company = await resolveTargetCompany(userData, query?.companyId);
   const limit = Math.min(30, Math.max(1, Number(query?.limit) || 10));
-  const runs = await BirthdayRepo.listRuns(company.id, limit);
+  const runs = await BirthdayRepo.listRuns(company.id, limit, kind);
   const ids = Array.from(new Set(runs.flatMap((r) => r.celebrantIds.map(Number))));
   const users: any[] = ids.length
     ? await (User as any).findAll({ where: { id: { [Op.in]: ids } }, attributes: ["id", "firstName", "lastName"] })
@@ -525,6 +606,7 @@ export const getRecentRuns = async (userData: any, query: any) => {
   const nameById = new Map(users.map((u) => [Number(u.id), displayName(u)]));
   return runs.map((r) => ({
     id: r.id,
+    kind: r.kind,
     birthdayDate: r.birthdayDate,
     timezone: r.timezone,
     celebrants: r.celebrantIds.map((id) => ({ userId: Number(id), name: nameById.get(Number(id)) ?? "Former member" })),

@@ -22,6 +22,26 @@ export const listCompOff = async (req: Request, res: Response): Promise<void> =>
   }
 };
 
+export const getMyCompOff = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorOf(req);
+    const result = await CompOffService.getMyCompOff(actor.userId, actor.companyId);
+    createSuccess(res, "Comp-off fetched successfully", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+export const requestCompOff = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorOf(req);
+    const result = await CompOffService.requestCompOff(actor.userId, actor.companyId, req.body);
+    createSuccess(res, "Comp-off requested successfully", result, 201);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
 export const reviewCompOff = async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await CompOffService.reviewCompOff(actorOf(req), req.params.id, req.body);

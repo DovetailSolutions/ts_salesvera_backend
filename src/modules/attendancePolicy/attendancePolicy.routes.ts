@@ -5,9 +5,9 @@ import * as PolicyController from "./attendancePolicy.controller";
 
 // ============================================================
 // Attendance policy routes — mounted at "/admin" in server.ts.
-// Reading needs attendance:view (admin, owner, manager); saving needs
-// attendance:update AND the service restricts it to admin / owner. Preview
-// only classifies sample data and saves nothing.
+// Reading needs attendance:view, saving attendance:update — and the service
+// restricts both to admin / owner (managers get 403). Preview only
+// classifies sample data and saves nothing.
 // ============================================================
 const router = Router();
 

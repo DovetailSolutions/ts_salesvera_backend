@@ -48,6 +48,7 @@ import clientRoutes from "./modules/client/client.routes";
 import inventoryRoutes from "./modules/inventory/inventory.routes";
 import birthdayRoutes from "./modules/birthday/birthday.routes";
 import compOffRoutes from "./modules/compOff/compOff.routes";
+import compOffSelfRoutes from "./modules/compOff/compOffSelf.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -136,6 +137,7 @@ app.use("/admin", clientRoutes);
 app.use("/admin", inventoryRoutes);
 app.use("/admin", birthdayRoutes);
 app.use("/admin", compOffRoutes);
+app.use("/api", compOffSelfRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
 // setupTrackingRoutes and accessExtensionRoutes are mounted BEFORE

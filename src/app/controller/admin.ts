@@ -61,6 +61,7 @@ import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
 import { allocateProformaInvoiceNumber } from "../../modules/shared/proformaInvoiceNumber";
 import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
 import { ServiceError } from "../../modules/shared/serviceError";
+import { parseJoiningDate, saveJoiningDate } from "../../modules/employeeProfile/joiningDate";
 import * as ClientService from "../../modules/client/client.service";
 import * as ClientController from "../../modules/client/client.controller";
 import * as InventoryService from "../../modules/inventory/inventory.service";
@@ -1143,6 +1144,8 @@ export const BulkAddSalePerson = async (
           email: row.email?.trim().toLowerCase() || "",
           phone: row.phone?.trim() || "",
           dob: row.dob?.trim() || "",
+          // Optional column; blank → the upload date.
+          dateOfJoining: row.dateofjoining?.trim() || "",
         });
       })
       .on("end", async () => {
@@ -1161,6 +1164,12 @@ export const BulkAddSalePerson = async (
               !r.dob
             ) {
               invalidRows.push(r);
+              continue;
+            }
+            try {
+              r.dateOfJoining = parseJoiningDate(r.dateOfJoining);
+            } catch {
+              invalidRows.push(r); // a date of joining that isn't a valid date
               continue;
             }
 
@@ -1309,6 +1318,14 @@ export const BulkAddSalePerson = async (
               } as any);
 
               await (item as any).setCreators([creatorId]);
+
+              await saveJoiningDate({
+                userId: item.getDataValue("id") as number,
+                role: "employee",
+                dateOfJoining: r.dateOfJoining,
+                companyId: callerCompanyId ? Number(callerCompanyId) : null,
+                createdBy: creatorId,
+              }).catch((err) => console.error(`Failed to save date of joining for ${r.email}:`, err));
 
               sendEmail(
                 "Welcome to SalesVera - Your Login Credentials",

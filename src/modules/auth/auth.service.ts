@@ -15,6 +15,7 @@ import { issueAccessToken, issueRefreshToken } from "./webToken.service";
 import { createSession, rotateSession, revokeSession, revokeAllSessionsForUser } from "./refreshSession.service";
 import { userHasPermission } from "../../config/checkPermission";
 import { getJobPersonalDetails } from "../shared/jobPersonalDetails";
+import { parseJoiningDate, saveJoiningDate } from "../employeeProfile/joiningDate";
 
 // ============================================================
 // Auth service — validation + orchestration. Byte-for-byte port of the
@@ -41,6 +42,8 @@ export const register = async (body: any, callerData?: { userId?: number | strin
   for (const key in requiredFields) {
     if (!requiredFields[key]) throw new ServiceError(`${key} is required`);
   }
+  // Checked before anything is created; defaults to today when left out.
+  const dateOfJoining = parseJoiningDate(body.dateOfJoining);
 
   // ── Authorization ────────────────────────────────────────────────────
   // FIX: this endpoint previously trusted role/createdBy straight from the
@@ -252,6 +255,21 @@ export const register = async (body: any, callerData?: { userId?: number | strin
     isLimitedRole ? resolvedTenantId : null,
     () => AuthRepo.createUser(obj)
   );
+
+  // Date of joining (admin / manager / employee) — today when not given.
+  // Best-effort like the bookkeeping below: never fail a registration that
+  // already succeeded; the date can still be set from the employee profile.
+  try {
+    await saveJoiningDate({
+      userId: item.getDataValue("id") as number,
+      role,
+      dateOfJoining,
+      companyId: skipBranchShiftDefault ? null : creatorCompanyId,
+      createdBy: callerId,
+    });
+  } catch (e) {
+    console.error("Failed to save date of joining for new user:", e);
+  }
 
   // If this is a tenant root (user role created by super_admin), point tenantId at self
   if (role === "user" && !resolvedTenantId) {

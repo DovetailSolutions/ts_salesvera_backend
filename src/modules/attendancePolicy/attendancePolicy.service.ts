@@ -29,7 +29,10 @@ export interface ResolvedPolicy {
 }
 
 const WRITE_ROLES = ["admin", "user", "super_admin"]; // admin, company owner
-const READ_ROLES = [...WRITE_ROLES, "manager"];
+// Managers don't manage attendance policies, so they can't read them here
+// either; employees and managers still see their own rules through
+// getMyPolicySummary below.
+const READ_ROLES = WRITE_ROLES;
 
 const requireCompany = async (actor: PolicyActor, write: boolean): Promise<number> => {
   const allowed = write ? WRITE_ROLES : READ_ROLES;
