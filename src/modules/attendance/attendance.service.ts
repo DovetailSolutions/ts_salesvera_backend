@@ -46,8 +46,7 @@ export const getAttendance = async (loggedInId: number, callerCompanyId: number 
   // PERF: fast (level-batched) variant — same output, fewer DB round-trips.
   // Only this call site was switched; every other caller of
   // getCompanyScopedChildUserIds is untouched.
-  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
-  const allUserIds = [loggedInId, ...childIds];
+  let childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
   // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
   // to UTC first, which rolls the calendar day backward for any real-world
   // IST time before ~05:30 (e.g. 2:30 AM IST still reports yesterday's
@@ -57,6 +56,28 @@ export const getAttendance = async (loggedInId: number, callerCompanyId: number 
   // instead, so it's correct regardless of the server's OS timezone.
   const todayDateOnly = getISTDateString();
   const search = String(query?.search || "").trim();
+
+  // ?status=present|leave|absent — the summary cards' filters, matching
+  // attendanceSummary's definitions (absent = neither present nor on leave).
+  const status = String(query?.status || "").trim();
+  if (status && !["present", "leave", "absent"].includes(status)) {
+    throw new ServiceError("status must be present, leave or absent");
+  }
+  if (status && childIds.length) {
+    if (status === "present") {
+      childIds = await AttendanceRepo.findPresentTodayIds(childIds, todayDateOnly);
+    } else if (status === "leave") {
+      childIds = await AttendanceRepo.findOnLeaveTodayIds(childIds, todayDateOnly);
+    } else {
+      const [presentIds, leaveIds] = await Promise.all([
+        AttendanceRepo.findPresentTodayIds(childIds, todayDateOnly),
+        AttendanceRepo.findOnLeaveTodayIds(childIds, todayDateOnly),
+      ]);
+      const notAbsent = new Set([...presentIds, ...leaveIds]);
+      childIds = childIds.filter((id) => !notAbsent.has(Number(id)));
+    }
+  }
+  const allUserIds = [loggedInId, ...childIds];
 
   const { rows, count } = await AttendanceRepo.findTeamAttendanceToday({
     allUserIds,

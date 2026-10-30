@@ -67,6 +67,31 @@ export const countOnLeaveToday = (childIds: number[], todayDateOnly: string) =>
     } as any,
   });
 
+// Who the two counts above count — the ids behind them, for the attendance
+// list's Present / On Leave / Absent card filters (same conditions).
+export const findPresentTodayIds = async (childIds: number[], todayDateOnly: string): Promise<number[]> => {
+  const rows = await Attendance.findAll({
+    attributes: ["employee_id"],
+    where: { employee_id: { [Op.in]: childIds }, status: { [Op.in]: ["present", "out"] }, date: todayDateOnly },
+    raw: true,
+  });
+  return [...new Set(rows.map((r: any) => Number(r.employee_id)))];
+};
+
+export const findOnLeaveTodayIds = async (childIds: number[], todayDateOnly: string): Promise<number[]> => {
+  const rows = await Leave.findAll({
+    attributes: ["employee_id"],
+    where: {
+      employee_id: { [Op.in]: childIds },
+      status: "approved",
+      from_date: { [Op.lte]: todayDateOnly },
+      to_date: { [Op.gte]: todayDateOnly },
+    } as any,
+    raw: true,
+  });
+  return [...new Set(rows.map((r: any) => Number(r.employee_id)))];
+};
+
 // A day can now hold several punch sessions (one row each) — always the
 // LATEST row, so Mark Attendance / punch-in act on the same row the register
 // shows instead of an arbitrary one.

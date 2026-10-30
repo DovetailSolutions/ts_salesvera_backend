@@ -77,6 +77,7 @@ router.post(
 router.get("/getexpense",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
 router.get("/getexpance",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
 router.get("/get-expense",       tokenCheck, checkPermission("expense", "view"),    AdminController.GetExpense);
+router.get("/export-expense",    tokenCheck, checkPermission("expense", "view"),    AdminController.ExportExpense);
 router.get("/admin-manager",tokenCheck,AdminController.test);
 // User Management page: admin/super_admin toggle controlling whether a
 // employee's own GET /api/getprofile includes the company's full branch

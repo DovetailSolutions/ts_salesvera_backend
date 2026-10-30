@@ -536,7 +536,7 @@ export const approveRequest = async (
     },
   });
 
-  notifyRegularizationReviewed(preCheck.userId, requestId, true, comment);
+  notifyRegularizationReviewed(preCheck, requestId, true, callerId, comment);
 
   return { requestId, status: "approved" as const, attendanceId: result.attendance.id };
 };
@@ -579,7 +579,7 @@ export const rejectRequest = async (
     message: trimmedComment,
   });
 
-  notifyRegularizationReviewed(preCheck.userId, requestId, false, trimmedComment);
+  notifyRegularizationReviewed(preCheck, requestId, false, callerId, trimmedComment);
 
   return { requestId, status: "rejected" as const };
 };
@@ -630,14 +630,32 @@ const notifyRegularizationCreated = (
   })().catch((err) => console.error("attendanceRegularization: admin notification failed:", err));
 };
 
-const notifyRegularizationReviewed = (userId: number, requestId: number, approved: boolean, comment?: string | null): void => {
-  sendNotification({
-    receiverId: userId,
-    type: NotificationType.SYSTEM,
-    title: approved ? "Regularization Approved" : "Regularization Rejected",
-    body: approved
-      ? "Your attendance regularization request has been approved and your attendance has been updated."
-      : `Your attendance regularization request was rejected.${comment ? ` Reason: ${comment}` : ""}`,
-    data: { kind: "attendance_regularization_reviewed", requestId, approved },
-  }).catch((err) => console.error("attendanceRegularization: user notification failed:", err));
+// To the person whose attendance it is (employee or manager): which request
+// (type + date), who decided, and the reviewer's comment.
+const notifyRegularizationReviewed = (
+  request: { userId: number; requestType?: string; attendanceDate?: string | Date },
+  requestId: number,
+  approved: boolean,
+  reviewerId: number,
+  comment?: string | null
+): void => {
+  (async () => {
+    const reviewer: any = await Repo.findUserById(reviewerId);
+    const reviewerName = reviewer ? `${reviewer.firstName ?? ""} ${reviewer.lastName ?? ""}`.trim() : "";
+    const label = REQUEST_TYPE_LABELS[String(request.requestType)] ?? "attendance regularization";
+    const date = request.attendanceDate ? String(request.attendanceDate).slice(0, 10) : "";
+    const what = `Your ${label} request${date ? ` for ${date}` : ""}`;
+    const by = reviewerName ? ` by ${reviewerName}` : "";
+    const note = comment ? ` ${approved ? "Comment" : "Reason"}: ${comment}` : "";
+    await sendNotification({
+      receiverId: request.userId,
+      senderId: reviewerId,
+      type: NotificationType.SYSTEM,
+      title: approved ? "Regularization Approved" : "Regularization Rejected",
+      body: approved
+        ? `${what} was approved${by} and your attendance has been updated.${note}`
+        : `${what} was rejected${by}.${note}`,
+      data: { kind: "attendance_regularization_reviewed", requestId, approved, attendanceDate: date || null },
+    });
+  })().catch((err) => console.error("attendanceRegularization: user notification failed:", err));
 };
