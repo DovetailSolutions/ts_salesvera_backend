@@ -136,8 +136,8 @@ const deductForOrder = async (quotation: any, actor: Actor, transaction: Transac
       throw new ServiceError(`Enter a valid quantity (greater than 0) for ${name}`);
     }
     const available = Number(sub.stockQuantity ?? 0);
-    // "Allow orders when out of stock": the balance may go below zero (a
-    // backorder) instead of the order being refused.
+    // "Allow orders when out of stock": the order goes through instead of
+    // being refused, but the balance stops at zero (never negative).
     if (line.quantity > available && !sub.allowOutOfStock) {
       throw new ServiceError(
         `Insufficient stock for ${name}. Available quantity: ${available}. Requested quantity: ${line.quantity}.`,
@@ -145,14 +145,17 @@ const deductForOrder = async (quotation: any, actor: Actor, transaction: Transac
         { code: "INSUFFICIENT_STOCK", subCategoryId: Number(sub.id), available, requested: line.quantity }
       );
     }
-    const balance = round3(available - line.quantity);
+    // Only what is actually on hand is taken; the ledger row records that
+    // real amount, so a later reversal puts back exactly it.
+    const taken = round3(Math.min(line.quantity, Math.max(available, 0)));
+    const balance = round3(available - taken);
     await sub.update({ stockQuantity: balance }, { transaction });
     await StockMovement.create(
       {
         subCategoryId: Number(sub.id),
         quotationId: Number(quotation.id),
         type: "sale",
-        quantity: -line.quantity,
+        quantity: -taken,
         balanceAfter: balance,
         actorId: Number(actor.userId),
         actorRole: actor.role,
@@ -234,7 +237,7 @@ export const hasStockInput = (input: StockInput) =>
 
 // Stock fields from the Inventory form. trackStock switches tracking on/off;
 // stockQuantity sets the on-hand amount (recorded as an adjustment);
-// allowOutOfStock lets sale orders take the item below zero.
+// allowOutOfStock lets sale orders take the item when out of stock (stock stays at 0).
 export const parseStockInput = (body: any): StockInput => {
   const out: StockInput = {};
   if (body?.trackStock !== undefined) out.trackStock = body.trackStock === true || body.trackStock === "true";

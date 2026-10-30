@@ -659,7 +659,32 @@ export const getMeeting = async (
     const meetingUserWhere: any = {};
 
     if (empty === "true") {
-      meetingUserWhere.userId = scopeUserId;
+      // Client list (Client Management, meeting-scheduler pickers).
+      // FIX: a manager used to get their CREATOR's clients (scopeUserId =
+      // the admin) — i.e. the admin's whole client pool — and an admin got
+      // only that pool, never clients assigned to their team. Now:
+      //   admin / owner → every client of the company (pool + assigned)
+      //   manager       → only clients assigned to them; with ?userId=<a
+      //                   team member> (scheduling for that person), that
+      //                   member's clients plus the manager's own (a client
+      //                   the manager just created is owned by them)
+      //   employee      → only their own
+      if (role === "manager") {
+        const requestedId = userId ? Number(userId) : null;
+        if (requestedId && requestedId !== loggedInId) {
+          if (!allowedIds.includes(requestedId)) {
+            forbidden(res, "You can only view clients of your own team members");
+            return;
+          }
+          meetingUserWhere.userId = { [Op.in]: [requestedId, loggedInId] };
+        } else {
+          meetingUserWhere.userId = loggedInId;
+        }
+      } else if (role === "employee") {
+        meetingUserWhere.userId = loggedInId;
+      } else {
+        meetingUserWhere.userId = { [Op.in]: allowedIds };
+      }
     } else if (userId) {
       const requestedId = Number(userId);
 
@@ -1998,16 +2023,14 @@ export const UpdateExpense = async (
 // leaveList/getTodayLeaveRequests have moved to src/modules/leave/ — see
 // leave.controller.ts/service.ts/repository.ts.
 
-export const GetExpense = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
+// Who/what GET /admin/get-expense lists for this caller and query (scope,
+// status, category, search, approval flags) — shared with the Excel export
+// below so the download always matches what the table shows.
+const buildExpenseQuery = async (req: Request) => {
     const userData = req.userData as JwtPayload;
     const loggedInId = Number(userData?.userId) || 0;
     const role = userData?.role;
     const search = req.query.search as string;
-    const { page, limit, offset } = getPagination(req);
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
 
     let childIds: number[] = [];
@@ -2024,7 +2047,7 @@ export const GetExpense = async (
     const allUserIds: number[] = [loggedInId, ...childIds];
     const {
       approvedByAdmin, approvedBySuperAdmin, self, userId: queryUserId,
-      scope, status, withSummary, category,
+      scope, status, category,
     } = req.query;
     const isAdminRole = role === "admin" || role === "super_admin";
 
@@ -2108,6 +2131,18 @@ export const GetExpense = async (
 
     if (and.length) expenseWhere[Op.and] = and;
 
+    return { loggedInId, isAdminRole, allUserIds, expenseWhere };
+};
+
+export const GetExpense = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { page, limit, offset } = getPagination(req);
+    const { withSummary } = req.query;
+    const { loggedInId, allUserIds, expenseWhere } = await buildExpenseQuery(req);
+
     const { rows, count } = await Expense.findAndCountAll({
       attributes: [
         "id", "userId", "title", "total_amount", "approvedByAdmin", "approvedBySuperAdmin",
@@ -2179,6 +2214,144 @@ export const GetExpense = async (
       },
       ...(summary && { summary }),
     });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// GET /admin/export-expense — Excel of every expense GET /admin/get-expense
+// would list for the same filters (scope/status/category/search/userId), no
+// paging. Sheet 1 "Employee Totals": one row per employee with claimed /
+// approved / pending / rejected sums and a grand total; sheet 2 "Expenses":
+// every claim. Search "deepika" → only Deepika's claims and her total.
+export const ExportExpense = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { isAdminRole, allUserIds, expenseWhere } = await buildExpenseQuery(req);
+    if (req.query.userId && !allUserIds.includes(Number(req.query.userId))) {
+      badRequest(res, "You can only export expenses of your own team");
+      return;
+    }
+
+    const rows: any[] = await Expense.findAll({
+      attributes: [
+        "id", "userId", "title", "total_amount", "approvedByAdmin", "approvedBySuperAdmin",
+        "date", "category", "amount", "description", "location", "totalDistance", "createdAt",
+      ],
+      where: expenseWhere,
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "employeeCode", "firstName", "lastName", "email", "phone", "role"],
+          required: false,
+        },
+      ],
+    });
+
+    const toAmount = (v: any) => {
+      const n = Number(String(v ?? "").trim());
+      return Number.isFinite(n) ? n : 0;
+    };
+    // Same status rules as the get-expense status filter / page badges.
+    const statusOf = (e: any) => {
+      if (e.approvedByAdmin === "rejected" || e.approvedBySuperAdmin === "rejected") return "Rejected";
+      if (e.approvedByAdmin === "accepted" && e.approvedBySuperAdmin === "accepted") return "Approved";
+      if (!isAdminRole && e.approvedByAdmin === "accepted" && e.approvedBySuperAdmin === "pending") return "Approved";
+      return "Pending";
+    };
+    const nameOf = (u: any) => [u?.firstName, u?.lastName].filter(Boolean).join(" ") || u?.email || "—";
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const detail: any[] = [];
+    const totals = new Map<number, any>();
+    for (const r of rows) {
+      const e = r.get({ plain: true });
+      const amount = e.total_amount !== null && e.total_amount !== undefined ? toAmount(e.total_amount) : toAmount(e.amount);
+      const status = statusOf(e);
+      detail.push({
+        "Date": e.date ? String(e.date).slice(0, 10) : String(e.createdAt ?? "").slice(0, 10),
+        "Employee Code": e.user?.employeeCode || "",
+        "Employee": nameOf(e.user),
+        "Email": e.user?.email || "",
+        "Phone": e.user?.phone || "",
+        "Title": e.title || "",
+        "Category": e.category || "",
+        "Location": e.location || "",
+        "Distance (km)": e.totalDistance ?? "",
+        "Amount": round2(amount),
+        "Status": status,
+        "Description": e.description || "",
+      });
+
+      const t = totals.get(e.userId) || {
+        "Employee Code": e.user?.employeeCode || "",
+        "Employee": nameOf(e.user),
+        "Email": e.user?.email || "",
+        "Role": e.user?.role || "",
+        "Claims": 0,
+        "Total Amount": 0,
+        "Approved Amount": 0,
+        "Pending Amount": 0,
+        "Rejected Amount": 0,
+      };
+      t["Claims"] += 1;
+      t["Total Amount"] += amount;
+      t[`${status} Amount`] += amount;
+      totals.set(e.userId, t);
+    }
+
+    const totalRows = [...totals.values()]
+      .map((t) => ({
+        ...t,
+        "Total Amount": round2(t["Total Amount"]),
+        "Approved Amount": round2(t["Approved Amount"]),
+        "Pending Amount": round2(t["Pending Amount"]),
+        "Rejected Amount": round2(t["Rejected Amount"]),
+      }))
+      .sort((a, b) => b["Total Amount"] - a["Total Amount"]);
+    const sum = (k: string) => round2(totalRows.reduce((acc, t) => acc + t[k], 0));
+    const grandTotal = sum("Total Amount");
+    totalRows.push({
+      "Employee Code": "",
+      "Employee": "GRAND TOTAL",
+      "Email": "",
+      "Role": "",
+      "Claims": totalRows.reduce((acc, t) => acc + t["Claims"], 0),
+      "Total Amount": grandTotal,
+      "Approved Amount": sum("Approved Amount"),
+      "Pending Amount": sum("Pending Amount"),
+      "Rejected Amount": sum("Rejected Amount"),
+    });
+    detail.push({ "Employee": "TOTAL", "Amount": grandTotal });
+
+    const workbook = XLSX.utils.book_new();
+    const totalsSheet = XLSX.utils.json_to_sheet(totalRows);
+    totalsSheet["!cols"] = [12, 24, 30, 10, 8, 14, 16, 16, 16].map((wch) => ({ wch }));
+    XLSX.utils.book_append_sheet(workbook, totalsSheet, "Employee Totals");
+    const detailSheet = XLSX.utils.json_to_sheet(detail, {
+      header: ["Date", "Employee Code", "Employee", "Email", "Phone", "Title", "Category", "Location", "Distance (km)", "Amount", "Status", "Description"],
+    });
+    detailSheet["!cols"] = [12, 12, 24, 30, 14, 26, 22, 24, 12, 12, 10, 40].map((wch) => ({ wch }));
+    XLSX.utils.book_append_sheet(workbook, detailSheet, "Expenses");
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    // One employee in the result → name the file after them.
+    const only = totals.size === 1 ? [...totals.values()][0]["Employee"] : "";
+    const slug = only ? `_${String(only).replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "")}` : "";
+    const filename = `Expense_Report${slug}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "X-Export-Row-Count": String(rows.length),
+      "Access-Control-Expose-Headers": "Content-Disposition, X-Export-Row-Count",
+    });
+    res.send(buffer);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
@@ -4323,6 +4496,23 @@ export const getMyClients = async (req: Request, res: Response): Promise<void> =
   }
 };
 
+// The client pickers (sale order / invoice) call GET /get-client on every
+// search, and the company-scoped team lookup is the slow part (~0.7 s of
+// sequential queries against the remote DB). A team changes rarely, so it is
+// reused for a minute per caller + company.
+const CLIENT_TEAM_TTL_MS = 60 * 1000;
+const clientTeamCache = new Map<string, { ids: number[]; expires: number }>();
+
+const getClientTeamIds = async (userId: number, companyId: number | null): Promise<number[]> => {
+  const key = `${userId}:${companyId ?? ""}`;
+  const hit = clientTeamCache.get(key);
+  if (hit && hit.expires > Date.now()) return hit.ids;
+  const ids = [userId, ...(await getCompanyScopedChildUserIdsFast(userId, companyId))];
+  if (clientTeamCache.size > 1000) clientTeamCache.clear();
+  clientTeamCache.set(key, { ids, expires: Date.now() + CLIENT_TEAM_TTL_MS });
+  return ids;
+};
+
 export const getClient = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
@@ -4333,24 +4523,22 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { status, search } = req.query;
+    const { status } = req.query;
+    const search = String(req.query.search ?? "").trim();
 
-    // ✅ Pagination
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
+    // ✅ Pagination (limit capped so a picker can't pull the whole table)
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
     const offset = (page - 1) * limit;
 
     // ✅ Caller + their whole team. FIX: was an unscoped walk of everyone the
     // caller ever created, so an owner/multi-company admin saw every
     // company's clients regardless of the company they were acting in —
     // now the same company-scoped team getClientDetails already uses.
-    const teamUserIds: number[] = [
+    const teamUserIds: number[] = await getClientTeamIds(
       Number(userData.userId),
-      ...(await getCompanyScopedChildUserIdsFast(
-        Number(userData.userId),
-        userData.companyId ? Number(userData.companyId) : null
-      )),
-    ];
+      userData.companyId ? Number(userData.companyId) : null
+    );
 
     // ✅ Where condition
     const obj: any = {
@@ -4362,15 +4550,18 @@ export const getClient = async (req: Request, res: Response): Promise<void> => {
     }
 
     if (search) {
-      const searchValue = `%${search}%`;
+      // FIX: was a case-sensitive LIKE ("amit" missed "Amit", "AMIT" found
+      // nothing). Case-insensitive now; %, _ and \ typed by the user are
+      // matched literally instead of acting as wildcards.
+      const searchValue = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
 
       obj[Op.or] = [
-        { name: { [Op.like]: searchValue } },
-        { email: { [Op.like]: searchValue } },
-        { mobile: { [Op.like]: searchValue } },
-        { companyName: { [Op.like]: searchValue } },
-        { city: { [Op.like]: searchValue } },
-        { state: { [Op.like]: searchValue } },
+        { name: { [Op.iLike]: searchValue } },
+        { email: { [Op.iLike]: searchValue } },
+        { mobile: { [Op.iLike]: searchValue } },
+        { companyName: { [Op.iLike]: searchValue } },
+        { city: { [Op.iLike]: searchValue } },
+        { state: { [Op.iLike]: searchValue } },
       ];
     }
 
