@@ -315,4 +315,24 @@ export const startCronJobs = () => {
       console.error("[CRON] ❌ Comp-off expiry reminder job failed:", error);
     }
   }, { timezone: "Asia/Kolkata" });
+
+  // ─────────────────────────────────────────────
+  //  SEPARATION — LAST WORKING DAY REACHED
+  //  Schedule : Daily at 00:40 IST
+  //  Purpose  : Move approved separations still in
+  //             notice to "handover pending" once their
+  //             approved last working day arrives, and
+  //             prompt the admin / manager. Never
+  //             deactivates anyone — see startDueHandovers
+  //             (separation.service.ts).
+  // ─────────────────────────────────────────────
+  cron.schedule("40 0 * * *", async () => {
+    try {
+      const { startDueHandovers } = await import("../modules/separation/separation.service");
+      const result = await startDueHandovers();
+      if (result.moved) console.log(`[CRON] Separation: ${result.moved} moved to handover`);
+    } catch (error) {
+      console.error("[CRON] ❌ Separation handover job failed:", error);
+    }
+  }, { timezone: "Asia/Kolkata" });
 };
