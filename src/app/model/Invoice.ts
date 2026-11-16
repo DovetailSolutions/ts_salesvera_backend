@@ -17,6 +17,9 @@ interface InvoiceAttributes {
   alterid?: string | null;
   TallyAPISync?: boolean
   gstNumber?: string | null;
+  isFinalized?: boolean;
+  finalizedAt?: Date | null;
+  finalizedBy?: number | null;
 }
 
 interface InvoiceCreationAttributes
@@ -39,6 +42,9 @@ export class Invoices
   public guid?: string | null;
   public alterid?: string | null;
   public TallyAPISync!: boolean
+  public isFinalized!: boolean;
+  public finalizedAt?: Date | null;
+  public finalizedBy?: number | null;
 
 
   static initModel(sequelize: Sequelize) {
@@ -117,6 +123,21 @@ export class Invoices
           type: DataTypes.STRING,
           allowNull: true,
         } ,
+        // Set by POST /admin/finalizeinvoice/:id — only finalized rows
+        // appear on the Invoice page (migration 0047_invoice_finalize).
+        isFinalized: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        finalizedAt: {
+          type: DataTypes.DATE,
+          allowNull: true,
+        },
+        finalizedBy: {
+          type: DataTypes.INTEGER,
+          allowNull: true,
+        },
       },
       {
         sequelize,

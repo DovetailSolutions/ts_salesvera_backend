@@ -7,12 +7,13 @@ import { sequelize } from "../../config/dbConnection";
 // for a sale, positive for a sale reversal or an upward adjustment.
 // ============================================================
 
-export type StockMovementType = "sale" | "sale_reversal" | "adjustment";
+export type StockMovementType = "sale" | "sale_reversal" | "adjustment" | "proforma" | "proforma_reversal";
 
 export class StockMovement extends Model {
   public id!: number;
   public subCategoryId!: number;
   public quotationId!: number | null;
+  public invoiceId!: number | null;
   public type!: StockMovementType;
   public quantity!: number;
   public balanceAfter!: number;
@@ -36,6 +37,8 @@ StockMovement.init(
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
     subCategoryId: { type: DataTypes.INTEGER, allowNull: false },
     quotationId: { type: DataTypes.INTEGER, allowNull: true },
+    // Migration 0048: proforma invoice movements ("proforma"/"proforma_reversal").
+    invoiceId: { type: DataTypes.INTEGER, allowNull: true },
     type: { type: DataTypes.STRING(20), allowNull: false },
     quantity: numeric("quantity"),
     balanceAfter: numeric("balanceAfter"),

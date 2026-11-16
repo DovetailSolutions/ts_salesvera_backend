@@ -767,9 +767,32 @@ export const exportAttendanceBookExcel = async (loggedInId: number, callerCompan
   const sessionRows = sessions.map((row: any) => (row.get ? row.get({ plain: true }) : row));
 
   const hoursByUser = new Map<number, number>();
+  const overtimeByUser = new Map<number, number>();
+  // Distinct dates per user — a day with several punch sessions counts once.
+  const lateDatesByUser = new Map<number, Set<string>>();
+  // Approved-leave dates per user per leave type (Casual Leave, Unpaid Leave, …).
+  const leaveDatesByUser = new Map<number, Map<string, Set<string>>>();
+  const leaveTypeNames = new Set<string>();
   for (const s of sessionRows) {
-    hoursByUser.set(s.employee_id, (hoursByUser.get(s.employee_id) ?? 0) + (Number(s.working_hours) || 0));
+    const uid = s.employee_id;
+    const dateStr = String(s.date ?? "").slice(0, 10);
+    hoursByUser.set(uid, (hoursByUser.get(uid) ?? 0) + (Number(s.working_hours) || 0));
+    overtimeByUser.set(uid, (overtimeByUser.get(uid) ?? 0) + (Number(s.overtime) || 0));
+    if (s.late && dateStr) {
+      if (!lateDatesByUser.has(uid)) lateDatesByUser.set(uid, new Set());
+      lateDatesByUser.get(uid)!.add(dateStr);
+    }
+    const leaveName = s.leaveType?.leaveName;
+    if (s.status === "leaveApproved" && leaveName && dateStr) {
+      leaveTypeNames.add(leaveName);
+      if (!leaveDatesByUser.has(uid)) leaveDatesByUser.set(uid, new Map());
+      const byType = leaveDatesByUser.get(uid)!;
+      if (!byType.has(leaveName)) byType.set(leaveName, new Set());
+      byType.get(leaveName)!.add(dateStr);
+    }
   }
+  // Only the leave types actually used this month get a column.
+  const leaveTypeColumns = Array.from(leaveTypeNames).sort((a, b) => a.localeCompare(b));
 
   // ── Sheet 1: the register grid ──
   const shortDay = (weekday: number) => WEEKDAY_NAMES[weekday].slice(0, 3);
@@ -780,11 +803,19 @@ export const exportAttendanceBookExcel = async (loggedInId: number, callerCompan
     "Category",
     ...dayInfo.map((d) => `${d.day} ${shortDay(d.weekday)}`),
     "Present",
+    "Half Day",
+    "Short Day",
     "Absent",
     "Leave",
+    ...leaveTypeColumns,
+    "Leave Rejected",
+    "Holiday",
+    "Weekly Off",
+    "Late Days",
     "Total Working Days",
     "Total Days",
     "Total Working Hours",
+    "Overtime Hours",
   ];
   // Working days = the month's days minus weekly offs and company holidays
   // (the company calendar, same for every employee); Total Days = calendar
@@ -792,26 +823,46 @@ export const exportAttendanceBookExcel = async (loggedInId: number, callerCompan
   const totalWorkingDays = dayInfo.filter((d) => !holidaysByDate[d.dateStr] && !isWeekOff(d.weekday)).length;
   const registerRows = exportUsers.map((u) => {
     const codes = dayInfo.map((d) => cellCode(u, d));
-    // Same buckets as the register's Monthly Summary column.
-    const present = codes.filter((c) => c === "P").length;
-    const absent = codes.filter((c) => c === "A" || c === "R" || c === "S").length;
-    const leave = codes.filter((c) => c === "L" || c === "HD").length;
+    // One column per register code, so nothing is folded into another
+    // bucket: every day of the month lands in exactly one of
+    // Present / Half Day / Short Day / Absent / Leave / Leave Rejected /
+    // Holiday / Weekly Off (or is a future date).
+    const count = (code: string) => codes.filter((c) => c === code).length;
+    // Leave-type columns only count days the grid shows as "L", so they add
+    // up to the Leave column (a leave on a holiday / week off / half day is
+    // shown under that code instead).
+    const leaveDays = new Set(dayInfo.filter((_, i) => codes[i] === "L").map((d) => d.dateStr));
+    const leaveByType = leaveDatesByUser.get(u.id);
+    const leaveTypeCount = (name: string) =>
+      Array.from(leaveByType?.get(name) ?? []).filter((dateStr) => leaveDays.has(dateStr)).length;
     return [
       u.employeeCode ?? u.id,
       u.name,
       u.email ?? "",
       categoryOf(u),
       ...codes,
-      present,
-      absent,
-      leave,
+      count("P"),
+      count("HD"),
+      count("S"),
+      count("A"),
+      count("L"),
+      ...leaveTypeColumns.map(leaveTypeCount),
+      count("R"),
+      count("H"),
+      count("OFF"),
+      lateDatesByUser.get(u.id)?.size ?? 0,
       totalWorkingDays,
       totalDays,
       Number((hoursByUser.get(u.id) ?? 0).toFixed(2)),
+      Number((overtimeByUser.get(u.id) ?? 0).toFixed(2)),
     ];
   });
   const registerSheet = XLSX.utils.aoa_to_sheet([registerHeader, ...registerRows]);
-  registerSheet["!cols"] = [{ wch: 14 }, { wch: 24 }, { wch: 30 }, { wch: 10 }, ...dayInfo.map(() => ({ wch: 6 })), { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 10 }, { wch: 18 }];
+  registerSheet["!cols"] = [
+    { wch: 14 }, { wch: 24 }, { wch: 30 }, { wch: 10 },
+    ...dayInfo.map(() => ({ wch: 6 })),
+    ...registerHeader.slice(4 + dayInfo.length).map((h) => ({ wch: Math.max(8, h.length + 2) })),
+  ];
 
   // ── Sheet 2: every punch session / attendance record in the month ──
   const sessionsSheetRows = sessionRows.map((s: any) => {
@@ -849,12 +900,21 @@ export const exportAttendanceBookExcel = async (loggedInId: number, callerCompan
     ["P", "Present"],
     ["A", "Absent"],
     ["HD", "Half Day"],
-    ["S", "Short Day (counted as absent)"],
+    ["S", "Short Day"],
     ["L", "Leave"],
     ["R", "Leave Rejected"],
     ["H", "Holiday"],
     ["OFF", "Weekly Off"],
     ["-", "Future date"],
+    [],
+    ["Summary column", "Meaning"],
+    ["Present … Weekly Off", "Number of days in the month with that code (each day counted in exactly one column)"],
+    ["<Leave type> (e.g. Casual Leave)", "Leave (L) days of that type — only types used this month are shown"],
+    ["Late Days", "Days with at least one late punch-in"],
+    ["Total Working Days", "Days in the month minus weekly offs and company holidays"],
+    ["Total Days", "Calendar days in the month"],
+    ["Total Working Hours", "Sum of working hours of every punch session"],
+    ["Overtime Hours", "Sum of overtime of every punch session"],
   ]);
 
   const workbook = XLSX.utils.book_new();
