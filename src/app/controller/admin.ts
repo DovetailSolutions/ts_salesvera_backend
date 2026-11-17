@@ -5052,6 +5052,14 @@ export const addInvoice = async (
     // here; Tally's own sync uses /api/addinvoice, which keeps Tally's
     // voucher numbers.
     void tallyInvoiceNumber;
+
+    // Item "Allow changes when billing" locks (GST / price / discount). An
+    // invoice made from a sale order carries that order's lines as-is, so
+    // only directly-entered proformas are checked.
+    if (!quotationId) {
+      await InventoryService.assertProformaItemLocks(data.items, transaction);
+    }
+
     const companyIdForInvoice = Number(userData.companyId) || 0;
     const proformaInvoiceNumber = await allocateProformaInvoiceNumber(companyIdForInvoice, transaction);
 
@@ -5075,6 +5083,17 @@ export const addInvoice = async (
     const invoiceData = await Invoices.create(invoicePayload, {
       transaction,
     });
+
+    // Items set to take stock on proforma invoices (stockDeductOn =
+    // 'proforma_invoice') — same transaction, so a stock error rolls back
+    // the whole invoice.
+    await InventoryService.applyProformaStock(
+      invoiceData,
+      null,
+      invoiceData.status,
+      { userId: Number(userData.userId), role: String((userData as any).role) },
+      transaction
+    );
 
     // ✅ Commit
     await transaction.commit();
@@ -5419,6 +5438,16 @@ export const getInvoice = async (req: Request, res: Response): Promise<void> => 
     };
   }
 
+    // Invoice page: ?finalized=true lists only proformas finalized via
+    // /finalizeinvoice/:id. A finalized row is a real invoice now, so the
+    // draft gate above doesn't apply to it — only cancelled/deleted are hidden.
+    if (String(req.query.finalized ?? "").toLowerCase() === "true") {
+      whereCondition.isFinalized = true;
+      if (!status) {
+        whereCondition.status = { [Op.notIn]: ["cancelled", "deleted"] };
+      }
+    }
+
     // ✅ Query
     const { rows, count } = await Invoices.findAndCountAll({
       where: whereCondition,
@@ -5473,11 +5502,78 @@ export const updateInvoice = async (req: Request, res: Response): Promise<void> 
       badRequest(res, "Invoice not found");
       return;
     }
-    invoice.status = req.body.status;
-    invoice.TallyAPISync = true
-    await invoice.save();
+    // Status change also gives back / takes proforma stock (items with
+    // stockDeductOn = 'proforma_invoice'); both happen in one transaction.
+    const previousStatus = invoice.status;
+    await sequelize.transaction(async (transaction) => {
+      invoice.status = req.body.status;
+      invoice.TallyAPISync = true
+      await invoice.save({ transaction });
+      await InventoryService.applyProformaStock(
+        invoice,
+        previousStatus,
+        invoice.status,
+        { userId: Number(userData.userId), role: String((userData as any).role) },
+        transaction
+      );
+    });
 
     createSuccess(res, "Invoice updated successfully", invoice);
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// Finalize a proforma invoice so it shows on the Invoice page
+// (getinvoice?finalized=true). Only flips isFinalized — status and every
+// other field stay as they are, so the proforma page keeps showing it.
+// Permission: checkInvoiceUpdatePermission (draft → proformainvoice:update).
+export const finalizeInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      badRequest(res, "Unauthorized request");
+      return;
+    }
+
+    const id = Number(req.params?.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      badRequest(res, "Invoice ID is required");
+      return;
+    }
+
+    const invoice = await Invoices.findOne({ where: { id } });
+    if (!invoice) {
+      badRequest(res, "Invoice not found");
+      return;
+    }
+
+    // Same company isolation as getInvoice: NULL-company legacy rows pass,
+    // rows belonging to a different company don't.
+    const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
+    if ((userData as any).role !== "super_admin" && callerCompanyId && invoice.companyId != null && Number(invoice.companyId) !== callerCompanyId) {
+      res.status(403).json({ success: false, message: "You can't finalize another company's invoice" });
+      return;
+    }
+
+    if (["cancelled", "deleted"].includes(String(invoice.status))) {
+      badRequest(res, `A ${invoice.status} invoice can't be finalized`);
+      return;
+    }
+
+    if (invoice.isFinalized) {
+      createSuccess(res, "Invoice is already finalized", invoice);
+      return;
+    }
+
+    invoice.isFinalized = true;
+    invoice.finalizedAt = new Date();
+    invoice.finalizedBy = Number(userData.userId);
+    await invoice.save();
+
+    createSuccess(res, "Invoice finalized successfully", invoice);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";

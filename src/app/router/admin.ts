@@ -154,6 +154,7 @@ router.post("/sub-category/:id",tokenCheck,AdminController.SubCategoryStatus);
 router.post("/addinvoice",         tokenCheck, checkInvoiceCreatePermission(), AdminController.addInvoice);
 router.get("/getinvoice",          tokenCheck, checkInvoiceViewPermission(),   AdminController.getInvoice);
 router.post("/updateinvoice/:id",  tokenCheck, checkInvoiceUpdatePermission(), AdminController.updateInvoice);
+router.post("/finalizeinvoice/:id", tokenCheck, checkInvoiceUpdatePermission(), AdminController.finalizeInvoice);
 router.get("/get-record-sale",tokenCheck,AdminController.getRecordSale);
 // FIX: report routes now require explicit permissions.
 //      Generating/updating a report requires report:export; reading requires report:view.

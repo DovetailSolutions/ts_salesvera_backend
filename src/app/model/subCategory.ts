@@ -25,6 +25,8 @@ export interface SubCategoryAttributes {
   stockQuantity?: number | null;
   // Migration 0038: a tracked item may still be ordered at/below zero stock.
   allowOutOfStock?: boolean;
+  // Migration 0048: which document takes this item's stock.
+  stockDeductOn?: "sale_order" | "proforma_invoice";
 }
 
 export interface SubCategoryCreationAttributes
@@ -53,6 +55,7 @@ export class SubCategory
   public trackStock?: boolean;
   public stockQuantity?: number | null;
   public allowOutOfStock?: boolean;
+  public stockDeductOn?: "sale_order" | "proforma_invoice";
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
       {
@@ -145,6 +148,11 @@ export class SubCategory
           type: DataTypes.BOOLEAN,
           allowNull: false,
           defaultValue: false,
+        },
+        stockDeductOn: {
+          type: DataTypes.STRING(20),
+          allowNull: false,
+          defaultValue: "sale_order",
         },
         status: {
           type: DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),
