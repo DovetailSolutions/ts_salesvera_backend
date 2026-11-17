@@ -19,6 +19,7 @@ export interface SubscriptionPlanAttributes {
   id: number;
   businessCode: string | null;
   planCode: string; // stable internal key: TRIAL / BASIC / PROFESSIONAL / ENTERPRISE
+  tier: string | null; // LITE | PRO | ADVANCE — see modules/subscription/planFeatures.ts
   name: string;
   description: string | null;
   price: number | null; // null = "Contact Sales" (custom pricing, e.g. Enterprise)
@@ -50,6 +51,7 @@ type SubscriptionPlanCreationAttributes = Optional<
   | "maxManagers"
   | "maxEmployees"
   | "features"
+  | "tier"
   | "isActive"
   | "isTrialPlan"
   | "sortOrder"
@@ -62,6 +64,7 @@ export class SubscriptionPlan
   public id!: number;
   public businessCode!: string | null;
   public planCode!: string;
+  public tier!: string | null;
   public name!: string;
   public description!: string | null;
   public price!: number | null;
@@ -85,6 +88,7 @@ export class SubscriptionPlan
         id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
         businessCode: { type: DataTypes.STRING(20), allowNull: true, unique: true },
         planCode: { type: DataTypes.STRING(20), allowNull: false, unique: true },
+        tier: { type: DataTypes.STRING(20), allowNull: true },
         name: { type: DataTypes.STRING(100), allowNull: false },
         description: { type: DataTypes.TEXT, allowNull: true },
         price: { type: DataTypes.DECIMAL(10, 2), allowNull: true },

@@ -149,6 +149,36 @@ export const notifySubscriptionChanged = async (params: {
       );
     }
   }
+
+  if (after.planName !== undefined && after.planName !== before.planName) {
+    await fanOut(
+      ownerUserId,
+      actorId,
+      "Your SalesVera plan has changed",
+      `Your plan has been changed from ${before.planName ?? "—"} to ${after.planName}.`,
+      { ...base, event: "PLAN_CHANGED", previousValue: before.planName, newValue: after.planName }
+    );
+  }
+};
+
+// Add-on activated / cancelled by Super Admin.
+export const notifyAddonChanged = async (params: {
+  ownerUserId: number;
+  actorId: number | null;
+  addonLabel: string;
+  active: boolean;
+  reason?: string | null;
+}) => {
+  const { ownerUserId, actorId, addonLabel, active, reason } = params;
+  await fanOut(
+    ownerUserId,
+    actorId,
+    active ? `${addonLabel} activated` : `${addonLabel} deactivated`,
+    active
+      ? `${addonLabel} is now active for your organisation.`
+      : `${addonLabel} has been turned off for your organisation. Existing synced data is kept.`,
+    { event: active ? "ADDON_ACTIVATED" : "ADDON_CANCELLED", addon: addonLabel, reason: reason ?? null }
+  );
 };
 
 // ── Request workflow ───────────────────────────────────────────────────

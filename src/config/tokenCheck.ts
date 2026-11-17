@@ -8,6 +8,7 @@ import {
   inactiveAccessMessage,
   canSignInWhileBlocked,
 } from "../modules/subscription/subscriptionLimit.service";
+import { gateRequestByPlan } from "../modules/subscription/featureAccess.service";
 
 // Routes still callable while the tenant's subscription is inactive:
 // session/profile basics plus the access-request flow. Stored lowercased and
@@ -205,6 +206,12 @@ export const createTokenCheck = (allowedRoles: string[]) => {
           data: { code: "SUBSCRIPTION_INACTIVE", status: blockedStatus },
         });
       }
+
+      // Plan gate: routes owned by a Pro/Advance feature or a paid add-on
+      // (modules/subscription/planFeatures.ts FEATURE_ROUTES) are refused
+      // when the tenant's plan does not include them.
+      const planDenied = await gateRequestByPlan(req, { id, role: item.role, tenantId: item.tenantId ?? null });
+      if (planDenied) return res.status(403).json(planDenied);
 
       const decodedCompanyId = (decoded as any).companyId ? Number((decoded as any).companyId) : null;
       const companyId = await resolveCompanyId(id, item.role, decodedCompanyId);

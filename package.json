@@ -11,7 +11,7 @@
     "migrate:tenantId": "ts-node src/scripts/migrateTenantId.ts",
     "db:bootstrap:local": "ts-node src/scripts/localDbBootstrap.ts",
     "db:migrate": "ts-node src/scripts/migrate.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test --test-concurrency=1 \"tests/api/*.test.mjs\""
   },
   "keywords": [],
   "author": "",

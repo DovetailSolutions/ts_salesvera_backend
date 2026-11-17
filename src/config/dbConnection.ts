@@ -84,6 +84,7 @@ import { Subscription } from "../app/model/subscription";
 import { Payment } from "../app/model/payment";
 import { AccessExtensionRequest } from "../app/model/accessExtensionRequest";
 import { AccessAuditLog } from "../app/model/accessAuditLog";
+import { SubscriptionAddon } from "../app/model/subscriptionAddon";
 import { TallyMaster } from "../app/model/tallyMaster";
 import { EmployeeExtraDetails } from "../app/model/employeeExtraDetails";
 import { EmployeeBankAccount } from "../app/model/employeeBankAccount";
@@ -153,6 +154,7 @@ Subscription.initModel(sequelize);
 Payment.initModel(sequelize);
 AccessExtensionRequest.initModel(sequelize);
 AccessAuditLog.initModel(sequelize);
+SubscriptionAddon.initModel(sequelize);
 EmployeeExtraDetails.initModel(sequelize);
 EmployeeBankAccount.initModel(sequelize);
 
@@ -1341,6 +1343,7 @@ export {
   Announcement,
   AnnouncementRecipient,
   SubscriptionPlan,
+  SubscriptionAddon,
   Subscription,
   Payment,
   AccessExtensionRequest,

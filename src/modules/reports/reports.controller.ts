@@ -3,6 +3,7 @@ import { JwtPayload } from "jsonwebtoken";
 import { createSuccess, badRequest, forbidden } from "../../app/middlewear/errorMessage";
 import { ServiceError } from "../shared/serviceError";
 import * as ReportsService from "./reports.service";
+import { getCompanySubscription, resolveTenantUserId } from "../subscription/featureAccess.service";
 
 const handleServiceError = (res: Response, error: unknown) => {
   if (error instanceof ServiceError) {
@@ -24,7 +25,19 @@ export const generateReport = async (req: Request, res: Response): Promise<void>
       String(fromDate || ""),
       String(toDate || "")
     );
-    createSuccess(res, "Report generated successfully", result);
+    // Sections outside the tenant's plan come back empty, with the list of
+    // what was left out, so a Lite tenant still gets its attendance/leave
+    // report but never Pro/Advance data.
+    const ent = await getCompanySubscription(
+      await resolveTenantUserId(Number(userData.userId), String(userData.role))
+    );
+    const excluded: string[] = [];
+    const r: any = result;
+    if (!ent.features.client_visits) { r.meetings = []; excluded.push("meetings"); }
+    if (!ent.features.expenses) { r.expenses = []; excluded.push("expenses"); }
+    if (!ent.features.order_management) { r.quotations = []; r.invoices = []; excluded.push("quotations", "invoices"); }
+    r.excludedByPlan = excluded;
+    createSuccess(res, "Report generated successfully", r);
   } catch (error) {
     handleServiceError(res, error);
   }

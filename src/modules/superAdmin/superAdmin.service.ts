@@ -13,6 +13,7 @@ import {
 import * as SetupTracking from "../setupTracking/setupTracking.service";
 import * as SubscriptionRepo from "../subscription/subscription.repository";
 import * as SubscriptionLimit from "../subscription/subscriptionLimit.service";
+import { invalidateEntitlements } from "../subscription/featureAccess.service";
 import { AccessAuditLog } from "../../config/dbConnection";
 import * as AccessNotify from "../accessExtension/accessNotification.service";
 import { parseJoiningDate, saveJoiningDate } from "../employeeProfile/joiningDate";
@@ -972,6 +973,7 @@ export const updateTenantSubscription = async (
   subscriptionId: number,
   updates: {
     status?: string;
+    planId?: number;
     startDate?: string;
     endDate?: string;
     maxAdmins?: number | null;
@@ -984,8 +986,11 @@ export const updateTenantSubscription = async (
   const subscription: any = await SubscriptionRepo.findSubscriptionById(subscriptionId);
   if (!subscription) throw new ServiceError("Subscription not found", 404);
 
+  const currentPlan: any = await SubscriptionRepo.findPlanById(subscription.planId);
   const before = {
     status: subscription.status,
+    planId: subscription.planId,
+    planName: currentPlan?.name ?? null,
     startDate: subscription.startDate,
     endDate: subscription.endDate,
     maxAdmins: subscription.maxAdmins,
@@ -995,6 +1000,18 @@ export const updateTenantSubscription = async (
   };
 
   const fields: any = {};
+  const notifyFields: any = {};
+
+  // Upgrade / downgrade. Changed in place (same row, so pending extension
+  // requests keep pointing at it) and recorded in access_audit_logs, which
+  // is the plan-change history. Limits are NOT reset from the new plan:
+  // Super Admin edits them explicitly, and a downgrade never deletes data.
+  if (updates.planId !== undefined && Number(updates.planId) !== Number(subscription.planId)) {
+    const plan: any = await SubscriptionRepo.findPlanById(Number(updates.planId));
+    if (!plan || !plan.isActive) throw new ServiceError("planId must be an active subscription plan");
+    fields.planId = plan.id;
+    notifyFields.planName = plan.name;
+  }
 
   if (updates.status !== undefined) {
     if (!VALID_STATUSES.includes(updates.status)) {
@@ -1043,7 +1060,7 @@ export const updateTenantSubscription = async (
 
   await SubscriptionRepo.updateSubscription(subscriptionId, fields);
 
-  const after = { ...before, ...fields };
+  const after = { ...before, ...fields, ...notifyFields };
   await AccessAuditLog.create({
     entityType: "subscription",
     entityId: subscriptionId,
@@ -1073,9 +1090,11 @@ export const updateTenantSubscription = async (
     actorId,
     subscriptionId,
     before,
-    after: fields,
+    after: { ...fields, ...notifyFields },
     reason: reason || null,
   }).catch((e) => console.error("[access-notification] subscription update notify failed:", e));
+
+  invalidateEntitlements(Number(subscription.userId));
 
   return SubscriptionRepo.findSubscriptionById(subscriptionId);
 };
