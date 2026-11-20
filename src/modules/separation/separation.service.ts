@@ -973,6 +973,14 @@ export const adminWithdraw = async (actor: SeparationActor, idParam: unknown, bo
     const { r } = await loadForActor(actor, idParam, t);
     if (Number(r.employeeId) === me) throw new ServiceError("You cannot act on your own separation", 403);
     if (TERMINAL.includes(r.status)) throw new ServiceError(`This request is already ${r.status}`, 409);
+    // After the automatic LWD deactivation a withdrawal would leave a
+    // "withdrawn" employee who still cannot sign in — make it explicit.
+    if (r.accountDeactivatedAt) {
+      throw new ServiceError(
+        "This employee's login was already deactivated after their last working day. Reactivate the employee from Employee Management first, then withdraw.",
+        409
+      );
+    }
     return transition(t, r, "withdrawn", actorRef(actor), "withdrawn_by_admin", reason, {
       withdrawnBy: me, withdrawnAt: new Date(), withdrawReason: reason,
     });
@@ -1182,8 +1190,10 @@ export const completeSeparation = async (actor: SeparationActor, idParam: unknow
     if (!lwd || today < lwd) throw new ServiceError(`The separation can only be completed on or after the last working day (${fmtDate(lwd)})`, 409);
     if (!capabilitiesFor(actor, r, access, today).canComplete) throw new ServiceError("You cannot complete this separation", 403);
 
+    // Keep the original timestamp when the daily job already deactivated the
+    // login after the last working day.
     const done = await transition(t, r, "completed", actorRef(actor), "completed", comment, {
-      completedBy: me, completedAt: new Date(), accountDeactivatedAt: new Date(),
+      completedBy: me, completedAt: new Date(), accountDeactivatedAt: r.accountDeactivatedAt ?? new Date(),
     });
     const [count] = await User.update({ status: "deActive" } as any, { where: { id: Number(r.employeeId), status: "active" }, transaction: t });
     await audit(t, r, actorRef(actor), "account_deactivated", "completed", "completed", null, { userId: Number(r.employeeId), wasActive: count > 0 });
@@ -1198,10 +1208,73 @@ export const completeSeparation = async (actor: SeparationActor, idParam: unknow
   return updated;
 };
 
+// ── Daily job: automatic deactivation (config/cronJobs.ts) ────────────────
+// The day AFTER the approved last working day (so the employee keeps access
+// for the whole of that day), every approved, not-yet-deactivated separation
+// has its login deactivated: users.status → deActive and all refresh
+// sessions revoked. Nothing is deleted; the request keeps its status so
+// handover/clearance can still be finished and the admin completes it.
+//
+// Idempotent: the claim is an UPDATE ... WHERE "accountDeactivatedAt" IS NULL,
+// so a re-run, an overlapping run or a later manual Complete never
+// deactivates twice or writes a second audit row. Pending, rejected and
+// withdrawn requests are never touched.
+export const deactivateDueSeparations = async (
+  today: string = getISTDateString(),
+  opts: { requestIds?: number[] } = {} // limit to these requests (manual re-runs, tests)
+) => {
+  const only = opts.requestIds?.length ? opts.requestIds.map(Number) : null;
+  const due = await query(
+    `SELECT * FROM separation_requests
+      WHERE status IN ('notice_period','handover_pending','clearance_pending')
+        AND "approvedLastWorkingDay" IS NOT NULL
+        AND "approvedLastWorkingDay" < :today
+        AND "accountDeactivatedAt" IS NULL
+        ${only ? `AND id IN (:only)` : ""}
+      ORDER BY id`,
+    { today, only }
+  );
+  let deactivated = 0;
+  for (const r of due) {
+    try {
+      const result = await sequelize.transaction(async (t) => {
+        const [rows]: any = await sequelize.query(
+          `UPDATE separation_requests SET "accountDeactivatedAt" = NOW(), "updatedAt" = NOW()
+            WHERE id = :id AND "accountDeactivatedAt" IS NULL
+              AND status IN ('notice_period','handover_pending','clearance_pending')
+            RETURNING *`,
+          { replacements: { id: r.id }, transaction: t }
+        );
+        const claimed = rows?.[0];
+        if (!claimed) return null; // another run (or a status change) got there first
+        const [count] = await User.update(
+          { status: "deActive" } as any,
+          { where: { id: Number(r.employeeId), status: "active" }, transaction: t }
+        );
+        await audit(t, r, { userId: null, role: "system" }, "account_deactivated", r.status, r.status,
+          "Automatic deactivation after the last working day",
+          { userId: Number(r.employeeId), wasActive: count > 0, lastWorkingDay: ymd(r.approvedLastWorkingDay) });
+        return claimed;
+      });
+      if (!result) continue;
+      deactivated++;
+      await revokeAllSessionsForUser(Number(result.employeeId)).catch((err) => console.error("separation: session revoke failed:", err));
+      const names = await loadNames([result.employeeId]);
+      const adminIds = await getCompanyAdminIds(Number(result.companyId));
+      notify([...adminIds, result.managerId], null, "Login Deactivated",
+        `${names.get(Number(result.employeeId))}'s last working day (${fmtDate(ymd(result.approvedLastWorkingDay))}) has passed and their login has been deactivated. Finish handover and clearance to complete the separation.`,
+        result, "separation_account_deactivated");
+    } catch (err) {
+      console.error(`separation: auto-deactivation failed for #${r.id}:`, err);
+    }
+  }
+  return { checked: due.length, deactivated };
+};
+
 // ── Daily job (config/cronJobs.ts) ────────────────────────────────────────
 // Once the approved last working day arrives, a request still in notice
 // moves to handover so the admin/manager are prompted to finish
-// offboarding. Never deactivates anyone — that stays an admin action.
+// offboarding. Deactivation is deactivateDueSeparations above.
 export const startDueHandovers = async (today: string = getISTDateString()) => {
   const due = await query(
     `SELECT * FROM separation_requests WHERE status = 'notice_period' AND "approvedLastWorkingDay" <= :today ORDER BY id`,

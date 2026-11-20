@@ -8,6 +8,7 @@ import {
 } from "../subscription/subscriptionLimit.service";
 import * as AccessNotify from "./accessNotification.service";
 import * as ExtRepo from "./accessExtension.repository";
+import { invalidateEntitlements } from "../subscription/featureAccess.service";
 
 // ============================================================
 // Tenant-side access management: "what is my access status" plus the two
@@ -33,7 +34,10 @@ import * as ExtRepo from "./accessExtension.repository";
 // employee are excluded: they can neither act on nor fix an access problem.
 const ACCESS_VIEWER_ROLES = ["user", "admin"];
 
-type RequestType = "duration" | "employee_limit";
+type RequestType = "duration" | "employee_limit" | "plan_change";
+
+const parseRequestType = (v: unknown): RequestType =>
+  v === "employee_limit" ? "employee_limit" : v === "plan_change" ? "plan_change" : "duration";
 
 const MAX_REQUEST_DAYS = 365;
 // Sanity ceiling on a single ask, so a typo ("5000" for "50") cannot land a
@@ -90,7 +94,7 @@ export const getMyAccessStatus = async (callerId: number, callerRole: string | u
       usage: null,
       access: null,
       pendingExtensionRequest: null,
-      pendingRequests: { duration: null, employeeLimit: null },
+      pendingRequests: { duration: null, employeeLimit: null, planChange: null },
     };
   }
 
@@ -114,6 +118,8 @@ export const getMyAccessStatus = async (callerId: number, callerRole: string | u
           requestedDurationDays: row.requestedDurationDays,
           currentEmployeeLimit: row.currentEmployeeLimit,
           requestedEmployeeLimit: row.requestedEmployeeLimit,
+          currentPlanId: row.currentPlanId,
+          requestedPlanId: row.requestedPlanId,
           reason: row.reason,
           createdAt: row.createdAt,
         }
@@ -153,6 +159,7 @@ export const getMyAccessStatus = async (callerId: number, callerRole: string | u
     pendingRequests: {
       duration: pendingByType("duration"),
       employeeLimit: pendingByType("employee_limit"),
+      planChange: pendingByType("plan_change"),
     },
   };
 };
@@ -175,7 +182,7 @@ export const submitExtensionRequest = async (
 ) => {
   const tenantUserId = await resolveViewableTenant(callerId, callerRole);
 
-  const requestType: RequestType = body?.requestType === "employee_limit" ? "employee_limit" : "duration";
+  const requestType: RequestType = parseRequestType(body?.requestType);
 
   const reason = body?.reason;
   if (!reason || !String(reason).trim()) {
@@ -201,6 +208,7 @@ export const submitExtensionRequest = async (
     previousExpiresAt: subscription.endDate ?? null,
   };
 
+  let planNames: { from: string; to: string } | undefined;
   if (requestType === "duration") {
     const days = Number(body?.requestedDurationDays);
     if (!Number.isFinite(days) || days <= 0 || !Number.isInteger(days)) {
@@ -210,6 +218,23 @@ export const submitExtensionRequest = async (
       throw new ServiceError(`requestedDurationDays cannot exceed ${MAX_REQUEST_DAYS} days in a single request`);
     }
     row.requestedDurationDays = days;
+  } else if (requestType === "plan_change") {
+    const requestedPlanId = Number(body?.requestedPlanId);
+    if (!Number.isInteger(requestedPlanId) || requestedPlanId <= 0) {
+      throw new ServiceError("requestedPlanId is required");
+    }
+    const plan: any = await SubscriptionRepo.findPlanById(requestedPlanId);
+    // Only the paid tiers can be asked for — the trial is assigned, not bought.
+    if (!plan || !plan.isActive || plan.isTrialPlan) {
+      throw new ServiceError("Please choose one of the available plans");
+    }
+    if (Number(subscription.planId) === requestedPlanId) {
+      throw new ServiceError(`Your organisation is already on ${plan.name}`, 400, { code: "ALREADY_ON_PLAN" });
+    }
+    row.currentPlanId = subscription.planId;
+    row.requestedPlanId = requestedPlanId;
+    const currentPlan: any = await SubscriptionRepo.findPlanById(subscription.planId);
+    planNames = { from: currentPlan?.name ?? "—", to: plan.name };
   } else {
     const currentLimit = subscription.maxEmployees;
     if (currentLimit === null || currentLimit === undefined) {
@@ -260,17 +285,20 @@ export const submitExtensionRequest = async (
   await ExtRepo.writeAuditLog({
     entityType: "extension_request",
     entityId: created.id,
-    action: requestType === "employee_limit" ? "limit_increase_requested" : "extension_requested",
+    action:
+      requestType === "employee_limit" ? "limit_increase_requested"
+      : requestType === "plan_change" ? "plan_change_requested"
+      : "extension_requested",
     actorId: callerId,
     actorRole: callerRole ?? null,
     previousValue:
-      requestType === "employee_limit"
-        ? { maxEmployees: row.currentEmployeeLimit }
-        : { endDate: subscription.endDate },
+      requestType === "employee_limit" ? { maxEmployees: row.currentEmployeeLimit }
+      : requestType === "plan_change" ? { planId: row.currentPlanId, planName: planNames?.from }
+      : { endDate: subscription.endDate },
     newValue:
-      requestType === "employee_limit"
-        ? { maxEmployees: row.requestedEmployeeLimit }
-        : { requestedDurationDays: row.requestedDurationDays },
+      requestType === "employee_limit" ? { maxEmployees: row.requestedEmployeeLimit }
+      : requestType === "plan_change" ? { planId: row.requestedPlanId, planName: planNames?.to }
+      : { requestedDurationDays: row.requestedDurationDays },
     reason: row.reason,
   }).catch((e) => console.error("[access-audit] failed to log request submission:", e));
 
@@ -283,6 +311,8 @@ export const submitExtensionRequest = async (
     detail:
       requestType === "employee_limit"
         ? `raise the employee limit from ${row.currentEmployeeLimit} to ${row.requestedEmployeeLimit}`
+        : requestType === "plan_change"
+        ? `change the plan from ${planNames?.from} to ${planNames?.to}`
         : `extend access by ${row.requestedDurationDays} day(s)`,
     actorId: callerId,
   }).catch(() => undefined);
@@ -293,6 +323,8 @@ export const submitExtensionRequest = async (
 const alreadyPendingMessage = (requestType: RequestType) =>
   requestType === "employee_limit"
     ? "Your organisation already has a pending employee limit request"
+    : requestType === "plan_change"
+    ? "Your organisation already has a pending plan change request"
     : "Your organisation already has a pending extension request";
 
 // Name/email for the Super Admin's queue notification. Only ever the
@@ -372,9 +404,26 @@ export const approveExtensionRequest = async (
 
     let approvedExpiresAt: Date | null = null;
     let approvedEmployeeLimit: number | null = null;
+    let approvedPlanName: string | null = null;
     const subscriptionFields: any = {};
 
-    if (request.requestType === "employee_limit") {
+    if (request.requestType === "plan_change") {
+      // Applied on the locked subscription row. Re-validated now: the plan
+      // must still be offered, and the tenant must not already be on it
+      // (e.g. Super Admin changed it by hand since the request was filed).
+      const plan: any = await SubscriptionRepo.findPlanById(Number(request.requestedPlanId));
+      if (!plan || !plan.isActive) {
+        throw new ServiceError("The requested plan is no longer available", 400, { code: "PLAN_UNAVAILABLE" });
+      }
+      if (Number(subscription.planId) === Number(plan.id)) {
+        throw new ServiceError(`This tenant is already on ${plan.name}`, 400, { code: "ALREADY_ON_PLAN" });
+      }
+      const fromPlan: any = await SubscriptionRepo.findPlanById(Number(subscription.planId));
+      (subscriptionBefore as any).planId = subscription.planId;
+      (subscriptionBefore as any).planName = fromPlan?.name ?? null;
+      subscriptionFields.planId = plan.id;
+      approvedPlanName = plan.name;
+    } else if (request.requestType === "employee_limit") {
       // A Super Admin may grant a different number than was asked for
       // (approve 60 against a request for 75) — validated the same way the
       // request was, and still required to be a real increase on the CURRENT
@@ -419,11 +468,18 @@ export const approveExtensionRequest = async (
     await ExtRepo.writeAuditLog({
       entityType: "subscription",
       entityId: subscription.id,
-      action: request.requestType === "employee_limit" ? "limit_increase_approved" : "extension_approved",
+      action:
+        request.requestType === "employee_limit" ? "limit_increase_approved"
+        : request.requestType === "plan_change" ? "plan_change_approved"
+        : "extension_approved",
       actorId: superAdminId,
       actorRole: "super_admin",
       previousValue: subscriptionBefore,
-      newValue: { ...subscriptionBefore, ...subscriptionFields },
+      newValue: {
+        ...subscriptionBefore,
+        ...subscriptionFields,
+        ...(approvedPlanName ? { planName: approvedPlanName } : {}),
+      },
       reason: reviewComment || null,
     });
 
@@ -455,9 +511,14 @@ export const approveExtensionRequest = async (
       ownerUserId: Number(request.ownerUserId),
       approvedExpiresAt,
       approvedEmployeeLimit,
+      approvedPlanName,
       requestType: String(request.requestType),
     };
   });
+
+  // A plan change alters which features the tenant may use — drop the cached
+  // entitlements so the new plan applies on the very next request.
+  if (result.requestType === "plan_change") invalidateEntitlements(result.ownerUserId);
 
   // Notified only after the transaction has COMMITTED — a message promising
   // a new limit must never go out for a change that then rolled back.
@@ -469,6 +530,7 @@ export const approveExtensionRequest = async (
     approved: true,
     newEmployeeLimit: result.approvedEmployeeLimit,
     newExpiresAt: result.approvedExpiresAt,
+    newPlanName: result.approvedPlanName,
     reviewComment,
   }).catch(() => undefined);
 

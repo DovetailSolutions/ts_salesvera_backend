@@ -15,7 +15,7 @@ export const QA_OWNER_EMAIL = "qa-plan-owner@salesvera.test";
 export const QA_EMPLOYEE_EMAIL = "qa-plan-employee@salesvera.test";
 
 export const api = async (method, path, token, body) => {
-  const res = await fetch(BASE + path, {
+  const send = () => fetch(BASE + path, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -23,6 +23,16 @@ export const api = async (method, path, token, body) => {
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  let res;
+  try {
+    res = await send();
+  } catch (err) {
+    // A pooled keep-alive socket the server already closed (idle > 5s, e.g.
+    // after a slow child process) fails at the network level before the
+    // request is processed. Retry once — GET only, never a write.
+    if (method !== "GET") throw err;
+    res = await send();
+  }
   let json = null;
   try { json = await res.json(); } catch { /* non-JSON body */ }
   return { status: res.status, body: json };

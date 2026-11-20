@@ -2657,9 +2657,13 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
           date: { [Op.gte]: thirtyDaysAgoDateOnly },
         },
       }),
+      // FIX: late days must come from the SAME set as the denominator
+      // (marked statuses). Counting late rows of any status let "late"
+      // exceed "marked" and the KPI went negative (e.g. -58.8%).
       Attendance.count({
         where: {
           employee_id: { [Op.in]: childIds },
+          status: { [Op.in]: MARKED_STATUSES },
           late: true,
           date: { [Op.gte]: thirtyDaysAgoDateOnly },
         },
@@ -2693,7 +2697,8 @@ export const buildDashboardSummary = async (userData: JwtPayload) => {
     const attendanceRateLast7Days = Math.round((attendanceMarkedLast7DaysCount / (teamSize * 7)) * 1000) / 10;
     const punctualityRateLast30Days =
       attendanceMarkedLast30DaysCount > 0
-        ? Math.round(((attendanceMarkedLast30DaysCount - lateMarkedLast30DaysCount) / attendanceMarkedLast30DaysCount) * 1000) / 10
+        ? Math.min(100, Math.max(0,
+            Math.round(((attendanceMarkedLast30DaysCount - lateMarkedLast30DaysCount) / attendanceMarkedLast30DaysCount) * 1000) / 10))
         : null;
 
     const leaveAllocated = (leaveBalances as any[]).reduce(

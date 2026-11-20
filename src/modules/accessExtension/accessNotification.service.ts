@@ -205,6 +205,8 @@ export const notifySuperAdminsOfRequest = async (params: {
         title:
           params.requestType === "employee_limit"
             ? "New employee limit increase request"
+            : params.requestType === "plan_change"
+            ? "New plan change request"
             : "New access extension request",
         body: `${params.requesterName} has submitted a request: ${params.detail}`,
         data: { event: "ACCESS_REQUEST_SUBMITTED", requestId: params.requestId, requestType: params.requestType },
@@ -221,6 +223,7 @@ export const notifyRequestReviewed = async (params: {
   approved: boolean;
   newEmployeeLimit?: number | null;
   newExpiresAt?: Date | null;
+  newPlanName?: string | null;
   reviewComment?: string | null;
 }) => {
   const { ownerUserId, actorId, requestId, requestType, approved, reviewComment } = params;
@@ -232,12 +235,19 @@ export const notifyRequestReviewed = async (params: {
     title =
       requestType === "employee_limit"
         ? "Your employee limit increase request was rejected"
+        : requestType === "plan_change"
+        ? "Your plan change request was rejected"
         : "Your access extension request was rejected";
     body =
       requestType === "employee_limit"
         ? "Your employee limit increase request has been rejected."
+        : requestType === "plan_change"
+        ? "Your plan change request has been rejected."
         : "Your access extension request has been rejected.";
     if (reviewComment) body += ` Reason: ${reviewComment}`;
+  } else if (requestType === "plan_change") {
+    title = "Your plan change request was approved";
+    body = `Your plan change request has been approved. Your organisation is now on ${params.newPlanName ?? "the new plan"}.`;
   } else if (requestType === "employee_limit") {
     title = "Your employee limit increase request was approved";
     body = `Your employee limit increase request has been approved. Your new limit is ${params.newEmployeeLimit} employees.`;

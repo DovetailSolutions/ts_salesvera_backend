@@ -27,7 +27,8 @@ export type AccessExtensionStatus = "pending" | "approved" | "rejected" | "cance
 
 // "duration" is the pre-0033 behaviour and stays the column default, so
 // every historical row reads back as the kind of request it actually was.
-export type AccessRequestType = "duration" | "employee_limit";
+// "plan_change" (migration 0051) -> requestedPlanId: move to another plan.
+export type AccessRequestType = "duration" | "employee_limit" | "plan_change";
 
 export interface AccessExtensionRequestAttributes {
   id: number;
@@ -40,6 +41,8 @@ export interface AccessExtensionRequestAttributes {
   currentEmployeeLimit: number | null;
   requestedEmployeeLimit: number | null;
   approvedEmployeeLimit: number | null;
+  currentPlanId: number | null;
+  requestedPlanId: number | null;
   reason: string;
   status: AccessExtensionStatus;
   reviewedBy: number | null;
@@ -56,7 +59,7 @@ type AccessExtensionRequestCreationAttributes = Optional<
   | "id" | "publicId" | "subscriptionId" | "status" | "reviewedBy" | "reviewedAt"
   | "reviewComment" | "previousExpiresAt" | "approvedExpiresAt"
   | "requestType" | "requestedDurationDays" | "currentEmployeeLimit"
-  | "requestedEmployeeLimit" | "approvedEmployeeLimit"
+  | "requestedEmployeeLimit" | "approvedEmployeeLimit" | "currentPlanId" | "requestedPlanId"
 >;
 
 export class AccessExtensionRequest
@@ -73,6 +76,8 @@ export class AccessExtensionRequest
   public currentEmployeeLimit!: number | null;
   public requestedEmployeeLimit!: number | null;
   public approvedEmployeeLimit!: number | null;
+  public currentPlanId!: number | null;
+  public requestedPlanId!: number | null;
   public reason!: string;
   public status!: AccessExtensionStatus;
   public reviewedBy!: number | null;
@@ -96,6 +101,8 @@ export class AccessExtensionRequest
         currentEmployeeLimit: { type: DataTypes.INTEGER, allowNull: true },
         requestedEmployeeLimit: { type: DataTypes.INTEGER, allowNull: true },
         approvedEmployeeLimit: { type: DataTypes.INTEGER, allowNull: true },
+        currentPlanId: { type: DataTypes.INTEGER, allowNull: true },
+        requestedPlanId: { type: DataTypes.INTEGER, allowNull: true },
         reason: { type: DataTypes.TEXT, allowNull: false },
         status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "pending" },
         reviewedBy: { type: DataTypes.INTEGER, allowNull: true },

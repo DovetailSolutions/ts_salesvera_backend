@@ -150,7 +150,7 @@ export const featuresFor = (tier: PlanTier, addons: string[]): Record<FeatureKey
 export const FEATURE_ROUTES: Array<{ feature: FeatureKey; pattern: RegExp }> = [
   // Pro — client visits
   { feature: "client_visits", pattern: /^\/admin\/(clients|meetings)(\/|$)/ },
-  { feature: "client_visits", pattern: /^\/admin\/(create-client|get-client|my-clients|get-client-details|client-details|update-client|assign-meeting|bulk-upload)(\/|$)/ },
+  { feature: "client_visits", pattern: /^\/admin\/(create-client|get-client|my-clients|get-client-details|client-details|update-client|assign-meeting|bulk-upload|getusermeeting|getmeetingdetails)(\/|$)/ },
   { feature: "client_visits", pattern: /^\/api\/(clientmeeting|my-clients|endmeeting|getmeetinglist|scheduledupdate|createmeeting|create-client|meeting|meetings)(\/|$)/ },
   // Pro — travel & mileage
   { feature: "travel_allowance", pattern: /^\/admin\/(travel|travel-range|vehicle-allowance-rates|fuel-expense|get-fuel-expense)(\/|$)/ },
@@ -158,13 +158,13 @@ export const FEATURE_ROUTES: Array<{ feature: FeatureKey; pattern: RegExp }> = [
   { feature: "travel_allowance", pattern: /^\/admin\/sales-team\/travel-summary(\/|$)/ },
   { feature: "travel_allowance", pattern: /^\/api\/(travel|travel-range)(\/|$)/ },
   // Pro — expenses
-  { feature: "expenses", pattern: /^\/admin\/(getexpense|getexpance|get-expense|export-expense|addexpense|addexpance|expense)(\/|$)/ },
+  { feature: "expenses", pattern: /^\/admin\/(getexpense|getexpance|get-expense|export-expense|addexpense|addexpance|expense|approved-expense|user-expense)(\/|$)/ },
   { feature: "expenses", pattern: /^\/api\/(getexpense|expense|user-expense|approved-expense)(\/|$)/ },
   // Advance — separation
   { feature: "separation", pattern: /^\/admin\/separation(\/|$)/ },
   // Advance — order management (items, quotations/sale orders, invoices, sale records)
-  { feature: "order_management", pattern: /^\/admin\/(addcategory|getcategory|getcategory-with-subcategories|getcategoy|updatecategory|deletecategory|category|sub-category|addsubcategory|updatesubcategory|getsubcategory|add|addquotation|getquotationlist|getquotationpdflist|downloadquotationpdf|addquotationpdf|addinvoice|getinvoice|updateinvoice|finalizeinvoice|get-record-sale)(\/|$)/ },
-  { feature: "order_management", pattern: /^\/api\/(getcategory|getsubcategory|addquotation|getquotation|getquotationpdf|getquotationpdflist|downloadquotationpdf|addinvoice|getinvoice|quotationtoinvoice|recordsale|getrecordsale|updaterecordsale|deleterecordsale)(\/|$)/ },
+  { feature: "order_management", pattern: /^\/admin\/(addcategory|getcategory|getcategory-with-subcategories|getcategoy|updatecategory|deletecategory|category|sub-category|addsubcategory|updatesubcategory|getsubcategory|add|addquotation|getquotationlist|getquotationpdflist|downloadquotationpdf|addquotationpdf|addinvoice|getinvoice|updateinvoice|finalizeinvoice|get-record-sale|updatequotation)(\/|$)/ },
+  { feature: "order_management", pattern: /^\/api\/(getcategory|getsubcategory|addquotation|getquotation|getquotationpdf|getquotationpdflist|downloadquotationpdf|updatequotation|addinvoice|getinvoice|quotationtoinvoice|recordsale|getrecordsale|updaterecordsale|deleterecordsale)(\/|$)/ },
   // Advance — inventory
   { feature: "inventory", pattern: /^\/admin\/inventory(\/|$)/ },
   // Advance — assets

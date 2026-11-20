@@ -41,6 +41,10 @@ export const addBranch = async (userId: number, input: AddBranchInput) => {
   if (!branchCountry) throw new ServiceError("Branch country is required");
   if (!postalCode || postalCode.length < 4) throw new ServiceError("Valid postal code is required");
   if (!addressLine1) throw new ServiceError("Address Line 1 is required");
+  // Both columns are NOT NULL in the DB; without these checks a missing
+  // value surfaced as a raw Postgres "null value in column" error.
+  if (!branchEmail || !/^\S+@\S+\.\S+$/.test(String(branchEmail))) throw new ServiceError("Valid branch email is required");
+  if (!branchPhone || String(branchPhone).trim().length < 8) throw new ServiceError("Valid branch phone is required");
 
   if (latitude === undefined || isNaN(Number(latitude)) || Number(latitude) < -90 || Number(latitude) > 90) {
     throw new ServiceError("Latitude must be between -90 and 90");
