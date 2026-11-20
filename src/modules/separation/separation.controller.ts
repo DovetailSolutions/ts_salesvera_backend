@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
 import { createSuccess } from "../../app/middlewear/errorMessage";
 import { handleServiceError } from "../shared/handleServiceError";
+import { attachmentFromRequest } from "./separationUpload";
 import * as SeparationService from "./separation.service";
 
 // companyId/role come only from req.userData, which tokenCheck resolved
@@ -27,7 +28,11 @@ const handle =
   };
 
 export const getMy = handle("Separation details fetched successfully", (req) => SeparationService.getMySeparation(actorOf(req)));
-export const submit = handle("Separation request submitted successfully", (req) => SeparationService.submitSeparation(actorOf(req), req.body), 201);
+export const submit = handle(
+  "Separation request submitted successfully",
+  (req) => SeparationService.submitSeparation(actorOf(req), req.body, attachmentFromRequest(req)),
+  201
+);
 export const withdrawOwn = handle("Separation request withdrawn", (req) => SeparationService.withdrawOwn(actorOf(req), req.params.id, req.body));
 
 export const getPolicy = handle("Separation policy fetched successfully", (req) => SeparationService.getPolicy(actorOf(req)));

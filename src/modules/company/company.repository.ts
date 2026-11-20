@@ -246,11 +246,17 @@ export const findOwnedCompaniesByUserId = (userId: number) =>
     order: [["id", "ASC"]],
   });
 
-export const findCompaniesWithFullDetail = (userId: number) =>
-  Company.findAll({
+export const findCompaniesWithFullDetail = async (userId: number) => {
+  // Additional admins (CompanyAdmin junction) administer the company exactly
+  // like its primary admin, so they see it here too.
+  const links: any[] = await (CompanyAdmin as any).findAll({ where: { adminId: userId }, attributes: ["companyId"] });
+  const linkedIds = links.map((l: any) => Number(l.companyId));
+  return Company.findAll({
     // A company's primary admin (Company.adminId) owns it too — matching
     // userId alone returned "No company found" for them.
-    where: { [Op.or]: [{ userId }, { adminId: userId }] },
+    where: {
+      [Op.or]: [{ userId }, { adminId: userId }, ...(linkedIds.length ? [{ id: { [Op.in]: linkedIds } }] : [])],
+    },
     include: [
       { model: Branch, as: "branches" },
       { model: Shift, as: "shifts" },
@@ -259,6 +265,7 @@ export const findCompaniesWithFullDetail = (userId: number) =>
       { model: CompanyBank, as: "companyBanks" },
     ],
   });
+};
 
 export const bulkCreateCompanyBanks = (rows: any[]) => CompanyBank.bulkCreate(rows);
 

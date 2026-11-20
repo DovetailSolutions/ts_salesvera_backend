@@ -770,6 +770,30 @@ export const updateProfile = async (userId: number, body: any, file: SpacesFile 
   const user = await AuthRepo.findUserById(Number(userId));
   if (!user) throw new ServiceError("User not found");
 
+  // Connecting Tally (saving its company GUID / name / start date) needs the
+  // tally:connect permission. Only an actual CHANGE is checked, so a form
+  // that re-submits the stored values unchanged keeps working as before.
+  const TALLY_FIELDS = ["tallyGuid", "tallyName", "tallyStartDate"] as const;
+  const sameValue = (field: (typeof TALLY_FIELDS)[number], next: any) => {
+    const prev = user.get(field) as any;
+    if (field === "tallyStartDate") {
+      const a = prev ? new Date(prev).getTime() : NaN;
+      const b = next ? new Date(next).getTime() : NaN;
+      return a === b;
+    }
+    return String(prev ?? "") === String(next ?? "");
+  };
+  const changesTally = TALLY_FIELDS.some((f) => updates[f] !== undefined && !sameValue(f, updates[f]));
+  if (changesTally) {
+    const role = String(user.get("role"));
+    const allowed = await userHasPermission(Number(userId), role, "tally", "connect");
+    if (!allowed) {
+      throw new ServiceError("You don't have permission to connect Tally ('tally:connect')", 403, {
+        code: "TALLY_PERMISSION_REQUIRED",
+      });
+    }
+  }
+
   const updatePayload: any = { ...updates };
   if (updatePayload.tallyStartDate) {
     updatePayload.tallyStartDate = new Date(updatePayload.tallyStartDate);

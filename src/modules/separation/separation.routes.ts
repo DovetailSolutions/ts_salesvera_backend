@@ -2,6 +2,7 @@ import { Router } from "express";
 import { tokenCheck } from "../../config/jwtVerify";
 import { authorizeRoles } from "../../app/middlewear/rbac";
 import * as SeparationController from "./separation.controller";
+import { handleSeparationAttachment } from "./separationUpload";
 
 // ============================================================
 // Separation Management — mounted on /admin in server.ts.
@@ -21,7 +22,8 @@ const adminOnly = [tokenCheck, authorizeRoles("admin", "user")];
 
 // Self-service (employee / manager)
 router.get("/separation/my", ...applicant, SeparationController.getMy);
-router.post("/separation/my", ...applicant, SeparationController.submit);
+// Optional "attachment" file (image/PDF, max 5 MB) — multipart; JSON still works.
+router.post("/separation/my", ...applicant, handleSeparationAttachment, SeparationController.submit);
 router.post("/separation/my/:id/withdraw", ...applicant, SeparationController.withdrawOwn);
 
 // Notice-period policy (admin)

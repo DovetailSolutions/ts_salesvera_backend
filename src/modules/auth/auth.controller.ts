@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { JwtPayload } from "jsonwebtoken";
-import { createSuccess, badRequest, unauthorized } from "../../app/middlewear/errorMessage";
+import { createSuccess, badRequest, unauthorized, forbidden } from "../../app/middlewear/errorMessage";
 import { ServiceError } from "../shared/serviceError";
 import { REFRESH_COOKIE_NAME } from "../../config/env";
 import { setRefreshCookie, clearRefreshCookie } from "./refreshCookie";
@@ -114,6 +114,12 @@ export const UpdateProfile = async (req: Request, res: Response): Promise<void> 
     const result = await AuthService.updateProfile(Number(userId), req.body, req.file as any);
     createSuccess(res, "Profile updated successfully", result);
   } catch (error) {
+    // Missing tally:connect is a real 403 (the module's other errors keep
+    // their existing 400 mapping).
+    if (error instanceof ServiceError && error.meta?.code === "TALLY_PERMISSION_REQUIRED") {
+      forbidden(res, error.message, error.meta);
+      return;
+    }
     handleServiceError(res, error);
   }
 };

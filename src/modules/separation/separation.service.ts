@@ -520,7 +520,12 @@ export const getMySeparation = async (actor: SeparationActor) => {
 const MAX_FUTURE_DAYS = 90;
 
 // POST /separation/my — submit a resignation.
-export const submitSeparation = async (actor: SeparationActor, body: any) => {
+export const submitSeparation = async (
+  actor: SeparationActor,
+  body: any,
+  // Optional uploaded file (separationUpload.ts) — e.g. a signed resignation letter.
+  attachment: { url: string; name: string; type: string | null } | null = null
+) => {
   const companyId = ensureApplicant(actor);
   const me = Number(actor.userId);
   const today = getISTDateString();
@@ -564,12 +569,17 @@ export const submitSeparation = async (actor: SeparationActor, body: any) => {
     created = await sequelize.transaction(async (t) => {
       const [rows]: any = await sequelize.query(
         `INSERT INTO separation_requests ("companyId","employeeId","applicantRole","managerId","reason","comments","resignationDate",
-            "requestedLastWorkingDay","status","noticeDays","expectedLastWorkingDay","policySnapshot","createdAt","updatedAt")
-         VALUES (:companyId,:me,:role,:managerId,:reason,:comments,:resignationDate,:requestedLwd,:status,:noticeDays,:expected,:snapshot,NOW(),NOW())
+            "requestedLastWorkingDay","status","noticeDays","expectedLastWorkingDay","policySnapshot",
+            "attachmentUrl","attachmentName","attachmentType","createdAt","updatedAt")
+         VALUES (:companyId,:me,:role,:managerId,:reason,:comments,:resignationDate,:requestedLwd,:status,:noticeDays,:expected,:snapshot,
+            :attachmentUrl,:attachmentName,:attachmentType,NOW(),NOW())
          RETURNING *`,
         {
           replacements: {
             companyId, me, role: actor.role, managerId, reason, comments, resignationDate, requestedLwd, status, noticeDays, expected,
+            attachmentUrl: attachment?.url ?? null,
+            attachmentName: attachment?.name ?? null,
+            attachmentType: attachment?.type ?? null,
             snapshot: JSON.stringify(policySnapshot(policy, { stage: "estimate", noticeDays, calculatedLastWorkingDay: expected })),
           },
           transaction: t,
@@ -579,6 +589,7 @@ export const submitSeparation = async (actor: SeparationActor, body: any) => {
       await audit(t, r, actorRef(actor), "submitted", null, status, comments, {
         reason, resignationDate, requestedLastWorkingDay: requestedLwd, estimatedLastWorkingDay: expected, noticeDays,
         routedTo: managerId ? "manager" : "admin",
+        ...(attachment ? { attachmentName: attachment.name } : {}),
       });
       return r;
     });
