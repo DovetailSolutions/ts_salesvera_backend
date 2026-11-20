@@ -16,7 +16,7 @@ import { Sequelize, DataTypes, Model, Optional } from "sequelize";
 // never a raw user/subscription row.
 // ============================================================
 
-export type AccessAuditEntityType = "subscription" | "extension_request";
+export type AccessAuditEntityType = "subscription" | "extension_request" | "subscription_addon";
 
 export interface AccessAuditLogAttributes {
   id: number;

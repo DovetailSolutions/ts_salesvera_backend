@@ -147,6 +147,10 @@ const deductForOrder = async (quotation: any, actor: Actor, transaction: Transac
         { code: "INSUFFICIENT_STOCK", subCategoryId: Number(sub.id), available, requested: line.quantity }
       );
     }
+    // Stock owned by Tally: the order is still checked against Tally's count
+    // above, but never deducts it — the next Tally sync is the only thing
+    // that changes this number.
+    if (sub.stockFromTally) continue;
     // Only what is actually on hand is taken; the ledger row records that
     // real amount, so a later reversal puts back exactly it.
     const taken = round3(Math.min(line.quantity, Math.max(available, 0)));
@@ -191,6 +195,7 @@ const restoreForOrder = async (quotation: any, actor: Actor, newStatus: string, 
 
   const subItems = await lockSubItems(Array.from(back.keys()), transaction);
   for (const sub of subItems) {
+    if (sub.stockFromTally) continue; // Tally owns this count now — don't add old deductions back
     const qty = back.get(Number(sub.id))!;
     const balance = round3(Number(sub.stockQuantity ?? 0) + qty);
     await sub.update({ stockQuantity: balance }, { transaction });
@@ -271,6 +276,14 @@ export const applyStockInput = async (
   if (!hasStockInput(input)) return;
   const [sub] = await lockSubItems([Number(subCategoryId)], transaction);
   if (!sub) return;
+
+  if (
+    sub.stockFromTally &&
+    input.stockQuantity !== undefined &&
+    round3(Number(input.stockQuantity ?? 0)) !==round3(Number(sub.stockQuantity ?? 0))
+  ) {
+    throw new ServiceError("Stock for this item is managed from Tally and can't be changed here");
+  }
 
   const changes: any = {};
   if (input.trackStock !== undefined) changes.trackStock = input.trackStock;
@@ -371,6 +384,9 @@ const deductForProforma = async (invoice: any, actor: Actor, transaction: Transa
         { code: "INSUFFICIENT_STOCK", subCategoryId: Number(sub.id), available, requested: line.quantity }
       );
     }
+    // Same rule as sale orders (deductForOrder): stock owned by Tally is
+    // checked above but never deducted — only the next Tally sync changes it.
+    if (sub.stockFromTally) continue;
     const taken = round3(Math.min(line.quantity, Math.max(available, 0)));
     const balance = round3(available - taken);
     await sub.update({ stockQuantity: balance }, { transaction });
@@ -413,6 +429,7 @@ const restoreForProforma = async (invoice: any, actor: Actor, newStatus: string,
 
   const subItems = await lockSubItems(Array.from(back.keys()), transaction);
   for (const sub of subItems) {
+    if (sub.stockFromTally) continue; // Tally owns this count now — don't add old deductions back
     const qty = back.get(Number(sub.id))!;
     const balance = round3(Number(sub.stockQuantity ?? 0) + qty);
     await sub.update({ stockQuantity: balance }, { transaction });
@@ -483,4 +500,40 @@ export const assertProformaItemLocks = async (rawItems: any, transaction?: Trans
       throw new ServiceError(`No discount can be given on ${name}`, 400, { code: "ITEM_DISCOUNT_LOCKED", subCategoryId: Number(sub.id) });
     }
   }
+};
+
+// ============================================================
+// Tally-managed stock. When a Tally stock-item record carries a quantity,
+// that item's stock is owned by Tally (sub_categories.stockFromTally): each
+// sync sets stockQuantity to Tally's closing balance, and sale orders no
+// longer deduct from it.
+// ============================================================
+
+// Tally's closing balance from a stock-item record, or null when the record
+// doesn't carry one (then the item's stock is left exactly as it is).
+// Accepts a number or Tally's text form, e.g. "1,250.500 NOS".
+export const parseTallyStock = (record: any): number | null => {
+  const raw = record?.stockQuantity ?? record?.closingBalance ?? record?.closingQty ?? record?.closingStock;
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).replace(/,/g, "").match(/-?\d+(\.\d+)?/)?.[0]);
+  return Number.isFinite(n) && Math.abs(n) < 1e11 ? round3(n) : null;
+};
+
+// Row fields to save on a sub-item for a Tally quantity.
+export const tallyStockFields = (qty: number) => ({ trackStock: true, stockFromTally: true, stockQuantity: qty });
+
+// Ledger row for a sync that changed the count (null when nothing changed).
+export const tallySyncMovement = (subCategoryId: number, before: number, after: number, actor: Actor) => {
+  const delta = round3(after - before);
+  if (delta === 0) return null;
+  return {
+    subCategoryId,
+    quotationId: null,
+    type: "tally_sync" as const,
+    quantity: delta,
+    balanceAfter: after,
+    actorId: Number(actor.userId),
+    actorRole: actor.role,
+    note: "Stock synced from Tally",
+  };
 };

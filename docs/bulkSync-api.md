@@ -360,6 +360,7 @@ Push stock item master from Tally (maps to product sub-categories).
 | `unit` | string | No | Unit of measure (e.g. `"NOS"`, `"KG"`, `"LTR"`) |
 | `hsnCode` | string | No | HSN / SAC code |
 | `gst` / `tax` | number | No | GST percentage (e.g. `18` for 18%) |
+| `stockQuantity` / `closingBalance` | number or string | No | Tally closing stock (e.g. `25` or `"25 Nos"`). When present, Tally owns the item's stock: it is stored as the count, sale orders no longer deduct it, and it can't be edited in SalesVera. Omit to leave stock untouched. |
 
 #### Full example request
 

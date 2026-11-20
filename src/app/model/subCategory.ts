@@ -27,6 +27,9 @@ export interface SubCategoryAttributes {
   allowOutOfStock?: boolean;
   // Migration 0048: which document takes this item's stock.
   stockDeductOn?: "sale_order" | "proforma_invoice";
+  // Migration 0047: stock quantity is owned by Tally (set by the stock-items
+  // sync); sale orders don't deduct it and it isn't editable by hand.
+  stockFromTally?: boolean;
 }
 
 export interface SubCategoryCreationAttributes
@@ -56,6 +59,7 @@ export class SubCategory
   public stockQuantity?: number | null;
   public allowOutOfStock?: boolean;
   public stockDeductOn?: "sale_order" | "proforma_invoice";
+  public stockFromTally?: boolean;
   static initModel(sequelize: Sequelize) {
     SubCategory.init(
       {
@@ -153,6 +157,11 @@ export class SubCategory
           type: DataTypes.STRING(20),
           allowNull: false,
           defaultValue: "sale_order",
+        },
+        stockFromTally: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
         },
         status: {
           type: DataTypes.ENUM("draft", "sent", "accepted", "imported", "rejected"),

@@ -47,6 +47,7 @@ export const  sendPushNotification = async ({
           priority: "high",
           notification: {
             sound: "default",
+            channelId: "notifications", // the app's high-importance channel (heads-up)
             clickAction: "FLUTTER_NOTIFICATION_CLICK", // or your app's action
           },
         },
@@ -75,6 +76,7 @@ export const  sendPushNotification = async ({
           priority: "high",
           notification: {
             sound: "default",
+            channelId: "notifications", // the app's high-importance channel (heads-up)
           },
         },
         apns: {

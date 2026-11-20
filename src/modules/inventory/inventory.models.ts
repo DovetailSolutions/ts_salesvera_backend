@@ -7,7 +7,7 @@ import { sequelize } from "../../config/dbConnection";
 // for a sale, positive for a sale reversal or an upward adjustment.
 // ============================================================
 
-export type StockMovementType = "sale" | "sale_reversal" | "adjustment" | "proforma" | "proforma_reversal";
+export type StockMovementType = "sale" | "sale_reversal" | "adjustment" | "proforma" | "proforma_reversal" | "tally_sync";
 
 export class StockMovement extends Model {
   public id!: number;

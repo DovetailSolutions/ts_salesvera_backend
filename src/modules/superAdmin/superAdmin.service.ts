@@ -13,9 +13,11 @@ import {
 import * as SetupTracking from "../setupTracking/setupTracking.service";
 import * as SubscriptionRepo from "../subscription/subscription.repository";
 import * as SubscriptionLimit from "../subscription/subscriptionLimit.service";
+import { invalidateEntitlements } from "../subscription/featureAccess.service";
 import { AccessAuditLog } from "../../config/dbConnection";
 import * as AccessNotify from "../accessExtension/accessNotification.service";
 import { parseJoiningDate, saveJoiningDate } from "../employeeProfile/joiningDate";
+import { resolveDefaultBranchAndShift } from "../shared/companyAccess";
 
 // ============================================================
 // Super Admin Service - Handles System-Wide Aggregations,
@@ -709,6 +711,21 @@ export const createUserAsSuperAdmin = async (
     await SubscriptionLimit.assertCanCreate(role, resolvedTenantId);
   }
 
+  // FIX: register() (auth.service.ts) defaults an employee/manager without
+  // an explicit branch/shift to the company's main branch and morning shift;
+  // this path did not, so a Super Admin-created employee had no branchId —
+  // and company membership for employees is read from branchId
+  // (resolveCompanyEmployeeIds), which left them out of company reports,
+  // attendance and shift rules. Same default, only when a company is given
+  // and the caller didn't choose one.
+  let resolvedBranchId: number | null = branchId ? Number(branchId) : null;
+  let resolvedShiftId: number | null = shiftId ? Number(shiftId) : null;
+  if ((role === "employee" || role === "manager") && companyId && (resolvedBranchId === null || resolvedShiftId === null)) {
+    const defaults = await resolveDefaultBranchAndShift(Number(companyId));
+    if (resolvedBranchId === null) resolvedBranchId = defaults.branchId;
+    if (resolvedShiftId === null) resolvedShiftId = defaults.shiftId;
+  }
+
   // Serialized per tenant across the count and the insert, same as
   // register()'s path — a Super Admin bulk-onboarding a tenant's team from
   // several tabs at once is exactly the concurrent case the bare
@@ -727,11 +744,26 @@ export const createUserAsSuperAdmin = async (
         status: "active",
         createdBy: createdBy || superAdminUserId,
         tenantId: resolvedTenantId,
-        branchId: branchId ? Number(branchId) : null,
+        branchId: resolvedBranchId,
         departmentId: departmentId ? Number(departmentId) : null,
-        shiftId: shiftId ? Number(shiftId) : null,
+        shiftId: resolvedShiftId,
       })
   );
+
+  // FIX: only users.createdBy was set here, never the UserCreators link that
+  // every hierarchy walk reads (tokenCheck.resolveCompanyId, team lists,
+  // reporting manager). An employee created by Super Admin therefore had no
+  // company context at all ("No active company is associated with your
+  // account"). Link the chosen creator the same way auth.service.ts's
+  // register() does — only when one was given and it belongs to the same
+  // tenant, so a creator from another tenant can never be attached.
+  if (isLimitedRole && createdBy && Number(createdBy) !== superAdminUserId) {
+    const creator: any = await User.findByPk(Number(createdBy), { attributes: ["id", "role", "tenantId"] });
+    const creatorTenant = creator ? (creator.role === "user" ? creator.id : creator.tenantId) : null;
+    if (creator && resolvedTenantId && Number(creatorTenant) === Number(resolvedTenantId)) {
+      await (newUser as any).setCreators([creator.id]).catch((e: any) => console.error("UserCreators link error:", e));
+    }
+  }
 
   // Date of joining for admin / manager / employee — today when not given.
   try {
@@ -972,6 +1004,7 @@ export const updateTenantSubscription = async (
   subscriptionId: number,
   updates: {
     status?: string;
+    planId?: number;
     startDate?: string;
     endDate?: string;
     maxAdmins?: number | null;
@@ -984,8 +1017,11 @@ export const updateTenantSubscription = async (
   const subscription: any = await SubscriptionRepo.findSubscriptionById(subscriptionId);
   if (!subscription) throw new ServiceError("Subscription not found", 404);
 
+  const currentPlan: any = await SubscriptionRepo.findPlanById(subscription.planId);
   const before = {
     status: subscription.status,
+    planId: subscription.planId,
+    planName: currentPlan?.name ?? null,
     startDate: subscription.startDate,
     endDate: subscription.endDate,
     maxAdmins: subscription.maxAdmins,
@@ -995,6 +1031,18 @@ export const updateTenantSubscription = async (
   };
 
   const fields: any = {};
+  const notifyFields: any = {};
+
+  // Upgrade / downgrade. Changed in place (same row, so pending extension
+  // requests keep pointing at it) and recorded in access_audit_logs, which
+  // is the plan-change history. Limits are NOT reset from the new plan:
+  // Super Admin edits them explicitly, and a downgrade never deletes data.
+  if (updates.planId !== undefined && Number(updates.planId) !== Number(subscription.planId)) {
+    const plan: any = await SubscriptionRepo.findPlanById(Number(updates.planId));
+    if (!plan || !plan.isActive) throw new ServiceError("planId must be an active subscription plan");
+    fields.planId = plan.id;
+    notifyFields.planName = plan.name;
+  }
 
   if (updates.status !== undefined) {
     if (!VALID_STATUSES.includes(updates.status)) {
@@ -1043,7 +1091,7 @@ export const updateTenantSubscription = async (
 
   await SubscriptionRepo.updateSubscription(subscriptionId, fields);
 
-  const after = { ...before, ...fields };
+  const after = { ...before, ...fields, ...notifyFields };
   await AccessAuditLog.create({
     entityType: "subscription",
     entityId: subscriptionId,
@@ -1073,9 +1121,11 @@ export const updateTenantSubscription = async (
     actorId,
     subscriptionId,
     before,
-    after: fields,
+    after: { ...fields, ...notifyFields },
     reason: reason || null,
   }).catch((e) => console.error("[access-notification] subscription update notify failed:", e));
+
+  invalidateEntitlements(Number(subscription.userId));
 
   return SubscriptionRepo.findSubscriptionById(subscriptionId);
 };

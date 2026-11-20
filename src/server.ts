@@ -39,6 +39,7 @@ import reportsRoutes from "./modules/reports/reports.routes";
 import meetingRoutes from "./modules/meeting/meeting.routes";
 import { contactPublicRoutes, contactAdminRoutes } from "./modules/contact/contact.routes";
 import superAdminRoutes from "./modules/superAdmin/superAdmin.routes";
+import planAccessRoutes from "./modules/subscription/planAccess.routes";
 import setupTrackingRoutes from "./modules/setupTracking/setupTracking.routes";
 import announcementRoutes from "./modules/announcement/announcement.routes";
 import managerCapabilitiesRoutes from "./modules/managerCapabilities/managerCapabilities.routes";
@@ -151,6 +152,7 @@ app.use("/admin", contactAdminRoutes);
 // routes (harmless either order, but this avoids running it twice).
 app.use("/admin", setupTrackingRoutes);
 app.use("/admin", accessExtensionRoutes);
+app.use("/admin", planAccessRoutes);
 app.use("/admin", superAdminRoutes);
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerFile, {

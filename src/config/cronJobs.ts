@@ -323,14 +323,18 @@ export const startCronJobs = () => {
   //             notice to "handover pending" once their
   //             approved last working day arrives, and
   //             prompt the admin / manager. Never
-  //             deactivates anyone — see startDueHandovers
+  //             deactivates anyone itself; deactivateDueSeparations
+  //             then deactivates logins whose LWD has passed. See startDueHandovers
   //             (separation.service.ts).
   // ─────────────────────────────────────────────
   cron.schedule("40 0 * * *", async () => {
     try {
-      const { startDueHandovers } = await import("../modules/separation/separation.service");
+      const { startDueHandovers, deactivateDueSeparations } = await import("../modules/separation/separation.service");
       const result = await startDueHandovers();
       if (result.moved) console.log(`[CRON] Separation: ${result.moved} moved to handover`);
+      // Logins whose approved last working day has fully passed (idempotent).
+      const deact = await deactivateDueSeparations();
+      if (deact.deactivated) console.log(`[CRON] Separation: ${deact.deactivated} login(s) deactivated after LWD`);
     } catch (error) {
       console.error("[CRON] ❌ Separation handover job failed:", error);
     }

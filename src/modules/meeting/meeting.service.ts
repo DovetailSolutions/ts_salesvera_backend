@@ -3,6 +3,7 @@ import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds, getCompanyScopedChildUserIds, getCompanyScopedOrgWideUserIds, getDirectCreator } from "../shared/userHierarchy";
 import { getISTDateString, parseISTTime, formatISTTime } from "../shared/dateUtils";
 import * as MeetingRepo from "./meeting.repository";
+import { Meeting } from "../../config/dbConnection";
 
 // ============================================================
 // Meeting service — new capabilities layered on top of the existing,
@@ -102,6 +103,13 @@ export const scheduleMeeting = async (
     subCategoryId = subCategoryId ?? (latest as any).subCategoryId;
   } else if (!meetingPurpose) {
     throw new ServiceError("meetingPurpose is required when scheduling a first meeting for a new client");
+  }
+  // The column is a Postgres enum: an unknown value used to surface as a raw
+  // "invalid input value for enum" DB error. Validate against the model's
+  // own enum list so the two can't drift apart.
+  const PURPOSES: string[] = ((Meeting as any).rawAttributes?.meetingPurpose?.values ?? []) as string[];
+  if (meetingPurpose && PURPOSES.length && !PURPOSES.includes(meetingPurpose)) {
+    throw new ServiceError(`meetingPurpose must be one of: ${PURPOSES.join(", ")}`);
   }
 
   const mu = meetingUser as any;
