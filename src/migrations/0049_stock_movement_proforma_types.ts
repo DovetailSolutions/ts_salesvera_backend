@@ -8,6 +8,6 @@ export async function up(sequelize: Sequelize): Promise<void> {
   await sequelize.query(`
     ALTER TABLE "inventory_stock_movements" DROP CONSTRAINT IF EXISTS "inventory_stock_movements_type_check";
     ALTER TABLE "inventory_stock_movements" ADD CONSTRAINT "inventory_stock_movements_type_check"
-      CHECK ("type" IN ('sale', 'sale_reversal', 'adjustment', 'proforma', 'proforma_reversal'));
+      CHECK ("type" IN ('sale', 'sale_reversal', 'adjustment', 'proforma', 'proforma_reversal', 'tally_sync'));
   `);
 }

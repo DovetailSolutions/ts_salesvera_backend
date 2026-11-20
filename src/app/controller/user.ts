@@ -4367,3 +4367,40 @@ export const getBranchall = async (req: Request, res: Response): Promise<void> =
     );
   }
 };
+
+// Registers / refreshes this device's FCM push token for the logged-in user.
+// The app calls this on startup and whenever FCM rotates the token, so a
+// device whose token wasn't ready at login (iOS waits for APNs) or that got a
+// new token later still receives pushes without logging in again.
+export const UpdateDeviceToken = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const userId = Number(userData.userId);
+    const deviceToken = typeof req.body?.deviceToken === "string" ? req.body.deviceToken.trim() : "";
+    const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId.trim() : "";
+    const { deviceType, devicemodel, devicename } = req.body ?? {};
+
+    if (!deviceToken || deviceToken === "null" || deviceToken.length > 255) {
+      badRequest(res, "A valid deviceToken is required");
+      return;
+    }
+
+    const fields: any = { userId, deviceToken, isActive: true };
+    if (deviceId) fields.deviceId = deviceId;
+    if (["android", "ios", "web"].includes(deviceType)) fields.deviceType = deviceType;
+    if (devicemodel) fields.devicemodel = String(devicemodel);
+    if (devicename) fields.devicename = String(devicename);
+
+    // Same matching as Login: the token or this physical device. A token
+    // that moved to this user (shared phone) is taken over, as on login.
+    const existing = await Device.findOne({
+      where: { [Op.or]: [{ deviceToken }, ...(deviceId ? [{ deviceId }] : [])] },
+    });
+    if (existing) await existing.update(fields);
+    else await Device.create(fields);
+
+    createSuccess(res, "Device token updated");
+  } catch (error) {
+    badRequest(res, error instanceof Error ? error.message : "Something went wrong");
+  }
+};
