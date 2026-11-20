@@ -8,6 +8,8 @@ import {
   SubCategory,
   TallyMaster,
 } from "../../config/dbConnection";
+import { StockMovement } from "../../modules/inventory/inventory.models";
+import { parseTallyStock, tallyStockFields, tallySyncMovement } from "../../modules/inventory/inventory.service";
 import {
   createSuccess,
   badRequest,
@@ -569,6 +571,12 @@ export const bulkStockItems = async (
 
     log("stock-items", "Partitioned", { toCreate: toCreate.length, toUpdate: toUpdate.length });
 
+    const actor = { userId: Number(userId), role: "tally_sync" };
+    // Stock before this sync, to record in the ledger what Tally changed.
+    const stockBefore = new Map<number, number>(
+      toUpdate.map(({ existing }) => [Number(existing.id), Number(existing.stockQuantity ?? 0)])
+    );
+
     let chunkIndex = 0;
     for (const ch of chunk(toCreate, CHUNK_SIZE)) {
       chunkIndex++;
@@ -586,8 +594,14 @@ export const bulkStockItems = async (
             unit: r.unit ?? null,
             hsnCode: r.hsnCode ?? null,
             status: r.status,
+            // Quantity from Tally → Tally owns this item's stock from now on.
+            ...(parseTallyStock(r) !== null ? tallyStockFields(parseTallyStock(r) as number) : {}),
           }))
         );
+        const openingMovements = created
+          .map((row: any, i: number) => tallySyncMovement(Number(row.id), 0, parseTallyStock(ch[i]) ?? 0, actor))
+          .filter(Boolean);
+        if (openingMovements.length) await StockMovement.bulkCreate(openingMovements as any);
         created.forEach((row: any, i: number) => {
           results.push({ tallyGuid: ch[i].tallyGuid || ch[i].guid || "", status: "created", id: row.id });
         });
@@ -616,6 +630,12 @@ export const bulkStockItems = async (
             unit: record.unit ?? existing.unit,
             hsnCode: record.hsnCode ?? existing.hsnCode,
             gst: record.gst ?? existing.gst,
+            ...(parseTallyStock(record) !== null ? tallyStockFields(parseTallyStock(record) as number) : {}),
+          }).then(async () => {
+            const qty = parseTallyStock(record);
+            if (qty === null) return;
+            const movement = tallySyncMovement(Number(existing.id), Number(stockBefore.get(Number(existing.id)) ?? 0), qty, actor);
+            if (movement) await StockMovement.create(movement as any);
           })
         )
       );

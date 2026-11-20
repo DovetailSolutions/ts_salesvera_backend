@@ -44,6 +44,7 @@ router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
 router.post("/scheduledupdate", tokenCheck, Controller.scheduled);
 router.post("/logout", tokenCheck, Controller.Logout);
+router.post("/device-token", allStaffTokenCheck, Controller.UpdateDeviceToken);
 router.get("/getcategory", tokenCheck, Controller.getCategory);
 
 // Attendance routes (punch-in/punch-out/today/attendancelist) now live in
