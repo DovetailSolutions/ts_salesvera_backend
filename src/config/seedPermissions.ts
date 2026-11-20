@@ -142,6 +142,14 @@ export const PERMISSION_SEEDS = [
   { module: "employee", action: "create",      description: "Register a new Sale Person account reporting to this Manager" },
   { module: "employee", action: "bulk_create", description: "Register multiple Sale Persons at once via CSV upload" },
   { module: "employee", action: "view",        description: "View the list and details of Sale Persons reporting to this Manager" },
+
+  // ── Tally Integration — saving the Tally company GUID/name/start date on
+  // the profile (PATCH /admin/updateProfile) and pushing data from Tally
+  // (POST /admin/bulk/*). Deliberately NOT in any default template: Tally
+  // writes accounting data, so it is an explicit grant. Existing Tally users
+  // were backfilled by migration 0053. Also requires the tenant's Tally
+  // add-on for the sync endpoints (plan gate). ─────
+  { module: "tally", action: "connect", description: "Connect Tally (save the Tally company GUID) and sync data from Tally" },
 ];
 
 export const seedPermissions = async (): Promise<void> => {

@@ -62,6 +62,7 @@ import { allocateProformaInvoiceNumber } from "../../modules/shared/proformaInvo
 import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
 import { ServiceError } from "../../modules/shared/serviceError";
 import { parseJoiningDate, saveJoiningDate } from "../../modules/employeeProfile/joiningDate";
+import * as EmployeeProfileService from "../../modules/employeeProfile/employeeProfile.service";
 import * as ClientService from "../../modules/client/client.service";
 import * as ClientController from "../../modules/client/client.controller";
 import * as InventoryService from "../../modules/inventory/inventory.service";
@@ -1171,7 +1172,12 @@ export const BulkAddSalePerson = async (
           dob: row.dob?.trim() || "",
           // Optional column; blank → the upload date.
           dateOfJoining: row.dateofjoining?.trim() || "",
+          // Optional Additional Details columns (Job & Personal, Address,
+          // Government IDs, Emergency Contact) — parsed/validated below.
+          // Kept off the enumerable row so response payloads stay as before.
+          rowNumber: rows.length + 2, // +1 header line, +1 for 1-based rows
         });
+        Object.defineProperty(rows[rows.length - 1], "__raw", { value: row, enumerable: false });
       })
       .on("end", async () => {
         try {
@@ -1179,6 +1185,14 @@ export const BulkAddSalePerson = async (
           const duplicateInCsv: any[] = [];
           const validRows: any[] = [];
           const seenEmails = new Set<string>();
+
+          // Why each skipped row was skipped (additive response field).
+          const invalidRowsDetail: Array<{ row: number; email: string; reason: string }> = [];
+          const markInvalid = (r: any, reason: string) => {
+            invalidRows.push(r);
+            invalidRowsDetail.push({ row: r.rowNumber, email: r.email, reason });
+          };
+          const extrasByEmail = new Map<string, Record<string, string>>();
 
           for (const r of rows) {
             if (
@@ -1188,13 +1202,20 @@ export const BulkAddSalePerson = async (
               !r.phone ||
               !r.dob
             ) {
-              invalidRows.push(r);
+              markInvalid(r, "firstName, lastName, email, phone and dob are required");
               continue;
             }
             try {
               r.dateOfJoining = parseJoiningDate(r.dateOfJoining);
             } catch {
-              invalidRows.push(r); // a date of joining that isn't a valid date
+              markInvalid(r, "dateOfJoining is not a valid date"); // a date of joining that isn't a valid date
+              continue;
+            }
+            // Additional Details: same rules as the single form. A row with
+            // invalid details is skipped whole rather than created half-filled.
+            const extra = EmployeeProfileService.parseBulkExtraDetails((r as any).__raw);
+            if (extra.error) {
+              markInvalid(r, extra.error);
               continue;
             }
 
@@ -1204,6 +1225,7 @@ export const BulkAddSalePerson = async (
             }
 
             seenEmails.add(r.email);
+            if (Object.keys(extra.fields).length) extrasByEmail.set(r.email, extra.fields);
             validRows.push(r);
           }
 
@@ -1352,6 +1374,14 @@ export const BulkAddSalePerson = async (
                 createdBy: creatorId,
               }).catch((err) => console.error(`Failed to save date of joining for ${r.email}:`, err));
 
+              // Additional Details from the CSV (only for accounts created here;
+              // an existing employee who is merely linked keeps their own).
+              await EmployeeProfileService.saveBulkExtraDetails(
+                item.getDataValue("id") as number,
+                extrasByEmail.get(r.email) ?? {},
+                { companyId: callerCompanyId ? Number(callerCompanyId) : null, createdBy: creatorId }
+              ).catch((err) => console.error(`Failed to save additional details for ${r.email}:`, err));
+
               sendEmail(
                 "Welcome to SalesVera - Your Login Credentials",
                 tempPassword,
@@ -1390,6 +1420,8 @@ export const BulkAddSalePerson = async (
             limitReachedSalePersons: skippedLimitReached,
             createdSalePersons: created,
             linkedSalePersons: linkedExisting,
+            invalidRowsDetail,
+            withAdditionalDetails: created.filter((c) => extrasByEmail.has(c.email)).length,
           });
         } catch (err) {
           // A ServiceError here comes from the subscription/limit layer

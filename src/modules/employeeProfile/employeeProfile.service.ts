@@ -136,6 +136,100 @@ const validateExtraDetails = (body: Record<string, any>) => {
   }
 };
 
+// ── Bulk upload: Additional Details columns ─────────────────────────────
+// The same fields the single registration form offers (Job & Personal,
+// Address, Government IDs, Emergency Contact — frontend
+// employeeDetailsFieldGroups.js minus the "Other" group; dateOfJoining has
+// its own column). A CSV header matches either the field key or its label,
+// ignoring case, spaces and punctuation ("jobTitle", "Job Title",
+// "job_title" all work). Dropdown fields accept only the form's options.
+const BULK_EXTRA_FIELDS: Array<{ key: string; label: string; options?: string[]; email?: boolean }> = [
+  { key: "jobTitle", label: "Job Title" },
+  { key: "employeeType", label: "Employee Type", options: ["Full Time", "Part Time", "Permanent", "Intern", "Probation", "Consultant", "Contract"] },
+  { key: "employeeIdExternal", label: "Employee ID" },
+  { key: "gender", label: "Gender", options: ["Male", "Female", "Others"] },
+  { key: "maritalStatus", label: "Marital Status", options: ["Married", "Unmarried"] },
+  { key: "bloodGroup", label: "Blood Group", options: ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"] },
+  { key: "personalEmail", label: "Personal Email", email: true },
+  { key: "officialEmail", label: "Official Email", email: true },
+  { key: "countryCode", label: "Country Code" },
+  { key: "currentAddress", label: "Current Address" },
+  { key: "permanentAddress", label: "Permanent Address" },
+  { key: "houseNumber", label: "House Number" },
+  { key: "pfAccountNumber", label: "PF A/C No." },
+  { key: "esiAccountNumber", label: "ESI A/C No." },
+  { key: "uan", label: "UAN" },
+  { key: "aadhaarNumber", label: "Aadhaar Number" },
+  { key: "panNumber", label: "PAN Number" },
+  { key: "guardianName", label: "Guardian Name" },
+  { key: "emergencyContactName", label: "Emergency Contact Name" },
+  { key: "emergencyContactCountryCode", label: "Emergency Contact Country Code" },
+  { key: "emergencyContactPhone", label: "Emergency Contact Phone" },
+  { key: "emergencyContactRelationship", label: "Emergency Contact Relationship" },
+  { key: "emergencyContactAddress", label: "Emergency Contact Address" },
+];
+
+export const BULK_EXTRA_DETAIL_KEYS = BULK_EXTRA_FIELDS.map((f) => f.key);
+
+const normHeader = (h: string) => String(h).toLowerCase().replace(/[^a-z0-9]/g, "");
+const HEADER_TO_FIELD = new Map<string, (typeof BULK_EXTRA_FIELDS)[number]>();
+for (const f of BULK_EXTRA_FIELDS) {
+  HEADER_TO_FIELD.set(normHeader(f.key), f);
+  HEADER_TO_FIELD.set(normHeader(f.label), f);
+}
+
+/**
+ * Reads the Additional Details columns of one bulk-upload CSV row.
+ * Returns the fields to save (blank cells are left out) or the first
+ * validation error. Columns that aren't Additional Details are ignored.
+ */
+export const parseBulkExtraDetails = (
+  row: Record<string, any>
+): { fields: Record<string, string>; error: string | null } => {
+  const fields: Record<string, string> = {};
+  for (const [header, raw] of Object.entries(row ?? {})) {
+    const def = HEADER_TO_FIELD.get(normHeader(header));
+    if (!def) continue;
+    const value = raw == null ? "" : String(raw).trim();
+    if (!value) continue;
+    if (value.length > 500) return { fields: {}, error: `${def.label} is too long (max 500 characters)` };
+    if (def.options) {
+      // Case, spaces and underscores don't matter ("full time", "FULL_TIME");
+      // + and - do (A+ vs A-).
+      const cmp = (s: string) => s.toLowerCase().replace(/[\s_]+/g, "");
+      const match = def.options.find((o) => cmp(o) === cmp(value));
+      if (!match) return { fields: {}, error: `${def.label} must be one of: ${def.options.join(", ")}` };
+      fields[def.key] = match;
+      continue;
+    }
+    if (def.email && !/^\S+@\S+\.\S+$/.test(value)) return { fields: {}, error: `${def.label} is not a valid email` };
+    fields[def.key] = value;
+  }
+  if (fields.aadhaarNumber) fields.aadhaarNumber = fields.aadhaarNumber.replace(/\s/g, "");
+  if (fields.panNumber) fields.panNumber = fields.panNumber.toUpperCase();
+  try {
+    validateExtraDetails(fields);
+  } catch (e: any) {
+    return { fields: {}, error: e?.message || "Invalid additional details" };
+  }
+  return { fields, error: null };
+};
+
+/** Saves bulk-uploaded Additional Details for a just-created user (no-op when empty). */
+export const saveBulkExtraDetails = async (
+  userId: number,
+  fields: Record<string, string>,
+  meta: { companyId: number | null; createdBy: number }
+) => {
+  if (!fields || Object.keys(fields).length === 0) return null;
+  const existing = await Repo.findExtraDetails(userId);
+  return Repo.upsertExtraDetails(userId, {
+    ...fields,
+    updatedBy: meta.createdBy,
+    ...(existing ? {} : { companyId: meta.companyId, createdBy: meta.createdBy }),
+  });
+};
+
 export const updateProfile = async (caller: Caller, targetUserId: number, body: Record<string, any>) => {
   await assertTargetInScope(targetUserId);
   await assertAccess(caller, targetUserId, "employee-profile", "update");

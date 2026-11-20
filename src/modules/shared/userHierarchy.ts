@@ -185,6 +185,40 @@ export const collectUserCompanyIds = async (
   return map;
 };
 
+// ── Co-admins share one team ─────────────────────────────────────────────
+// A company can have several admins: the primary Company.adminId plus
+// additional admins linked through the CompanyAdmin junction. "My team" is
+// built from the creator chain, so an additional admin — who created nobody —
+// used to see empty employee/leave/expense/client lists while the primary
+// admin saw everything. For a caller who IS an admin of the company being
+// acted in, the team is therefore the union of every company admin's
+// creator tree (minus the caller). A company with a single admin resolves to
+// exactly that admin's own tree, i.e. the previous result. Managers,
+// employees and owners are never company admins, so they are unaffected.
+const companyAdminRootsFor = async (userId: number, companyId: number): Promise<number[] | null> => {
+  const [company, links]: [any, any[]] = await Promise.all([
+    (Company as any).findByPk(companyId, { attributes: ["adminId"] }),
+    (CompanyAdmin as any).findAll({ where: { companyId }, attributes: ["adminId"] }),
+  ]);
+  const roots = new Set<number>();
+  if (company?.adminId) roots.add(Number(company.adminId));
+  links.forEach((l: any) => roots.add(Number(l.adminId)));
+  return roots.has(Number(userId)) ? Array.from(roots) : null;
+};
+
+const unionOfTrees = async (
+  callerId: number,
+  roots: number[],
+  walk: (id: number) => Promise<number[]>
+): Promise<number[]> => {
+  const trees = await Promise.all(roots.map(walk));
+  // Fellow admins are part of the shared team too, so records they own
+  // directly (clients, quotations, …) are visible to every co-admin.
+  const out = new Set<number>([...roots, ...trees.flat()]);
+  out.delete(Number(callerId));
+  return Array.from(out);
+};
+
 // The company-scoped counterpart to getAllChildUserIds: the caller's
 // recursive team, minus anyone positively belonging to a different company.
 // Passing a null/undefined companyId (no company context resolvable —
@@ -194,7 +228,10 @@ export async function getCompanyScopedChildUserIds(
   userId: number,
   companyId: number | null | undefined
 ): Promise<number[]> {
-  const childIds = await getAllChildUserIds(userId);
+  const coAdmins = companyId == null ? null : await companyAdminRootsFor(userId, Number(companyId));
+  const childIds = coAdmins && coAdmins.length > 1
+    ? await unionOfTrees(userId, coAdmins, getAllChildUserIds)
+    : await getAllChildUserIds(userId);
   if (companyId == null || childIds.length === 0) return childIds;
 
   const target = Number(companyId);
@@ -221,8 +258,12 @@ export async function getCompanyScopedChildUserIdsFast(
   userId: number,
   companyId: number | null | undefined
 ): Promise<number[]> {
-  const result = new Set<number>();
-  let currentLevelIds: number[] = [userId];
+  // Co-admins share one team — see companyAdminRootsFor above.
+  const coAdmins = companyId == null ? null : await companyAdminRootsFor(userId, Number(companyId));
+  const shared = !!coAdmins && coAdmins.length > 1;
+  // Fellow admins are part of the shared team (see unionOfTrees).
+  const result = new Set<number>(shared ? coAdmins! : []);
+  let currentLevelIds: number[] = shared ? coAdmins! : [userId];
 
   while (currentLevelIds.length > 0) {
     const users = (await User.findAll({
@@ -251,6 +292,7 @@ export async function getCompanyScopedChildUserIdsFast(
     currentLevelIds = nextLevelIds;
   }
 
+  result.delete(Number(userId)); // a co-admin may sit in another admin's tree
   const childIds = Array.from(result);
   if (companyId == null || childIds.length === 0) return childIds;
 
