@@ -83,6 +83,9 @@ router.get("/admin-manager",tokenCheck,AdminController.test);
 // employee's own GET /api/getprofile includes the company's full branch
 // list (default off).
 router.patch("/users/:userId/branch-visibility", tokenCheck, authorizeRoles("super_admin", "admin"), AdminController.UpdateBranchVisibility);
+// Is the caller's company connected to Tally (then employees/managers see only
+// the main branch and the Branch List toggles are locked)? See shared/tallyBranchLock.ts.
+router.get("/branch-visibility-mode", tokenCheck, authorizeRoles("super_admin", "admin", "user", "manager"), AdminController.GetBranchVisibilityMode);
 router.patch('/approved-expense', tokenCheck, checkPermission("expense", "approve"), AdminController.UpdateExpense)
 router.get('/user-expense', tokenCheck, checkPermission("expense", "view"), AdminController.userExpense)
 router.post("/create-client", tokenCheck, AdminController.createClient);

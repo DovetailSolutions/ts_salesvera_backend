@@ -63,6 +63,7 @@ import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit
 import { ServiceError } from "../../modules/shared/serviceError";
 import { parseJoiningDate, saveJoiningDate } from "../../modules/employeeProfile/joiningDate";
 import * as EmployeeProfileService from "../../modules/employeeProfile/employeeProfile.service";
+import { getTallyBranchLock } from "../../modules/shared/tallyBranchLock";
 import * as ClientService from "../../modules/client/client.service";
 import * as ClientController from "../../modules/client/client.controller";
 import * as InventoryService from "../../modules/inventory/inventory.service";
@@ -1811,6 +1812,26 @@ export const test = async (req: Request, res: Response): Promise<void> => {
 };
 
 // Admin/super_admin-only toggle (User Management page) — controls whether a
+// GET /admin/branch-visibility-mode — whether the caller's active company is
+// connected to Tally. When it is, employees/managers see only the main branch
+// and the per-user Branch List toggles have no effect (their saved values are
+// kept for when Tally is disconnected). See shared/tallyBranchLock.ts.
+export const GetBranchVisibilityMode = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const companyId = userData?.companyId ? Number(userData.companyId) : null;
+    const lock = await getTallyBranchLock(companyId);
+    createSuccess(res, "Branch visibility mode fetched", {
+      companyId,
+      tallyConnected: !!lock?.tallyConnected,
+      mainBranch: lock?.mainBranch ?? null,
+      mode: lock?.tallyConnected ? "tally_main_branch" : "per_user_toggle",
+    });
+  } catch (error) {
+    badRequest(res, error instanceof Error ? error.message : "Something went wrong");
+  }
+};
+
 // employee's own GET /api/getprofile includes the company's full branch
 // list. See schemaExtensions.ts's ensureBranchVisibilityToggle and
 // app/controller/user.ts's GetProfile for the read side.
@@ -3307,6 +3328,8 @@ export const addSubCategory = async (
     // Optional inventory fields (modules/inventory) — absent for services and
     // for every caller that doesn't send them, which then behaves as before.
     const stockInput = InventoryService.parseStockInput(req.body);
+    // Tally connected → Track stock can't be switched on from here.
+    await InventoryService.assertStockSettingsEditable((userData as any)?.companyId, null, stockInput);
     const subCategory = await SubCategory.create({
       sub_category_name: cleanName,
       CategoryId,
@@ -3446,6 +3469,8 @@ export const updateSubCategory = async (req: Request, res: Response) => {
         badRequest(res, "You can only change stock for your own inventory");
         return;
       }
+      // Tally connected → Track stock settings are locked (other fields still save).
+      await InventoryService.assertStockSettingsEditable((userData as any)?.companyId, existingSubCategory, stockInput);
     }
 
     // Update using instance (better approach)

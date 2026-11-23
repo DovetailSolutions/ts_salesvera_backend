@@ -3,6 +3,7 @@ import { User, Category, SubCategory } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { getAllChildUserIds } from "../shared/userHierarchy";
 import { StockMovement } from "./inventory.models";
+import { getTallyBranchLock } from "../shared/tallyBranchLock";
 
 // ============================================================
 // Inventory stock for sale orders.
@@ -265,6 +266,34 @@ export const parseStockInput = (body: any): StockInput => {
     out.stockQuantity = round3(n);
   }
   return out;
+};
+
+// Company connected to Tally → the Track stock settings (trackStock,
+// stockQuantity, allowOutOfStock, stockDeductOn) can't be changed from the
+// Inventory page; every other item field stays editable. Only a real change
+// is refused — re-sending the current values (the edit form does) passes.
+// `current` is the item being edited, or null when creating one.
+export const assertStockSettingsEditable = async (
+  companyId: number | null | undefined,
+  current: any | null,
+  input: StockInput
+) => {
+  if (!hasStockInput(input)) return;
+  // Creating an item with tracking off is still fine.
+  if (!current && !input.trackStock) return;
+  const lock = await getTallyBranchLock(companyId);
+  if (!lock?.tallyConnected) return;
+
+  const changed =
+    !current ||
+    (input.trackStock !== undefined && input.trackStock !== !!current.trackStock) ||
+    (input.allowOutOfStock !== undefined && input.allowOutOfStock !== !!current.allowOutOfStock) ||
+    (input.stockDeductOn !== undefined && input.stockDeductOn !== (current.stockDeductOn || "sale_order")) ||
+    (input.stockQuantity !== undefined && round3(Number(input.stockQuantity ?? 0)) !== round3(Number(current.stockQuantity ?? 0)));
+
+  if (changed) {
+    throw new ServiceError("Track stock is managed by Tally while Tally is connected and can't be changed here");
+  }
 };
 
 export const applyStockInput = async (
