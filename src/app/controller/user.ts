@@ -47,6 +47,7 @@ import {
   Permission,
   UserPermission,
 } from "../../config/dbConnection";
+import { getTallyBranchLock, TALLY_LOCKED_ROLES } from "../../modules/shared/tallyBranchLock";
 import * as Middleware from "../middlewear/comman";
 import { getAllSubordinateIds } from "../middlewear/comman";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getCompanyScopedOrgWideUserIds, getOrgWideUserIdsForCaller } from "../../modules/shared/userHierarchy";
@@ -441,6 +442,23 @@ export const GetProfile = async (
     }
     if (userData.role === "employee" && profile.company && !profile.canViewAllBranches) {
       delete profile.company.branches;
+    }
+
+    // Tally connected → employees and managers get only the main branch,
+    // whatever the Branch List toggle says (shared/tallyBranchLock.ts).
+    // Not connected → the toggle rule above, unchanged. branchListMode tells
+    // the app which rule applied (additive field).
+    if (profile.company?.id && TALLY_LOCKED_ROLES.includes(String(userData.role))) {
+      const lock = await getTallyBranchLock(Number(profile.company.id));
+      if (lock?.tallyConnected) {
+        profile.company.branches = lock.mainBranch
+          ? await Branch.findAll({ where: { id: lock.mainBranch.id } })
+          : [];
+        profile.company.branchListMode = "tally_main_branch";
+      } else {
+        profile.company.branchListMode =
+          userData.role === "employee" && !profile.canViewAllBranches ? "hidden" : "all";
+      }
     }
 
     // ✅ Step 5: For employee — include the admin's granted permissions
@@ -4344,6 +4362,24 @@ export const getBranchall = async (req: Request, res: Response): Promise<void> =
       whereClause.companyId = companyId
         ? (accessibleIds.includes(Number(companyId)) ? Number(companyId) : -1)
         : { [Op.in]: accessibleIds };
+    }
+
+    // Tally-connected companies: employees/managers see only the main branch
+    // (shared/tallyBranchLock.ts). Companies not connected to Tally are
+    // queried exactly as before.
+    if (accessibleIds && TALLY_LOCKED_ROLES.includes(String(userData.role))) {
+      const companyIds = companyId
+        ? (accessibleIds.includes(Number(companyId)) ? [Number(companyId)] : [])
+        : accessibleIds.map(Number);
+      const locks = (await Promise.all(companyIds.map((c) => getTallyBranchLock(c)))).filter((l) => l?.tallyConnected);
+      if (locks.length) {
+        const clauses = companyIds.map((c) => {
+          const lock = locks.find((l) => l!.companyId === c);
+          return lock ? { companyId: c, id: lock.mainBranch?.id ?? -1 } : { companyId: c };
+        });
+        delete whereClause.companyId;
+        whereClause[Op.or] = clauses;
+      }
     }
 
     const { count, rows } = await Branch.findAndCountAll({
