@@ -9,6 +9,7 @@ import {
   canSignInWhileBlocked,
 } from "../modules/subscription/subscriptionLimit.service";
 import { gateRequestByPlan } from "../modules/subscription/featureAccess.service";
+import { findRootCompanyId, isTeamRootRole } from "../modules/shared/rootCompany";
 
 // Routes still callable while the tenant's subscription is inactive:
 // session/profile basics plus the access-request flow. Stored lowercased and
@@ -108,22 +109,19 @@ export const resolveCompanyId = async (
     const creator = plain?.creators?.[0] || null;
 
     if (!creator) {
-      if (plain?.role === "admin" || plain?.role === "super_admin") rootAdminId = currentId;
+      if (isTeamRootRole(plain?.role)) rootAdminId = currentId;
       break;
     }
-    if (creator.role === "admin" || creator.role === "super_admin") {
+    // Stops at the first admin or tenant owner ("user") — see shared/rootCompany.
+    if (isTeamRootRole(creator.role)) {
       rootAdminId = creator.id;
       break;
     }
     currentId = creator.id;
   }
 
-  if (!rootAdminId) return null;
-  const company = await (Company as any).findOne({
-    where: { adminId: rootAdminId },
-    attributes: ["id"],
-  });
-  return company ? company.id : null;
+  // Primary admin → assigned admin (CompanyAdmin) → tenant owner.
+  return findRootCompanyId(rootAdminId);
 };
 
 /**
