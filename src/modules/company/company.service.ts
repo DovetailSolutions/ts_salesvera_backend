@@ -376,6 +376,16 @@ export const assignCompanyAdmin = async (companyIdParam: string, userId: number,
 
   const [record, created] = await CompanyRepo.findOrCreateCompanyAdmin(Number(companyIdParam), Number(adminId));
 
+  // FIX: a company registered without an admin (Register Company sends
+  // adminId: null — the owner adds one later) kept Company.adminId empty
+  // forever, because assigning an admin only wrote the CompanyAdmin
+  // junction. The first admin assigned becomes the primary admin, the same
+  // as Super Admin's create-user path does; an existing primary admin is
+  // never replaced.
+  if (!(company as any).adminId) {
+    await (company as any).update({ adminId: Number(adminId) });
+  }
+
   return {
     message: created ? "Admin assigned to company" : "Admin already assigned to this company",
     record,

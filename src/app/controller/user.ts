@@ -76,6 +76,7 @@ import { resolveChargedDays } from "../../modules/leave/leaveCharge";
 import * as AdminController from "./admin";
 import * as InventoryService from "../../modules/inventory/inventory.service";
 import { ServiceError } from "../../modules/shared/serviceError";
+import { findRootCompanyId, isTeamRootRole } from "../../modules/shared/rootCompany";
 import { isValidCoordinate, isPlausibleLeg, getSalesPersonTravelSummary } from "../../modules/attendance/travelDistance.service";
 
 // Expense category for claiming a day's tracked mileage allowance. Its amount
@@ -213,13 +214,14 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         const creator = plain?.creators?.[0] || null;
 
         if (!creator) {
-          if (plain?.role === "admin" || plain?.role === "super_admin") {
+          if (isTeamRootRole(plain?.role)) {
             rootAdminId = currentId;
           }
           break;
         }
 
-        if (creator.role === "admin" || creator.role === "super_admin") {
+        // Stops at the first admin or tenant owner ("user") — see shared/rootCompany.
+        if (isTeamRootRole(creator.role)) {
           rootAdminId = creator.id;
           break;
         }
@@ -227,13 +229,8 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
         currentId = creator.id;
       }
 
-      if (rootAdminId) {
-        const company = await (Company as any).findOne({
-          where: { adminId: rootAdminId },
-          attributes: ["id"],
-        });
-        companyId = company ? company.id : null;
-      }
+      // Primary admin → assigned admin (CompanyAdmin) → tenant owner.
+      companyId = await findRootCompanyId(rootAdminId);
     }
     console.log(`Login attempt: userId=${userId}, role=${role}, resolvedCompanyId=${companyId}`);
     // ✅ Create access & refresh tokens
@@ -378,14 +375,14 @@ export const GetProfile = async (
 
       if (!creator) {
         // No more parents — stop here; current user is the root
-        if (plain?.role === "admin" || plain?.role === "super_admin") {
+        if (isTeamRootRole(plain?.role)) {
           rootAdminId = currentId;
         }
         break;
       }
 
-      // If the creator is an admin / super_admin → they are the root
-      if (creator.role === "admin" || creator.role === "super_admin") {
+      // If the creator is an admin / tenant owner / super_admin → they are the root
+      if (isTeamRootRole(creator.role)) {
         rootAdminId = creator.id;
         break;
       }
@@ -398,10 +395,12 @@ export const GetProfile = async (
     profile.parent = parentUser;
 
     // ✅ Step 4: Fetch the company linked to the root admin
-    // employee → manager → admin → company (adminId = admin.id)
-    if (rootAdminId) {
+    // employee → manager → admin → company. Primary admin → assigned admin
+    // (CompanyAdmin) → tenant owner — see shared/rootCompany.
+    const rootCompanyId = await findRootCompanyId(rootAdminId);
+    if (rootCompanyId) {
       const company = await Company.findOne({
-        where: { adminId: rootAdminId },
+        where: { id: rootCompanyId },
         include: [
           {
             model: CompanyBank,
