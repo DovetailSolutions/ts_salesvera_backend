@@ -244,7 +244,7 @@ export const switchCompany = async (req: Request, res: Response): Promise<void> 
       badRequest(res, "Unauthorized request");
       return;
     }
-    const result = await CompanyService.switchCompany(Number(userData.userId), userData.role, req.body);
+    const result = await CompanyService.switchCompany(Number(userData.userId), userData.role, req.body, (userData as any).ch);
     createSuccess(res, "Company switched successfully", result);
   } catch (error) {
     handleServiceError(res, error);

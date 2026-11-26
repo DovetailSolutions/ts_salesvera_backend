@@ -61,6 +61,7 @@ import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
 import { allocateProformaInvoiceNumber } from "../../modules/shared/proformaInvoiceNumber";
 import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
 import { ServiceError } from "../../modules/shared/serviceError";
+import { LOGIN_ACCESS_VALUES, RESTRICTABLE_ROLES } from "../../modules/shared/loginAccess";
 import { parseJoiningDate, saveJoiningDate } from "../../modules/employeeProfile/joiningDate";
 import * as EmployeeProfileService from "../../modules/employeeProfile/employeeProfile.service";
 import { getTallyBranchLock } from "../../modules/shared/tallyBranchLock";
@@ -231,6 +232,7 @@ export const GetAllUser = async (
         "departmentId",
         "createdAt",
         "canViewAllBranches",
+        "loginAccess",
       ],
       where,
       offset,
@@ -1886,6 +1888,62 @@ export const UpdateBranchVisibility = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Something went wrong";
+    badRequest(res, errorMessage);
+  }
+};
+
+// PATCH /admin/users/:userId/login-access  { loginAccess: "both" | "web" | "mobile" }
+// Admin / owner (and super_admin) decide whether one of their own managers or
+// employees may log in on the web, on the mobile app, or both. Enforced at
+// login and on every request — see modules/shared/loginAccess.ts.
+export const UpdateLoginAccess = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userData = req.userData as JwtPayload;
+    const loggedInId = Number(userData?.userId);
+    const loggedInRole = userData?.role;
+
+    const targetUserId = Number(req.params.userId);
+    if (!targetUserId || isNaN(targetUserId)) {
+      badRequest(res, "Valid userId is required");
+      return;
+    }
+
+    const { loginAccess } = req.body || {};
+    if (!LOGIN_ACCESS_VALUES.includes(loginAccess)) {
+      badRequest(res, `loginAccess must be one of: ${LOGIN_ACCESS_VALUES.join(", ")}`);
+      return;
+    }
+
+    const target: any = await User.findByPk(targetUserId, { attributes: ["id", "role", "loginAccess", "firstName", "lastName"] });
+    if (!target) {
+      badRequest(res, "User not found");
+      return;
+    }
+    if (!RESTRICTABLE_ROLES.includes(target.role)) {
+      badRequest(res, "Login access can only be set for managers and employees");
+      return;
+    }
+
+    // Only someone on the caller's own company-scoped team (same rule as the
+    // Branch List toggle above); super_admin may set anyone.
+    if (loggedInRole !== "super_admin") {
+      const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
+      const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+      if (!childIds.includes(targetUserId)) {
+        forbidden(res, "This user is not on your team");
+        return;
+      }
+    }
+
+    target.loginAccess = loginAccess;
+    await target.save();
+
+    createSuccess(res, "Login access updated successfully", {
+      userId: target.id,
+      loginAccess: target.loginAccess,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
     badRequest(res, errorMessage);
   }
 };

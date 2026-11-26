@@ -70,6 +70,7 @@ const getCompanyOrgUserIds = async (userData: JwtPayload): Promise<number[]> => 
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
 import { getJobPersonalDetails } from "../../modules/shared/jobPersonalDetails";
 import { buildCelebrations } from "../../modules/birthday/celebrationInfo";
+import { isChannelAllowed, channelBlockedMessage, LOGIN_CHANNEL_BLOCKED } from "../../modules/shared/loginAccess";
 import {
   filesOf, photoUrlOf, getMeetingPhotoFlags, PHOTO_REQUIRED_META, MEETING_PHOTO_TYPES,
 } from "../../modules/meeting/meetingPhoto";
@@ -178,6 +179,12 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Login channel (users.loginAccess) — a "web only" user can't use the app.
+    if (!isChannelAllowed(user.getDataValue("loginAccess"), "mobile")) {
+      forbidden(res, channelBlockedMessage("mobile"), { code: LOGIN_CHANNEL_BLOCKED, loginAccess: user.getDataValue("loginAccess") });
+      return;
+    }
+
     // ✅ Block login when the tenant's subscription is expired/suspended
     const blockedStatus = await getBlockedTenantStatus(userId, role, user.getDataValue("tenantId") ?? null);
     if (blockedStatus) {
@@ -237,11 +244,12 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       companyId = await findRootCompanyId(rootAdminId);
     }
     console.log(`Login attempt: userId=${userId}, role=${role}, resolvedCompanyId=${companyId}`);
-    // ✅ Create access & refresh tokens
+    // ✅ Create access & refresh tokens (channel "mobile" — see shared/loginAccess)
     const { accessToken, refreshToken } = Middleware.CreateToken(
       String(userId),
       String(role),
-      companyId
+      companyId,
+      "mobile"
     );
 
     // The refresh token is no longer written to users.refreshToken: nothing
@@ -2381,7 +2389,8 @@ export const ReFressToken = async (
     const { accessToken, refreshToken } = Middleware.CreateToken(
       String(user.getDataValue("id")),
       String(user.getDataValue("role")),
-      carriedCompanyId
+      carriedCompanyId,
+      "mobile" // /api/refreshtoken is the mobile app's refresh (see shared/loginAccess)
     );
 
     // FIX: no longer persisted (see Login) — this endpoint is now read-only,
