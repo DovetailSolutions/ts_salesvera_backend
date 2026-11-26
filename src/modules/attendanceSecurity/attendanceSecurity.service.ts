@@ -32,6 +32,10 @@ const ALLOWED_SETTINGS_KEYS = [
   "isDeviceSecurityRequired",
   "isGeofenceRequired",
   "isPunchOutGeofenceRequired",
+  // Meeting photos (migration 0055) — enforced in the meeting start/end
+  // handlers (app/controller/user.ts), not in the attendance punch flow.
+  "isMeetingInPhotoRequired",
+  "isMeetingOutPhotoRequired",
 ] as const;
 
 const toPublicSettings = (user: any) => ({
@@ -42,6 +46,8 @@ const toPublicSettings = (user: any) => ({
   // semantics elsewhere) — only treat an explicit false as "off".
   isGeofenceRequired: user?.isGeofenceRequired !== false,
   isPunchOutGeofenceRequired: !!user?.isPunchOutGeofenceRequired,
+  isMeetingInPhotoRequired: !!user?.isMeetingInPhotoRequired,
+  isMeetingOutPhotoRequired: !!user?.isMeetingOutPhotoRequired,
 });
 
 // ── Read-only: flags used by the punch-in/out enforcement points ──────────

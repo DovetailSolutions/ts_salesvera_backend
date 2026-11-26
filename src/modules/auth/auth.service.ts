@@ -15,6 +15,7 @@ import { issueAccessToken, issueRefreshToken } from "./webToken.service";
 import { createSession, rotateSession, revokeSession, revokeAllSessionsForUser } from "./refreshSession.service";
 import { userHasPermission } from "../../config/checkPermission";
 import { getJobPersonalDetails } from "../shared/jobPersonalDetails";
+import { buildCelebrations } from "../birthday/celebrationInfo";
 import { parseJoiningDate, saveJoiningDate } from "../employeeProfile/joiningDate";
 
 // ============================================================
@@ -720,6 +721,11 @@ export const getProfile = async (userId: number, role: string, companyId: number
     delete (user as any).dataValues.otp;
     delete (user as any).dataValues.otpExpiry;
     Object.assign((user as any).dataValues, await getJobPersonalDetails(Number(userId)));
+    // Birthday + work anniversary (next date, days left, isToday).
+    (user as any).dataValues.celebrations = buildCelebrations(
+      (user as any).dataValues.dob,
+      (user as any).dataValues.dateOfJoining
+    );
   }
 
   const permissions: string[] = [];

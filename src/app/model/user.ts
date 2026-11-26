@@ -76,6 +76,10 @@ interface UserAttributes {
   isAttendancePhotoRequired?: boolean;
   isDeviceSecurityRequired?: boolean;
   isPunchOutGeofenceRequired?: boolean;
+  // Meeting-in / meeting-out photo (migration 0055) — default false: the
+  // photo is optional unless an admin/manager requires it for this user.
+  isMeetingInPhotoRequired?: boolean;
+  isMeetingOutPhotoRequired?: boolean;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -289,6 +293,16 @@ export const createUserModel = (sequelize: Sequelize) => {
           defaultValue: false,
         },
         isPunchOutGeofenceRequired: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        isMeetingInPhotoRequired: {
+          type: DataTypes.BOOLEAN,
+          allowNull: false,
+          defaultValue: false,
+        },
+        isMeetingOutPhotoRequired: {
           type: DataTypes.BOOLEAN,
           allowNull: false,
           defaultValue: false,

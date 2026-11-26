@@ -57,7 +57,8 @@ export const DepartmentModel = (sequelize: Sequelize) => {
       deptCode: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
+        // Not unique: one department is saved once per branch with the same
+        // code, and companies may reuse codes (migration 0056).
       },
       deptHead: {
         type: DataTypes.STRING,

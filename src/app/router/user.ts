@@ -13,6 +13,7 @@ import { tokenCheck as allStaffTokenCheck } from "../../config/jwtVerify";
 import { checkPermission, checkInvoiceCreatePermission, checkInvoiceViewPermission } from "../../config/checkPermission";
 import { authorizeRoles } from "../middlewear/rbac";
 import getUploadMiddleware from "../../config/fileUploads";
+import { handleCreateMeetingFiles, handleMeetingInPhoto, handleMeetingOutPhoto } from "../../modules/meeting/meetingPhoto";
 const profile = getUploadMiddleware("image");
 const meeting = getUploadMiddleware("image");
 const expense = getUploadMiddleware("expense");
@@ -32,17 +33,20 @@ router.get(
   AdminController.authorizeManagerSalePersonAction("view"),
   Controller.MySalePerson
 );
+// Meeting in / out photos (optional; required per employee via Attendance
+// Security) — see modules/meeting/meetingPhoto.ts. "image" attachments on
+// create are unchanged.
 router.post(
   "/createmeeting",
   tokenCheck,
-  meeting.array("image"),
+  handleCreateMeetingFiles,
   Controller.CreateMeeting
-); 
+);
 router.get("/clientmeeting",tokenCheck,Controller.getLastMeeting)
 router.get("/my-clients", tokenCheck, Controller.getMyClients)
-router.post("/endmeeting", tokenCheck, Controller.EndMeeting);
+router.post("/endmeeting", tokenCheck, handleMeetingOutPhoto, Controller.EndMeeting);
 router.get("/getmeetinglist", tokenCheck, Controller.GetMeetingList);
-router.post("/scheduledupdate", tokenCheck, Controller.scheduled);
+router.post("/scheduledupdate", tokenCheck, handleMeetingInPhoto, Controller.scheduled);
 router.post("/logout", tokenCheck, Controller.Logout);
 router.post("/device-token", allStaffTokenCheck, Controller.UpdateDeviceToken);
 router.get("/getcategory", tokenCheck, Controller.getCategory);
@@ -199,9 +203,9 @@ router.get("/meetings/dashboard", tokenCheck, authorizeRoles("manager"), checkPe
 
 
 // Route aliases for Meetings (supports both /createmeeting, /scheduledupdate, /endmeeting AND /meeting/add, /meeting/start, /meeting/end)
-router.post("/meeting/add", tokenCheck, meeting.array("image"), Controller.CreateMeeting);
-router.post("/meeting/start", tokenCheck, Controller.scheduled);
-router.post("/meeting/end", tokenCheck, Controller.EndMeeting);
+router.post("/meeting/add", tokenCheck, handleCreateMeetingFiles, Controller.CreateMeeting);
+router.post("/meeting/start", tokenCheck, handleMeetingInPhoto, Controller.scheduled);
+router.post("/meeting/end", tokenCheck, handleMeetingOutPhoto, Controller.EndMeeting);
 export default router;
 
 
