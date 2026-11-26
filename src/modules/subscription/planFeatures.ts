@@ -164,7 +164,7 @@ export const FEATURE_ROUTES: Array<{ feature: FeatureKey; pattern: RegExp }> = [
   { feature: "separation", pattern: /^\/admin\/separation(\/|$)/ },
   // Advance — order management (items, quotations/sale orders, invoices, sale records)
   { feature: "order_management", pattern: /^\/admin\/(addcategory|getcategory|getcategory-with-subcategories|getcategoy|updatecategory|deletecategory|category|sub-category|addsubcategory|updatesubcategory|getsubcategory|add|addquotation|getquotationlist|getquotationpdflist|downloadquotationpdf|addquotationpdf|addinvoice|getinvoice|updateinvoice|finalizeinvoice|get-record-sale|updatequotation)(\/|$)/ },
-  { feature: "order_management", pattern: /^\/api\/(getcategory|getsubcategory|addquotation|getquotation|getquotationpdf|getquotationpdflist|downloadquotationpdf|updatequotation|addinvoice|getinvoice|quotationtoinvoice|recordsale|getrecordsale|updaterecordsale|deleterecordsale)(\/|$)/ },
+  { feature: "order_management", pattern: /^\/api\/(my-sales|getcategory|getsubcategory|addquotation|getquotation|getquotationpdf|getquotationpdflist|downloadquotationpdf|updatequotation|addinvoice|getinvoice|quotationtoinvoice|recordsale|getrecordsale|updaterecordsale|deleterecordsale)(\/|$)/ },
   // Advance — inventory
   { feature: "inventory", pattern: /^\/admin\/inventory(\/|$)/ },
   // Advance — assets

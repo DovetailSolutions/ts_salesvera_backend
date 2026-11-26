@@ -69,6 +69,10 @@ const getCompanyOrgUserIds = async (userData: JwtPayload): Promise<number[]> => 
 };
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
 import { getJobPersonalDetails } from "../../modules/shared/jobPersonalDetails";
+import { buildCelebrations } from "../../modules/birthday/celebrationInfo";
+import {
+  filesOf, photoUrlOf, getMeetingPhotoFlags, PHOTO_REQUIRED_META, MEETING_PHOTO_TYPES,
+} from "../../modules/meeting/meetingPhoto";
 import { getAccessibleCompanyIds, stripCompanyBankFields } from "../../modules/shared/companyAccess";
 import { BALANCE_LEAVE_TYPES, countLeaveRequestDays, legacyTypesDrawingFrom, resolveLeaveTypeBalance, inferLegacyLeaveTypeEnum, isUnpaidLeaveType, findCompanyLeaveForLegacyType, validatePartialLeave } from "../../modules/leave/leave.service";
 import * as LeaveController from "../../modules/leave/leave.controller";
@@ -342,6 +346,8 @@ export const GetProfile = async (
     delete profile.otp;
     delete profile.otpExpiry;
     Object.assign(profile, await getJobPersonalDetails(loggedInId));
+    // Birthday + work anniversary (next date, days left, isToday).
+    profile.celebrations = buildCelebrations(profile.dob, profile.dateOfJoining);
 
     // ✅ Step 2: Walk UP the hierarchy to find the root admin
     // Chain: employee → manager → admin
@@ -915,6 +921,25 @@ export const CreateMeeting = async (
 
     const finalUserId = tokenUserId;
 
+    // Meeting-in photo (optional, or required per employee — see
+    // modules/meeting/meetingPhoto.ts). Only a meeting that starts now
+    // (status "in") takes it; a scheduled one takes it when it starts.
+    const imageFiles = filesOf(req, "image");
+    const inPhotoFile = filesOf(req, "meetingInPhoto")[0];
+    if (inPhotoFile && !MEETING_PHOTO_TYPES.includes(inPhotoFile.mimetype)) {
+      await transaction.rollback();
+      badRequest(res, "Only JPG, PNG or WEBP images are allowed for meeting photos.");
+      return;
+    }
+    if (status === "in") {
+      const { inRequired } = await getMeetingPhotoFlags(Number(finalUserId));
+      if (inRequired && !inPhotoFile) {
+        await transaction.rollback();
+        badRequest(res, "A meeting-in photo is required. Please take a photo to start the meeting.", PHOTO_REQUIRED_META("in"));
+        return;
+      }
+    }
+
     /** --------------------------
      * 1️⃣ Check / Store the Person we are meeting (MeetingUser)
      * This acts as an address book for the Employee's external clients
@@ -1040,6 +1065,7 @@ export const CreateMeeting = async (
         longitude_in,
         pincode,
         scheduledTime: validScheduledTime,
+        meetingInPhoto: status === "in" ? photoUrlOf(inPhotoFile) : null,
       },
       { transaction }
     );
@@ -1047,7 +1073,7 @@ export const CreateMeeting = async (
     /** --------------------------
      * 5️⃣ Save Images
      * -------------------------- */
-    const files = req.files as Express.MulterS3.File[]
+    const files = imageFiles as Express.MulterS3.File[];
     if (files?.length) {
       const images = files.map((file) => ({
         meetingId: meeting.id,
@@ -1261,6 +1287,15 @@ export const EndMeeting = async (
       return;
     }
 
+    // Meeting-out photo (optional, or required per employee — see
+    // modules/meeting/meetingPhoto.ts). Checked before anything is saved.
+    const outPhotoFile = (req as any).file;
+    const { outRequired } = await getMeetingPhotoFlags(Number(finalUserId));
+    if (outRequired && !outPhotoFile) {
+      badRequest(res, "A meeting-out photo is required. Please take a photo to end the meeting.", PHOTO_REQUIRED_META("out"));
+      return;
+    }
+
     // ✅ Update remarks
     if (remarks) {
       const company = await MeetingCompany.findByPk(
@@ -1277,6 +1312,7 @@ export const EndMeeting = async (
     isExist.latitude_out = latitude_out;
     isExist.longitude_out = longitude_out;
     isExist.meetingTimeOut = new Date();
+    if (outPhotoFile) isExist.meetingOutPhoto = photoUrlOf(outPhotoFile);
 
     await isExist.save();
 
@@ -1600,11 +1636,20 @@ export const scheduled = async (req: Request, res: Response): Promise<void> => {
       badRequest(res, "No scheduled meeting found with this meetingId");
       return;
     }
+    // Meeting-in photo (optional, or required per employee — see
+    // modules/meeting/meetingPhoto.ts). Checked before anything is saved.
+    const inPhotoFile = (req as any).file;
+    const { inRequired } = await getMeetingPhotoFlags(Number(finalUserId));
+    if (inRequired && !inPhotoFile) {
+      badRequest(res, "A meeting-in photo is required. Please take a photo to start the meeting.", PHOTO_REQUIRED_META("in"));
+      return;
+    }
     /** ✅ Update meeting */
     isExist.status = "in";
     isExist.latitude_in = latitude_in ?? null;
     isExist.longitude_in = longitude_in ?? null;
     isExist.meetingTimeIn = new Date();
+    if (inPhotoFile) isExist.meetingInPhoto = photoUrlOf(inPhotoFile);
     await isExist.save();
     createSuccess(res, "Meeting successfully start", isExist);
   } catch (error) {

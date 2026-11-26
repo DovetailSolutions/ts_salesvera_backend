@@ -87,7 +87,8 @@ export const BranchModel = (sequelize: Sequelize) => {
       branchCode: {
         type: DataTypes.STRING,
         allowNull: false,
-        unique: true,
+        // Not unique across companies — two companies may both use "HO"
+        // (migration 0056).
       },
 
       branchCity: {

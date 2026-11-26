@@ -772,6 +772,7 @@ export const getMeeting = async (
         "meetingTimeIn", "meetingTimeOut",
         "latitude_in", "longitude_in", "latitude_out", "longitude_out",
         "legDistance", "totalDistance", "createdAt",
+        "meetingInPhoto", "meetingOutPhoto",
       ],
 
       order: [["meetingTimeIn", "DESC"]],
@@ -965,6 +966,7 @@ export const getMeetingDetails = async (
         "scheduledTime", "meetingTimeIn", "meetingTimeOut",
         "latitude_in", "longitude_in", "latitude_out", "longitude_out",
         "totalDistance", "legDistance", "pincode", "createdAt",
+        "meetingInPhoto", "meetingOutPhoto",
       ],
       include: [
         {
@@ -4764,6 +4766,7 @@ export const getClientDetails = async (req: Request, res: Response): Promise<voi
         "scheduledTime", "meetingTimeIn", "meetingTimeOut",
         "latitude_in", "longitude_in", "latitude_out", "longitude_out",
         "totalDistance", "legDistance", "pincode", "createdAt",
+        "meetingInPhoto", "meetingOutPhoto",
       ],
       include: [
         {

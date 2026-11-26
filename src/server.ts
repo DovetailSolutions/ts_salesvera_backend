@@ -52,6 +52,8 @@ import compOffRoutes from "./modules/compOff/compOff.routes";
 import compOffSelfRoutes from "./modules/compOff/compOffSelf.routes";
 import separationRoutes from "./modules/separation/separation.routes";
 import salesReportRoutes from "./modules/salesReport/salesReport.routes";
+import mySalesRoutes from "./modules/mySales/mySales.routes";
+import taskDashboardRoutes from "./modules/taskDashboard/taskDashboard.routes";
 import swaggerUi from "swagger-ui-express";
 import { initChatSocket } from "./Notigication/chat";
 import { initTaskSocket } from "./Notigication/task";
@@ -143,6 +145,9 @@ app.use("/admin", compOffRoutes);
 app.use("/api", compOffSelfRoutes);
 app.use("/admin", separationRoutes);
 app.use("/admin", salesReportRoutes);
+app.use("/api", mySalesRoutes);
+app.use("/admin", taskDashboardRoutes);
+app.use("/api", taskDashboardRoutes);
 app.use("/api", contactPublicRoutes);
 app.use("/admin", contactAdminRoutes);
 // setupTrackingRoutes and accessExtensionRoutes are mounted BEFORE

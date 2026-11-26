@@ -26,6 +26,9 @@ export class Meeting extends Model {
   public legDistance!: string;
   public pincode!: string;
   public subCategoryId!: number;
+  // Photo URLs taken at meeting in / meeting out (migration 0055).
+  public meetingInPhoto!: string | null;
+  public meetingOutPhoto!: string | null;
 }
 export const MeetingModel = (sequelize: Sequelize) => {
   Meeting.init(
@@ -119,7 +122,8 @@ export const MeetingModel = (sequelize: Sequelize) => {
         field: "leg_distance",
       },
       pincode: DataTypes.STRING,
-
+      meetingInPhoto: { type: DataTypes.TEXT, allowNull: true },
+      meetingOutPhoto: { type: DataTypes.TEXT, allowNull: true },
     },
     {
       sequelize,

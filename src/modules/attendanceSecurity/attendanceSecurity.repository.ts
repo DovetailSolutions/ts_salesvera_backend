@@ -20,6 +20,8 @@ export const findUserSecurityFlags = (userId: number) =>
       "isDeviceSecurityRequired",
       "isGeofenceRequired",
       "isPunchOutGeofenceRequired",
+      "isMeetingInPhotoRequired",
+      "isMeetingOutPhotoRequired",
     ],
   });
 
@@ -42,6 +44,8 @@ export const findUserById = (userId: number) =>
       "isDeviceSecurityRequired",
       "isGeofenceRequired",
       "isPunchOutGeofenceRequired",
+      "isMeetingInPhotoRequired",
+      "isMeetingOutPhotoRequired",
     ],
   });
 
