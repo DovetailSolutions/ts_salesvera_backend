@@ -10,6 +10,7 @@ import {
 } from "../modules/subscription/subscriptionLimit.service";
 import { gateRequestByPlan } from "../modules/subscription/featureAccess.service";
 import { findRootCompanyId, isTeamRootRole } from "../modules/shared/rootCompany";
+import { isChannelAllowed, channelBlockedMessage, LOGIN_CHANNEL_BLOCKED } from "../modules/shared/loginAccess";
 
 // Routes still callable while the tenant's subscription is inactive:
 // session/profile basics plus the access-request flow. Stored lowercased and
@@ -192,6 +193,20 @@ export const createTokenCheck = (allowedRoles: string[]) => {
         });
       }
 
+      // Login channel (users.loginAccess): a web token stops working for a
+      // "mobile only" user and vice versa, immediately — not just at next
+      // login. Tokens without a "ch" claim (issued before this) aren't
+      // restricted. Logout always goes through so the client can sign out.
+      const channel = (decoded as any).ch;
+      if (!isChannelAllowed(item.loginAccess, channel) && !/\/logout\/?$/i.test(req.path || "")) {
+        return res.status(403).json({
+          code: 403,
+          success: false,
+          message: channelBlockedMessage(channel),
+          data: { code: LOGIN_CHANNEL_BLOCKED, loginAccess: item.loginAccess },
+        });
+      }
+
       // Expired/suspended tenant — checked on every request, not just at
       // login, so already-open sessions lose access too. The owner keeps
       // only the routes needed to see their status and request an extension.
@@ -281,6 +296,8 @@ export const optionalTokenCheck = async (
 
     const item = (await User.findOne({ where: { id, status: "active" } })) as any;
     if (!item) return next();
+    // Blocked login channel → treat as unauthenticated, same as a bad token.
+    if (!isChannelAllowed(item.loginAccess, (decoded as any).ch)) return next();
 
     const decodedCompanyId = (decoded as any).companyId ? Number((decoded as any).companyId) : null;
     const companyId = await resolveCompanyId(id, item.role, decodedCompanyId);

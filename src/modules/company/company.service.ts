@@ -315,7 +315,9 @@ export const getMyCompanies = async (userId: number, role: any) => {
   return assignments.map((a: any) => a.company);
 };
 
-export const switchCompany = async (userId: number, role: any, body: any) => {
+// channel: the caller token's "ch" claim, carried into the new token so a
+// switched session keeps its login-channel restriction (shared/loginAccess).
+export const switchCompany = async (userId: number, role: any, body: any, channel?: "web" | "mobile") => {
   const { companyId } = body;
   if (!companyId) throw new ServiceError("companyId is required");
   if (isNaN(Number(companyId))) throw new ServiceError("companyId must be a number");
@@ -344,7 +346,7 @@ export const switchCompany = async (userId: number, role: any, body: any) => {
   }
 
   // Issue a new token scoped to the target company
-  const { accessToken, refreshToken } = Middleware.CreateToken(String(callerId), role, targetCompanyId);
+  const { accessToken, refreshToken } = Middleware.CreateToken(String(callerId), role, targetCompanyId, channel);
   // refreshToken is returned to the caller but no longer stored in plain
   // text on users.refreshToken — nothing ever read that column back.
   // See updateLastLoginCompanyId's doc comment — this is what lets a

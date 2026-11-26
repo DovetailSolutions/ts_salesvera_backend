@@ -124,9 +124,18 @@ export const FindByPhone2 = async(model:any,data:any)=>{
 //   });
 // };
 
-export const CreateToken = (userId: string, role: string, companyId?: string | number | null) => {
+// channel ("web" | "mobile") is stamped as the "ch" claim — tokenCheck uses it
+// to enforce users.loginAccess (modules/shared/loginAccess.ts). Optional, so
+// callers that don't pass it behave exactly as before.
+export const CreateToken = (
+  userId: string,
+  role: string,
+  companyId?: string | number | null,
+  channel?: "web" | "mobile"
+) => {
   const payload: any = { userId, role };
   if (companyId) payload.companyId = Number(companyId);
+  if (channel) payload.ch = channel;
 
   const accessToken = jwt.sign(
     { ...payload, type: "access" },

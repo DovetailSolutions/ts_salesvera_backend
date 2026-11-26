@@ -80,6 +80,9 @@ interface UserAttributes {
   // photo is optional unless an admin/manager requires it for this user.
   isMeetingInPhotoRequired?: boolean;
   isMeetingOutPhotoRequired?: boolean;
+  // Login channel (migration 0057): "both" | "web" | "mobile" — see
+  // modules/shared/loginAccess.ts.
+  loginAccess?: string;
 }
 
 export class User extends Model<UserAttributes, UserCreationAttributes> {
@@ -306,6 +309,11 @@ export const createUserModel = (sequelize: Sequelize) => {
           type: DataTypes.BOOLEAN,
           allowNull: false,
           defaultValue: false,
+        },
+        loginAccess: {
+          type: DataTypes.STRING(10),
+          allowNull: false,
+          defaultValue: "both",
         },
         canViewAllBranches: {
         type: DataTypes.BOOLEAN,
