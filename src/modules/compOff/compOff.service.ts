@@ -1,4 +1,5 @@
 import { QueryTypes } from "sequelize";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import { sequelize, CompanyLeave, Company, User } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { getISTDateString } from "../shared/dateUtils";
@@ -251,7 +252,7 @@ const teamOf = async (actor: CompOffActor, access: "view" | "review"): Promise<{
   }
   if (!actor.companyId) throw new ServiceError("No active company is associated with your account", 403);
   const companyId = Number(actor.companyId);
-  const team = (await getCompanyScopedChildUserIds(Number(actor.userId), companyId)).map(Number);
+  const team = (await dropFellowAdmins(Number(actor.userId), await getCompanyScopedChildUserIds(Number(actor.userId), companyId))).map(Number);
   const ids = actor.role === "manager" ? team.filter((id) => id !== Number(actor.userId)) : [...team, Number(actor.userId)];
   return { companyId, ids: [...new Set(ids)] };
 };

@@ -124,8 +124,8 @@ export const FindByPhone2 = async(model:any,data:any)=>{
 //   });
 // };
 
-// channel ("web" | "mobile") is stamped as the "ch" claim — tokenCheck uses it
-// to enforce users.loginAccess (modules/shared/loginAccess.ts). Optional, so
+// channel ("web" | "mobile") is stamped as the "ch" claim — punch-in/out uses it
+// to enforce users.attendanceAccess (modules/shared/attendanceAccess.ts). Optional, so
 // callers that don't pass it behave exactly as before.
 export const CreateToken = (
   userId: string,

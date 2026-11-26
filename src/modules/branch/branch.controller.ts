@@ -37,7 +37,7 @@ export const updateBranch = async (req: Request, res: Response) => {
       return badRequest(res, "Valid branch id is required");
     }
 
-    const branch = await BranchService.updateBranch(Number(id), Number(userData.userId), req.body);
+    const branch = await BranchService.updateBranch(Number(id), Number(userData.userId), req.body, userData.role as string | undefined);
     return createSuccess(res, "Branch updated successfully", branch);
   } catch (error) {
     if (error instanceof ServiceError) return badRequest(res, error.message);
@@ -86,8 +86,28 @@ export const getBranchById = async (req: Request, res: Response) => {
       return badRequest(res, "Unauthorized request");
     }
 
-    const branch = await BranchService.getBranchById(Number(req.params.id), Number(userData.userId));
+    const branch = await BranchService.getBranchById(Number(req.params.id), Number(userData.userId), (userData as any)?.role);
     return createSuccess(res, "Branch fetched successfully", branch);
+  } catch (error) {
+    if (error instanceof ServiceError) return badRequest(res, error.message);
+    const errorMessage = error instanceof Error ? error.message : "Something went wrong";
+    return badRequest(res, errorMessage);
+  }
+};
+
+// DELETE /admin/deletebranch/:id — see BranchService.deleteBranch for the rules.
+export const deleteBranch = async (req: Request, res: Response) => {
+  try {
+    const userData = req.userData as JwtPayload;
+    if (!userData || !userData.userId) {
+      return badRequest(res, "Unauthorized request");
+    }
+    const { id } = req.params || {};
+    if (!id || isNaN(Number(id))) {
+      return badRequest(res, "Valid branch id is required");
+    }
+    const result = await BranchService.deleteBranch(Number(id), Number(userData.userId), userData.role as string | undefined);
+    return createSuccess(res, "Branch deleted successfully", result);
   } catch (error) {
     if (error instanceof ServiceError) return badRequest(res, error.message);
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";

@@ -6,6 +6,7 @@ import {
   getCompanyScopedChildUserIds,
   getCompanyScopedChildUserIdsFast,
   getCompanyScopedOrgWideUserIds,
+  dropFellowAdmins,
 } from "../shared/userHierarchy";
 
 // ============================================================
@@ -82,7 +83,11 @@ const teamMemberIds = async (actor: Actor): Promise<number[]> => {
   if (actor.role === "employee") throw new ServiceError("Only managers and admins can view team task performance", 403);
   if (actor.role === "manager") return getCompanyScopedChildUserIds(actor.userId, actor.companyId);
   if (isCompanyWide(actor.role)) {
-    return getCompanyScopedOrgWideUserIds(actor.userId, actor.companyId, getCompanyScopedChildUserIdsFast);
+    // An admin doesn't see other admins (dropFellowAdmins is a no-op for owner/super_admin).
+    return dropFellowAdmins(
+      actor.userId,
+      await getCompanyScopedOrgWideUserIds(actor.userId, actor.companyId, getCompanyScopedChildUserIdsFast)
+    );
   }
   throw new ServiceError("Not allowed", 403);
 };

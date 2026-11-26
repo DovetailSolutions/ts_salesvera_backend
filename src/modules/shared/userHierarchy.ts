@@ -5,6 +5,25 @@ type UserWithChildren = any & {
   createdUsers?: UserWithChildren[];
 };
 
+// An admin never sees or manages another admin of the company — only the
+// owner ("user") and super_admin do. People/HR lists and user-edit checks
+// pass their team ids through this; for any caller who isn't an admin the
+// ids come back unchanged. Business-record lookups (clients, quotations,
+// orders, meetings, reports) deliberately don't, so co-admins' records stay
+// shared as before.
+export async function dropFellowAdmins(callerId: number | string, ids: number[]): Promise<number[]> {
+  if (!Array.isArray(ids) || ids.length === 0) return ids;
+  const caller: any = await User.findByPk(Number(callerId), { attributes: ["id", "role"] });
+  if (caller?.role !== "admin") return ids;
+  const admins = (await User.findAll({
+    where: { id: { [Op.in]: ids.map(Number) }, role: "admin" },
+    attributes: ["id"],
+  })) as any[];
+  if (admins.length === 0) return ids;
+  const drop = new Set(admins.map((a) => Number(a.id)));
+  return ids.filter((id) => !drop.has(Number(id)));
+}
+
 // Walks the createdBy/createdUsers self-referential chain to collect every
 // user (at any depth) that the given userId created, directly or through an
 // intermediate manager. Used throughout admin/leave/attendance/expense

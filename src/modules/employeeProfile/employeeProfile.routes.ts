@@ -12,6 +12,7 @@ import * as Controller from "./employeeProfile.controller";
 // ============================================================
 const router = Router();
 
+router.get("/employee-ids", tokenCheck, Controller.getCompanyEmployeeIds);
 router.get("/employees/:userId/profile", tokenCheck, Controller.getProfile);
 router.put("/employees/:userId/profile", tokenCheck, Controller.updateProfile);
 

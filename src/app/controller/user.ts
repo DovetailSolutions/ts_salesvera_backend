@@ -1,4 +1,5 @@
 import { Op, fn, col, where, cast, literal } from "sequelize";
+import { employeeIdSearchConditions } from "../../modules/shared/employeeIdSearch";
 import { sequelize } from "../../config/dbConnection"
 import PDFDocument from "pdfkit";
 import puppeteer from "puppeteer";
@@ -70,7 +71,6 @@ const getCompanyOrgUserIds = async (userData: JwtPayload): Promise<number[]> => 
 import { getISTDateString, formatISTTime } from "../../modules/shared/dateUtils";
 import { getJobPersonalDetails } from "../../modules/shared/jobPersonalDetails";
 import { buildCelebrations } from "../../modules/birthday/celebrationInfo";
-import { isChannelAllowed, channelBlockedMessage, LOGIN_CHANNEL_BLOCKED } from "../../modules/shared/loginAccess";
 import {
   filesOf, photoUrlOf, getMeetingPhotoFlags, PHOTO_REQUIRED_META, MEETING_PHOTO_TYPES,
 } from "../../modules/meeting/meetingPhoto";
@@ -179,12 +179,6 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Login channel (users.loginAccess) — a "web only" user can't use the app.
-    if (!isChannelAllowed(user.getDataValue("loginAccess"), "mobile")) {
-      forbidden(res, channelBlockedMessage("mobile"), { code: LOGIN_CHANNEL_BLOCKED, loginAccess: user.getDataValue("loginAccess") });
-      return;
-    }
-
     // ✅ Block login when the tenant's subscription is expired/suspended
     const blockedStatus = await getBlockedTenantStatus(userId, role, user.getDataValue("tenantId") ?? null);
     if (blockedStatus) {
@@ -244,7 +238,7 @@ export const Login = async (req: Request, res: Response): Promise<void> => {
       companyId = await findRootCompanyId(rootAdminId);
     }
     console.log(`Login attempt: userId=${userId}, role=${role}, resolvedCompanyId=${companyId}`);
-    // ✅ Create access & refresh tokens (channel "mobile" — see shared/loginAccess)
+    // ✅ Create access & refresh tokens (channel "mobile" — see shared/attendanceAccess)
     const { accessToken, refreshToken } = Middleware.CreateToken(
       String(userId),
       String(role),
@@ -617,6 +611,8 @@ export const MySalePerson = async (
         { lastName: { [Op.iLike]: `%${search}%` } },
         { email: { [Op.iLike]: `%${search}%` } },
         { phone: { [Op.iLike]: `%${search}%` } },
+        // EMP code + company Employee ID (DVT160)
+        ...employeeIdSearchConditions(search),
       ];
     }
 
@@ -2390,7 +2386,7 @@ export const ReFressToken = async (
       String(user.getDataValue("id")),
       String(user.getDataValue("role")),
       carriedCompanyId,
-      "mobile" // /api/refreshtoken is the mobile app's refresh (see shared/loginAccess)
+      "mobile" // /api/refreshtoken is the mobile app's refresh (see shared/attendanceAccess)
     );
 
     // FIX: no longer persisted (see Login) — this endpoint is now read-only,

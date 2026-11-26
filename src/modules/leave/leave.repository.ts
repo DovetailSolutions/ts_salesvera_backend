@@ -1,4 +1,5 @@
 import { Op, Sequelize } from "sequelize";
+import { employeeIdSearchConditions } from "../shared/employeeIdSearch";
 import { Leave, CompanyLeave, EmployeeLeaveTypeBalance, Attendance, User } from "../../config/dbConnection";
 import { getISTDateString } from "../shared/dateUtils";
 
@@ -12,7 +13,8 @@ const userSearchWhere = (search?: string) => {
       { firstName: { [Op.iLike]: `%${term}%` } },
       { lastName: { [Op.iLike]: `%${term}%` } },
       { email: { [Op.iLike]: `%${term}%` } },
-      { employeeCode: { [Op.iLike]: `%${term}%` } },
+      // EMP code + company Employee ID (DVT160)
+      ...employeeIdSearchConditions(term),
       Sequelize.where(
         Sequelize.fn("concat_ws", " ", Sequelize.col("User.firstName"), Sequelize.col("User.lastName")),
         { [Op.iLike]: `%${term}%` }

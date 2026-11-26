@@ -26,6 +26,7 @@ interface BranchAttributes {
   userId?: number;
   companyId?: number;
   gstNumber?: string;
+  branchDistrict?: string | null;
 
   createdAt?: Date;
   updatedAt?: Date;
@@ -172,6 +173,11 @@ export const BranchModel = (sequelize: Sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
         field: "gstnumber",
+      },
+      // Migration 0059 — filled from the PIN-code lookup (India), editable.
+      branchDistrict: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
       }
     },
     {

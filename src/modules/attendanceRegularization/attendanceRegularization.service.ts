@@ -1,4 +1,5 @@
 import { Op, UniqueConstraintError } from "sequelize";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import { sequelize } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { assertCanAct } from "../geoFencing/geoFencing.service";
@@ -331,7 +332,7 @@ export const getRequests = async (
   if (!["admin", "user", "super_admin"].includes(String(callerRole))) {
     // Own company-scoped team (sale persons, and any managers under this
     // manager) — never another manager's team, never another company's.
-    const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
+    const teamIds = await dropFellowAdmins(callerId, await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId));
 
     if (opts.userId != null) {
       // A specific user was requested — never trust it blindly (client-

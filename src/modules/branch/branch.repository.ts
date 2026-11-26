@@ -14,8 +14,8 @@ export interface BranchCreateRow {
   postalCode: string;
   addressLine1: string;
   addressLine2: string | null;
-  branchEmail?: string;
-  branchPhone?: string;
+  branchEmail?: string | null;
+  branchPhone?: string | null;
   latitude: number;
   longitude: number;
   geoRadius: number;
@@ -23,6 +23,8 @@ export interface BranchCreateRow {
   managerId: number | null;
   userId: number;
   companyId: number;
+  gstNumber?: string | null;
+  branchDistrict?: string | null;
 }
 
 export const createBranch = (row: BranchCreateRow) => Branch.create(row as any);

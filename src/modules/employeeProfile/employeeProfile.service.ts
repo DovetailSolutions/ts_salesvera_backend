@@ -1,4 +1,7 @@
-import { sequelize } from "../../config/dbConnection";
+import { sequelize, EmployeeExtraDetails } from "../../config/dbConnection";
+import { Op } from "sequelize";
+import { getOrgWideUserIdsForCaller } from "../shared/userHierarchy";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import { ServiceError } from "../shared/serviceError";
 import { userHasPermission } from "../../config/checkPermission";
 import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
@@ -50,7 +53,7 @@ const assertAccess = async (
     }
   }
 
-  const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
+  const teamIds = await dropFellowAdmins(callerId, await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId));
   if (!teamIds.includes(targetUserId)) {
     throw new ServiceError("You can only manage employees within your own team.", 403);
   }
@@ -393,4 +396,27 @@ export const revealBankAccount = async (caller: Caller, targetUserId: number, ba
       `accountNumberMasked=****${row.bankAccountNumberLast4}`
   );
   return { id: row.id, accountNumber };
+};
+
+// Map of userId → company Employee ID for the caller's company (see
+// employeeProfile.controller getCompanyEmployeeIds). Read-only labels: same
+// company scope as the rest of the people lists, plus the caller.
+export const getCompanyEmployeeIds = async (caller: {
+  callerId: number;
+  callerRole?: string;
+  callerCompanyId: number | null;
+}): Promise<Record<number, string>> => {
+  const ids = await getOrgWideUserIdsForCaller(caller.callerId, String(caller.callerRole || ""), caller.callerCompanyId);
+  const all = Array.from(new Set([caller.callerId, ...ids.map(Number)]));
+  if (!all.length) return {};
+  const rows = (await EmployeeExtraDetails.findAll({
+    where: { userId: { [Op.in]: all }, employeeIdExternal: { [Op.ne]: null } },
+    attributes: ["userId", "employeeIdExternal"],
+  })) as any[];
+  const out: Record<number, string> = {};
+  for (const r of rows) {
+    const v = String(r.employeeIdExternal || "").trim();
+    if (v) out[Number(r.userId)] = v;
+  }
+  return out;
 };
