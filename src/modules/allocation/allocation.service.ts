@@ -1,4 +1,5 @@
 import { Op } from "sequelize";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import { User, Branch, Shift, Department, UserBranch } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
@@ -83,7 +84,7 @@ const loadAssignableTargets = async (
   // scope against; every other caller may only touch their own descendants
   // within the company they're currently acting in.
   if (callerRole !== "super_admin") {
-    const teamIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+    const teamIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
     const outsiders = userIds.filter((id) => id !== loggedInId && !teamIds.includes(id));
     if (outsiders.length > 0) {
       throw new ServiceError(
@@ -297,7 +298,7 @@ export const getAllocations = async (
   const userIds = parseIdList(userIdsParam, "userIds");
 
   if (callerRole !== "super_admin") {
-    const teamIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+    const teamIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
     const outsiders = userIds.filter((id) => id !== loggedInId && !teamIds.includes(id));
     if (outsiders.length > 0) {
       throw new ServiceError(

@@ -1,5 +1,7 @@
 
 import { Op, fn, col, cast,literal, Sequelize } from "sequelize";
+import { employeeIdSearchConditions } from "../../modules/shared/employeeIdSearch";
+import { dropFellowAdmins } from "../../modules/shared/userHierarchy";
 import {sequelize} from "../../config/dbConnection";
 import { getObjectFromSpaces, SpacesFile } from "../../config/spaces";
 import { Readable } from "stream";
@@ -61,7 +63,7 @@ import { canAccessOwnedRecord } from "../../modules/shared/recordAccess";
 import { allocateProformaInvoiceNumber } from "../../modules/shared/proformaInvoiceNumber";
 import * as SubscriptionLimit from "../../modules/subscription/subscriptionLimit.service";
 import { ServiceError } from "../../modules/shared/serviceError";
-import { LOGIN_ACCESS_VALUES, RESTRICTABLE_ROLES } from "../../modules/shared/loginAccess";
+import { ATTENDANCE_ACCESS_VALUES, RESTRICTABLE_ROLES } from "../../modules/shared/attendanceAccess";
 import { parseJoiningDate, saveJoiningDate } from "../../modules/employeeProfile/joiningDate";
 import * as EmployeeProfileService from "../../modules/employeeProfile/employeeProfile.service";
 import { getTallyBranchLock } from "../../modules/shared/tallyBranchLock";
@@ -181,7 +183,7 @@ export const GetAllUser = async (
       // company's staff. Scope the team to the company the caller is acting
       // in (null companyId keeps the previous, unfiltered behavior).
       const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-      const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+      const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
       if (childIds.length === 0) {
         createSuccess(res, "Users fetched successfully", {
           page: pageNum,
@@ -197,6 +199,13 @@ export const GetAllUser = async (
     const where: any = { id: idFilter };
 
     if (role) where.role = role;
+    // Optional ?excludeRole=admin — Employee Management sends it when an
+    // admin is logged in, so one admin doesn't see other admins there.
+    // Not sent by any other caller, so their results are unchanged.
+    const excludeRole = typeof req.query.excludeRole === "string" ? req.query.excludeRole.trim() : "";
+    if (excludeRole) {
+      where.role = role ? { [Op.and]: [{ [Op.eq]: role }, { [Op.ne]: excludeRole }] } : { [Op.ne]: excludeRole };
+    }
     if (shiftId) where.shiftId = Number(shiftId);
     if (branchId) where.branchId = Number(branchId);
     if (departmentId) where.departmentId = Number(departmentId);
@@ -208,7 +217,8 @@ export const GetAllUser = async (
         { lastName: { [Op.iLike]: `%${term}%` } },
         { email: { [Op.iLike]: `%${term}%` } },
         { phone: { [Op.iLike]: `%${term}%` } },
-        { employeeCode: { [Op.iLike]: `%${term}%` } },
+        // EMP code + company Employee ID (DVT160)
+        ...employeeIdSearchConditions(term),
         // "Neha Singh" — full-name searches matched nothing when only the
         // individual name columns were compared.
         Sequelize.where(
@@ -232,7 +242,7 @@ export const GetAllUser = async (
         "departmentId",
         "createdAt",
         "canViewAllBranches",
-        "loginAccess",
+        "attendanceAccess",
       ],
       where,
       offset,
@@ -1200,14 +1210,16 @@ export const BulkAddSalePerson = async (
           const extrasByEmail = new Map<string, Record<string, string>>();
 
           for (const r of rows) {
+            // lastName and dob are optional in bulk upload (both nullable);
+            // blank values are stored as null and can be filled in later.
+            if (!r.lastName) r.lastName = null;
+            if (!r.dob) r.dob = null;
             if (
               !r.firstName ||
-              !r.lastName ||
               !r.email ||
-              !r.phone ||
-              !r.dob
+              !r.phone
             ) {
-              markInvalid(r, "firstName, lastName, email, phone and dob are required");
+              markInvalid(r, "firstName, email and phone are required");
               continue;
             }
             try {
@@ -1265,6 +1277,7 @@ export const BulkAddSalePerson = async (
           }
 
           const created: any[] = [];
+          const credentialEmails: Array<{ email: string; firstName: string; lastName: string; tempPassword: string }> = [];
           const linkedExisting: any[] = [];
           const skippedDuplicate: any[] = [];
           const skippedRoleMismatch: any[] = [];
@@ -1387,18 +1400,7 @@ export const BulkAddSalePerson = async (
                 { companyId: callerCompanyId ? Number(callerCompanyId) : null, createdBy: creatorId }
               ).catch((err) => console.error(`Failed to save additional details for ${r.email}:`, err));
 
-              sendEmail(
-                "Welcome to SalesVera - Your Login Credentials",
-                tempPassword,
-                r.email,
-                r.firstName,
-                r.lastName
-              ).catch((err) =>
-                console.error(
-                  `Failed to send credentials email to ${r.email}:`,
-                  err
-                )
-              );
+              credentialEmails.push({ email: r.email, firstName: r.firstName, lastName: r.lastName || "", tempPassword });
 
               created.push({
                 id: item.getDataValue("id"),
@@ -1413,7 +1415,30 @@ export const BulkAddSalePerson = async (
             }
           });
 
+          // Send the credentials emails now that the accounts are committed,
+          // and record per user whether it went out.
+          const emailResults = await Promise.allSettled(
+            credentialEmails.map((m) =>
+              sendEmail("Welcome to SalesVera - Your Login Credentials", m.tempPassword, m.email, m.firstName, m.lastName)
+            )
+          );
+          const emailFailed: Array<{ email: string; error: string }> = [];
+          emailResults.forEach((r, i) => {
+            const email = credentialEmails[i].email;
+            const row = created.find((c) => c.email === email);
+            if (r.status === "fulfilled") {
+              if (row) row.emailSent = true;
+            } else {
+              if (row) row.emailSent = false;
+              const reason: any = (r as PromiseRejectedResult).reason;
+              emailFailed.push({ email, error: reason?.message || String(reason) });
+              console.error(`Failed to send credentials email to ${email}:`, reason);
+            }
+          });
+
           createSuccess(res, "Bulk sale person upload completed", {
+            emailsSent: emailResults.filter((r) => r.status === "fulfilled").length,
+            emailsFailed: emailFailed,
             totalCSV: rows.length,
             created: created.length,
             linkedExisting: linkedExisting.length,
@@ -1871,7 +1896,7 @@ export const UpdateBranchVisibility = async (
     // apply to this same "who can I see/manage" surface.
     if (loggedInRole !== "super_admin") {
       const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-      const childIds = await getCompanyScopedChildUserIds(Number(loggedInId), callerCompanyId);
+      const childIds = await dropFellowAdmins(Number(loggedInId), await getCompanyScopedChildUserIds(Number(loggedInId), callerCompanyId));
       if (!childIds.includes(targetUserId)) {
         forbidden(res, "This user is not on your team");
         return;
@@ -1892,11 +1917,12 @@ export const UpdateBranchVisibility = async (
   }
 };
 
-// PATCH /admin/users/:userId/login-access  { loginAccess: "both" | "web" | "mobile" }
+// PATCH /admin/users/:userId/attendance-access  { attendanceAccess: "both" | "mobile" }
 // Admin / owner (and super_admin) decide whether one of their own managers or
-// employees may log in on the web, on the mobile app, or both. Enforced at
-// login and on every request — see modules/shared/loginAccess.ts.
-export const UpdateLoginAccess = async (req: Request, res: Response): Promise<void> => {
+// employees may mark attendance (punch in/out) from the web AND the mobile
+// app, or from the mobile app only. Login is not affected. Enforced at
+// punch-in/out — see modules/shared/attendanceAccess.ts.
+export const UpdateAttendanceAccess = async (req: Request, res: Response): Promise<void> => {
   try {
     const userData = req.userData as JwtPayload;
     const loggedInId = Number(userData?.userId);
@@ -1908,19 +1934,19 @@ export const UpdateLoginAccess = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const { loginAccess } = req.body || {};
-    if (!LOGIN_ACCESS_VALUES.includes(loginAccess)) {
-      badRequest(res, `loginAccess must be one of: ${LOGIN_ACCESS_VALUES.join(", ")}`);
+    const { attendanceAccess } = req.body || {};
+    if (!ATTENDANCE_ACCESS_VALUES.includes(attendanceAccess)) {
+      badRequest(res, `attendanceAccess must be one of: ${ATTENDANCE_ACCESS_VALUES.join(", ")}`);
       return;
     }
 
-    const target: any = await User.findByPk(targetUserId, { attributes: ["id", "role", "loginAccess", "firstName", "lastName"] });
+    const target: any = await User.findByPk(targetUserId, { attributes: ["id", "role", "attendanceAccess", "firstName", "lastName"] });
     if (!target) {
       badRequest(res, "User not found");
       return;
     }
     if (!RESTRICTABLE_ROLES.includes(target.role)) {
-      badRequest(res, "Login access can only be set for managers and employees");
+      badRequest(res, "Attendance access can only be set for managers and employees");
       return;
     }
 
@@ -1935,12 +1961,12 @@ export const UpdateLoginAccess = async (req: Request, res: Response): Promise<vo
       }
     }
 
-    target.loginAccess = loginAccess;
+    target.attendanceAccess = attendanceAccess;
     await target.save();
 
-    createSuccess(res, "Login access updated successfully", {
+    createSuccess(res, "Attendance access updated successfully", {
       userId: target.id,
-      loginAccess: target.loginAccess,
+      attendanceAccess: target.attendanceAccess,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Something went wrong";
@@ -1979,7 +2005,7 @@ export const UpdateExpense = async (
     // acting in — the plain hierarchy walk let a multi-company admin/manager
     // keep approving the other company's expenses after switching company.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
     if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
       forbidden(res, "You can only manage expenses of your own team members");
       return;
@@ -2154,7 +2180,7 @@ const buildExpenseQuery = async (req: Request) => {
       });
       childIds = allUsers.map((u: any) => u.id);
     } else {
-      childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+      childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
     }
 
     const allUserIds: number[] = [loggedInId, ...childIds];
@@ -3131,7 +3157,7 @@ export const userExpense = async (req: Request, res: Response) => {
     // Resolved for the caller's active company so a multi-company admin can't
     // read the other company's expense history after switching company.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
     const requestedUserId = Number(userId);
     if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
       return forbidden(res, "You can only view expenses of your own team members");
@@ -3231,7 +3257,7 @@ export const assignMeeting = async (req: Request, res: Response): Promise<void> 
     // multi-company admin/manager can't assign this company's meeting to an
     // employee who belongs to the other company they also administer.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
     if (Number(userId) !== loggedInId && !childIds.includes(Number(userId))) {
       forbidden(res, "You can only assign meetings to your own team members");
       return;
@@ -4016,7 +4042,7 @@ export const getMeetingDistance = async (
     // Team resolved for the caller's active company — the plain hierarchy walk
     // still matched employees of another company the caller also administers.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
     if (userId !== loggedInId && !childIds.includes(userId)) {
       forbidden(res, "You can only view meeting distances of your own team members");
       return;
@@ -4080,7 +4106,7 @@ export const getFuelExpense = async (req: Request, res: Response) => {
     const loggedInId = Number(userData.userId);
     // Team resolved for the caller's active company — see getMeetingDistance.
     const callerCompanyId = userData?.companyId ? Number(userData.companyId) : null;
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
     if (userId !== loggedInId && !childIds.includes(userId)) {
       forbidden(res, "You can only view fuel expenses of your own team members");
       return;
@@ -4191,7 +4217,7 @@ export const assignEmployeeShift = async (req: Request, res: Response): Promise<
     // let a multi-company admin/manager reassign the other company's employees.
     const callerCompanyId = userData.companyId ? Number(userData.companyId) : null;
 
-    const childIds = await getCompanyScopedChildUserIds(Number(loggedInId), callerCompanyId);
+    const childIds = await dropFellowAdmins(Number(loggedInId), await getCompanyScopedChildUserIds(Number(loggedInId), callerCompanyId));
     if (Number(employeeId) !== Number(loggedInId) && !childIds.includes(Number(employeeId))) {
       forbidden(res, "You can only assign shifts to your own team members");
       return;

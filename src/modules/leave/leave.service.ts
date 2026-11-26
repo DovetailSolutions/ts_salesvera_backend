@@ -1,4 +1,5 @@
 import { User, CompanyLeave, Leave, Attendance, EmployeeLeaveTypeBalance, Shift, sequelize } from "../../config/dbConnection";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import { Op, QueryTypes } from "sequelize";
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
@@ -248,7 +249,7 @@ export const createLeaveRequest = async (loggedInId: number, callerCompanyId: nu
     // authority over everyone they ever created even after switching into
     // the other company. Scoped to the caller's ACTIVE company now; the
     // helper still keeps anyone whose company membership is indeterminate.
-    const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+    const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
     if (!childIds.includes(targetEmployeeId)) {
       throw new ServiceError("You can only request leave on behalf of your own team members", 403);
     }
@@ -357,7 +358,7 @@ export const approveLeave = async (loggedInId: number, callerCompanyId: number |
     }
   }
 
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   if (Number(employee_id) !== loggedInId && !childIds.includes(Number(employee_id))) {
     throw new ServiceError("You can only manage leave requests of your own team members", 403);
   }
@@ -595,7 +596,7 @@ export const assignLeaveBalance = async (loggedInId: number, callerCompanyId: nu
   // Company-scoped team: allocating balance is a write against another
   // user's record, so it must not reach staff of a company the caller
   // merely also belongs to (see getCompanyScopedChildUserIds).
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   const unauthorizedIds = employeeIds.filter((id) => id !== loggedInId && !childIds.includes(id));
   if (unauthorizedIds.length > 0) {
     throw new ServiceError(
@@ -676,7 +677,7 @@ export const getEmployeeLeaveBalance = async (
   // Company-scoped team — the balances below are read against this company's
   // leave types, so the "is this my team member" gate must use the same
   // company context rather than the company-blind hierarchy.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   if (Number(employeeId) !== loggedInId && !childIds.includes(Number(employeeId))) {
     throw new ServiceError("You can only view leave balance of your own employees");
   }
@@ -721,7 +722,7 @@ export const getTeamLeaveBalances = async (
     });
     childIds = allUsers.map((u: any) => u.id);
   } else {
-    childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+    childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
   }
 
   let leaveTypes = callerCompanyId ? await LeaveRepo.findCompanyLeaveTypesForCompany(callerCompanyId) : [];
@@ -797,7 +798,7 @@ export const leaveList = async (
   // PERF: Fast variant (see userHierarchy.ts) — this list is called from the
   // dashboard alongside several other team-scoped calls, so the old one-DB-
   // round-trip-per-user walk compounded directly into dashboard load time.
-  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
   const allUserIds = [loggedInId, ...childIds];
 
   const { rows, count } = await LeaveRepo.findLeavesForUsersPaginated({
@@ -825,7 +826,7 @@ export const getTodayLeaveRequests = async (loggedInId: number, callerCompanyId:
   // which otherwise counts the other company's employees for a caller
   // assigned to more than one company.
   // PERF: Fast variant (see userHierarchy.ts) — same reasoning as leaveList above.
-  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
   const [appliedToday, onLeaveToday] = await LeaveRepo.findTodayLeaveActivity(childIds);
 
   return {
@@ -846,7 +847,7 @@ export const cancelLeaveAndMarkPresent = async (loggedInId: number, callerCompan
   // Company-scoped: this cancels a leave and writes an attendance row for
   // someone else, so it must not reach staff of another company the caller
   // is also assigned to (the company-blind hierarchy used to allow that).
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   if (!childIds.includes(Number(employeeId))) {
     throw new ServiceError("You can only manage attendance/leave for your own team members");
   }
@@ -914,7 +915,7 @@ export const userLeave = async (
 ) => {
   // Company-scoped team — gates reading another user's full leave history,
   // which the company-blind hierarchy exposed across companies.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   const requestedUserId = Number(userId);
   if (requestedUserId !== loggedInId && !childIds.includes(requestedUserId)) {
     throw new ServiceError("You can only view leave records of your own team members", 403);

@@ -1,4 +1,5 @@
 import { Op, QueryTypes, Transaction } from "sequelize";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import { sequelize, User, Task, TaskHistory, Meeting, MeetingUser } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
 import { getISTDateString } from "../shared/dateUtils";
@@ -429,7 +430,7 @@ const loadForActor = async (actor: SeparationActor, idParam: unknown, t?: Transa
   }
   if (actor.role === "manager") {
     if (Number(r.managerId) === me) return { r, access: "manager" };
-    const team = await getCompanyScopedChildUserIds(me, companyId);
+    const team = await dropFellowAdmins(me, await getCompanyScopedChildUserIds(me, companyId));
     if (team.map(Number).includes(Number(r.employeeId))) return { r, access: "team" };
   }
   throw new ServiceError("Separation request not found", 404);
@@ -640,7 +641,7 @@ const visibleScope = async (actor: SeparationActor): Promise<{ companyId: number
     return { companyId, where: `s."companyId" = :companyId`, repl: { companyId } };
   }
   if (actor.role === "manager") {
-    const team = (await getCompanyScopedChildUserIds(me, companyId)).map(Number).filter((id) => id !== me);
+    const team = (await dropFellowAdmins(me, await getCompanyScopedChildUserIds(me, companyId))).map(Number).filter((id) => id !== me);
     return {
       companyId,
       where: `s."companyId" = :companyId AND s."employeeId" <> :me AND (s."managerId" = :me ${team.length ? `OR s."employeeId" IN (:team)` : ""})`,

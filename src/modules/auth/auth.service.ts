@@ -16,7 +16,6 @@ import { createSession, rotateSession, revokeSession, revokeAllSessionsForUser }
 import { userHasPermission } from "../../config/checkPermission";
 import { getJobPersonalDetails } from "../shared/jobPersonalDetails";
 import { buildCelebrations } from "../birthday/celebrationInfo";
-import { isChannelAllowed, channelBlockedMessage, LOGIN_CHANNEL_BLOCKED } from "../shared/loginAccess";
 import { parseJoiningDate, saveJoiningDate } from "../employeeProfile/joiningDate";
 
 // ============================================================
@@ -538,14 +537,6 @@ export const login = async (body: any, meta: { deviceId?: string | null; userAge
   const isPasswordValid = await bcrypt.compare(password, hashedPassword);
   if (!isPasswordValid) throw new ServiceError("Invalid email or password");
 
-  // Login channel (users.loginAccess) — a "mobile only" user can't use the web.
-  if (!isChannelAllowed(user.get("loginAccess"), "web")) {
-    throw new ServiceError(channelBlockedMessage("web"), 403, {
-      code: LOGIN_CHANNEL_BLOCKED,
-      loginAccess: user.get("loginAccess"),
-    });
-  }
-
   const userId = user.get("id") as number;
 
   // Expired/suspended tenant. The owner ("user") AND the tenant's admins may
@@ -655,13 +646,6 @@ export const refresh = async (
     throw new ServiceError("Authentication session expired", 401, { code: "REFRESH_USER_INVALID" });
   }
   const role = userRow.get("role") as string;
-  // Login channel — a session opened on the web stops refreshing once the
-  // user is switched to "mobile only" (shared/loginAccess).
-  const accessRow: any = await User.findByPk(decoded.userId, { attributes: ["id", "loginAccess"] });
-  if (!isChannelAllowed(accessRow?.loginAccess, "web")) {
-    await revokeSession(refreshCookieToken);
-    throw new ServiceError(channelBlockedMessage("web"), 401, { code: LOGIN_CHANNEL_BLOCKED });
-  }
   // Same tenant-access gate as login — otherwise a session opened before
   // the tenant expired would keep refreshing for its full lifetime.
   const accessBlockedStatus = await SubscriptionLimit.getBlockedTenantStatus(

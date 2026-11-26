@@ -1,4 +1,4 @@
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import {
@@ -8,6 +8,8 @@ import {
   User,
   Permission,
   UserPermission,
+  Company,
+  sequelize,
 } from "../config/dbConnection";
 import { getUserPermissionsFromCache } from "../config/permissionCache";
 import { v4 as uuid } from "uuid";
@@ -18,7 +20,8 @@ import {
 } from "../config/notificationService";
 import {getAllSubordinateIds} from "../app/middlewear/comman"
 import { uploadBufferToSpaces } from "../config/spaces";
-import { collectUserCompanyIds } from "../modules/shared/userHierarchy";
+import { collectUserCompanyIds, getCompanyScopedOrgWideUserIds, getCompanyScopedChildUserIdsFast } from "../modules/shared/userHierarchy";
+import { resolveCompanyId } from "../config/tokenCheck";
 
 // Group members must come from the caller's current company — the same
 // audience the UserList contact picker shows (company-scoped there too).
@@ -904,11 +907,35 @@ export const initChatSocket = (io: Server) => {
         const offset = (page - 1) * limit;
         const cleanedSearch = typeof search === "string" ? search.trim() : "";
 
-        // 🟢 employee gets a dedicated list: own admin + own manager + all cousins (other employees)
-        const childIds =
-          userRole === "employee"
-            ? await getSalePersonChatUserIds(userId)
-            : await getAllRelatedUserIds(userId);
+        // Admins, managers and employees chat with their WHOLE company (every
+        // admin, manager and employee, plus the owner). Company comes from the
+        // token, else is resolved the same way tokenCheck does.
+        // PERF: the company list already contains everyone the old per-user
+        // hierarchy walks (getAllRelatedUserIds / getSalePersonChatUserIds)
+        // found inside the company, so those walks — one DB round trip per
+        // person — are skipped for these roles; the company tree uses the
+        // batched, level-by-level walker.
+        const chatCompanyId = ["admin", "manager", "employee"].includes(userRole)
+          ? socket.data.user?.companyId
+            ? Number(socket.data.user.companyId)
+            : await resolveCompanyId(Number(userId), userRole, null)
+          : null;
+        let childIds: number[];
+        if (chatCompanyId != null) {
+          const [orgWide, chatCompany] = await Promise.all([
+            getCompanyScopedOrgWideUserIds(userId, chatCompanyId, getCompanyScopedChildUserIdsFast),
+            (Company as any).findByPk(chatCompanyId, { attributes: ["userId"] }),
+          ]);
+          // The company owner ("user" role) sits above the admins, so add them too.
+          const ownerIds = chatCompany?.userId ? [Number(chatCompany.userId)] : [];
+          childIds = Array.from(new Set([...orgWide.map(Number), ...ownerIds]));
+        } else {
+          // Owner / super_admin / no company context — unchanged.
+          childIds =
+            userRole === "employee"
+              ? await getSalePersonChatUserIds(userId)
+              : await getAllRelatedUserIds(userId);
+        }
 
         // FIX: both helpers above walk the creator hierarchy with no notion
         // of company — an admin/manager assigned to more than one company
@@ -919,7 +946,10 @@ export const initChatSocket = (io: Server) => {
         // risk hiding a legitimate contact.
         const socketCompanyId = socket.data.user?.companyId ? Number(socket.data.user.companyId) : null;
         let validUserIds = childIds;
-        if (socketCompanyId != null && childIds.length > 0) {
+        // The company list above (chatCompanyId set) is already company-scoped
+        // by getCompanyScopedOrgWideUserIds — only the hierarchy-walk path
+        // still needs this filter.
+        if (chatCompanyId == null && socketCompanyId != null && childIds.length > 0) {
           const companyIdsByUser = await collectUserCompanyIds(childIds);
           validUserIds = childIds.filter((id) => {
             const companies = companyIdsByUser.get(id);
@@ -943,6 +973,9 @@ export const initChatSocket = (io: Server) => {
               [Op.in]: validUserIds,
               [Op.ne]: userId, // ❌ exclude logged-in user
             },
+            // The platform super admin is not part of any company's team —
+            // never list them in a company user's chat contacts.
+            ...(userRole !== "super_admin" ? { role: { [Op.ne]: "super_admin" } } : {}),
             ...userSearchCondition, // Add search conditions
           },
           attributes: [
@@ -969,38 +1002,49 @@ export const initChatSocket = (io: Server) => {
         // NOTE: this sort only reorders within the current page — a fully
         // global "most recent across all pages" ordering would need the
         // query to originate from ChatRoom/Message rather than User.
-        const usersWithUnreadCounts = await Promise.all(
-          result.rows.map(async (rowUser: any) => {
-            const userObj = rowUser.get({ plain: true });
-            const otherId = userObj.id;
-            const pairRoomId = userId < otherId ? `${userId}-${otherId}` : `${otherId}-${userId}`;
-            const room = await ChatRoom.findOne({ where: { roomId: pairRoomId }, attributes: ["id"] });
+        // PERF: batched — 3 queries for the whole page (rooms, unread counts,
+        // latest message per room) instead of 3 per contact.
+        const plainRows = result.rows.map((rowUser: any) => rowUser.get({ plain: true }));
+        const pairRoomIdOf = (otherId: number) =>
+          userId < otherId ? `${userId}-${otherId}` : `${otherId}-${userId}`;
+        const pairRoomIds = plainRows.map((u: any) => pairRoomIdOf(u.id));
+        const rooms = pairRoomIds.length
+          ? ((await ChatRoom.findAll({ where: { roomId: { [Op.in]: pairRoomIds } }, attributes: ["id", "roomId"] })) as any[])
+          : [];
+        const roomPkByRoomId = new Map<string, number>(rooms.map((r: any) => [String(r.roomId), Number(r.id)]));
+        const roomPks = rooms.map((r: any) => Number(r.id));
 
-            let unreadCount = 0;
-            let lastMessage: string | null = null;
-            let lastMessageAt: Date | null = null;
+        const unreadByRoom = new Map<number, number>();
+        const latestByRoom = new Map<number, any>();
+        if (roomPks.length) {
+          const [unreadRows, latestRows] = await Promise.all([
+            Message.findAll({
+              attributes: ["chatRoomId", [sequelize.fn("COUNT", sequelize.col("id")), "cnt"]],
+              where: { chatRoomId: { [Op.in]: roomPks }, status: "unseen", senderId: { [Op.ne]: userId } },
+              group: ["chatRoomId"],
+              raw: true,
+            }) as Promise<any[]>,
+            sequelize.query(
+              `SELECT DISTINCT ON ("chatRoomId") "chatRoomId", "message", "mediaType", "createdAt"
+                 FROM "messages" WHERE "chatRoomId" IN (:roomPks)
+                 ORDER BY "chatRoomId", "createdAt" DESC`,
+              { replacements: { roomPks }, type: QueryTypes.SELECT }
+            ) as Promise<any[]>,
+          ]);
+          unreadRows.forEach((r: any) => unreadByRoom.set(Number(r.chatRoomId), Number(r.cnt)));
+          latestRows.forEach((r: any) => latestByRoom.set(Number(r.chatRoomId), r));
+        }
 
-            if (room) {
-              const [count, latest] = await Promise.all([
-                Message.count({
-                  where: { chatRoomId: room.id, status: "unseen", senderId: { [Op.ne]: userId } },
-                }),
-                Message.findOne({
-                  where: { chatRoomId: room.id },
-                  order: [["createdAt", "DESC"]],
-                  attributes: ["message", "mediaType", "createdAt"],
-                }),
-              ]);
-              unreadCount = count;
-              if (latest) {
-                lastMessage = latest.message ?? (latest.mediaType ? `📎 ${latest.mediaType}` : null);
-                lastMessageAt = (latest as any).createdAt;
-              }
-            }
-
-            return { ...userObj, unreadCount, lastMessage, lastMessageAt };
-          })
-        );
+        const usersWithUnreadCounts = plainRows.map((userObj: any) => {
+          const roomPk = roomPkByRoomId.get(pairRoomIdOf(userObj.id));
+          const latest = roomPk != null ? latestByRoom.get(roomPk) : null;
+          return {
+            ...userObj,
+            unreadCount: roomPk != null ? unreadByRoom.get(roomPk) ?? 0 : 0,
+            lastMessage: latest ? latest.message ?? (latest.mediaType ? `📎 ${latest.mediaType}` : null) : null,
+            lastMessageAt: latest ? latest.createdAt : null,
+          };
+        });
 
         usersWithUnreadCounts.sort((a: any, b: any) => {
           const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;

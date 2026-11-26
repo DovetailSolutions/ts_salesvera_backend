@@ -13,5 +13,6 @@ router.post("/addbranch", tokenCheck, authorizeRoles(...ADMIN_ONLY), BranchContr
 router.get("/getbranch", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), BranchController.getBranch);
 router.get("/getbranch/:id", tokenCheck, authorizeRoles(...ADMIN_AND_MANAGER), BranchController.getBranchById);
 router.patch("/updatebranch/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), BranchController.updateBranch);
+router.delete("/deletebranch/:id", tokenCheck, authorizeRoles(...ADMIN_ONLY), BranchController.deleteBranch);
 
 export default router;

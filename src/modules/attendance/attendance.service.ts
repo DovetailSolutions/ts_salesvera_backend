@@ -1,4 +1,6 @@
 import { Op, fn, col } from "sequelize";
+import { employeeIdSearchConditions } from "../shared/employeeIdSearch";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import { getObjectFromSpaces, SpacesFile } from "../../config/spaces";
 import { Readable } from "stream";
 import * as XLSX from "xlsx";
@@ -11,7 +13,7 @@ import { findEffectiveVehicleAllowanceRateForDate } from "../company/company.ser
 import * as AttendanceRepo from "./attendance.repository";
 import { isValidCoordinate, recordTravelSegment, calculateDrivingDistanceKm, parseDistanceStringToKm, getSalesPersonTravelSummary, getSalesPersonTravelSummaryRange, isPlausibleLeg } from "./travelDistance.service";
 import { resolveAttendanceLocationName } from "./locationName.service";
-import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User, Leave, CompanyLeave } from "../../config/dbConnection";
+import { Attendance, Meeting, MeetingUser, Company, SalesPersonTravelLog, User, Leave, CompanyLeave, EmployeeExtraDetails } from "../../config/dbConnection";
 import * as AttendanceSecurity from "../attendanceSecurity/attendanceSecurity.service";
 import { resolvePolicy, shiftWindowOn, getMyPolicySummary } from "../attendancePolicy/attendancePolicy.service";
 import { classifyAttendanceDay } from "../attendancePolicy/attendancePolicy.classifier";
@@ -35,6 +37,20 @@ const getPagination = (query: any) => {
 
 // ---- Admin/team-scoped ----
 
+// Team Attendance (/attendance-management) lists field staff only: admins,
+// owners ("user") and super_admin are left out of the list AND the summary
+// counts, so an owner's view doesn't show their admins as absent staff.
+const NON_STAFF_ROLES = ["admin", "user", "super_admin"];
+const onlyStaffIds = async (ids: number[]): Promise<number[]> => {
+  if (!ids.length) return [];
+  const rows = await (User as any).findAll({
+    where: { id: { [Op.in]: ids }, role: { [Op.notIn]: NON_STAFF_ROLES } },
+    attributes: ["id"],
+  });
+  const keep = new Set(rows.map((r: any) => Number(r.id)));
+  return ids.filter((id) => keep.has(Number(id)));
+};
+
 export const getAttendance = async (loggedInId: number, callerCompanyId: number | null, query: any) => {
   const { page, limit, offset } = getPagination(query);
   // FIX: was getAllChildUserIds — a pure who-created-whom walk with no notion
@@ -46,7 +62,7 @@ export const getAttendance = async (loggedInId: number, callerCompanyId: number 
   // PERF: fast (level-batched) variant — same output, fewer DB round-trips.
   // Only this call site was switched; every other caller of
   // getCompanyScopedChildUserIds is untouched.
-  let childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+  let childIds = await onlyStaffIds(await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId)));
   // FIX: was new Date().toISOString().slice(0, 10) — toISOString() converts
   // to UTC first, which rolls the calendar day backward for any real-world
   // IST time before ~05:30 (e.g. 2:30 AM IST still reports yesterday's
@@ -134,7 +150,7 @@ export const markAttendancePresent = async (loggedInId: number, callerCompanyId:
   // while acting in this one. Scoped to the company they're currently acting
   // in (callerCompanyId, the same one already used for leave types below);
   // no resolvable company context falls back to the previous behavior.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   if (!childIds.includes(Number(employeeId))) {
     throw new ServiceError("You can only mark attendance for your own team members");
   }
@@ -308,7 +324,7 @@ export const userAttendance = async (loggedInId: number, callerCompanyId: number
   // still read the OTHER company's employees' history while acting in this
   // one. Scoped to the company they're currently acting in; no resolvable
   // company context keeps the previous behavior.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   if (employeeId !== loggedInId && !childIds.includes(employeeId)) {
     throw new ServiceError("You can only view attendance of your own team members", 403);
   }
@@ -400,6 +416,8 @@ const buildSearchFilter = (search: string) =>
           { lastName: { [Op.iLike]: `%${search}%` } },
           { email: { [Op.iLike]: `%${search}%` } },
           { phone: { [Op.iLike]: `%${search}%` } },
+          // EMP code + company Employee ID (DVT160)
+          ...employeeIdSearchConditions(search),
         ],
       }
     : {};
@@ -417,7 +435,7 @@ const buildSearchFilter = (search: string) =>
 //     as absent, including team members who haven't punched in/been marked
 //     yet, which is what "Absent Today" means on a live dashboard.
 export const attendanceSummary = async (userId: number, callerCompanyId: number | null) => {
-  const childIds = await getCompanyScopedChildUserIdsFast(userId, callerCompanyId);
+  const childIds = await onlyStaffIds(await dropFellowAdmins(userId, await getCompanyScopedChildUserIdsFast(userId, callerCompanyId)));
   const totalChildCount = childIds.length;
 
   if (totalChildCount === 0) {
@@ -445,7 +463,7 @@ export const attendanceBook = async (userId: number, callerCompanyId: number | n
   // getCompanyScopedChildUserIds, just fewer DB round-trips. Only this call
   // site was switched; every other caller of getCompanyScopedChildUserIds
   // is untouched.
-  const childIds = await getCompanyScopedChildUserIdsFast(userId, callerCompanyId);
+  const childIds = await dropFellowAdmins(userId, await getCompanyScopedChildUserIdsFast(userId, callerCompanyId));
 
   if (!childIds.length) {
     throw new ServiceError("No child users found");
@@ -570,7 +588,7 @@ export const exportAttendanceReportExcel = async (loggedInId: number, callerComp
   // company's employees (and let ?userId= target them) for an admin/manager
   // assigned to more than one company. Scoped to the company they're
   // currently acting in; no resolvable company context behaves as before.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, callerCompanyId));
   if (!childIds.length) {
     throw new ServiceError("No child users found");
   }
@@ -1148,7 +1166,7 @@ export const bulkMarkAttendance = async (
   // skippedNotInTeam. Scoped to the company this upload is being made in —
   // the same companyId already used above to resolve the leave types and
   // overtime policy; no resolvable company context behaves as before.
-  const childIds = await getCompanyScopedChildUserIds(loggedInId, companyId ? Number(companyId) : null);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIds(loggedInId, companyId ? Number(companyId) : null));
   const allowedIds = new Set<number>([loggedInId, ...childIds]);
 
   const skippedNonNumericEmployeeId: any[] = [];
@@ -1175,11 +1193,31 @@ export const bulkMarkAttendance = async (
       .filter((u: any) => u.employeeCode)
       .map((u: any) => [String(u.employeeCode).toUpperCase(), u.id])
   );
+  // The company's own Employee ID (e.g. DVT160 — Additional Details, and what
+  // the web shows / puts in the downloaded template) is accepted too. Only
+  // this caller's team; an ID shared by two people is ambiguous and ignored.
+  const idByCompanyEmployeeId = new Map<string, number>();
+  if (allowedIds.size) {
+    const extIds = (await EmployeeExtraDetails.findAll({
+      where: { userId: { [Op.in]: [...allowedIds] }, employeeIdExternal: { [Op.ne]: null } },
+      attributes: ["userId", "employeeIdExternal"],
+    })) as any[];
+    const ambiguous = new Set<string>();
+    for (const r of extIds) {
+      const key = String(r.employeeIdExternal || "").trim().toUpperCase();
+      if (!key) continue;
+      if (idByCompanyEmployeeId.has(key) && idByCompanyEmployeeId.get(key) !== Number(r.userId)) ambiguous.add(key);
+      else idByCompanyEmployeeId.set(key, Number(r.userId));
+    }
+    ambiguous.forEach((k) => idByCompanyEmployeeId.delete(k));
+  }
   const resolveEmployeeIdCell = (rawCell: any): number | null => {
     const trimmed = String(rawCell ?? "").trim();
     if (!trimmed) return null;
     const byCode = idByEmployeeCode.get(trimmed.toUpperCase());
     if (byCode !== undefined) return byCode;
+    const byCompanyId = idByCompanyEmployeeId.get(trimmed.toUpperCase());
+    if (byCompanyId !== undefined) return byCompanyId;
     const numeric = Number(trimmed);
     return Number.isFinite(numeric) && Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
   };
@@ -2375,7 +2413,7 @@ export const getSalesPersonTravelForAdmin = async (
   targetUserId: number,
   date: string
 ) => {
-  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
   if (targetUserId !== loggedInId && !childIds.includes(targetUserId)) {
     throw new ServiceError("You do not have access to this user's travel data", 403);
   }
@@ -2396,7 +2434,7 @@ export const getTeamTravelSummary = async (
   date: string,
   options?: { page?: number; limit?: number; search?: string }
 ) => {
-  const childIds = await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId);
+  const childIds = await dropFellowAdmins(loggedInId, await getCompanyScopedChildUserIdsFast(loggedInId, callerCompanyId));
   if (childIds.length === 0) return [];
 
   const userWhere: any = { id: { [Op.in]: childIds }, role: "employee", status: { [Op.ne]: "delete" } };
@@ -2406,6 +2444,8 @@ export const getTeamTravelSummary = async (
       { firstName: { [Op.iLike]: `%${search}%` } },
       { lastName: { [Op.iLike]: `%${search}%` } },
       { email: { [Op.iLike]: `%${search}%` } },
+      // EMP code + company Employee ID (DVT160)
+      ...employeeIdSearchConditions(search),
     ];
   }
 

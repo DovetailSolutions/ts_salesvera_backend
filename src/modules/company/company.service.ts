@@ -316,7 +316,7 @@ export const getMyCompanies = async (userId: number, role: any) => {
 };
 
 // channel: the caller token's "ch" claim, carried into the new token so a
-// switched session keeps its login-channel restriction (shared/loginAccess).
+// switched session keeps its channel, used for the attendance-channel check (shared/attendanceAccess).
 export const switchCompany = async (userId: number, role: any, body: any, channel?: "web" | "mobile") => {
   const { companyId } = body;
   if (!companyId) throw new ServiceError("companyId is required");

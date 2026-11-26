@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { dropFellowAdmins } from "../../modules/shared/userHierarchy";
 import { JwtPayload } from "jsonwebtoken";
 import { Op } from "sequelize";
 import { Permission } from "../model/permission";
@@ -295,12 +296,12 @@ export const getUserPermissions = async (req: AuthRequest, res: Response): Promi
       // org-wide set let them read the admin's and other managers' teams'
       // permission sets too.
       const orgIds = role === "manager"
-        ? await getCompanyScopedChildUserIds(Number(callerId), companyId ? Number(companyId) : null)
-        : await getOrgWideUserIdsForCaller(
+        ? await dropFellowAdmins(Number(callerId), await getCompanyScopedChildUserIds(Number(callerId), companyId ? Number(companyId) : null))
+        : await dropFellowAdmins(Number(callerId), await getOrgWideUserIdsForCaller(
             Number(callerId),
             String(role),
             companyId ? Number(companyId) : null
-          );
+          ));
       if (!orgIds.includes(targetUserId)) {
         return res.status(403).json({
           success: false,
@@ -396,11 +397,11 @@ export const assignPermissions = async (req: AuthRequest, res: Response): Promis
     // never fired. Mirrors the already-correct check in getUserPermissions
     // above.
     if (role !== "super_admin" && Number(targetUserId) !== Number(callerId)) {
-      const orgIds = await getOrgWideUserIdsForCaller(
+      const orgIds = await dropFellowAdmins(Number(callerId), await getOrgWideUserIdsForCaller(
         Number(callerId),
         String(role),
         callerCompanyId ? Number(callerCompanyId) : null
-      );
+      ));
       if (!orgIds.includes(Number(targetUserId))) {
         return res.status(403).json({
           success: false,
@@ -561,11 +562,11 @@ export const revokePermissions = async (req: AuthRequest, res: Response): Promis
     // FIX: see identical note in assignPermissions above — tenantId alone
     // is too coarse (shared across every company under the same Owner).
     if (role !== "super_admin" && Number(targetUserId) !== Number(callerId)) {
-      const orgIds = await getOrgWideUserIdsForCaller(
+      const orgIds = await dropFellowAdmins(Number(callerId), await getOrgWideUserIdsForCaller(
         Number(callerId),
         String(role),
         callerCompanyId ? Number(callerCompanyId) : null
-      );
+      ));
       if (!orgIds.includes(Number(targetUserId))) {
         return res.status(403).json({
           success: false,

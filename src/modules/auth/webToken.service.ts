@@ -40,8 +40,8 @@ export interface WebTokenPayload {
 }
 
 export const issueAccessToken = (payload: WebTokenPayload): string => {
-  // ch = login channel; tokenCheck refuses it for a "mobile only" user
-  // (modules/shared/loginAccess.ts).
+  // ch = login channel; punch-in/out refuses a web punch for an "app only" user
+  // (modules/shared/attendanceAccess.ts).
   const claims: Record<string, any> = { userId: payload.userId, role: payload.role, type: "access", ch: "web" };
   if (payload.companyId != null) claims.companyId = Number(payload.companyId);
   return jwt.sign(claims, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRES_IN } as jwt.SignOptions);

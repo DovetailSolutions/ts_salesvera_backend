@@ -1,6 +1,25 @@
 import { ServiceError } from "../shared/serviceError";
 import { hasCompanyAccess } from "../shared/companyAccess";
-import { createBranch, findBranchOwnedBy, findBranches } from "./branch.repository";
+import { createBranch, findBranches } from "./branch.repository";
+import { Branch, sequelize } from "../../config/dbConnection";
+
+// FIX: update/get/delete used findBranchOwnedBy(id, userId) — a match on the
+// branch's CREATOR only. Branches are stamped with whoever created them, so
+// the company's own admin (e.g. a second admin, or the owner editing what
+// the super admin set up) got "Branch not found" when saving. Access now
+// follows the company, the same rule the branch list already uses.
+const findAccessibleBranch = async (id: number, userId: number, role?: string) => {
+  const branch: any = await (Branch as any).findByPk(id);
+  if (!branch) throw new ServiceError("Branch not found");
+  if (branch.companyId == null) {
+    // Legacy row without a company — creator only, as before.
+    if (Number(branch.userId) !== Number(userId) && role !== "super_admin") throw new ServiceError("Branch not found");
+    return branch;
+  }
+  const allowed = await hasCompanyAccess(Number(branch.companyId), userId, role);
+  if (!allowed) throw new ServiceError("Branch not found");
+  return branch;
+};
 
 // ============================================================
 // Branch service — validation + orchestration. Byte-for-byte port of the
@@ -25,13 +44,42 @@ interface AddBranchInput {
   adminId?: number | string | null;
   managerId?: number | string | null;
   companyId: unknown;
+  gstNumber?: string | null;
+  branchDistrict?: string | null;
 }
+
+// GST number / district are optional. FIX: gstNumber was accepted by the
+// branch form but never saved (dropped here), so a branch's GST was lost.
+const GST_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+const cleanGst = (v: unknown): string | null => {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (!s) return null;
+  if (!GST_RE.test(s)) throw new ServiceError("Invalid branch GST number format");
+  return s;
+};
+const cleanEmail = (v: unknown): string | null => {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  if (!/^\S+@\S+\.\S+$/.test(s)) throw new ServiceError("Branch email is not valid");
+  return s;
+};
+const cleanPhone = (v: unknown): string | null => {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  if (s.replace(/\D/g, "").length < 8) throw new ServiceError("Branch phone is not valid");
+  return s;
+};
+const cleanDistrict = (v: unknown): string | null => {
+  const s = String(v ?? "").trim();
+  return s ? s.slice(0, 100) : null;
+};
 
 export const addBranch = async (userId: number, input: AddBranchInput) => {
   const {
     branchName, branchCode, branchCity, branchState, branchCountry, postalCode,
     addressLine1, addressLine2, branchEmail, branchPhone,
     latitude, longitude, geoRadius, adminId, managerId, companyId,
+    gstNumber, branchDistrict,
   } = input;
 
   if (!branchName || branchName.trim().length < 2) throw new ServiceError("Branch name is required (min 2 chars)");
@@ -41,10 +89,10 @@ export const addBranch = async (userId: number, input: AddBranchInput) => {
   if (!branchCountry) throw new ServiceError("Branch country is required");
   if (!postalCode || postalCode.length < 4) throw new ServiceError("Valid postal code is required");
   if (!addressLine1) throw new ServiceError("Address Line 1 is required");
-  // Both columns are NOT NULL in the DB; without these checks a missing
-  // value surfaced as a raw Postgres "null value in column" error.
-  if (!branchEmail || !/^\S+@\S+\.\S+$/.test(String(branchEmail))) throw new ServiceError("Valid branch email is required");
-  if (!branchPhone || String(branchPhone).trim().length < 8) throw new ServiceError("Valid branch phone is required");
+  // Email / phone are optional (the form says so; migration 0060 made the
+  // columns nullable). Checked only when filled in.
+  const email = cleanEmail(branchEmail);
+  const phone = cleanPhone(branchPhone);
 
   if (latitude === undefined || isNaN(Number(latitude)) || Number(latitude) < -90 || Number(latitude) > 90) {
     throw new ServiceError("Latitude must be between -90 and 90");
@@ -73,8 +121,8 @@ export const addBranch = async (userId: number, input: AddBranchInput) => {
     postalCode,
     addressLine1,
     addressLine2: addressLine2 || null,
-    branchEmail,
-    branchPhone,
+    branchEmail: email,
+    branchPhone: phone,
     latitude: Number(latitude),
     longitude: Number(longitude),
     geoRadius: Number(geoRadius),
@@ -82,6 +130,8 @@ export const addBranch = async (userId: number, input: AddBranchInput) => {
     managerId: managerId ? Number(managerId) : null,
     userId,
     companyId: Number(companyId),
+    gstNumber: cleanGst(gstNumber),
+    branchDistrict: cleanDistrict(branchDistrict),
   });
 };
 
@@ -101,16 +151,18 @@ interface UpdateBranchInput {
   geoRadius?: unknown;
   adminId?: number | string | null;
   managerId?: number | string | null;
+  gstNumber?: string | null;
+  branchDistrict?: string | null;
 }
 
-export const updateBranch = async (id: number, userId: number, input: UpdateBranchInput) => {
-  const branch = await findBranchOwnedBy(id, userId);
-  if (!branch) throw new ServiceError("Branch not found");
+export const updateBranch = async (id: number, userId: number, input: UpdateBranchInput, role?: string) => {
+  const branch = await findAccessibleBranch(id, userId, role);
 
   const {
     branchName, branchCode, branchCity, branchState, branchCountry, postalCode,
     addressLine1, addressLine2, branchEmail, branchPhone,
     latitude, longitude, geoRadius, adminId, managerId,
+    gstNumber, branchDistrict,
   } = input;
 
   if (latitude !== undefined && (isNaN(Number(latitude)) || Number(latitude) < -90 || Number(latitude) > 90)) {
@@ -132,13 +184,15 @@ export const updateBranch = async (id: number, userId: number, input: UpdateBran
   if (postalCode !== undefined) b.postalCode = postalCode;
   if (addressLine1 !== undefined) b.addressLine1 = addressLine1;
   if (addressLine2 !== undefined) b.addressLine2 = addressLine2;
-  if (branchEmail !== undefined) b.branchEmail = branchEmail;
-  if (branchPhone !== undefined) b.branchPhone = branchPhone;
+  if (branchEmail !== undefined) b.branchEmail = cleanEmail(branchEmail);
+  if (branchPhone !== undefined) b.branchPhone = cleanPhone(branchPhone);
   if (latitude !== undefined) b.latitude = Number(latitude);
   if (longitude !== undefined) b.longitude = Number(longitude);
   if (geoRadius !== undefined) b.geoRadius = Number(geoRadius);
   if (adminId !== undefined) b.adminId = adminId || null;
   if (managerId !== undefined) b.managerId = managerId || null;
+  if (gstNumber !== undefined) b.gstNumber = cleanGst(gstNumber);
+  if (branchDistrict !== undefined) b.branchDistrict = cleanDistrict(branchDistrict);
   // companyId is intentionally not editable here — re-parenting a branch to
   // a different company is not a supported operation from this form.
 
@@ -169,8 +223,58 @@ export const listBranches = async (params: { userId: number; role?: string; comp
   };
 };
 
-export const getBranchById = async (id: number, userId: number) => {
-  const branch = await findBranchOwnedBy(id, userId);
-  if (!branch) throw new ServiceError("Branch not found");
-  return branch;
+export const getBranchById = async (id: number, userId: number, role?: string) => {
+  return findAccessibleBranch(id, userId, role);
+};
+
+// DELETE /admin/deletebranch/:id
+// Refused while people or quotations still use the branch, or when it is the
+// company's only branch. Otherwise, in one transaction: company settings that
+// were merely stamped with this branch (departments, shifts, leave types,
+// banks, leave balances) move to another branch of the same company so they
+// keep working; this branch's own holiday copies are removed; then the branch.
+const count = async (table: string, branchId: number, t: any) => {
+  const [rows]: any = await sequelize.query(`SELECT COUNT(*)::int AS n FROM "${table}" WHERE "branchId" = :branchId`, {
+    replacements: { branchId },
+    transaction: t,
+  });
+  return Number(rows?.[0]?.n || 0);
+};
+
+export const deleteBranch = async (id: number, userId: number, role?: string) => {
+  const branch: any = await findAccessibleBranch(id, userId, role);
+  const companyId = branch.companyId != null ? Number(branch.companyId) : null;
+
+  return sequelize.transaction(async (t) => {
+    const people = Math.max(await count("users", id, t), await count("user_branches", id, t));
+    if (people > 0) {
+      throw new ServiceError(
+        `${people} ${people === 1 ? "person is" : "people are"} assigned to this branch. Move them to another branch first, then delete it.`
+      );
+    }
+    const quotations = await count("quotations", id, t);
+    if (quotations > 0) {
+      throw new ServiceError(`This branch has ${quotations} quotation(s), so it can't be deleted.`);
+    }
+
+    const others: any[] = companyId != null
+      ? await (Branch as any).findAll({ where: { companyId }, attributes: ["id"], order: [["id", "ASC"]], transaction: t })
+      : [];
+    const target = others.map((b) => Number(b.id)).find((bid) => bid !== id);
+    if (companyId != null && !target) {
+      throw new ServiceError("This is the company's only branch. Add another branch before deleting it.");
+    }
+
+    if (target) {
+      for (const table of ["departments", "shifts", "company_leaves", "company_banks", "employee_leave_balances"]) {
+        await sequelize.query(`UPDATE "${table}" SET "branchId" = :target WHERE "branchId" = :id`, {
+          replacements: { target, id },
+          transaction: t,
+        });
+      }
+    }
+    await sequelize.query(`DELETE FROM "holidays" WHERE "branchId" = :id`, { replacements: { id }, transaction: t });
+    await branch.destroy({ transaction: t });
+    return { id, movedSettingsTo: target ?? null };
+  });
 };

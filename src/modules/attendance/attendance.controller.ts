@@ -3,7 +3,8 @@ import { JwtPayload } from "jsonwebtoken";
 import { createSuccess, badRequest } from "../../app/middlewear/errorMessage";
 import { handleServiceError } from "../shared/handleServiceError";
 import * as Middleware from "../../app/middlewear/comman";
-import { Attendance } from "../../config/dbConnection";
+import { Attendance, User } from "../../config/dbConnection";
+import { canMarkAttendanceFrom, attendanceBlockedMessage, ATTENDANCE_CHANNEL_BLOCKED } from "../shared/attendanceAccess";
 import * as AttendanceService from "./attendance.service";
 import { getISTDateString } from "../shared/dateUtils";
 
@@ -146,8 +147,25 @@ export const bulkMarkAttendance = async (req: Request, res: Response): Promise<v
 
 // ---- Self-service (punch in/out, today, list) ----
 
+// "App only" attendance (users.attendanceAccess = "mobile"): a punch sent
+// from a web session is refused. Login and everything else still work.
+const refuseWebPunchIfAppOnly = async (req: Request, res: Response): Promise<boolean> => {
+  const userData = req.userData as any;
+  if (userData?.ch !== "web") return false;
+  const row: any = await User.findByPk(Number(userData?.userId), { attributes: ["id", "attendanceAccess"] });
+  if (canMarkAttendanceFrom(row?.attendanceAccess, "web")) return false;
+  res.status(403).json({
+    success: false,
+    code: 403,
+    message: attendanceBlockedMessage,
+    data: { code: ATTENDANCE_CHANNEL_BLOCKED, attendanceAccess: row?.attendanceAccess },
+  });
+  return true;
+};
+
 export const AttendancePunchIn = async (req: Request, res: Response): Promise<void> => {
   try {
+    if (await refuseWebPunchIfAppOnly(req, res)) return;
     const userData = req.userData as JwtPayload;
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const record = await AttendanceService.attendancePunchIn(Number(userData?.userId), callerCompanyId, req.body, req.file as any);
@@ -159,6 +177,7 @@ export const AttendancePunchIn = async (req: Request, res: Response): Promise<vo
 
 export const AttendancePunchOut = async (req: Request, res: Response): Promise<void> => {
   try {
+    if (await refuseWebPunchIfAppOnly(req, res)) return;
     const userData = req.userData as JwtPayload;
     const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
     const record = await AttendanceService.attendancePunchOut(Number(userData?.userId), callerCompanyId, req.body, req.files as any);

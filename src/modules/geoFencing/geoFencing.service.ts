@@ -1,4 +1,5 @@
 import { User } from "../../config/dbConnection";
+import { dropFellowAdmins } from "../shared/userHierarchy";
 import axios from "axios"
 import { ServiceError } from "../shared/serviceError";
 import { getCompanyScopedChildUserIdsFast } from "../shared/userHierarchy";
@@ -182,7 +183,7 @@ export const assertCanAct = async (
   if (callerRole === "admin" || callerRole === "manager") {
     // Tenant isolation — admin/manager may only reach salespersons/managers inside
     // their OWN company-scoped team, never another company's.
-    const teamIds = await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId);
+    const teamIds = await dropFellowAdmins(callerId, await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId));
     if (!teamIds.includes(Number(targetUser.id))) {
       throw new ServiceError(
         "This user is not on your team, or belongs to another company",

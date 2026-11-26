@@ -105,3 +105,17 @@ export const revealBankAccount = async (req: Request, res: Response): Promise<vo
     handleServiceError(res, error);
   }
 };
+
+// GET /admin/employee-ids → { [userId]: "DVT160", ... }
+// The company's own Employee IDs (Additional Details → Employee ID, e.g. from
+// bulk upload's employeeIdExternal) for everyone in the caller's company.
+// The web shows this wherever it shows an Employee ID, falling back to the
+// system EMP code when a person has none.
+export const getCompanyEmployeeIds = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await Service.getCompanyEmployeeIds(callerContext(req));
+    createSuccess(res, "Employee IDs fetched", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
