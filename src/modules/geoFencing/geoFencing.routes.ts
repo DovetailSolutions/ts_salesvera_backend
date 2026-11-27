@@ -19,7 +19,11 @@ const router = Router();
 
 router.get("/geo-fencing/my", tokenCheck, GeoFencingController.getMy);
 router.get("/geo-fencing/geocode", tokenCheck, GeoFencingController.geocodeAddress);
+router.get("/geo-fencing/suggest", tokenCheck, GeoFencingController.suggestPlaces);
+router.get("/geo-fencing/place/:placeId", tokenCheck, GeoFencingController.placeDetails);
 router.get("/geo-fencing/reverse-geocode", tokenCheck, GeoFencingController.reverseGeocode);
+router.get("/geo-fencing/bulk", tokenCheck, authorizeRoles("super_admin", "admin", "manager"), GeoFencingController.getForUsers);
+router.put("/geo-fencing/bulk", tokenCheck, authorizeRoles("super_admin", "admin", "manager"), GeoFencingController.saveForUsers);
 router.get(
   "/geo-fencing/:userId",
   tokenCheck,

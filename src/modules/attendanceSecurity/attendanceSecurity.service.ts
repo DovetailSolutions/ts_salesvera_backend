@@ -1,7 +1,7 @@
 import { UniqueConstraintError } from "sequelize";
 import { sequelize } from "../../config/dbConnection";
 import { ServiceError } from "../shared/serviceError";
-import { assertCanAct } from "../geoFencing/geoFencing.service";
+import { assertCanAct, filterActableUsers } from "../geoFencing/geoFencing.service";
 import { sendNotification } from "../../config/notificationService";
 import { NotificationType } from "../../app/model/Notification";
 import { getCompanyAdminIds } from "../shared/userHierarchy";
@@ -563,4 +563,21 @@ export const getAuditLog = async (
     limit: opts.limit,
   });
   return { rows, total: count };
+};
+
+// Bulk read for the Attendance Security page: { [userId]: settings } for every
+// requested user the caller may manage — same rule as getSettingsForUser
+// (assertCanAct), checked once for the list instead of once per user.
+export const getSettingsForUsers = async (
+  callerId: number,
+  callerRole: string | undefined,
+  callerCompanyId: number | null,
+  userIds: number[]
+) => {
+  if (!userIds.length) return {};
+  const users = await Repo.findUsersWithSettingsByIds(userIds);
+  const allowed = await filterActableUsers(callerId, callerRole, callerCompanyId, users);
+  const out: Record<number, any> = {};
+  for (const u of allowed) out[Number(u.id)] = toPublicSettings(u);
+  return out;
 };

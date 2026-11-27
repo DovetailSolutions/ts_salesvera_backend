@@ -103,6 +103,18 @@ const sequelize = new Sequelize(
     port: Number(DB_PORT),
     dialect: "postgres",
     logging: false,
+    // PERF: the default pool (max 5, idle connections closed after 10s) made
+    // requests wait for a free connection when a page fires several API calls
+    // at once, and re-opened connections after every short pause — each new
+    // SSL connection to the remote DB costs ~0.7s. Keep a few warm and allow
+    // more in parallel (the server allows 100). Overridable via env.
+    pool: {
+      max: Number(process.env.DB_POOL_MAX) || 15,
+      min: Number(process.env.DB_POOL_MIN) || 2,
+      idle: Number(process.env.DB_POOL_IDLE_MS) || 60_000,
+      acquire: Number(process.env.DB_POOL_ACQUIRE_MS) || 30_000,
+      evict: 10_000,
+    },
     ...(DB_HOST !== "127.0.0.1" && DB_HOST !== "localhost"
       ? {
           dialectOptions: {

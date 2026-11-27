@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { parseUserIds } from "../geoFencing/geoFencing.service";
 import { JwtPayload } from "jsonwebtoken";
 import { createSuccess } from "../../app/middlewear/errorMessage";
 import { handleServiceError } from "../shared/handleServiceError";
@@ -178,6 +179,22 @@ export const getAuditLog = async (req: Request, res: Response): Promise<void> =>
       limit: limit ? Number(limit) : undefined,
     });
     createSuccess(res, "Audit log fetched", result);
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// GET /admin/attendance-security/settings-bulk?userIds=1,2,3 → { [userId]: settings }
+export const getForUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { callerId, callerRole, callerCompanyId } = callerContext(req);
+    const data = await AttendanceSecurityService.getSettingsForUsers(
+      callerId,
+      callerRole,
+      callerCompanyId,
+      parseUserIds(req.query.userIds)
+    );
+    createSuccess(res, "Attendance security settings fetched", data);
   } catch (error) {
     handleServiceError(res, error);
   }

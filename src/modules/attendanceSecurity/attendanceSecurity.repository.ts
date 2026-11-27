@@ -230,3 +230,23 @@ export const findAuditLogs = ({
 // ── Bulk settings ─────────────────────────────────────────────────────────
 export const bulkUpdateUserSettings = (userIds: number[], settings: Record<string, any>, transaction: Transaction) =>
   (User as any).update(settings, { where: { id: { [Op.in]: userIds } }, transaction });
+
+// Same columns as findUserById, for a list of users (bulk settings read).
+export const findUsersWithSettingsByIds = (userIds: number[]) =>
+  (User as any).findAll({
+    where: { id: userIds },
+    attributes: [
+      "id",
+      "firstName",
+      "lastName",
+      "email",
+      "role",
+      "status",
+      "isAttendancePhotoRequired",
+      "isDeviceSecurityRequired",
+      "isGeofenceRequired",
+      "isPunchOutGeofenceRequired",
+      "isMeetingInPhotoRequired",
+      "isMeetingOutPhotoRequired",
+    ],
+  });

@@ -1,4 +1,4 @@
-import { User } from "../../config/dbConnection";
+import { User, UserGeoFencing } from "../../config/dbConnection";
 import { dropFellowAdmins } from "../shared/userHierarchy";
 import axios from "axios"
 import { ServiceError } from "../shared/serviceError";
@@ -93,7 +93,13 @@ export const saveConfigForUser = async (
   if (!targetUser) throw new ServiceError("User not found", 404);
 
   await assertCanAct(callerId, callerRole, callerCompanyId, targetUser, { requireOwnCapability: true });
+  return applyConfigToUser(targetUser, callerId, callerCompanyId, body);
+};
 
+// Validation + save for one user whose access was already checked (used by
+// the single save above and the bulk save below — identical rules).
+const applyConfigToUser = async (targetUser: any, callerId: number, callerCompanyId: number | null, body: any) => {
+  const targetUserId = Number(targetUser.id);
   if (body?.isGeofenceRequired !== undefined) {
     targetUser.isGeofenceRequired = Boolean(body.isGeofenceRequired);
     await targetUser.save();
@@ -373,4 +379,150 @@ export const reverseGeocode = async (lat: number, lng: number) => {
   }
 
   return { formattedAddress: `${lat}, ${lng}`, locationName: `${lat}, ${lng}`, landmark: null, city: null };
+};
+
+// ── Live address search (geo-fencing forms) ────────────────────────────────
+// Suggestions while typing: Google Places Autocomplete with the backend key
+// (the key never reaches the browser), falling back to OpenStreetMap.
+// Picking a suggestion → placeDetails() returns its exact coordinates.
+export const suggestPlaces = async (query: string) => {
+  const q = String(query || "").trim();
+  if (q.length < 2) return [];
+  const apiKey = process.env.GOOGLE_MAP_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || "";
+  if (apiKey) {
+    try {
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&components=country:in&key=${apiKey}`;
+      const response = await axios.get(url, { timeout: 8000 });
+      if (response.data?.status === "OK") {
+        return (response.data.predictions || []).slice(0, 6).map((p: any) => ({
+          placeId: p.place_id,
+          description: p.description,
+          mainText: p.structured_formatting?.main_text || p.description,
+          secondaryText: p.structured_formatting?.secondary_text || "",
+          source: "google",
+        }));
+      }
+      if (response.data?.status === "ZERO_RESULTS") return [];
+    } catch (err) {
+      console.warn("Places autocomplete error:", (err as any)?.message);
+    }
+  }
+  try {
+    const osmUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=in&q=${encodeURIComponent(q)}`;
+    const response = await axios.get(osmUrl, { headers: { "User-Agent": "SalesVera-Backend/1.0" }, timeout: 8000 });
+    return (Array.isArray(response.data) ? response.data : []).map((o: any) => ({
+      placeId: null,
+      description: o.display_name,
+      mainText: String(o.display_name || "").split(",")[0],
+      secondaryText: String(o.display_name || "").split(",").slice(1, 4).join(",").trim(),
+      latitude: Number(o.lat).toFixed(6),
+      longitude: Number(o.lon).toFixed(6),
+      source: "osm",
+    }));
+  } catch (err) {
+    console.warn("OSM suggest error:", (err as any)?.message);
+    return [];
+  }
+};
+
+export const placeDetails = async (placeId: string) => {
+  const id = String(placeId || "").trim();
+  if (!id) throw new ServiceError("placeId is required");
+  const apiKey = process.env.GOOGLE_MAP_API_KEY || process.env.VITE_GOOGLE_MAPS_API_KEY || "";
+  if (!apiKey) throw new ServiceError("Map service is not configured");
+  const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(id)}&fields=geometry,formatted_address,name&key=${apiKey}`;
+  const response = await axios.get(url, { timeout: 8000 });
+  const r = response.data?.result;
+  if (response.data?.status !== "OK" || !r?.geometry?.location) throw new ServiceError("Could not load this place");
+  return {
+    latitude: Number(r.geometry.location.lat).toFixed(6),
+    longitude: Number(r.geometry.location.lng).toFixed(6),
+    formattedAddress: r.formatted_address || r.name || "",
+    name: r.name || "",
+  };
+};
+
+// ── Bulk reads (Field Operations pages) ─────────────────────────────────────
+// The Geofencing / Attendance Security pages used to call the per-user GET
+// once per staff member (36 users → 36 requests, ~11s on the remote DB).
+// filterActableUsers applies assertCanAct's exact rule to a whole list with
+// ONE team lookup, so the bulk endpoints return only users the caller could
+// have fetched one by one — same rule, no per-user queries.
+export const filterActableUsers = async (
+  callerId: number,
+  callerRole: string | undefined,
+  callerCompanyId: number | null,
+  users: any[]
+): Promise<any[]> => {
+  const allowedRoles = GEO_ASSIGNABLE_TARGET_ROLES[String(callerRole)] || [];
+  let list = users.filter((u) => allowedRoles.includes(String(u.role)));
+  if (callerRole === "admin" || callerRole === "manager") {
+    const team = new Set(
+      (await dropFellowAdmins(callerId, await getCompanyScopedChildUserIdsFast(callerId, callerCompanyId))).map(Number)
+    );
+    list = list.filter((u) => team.has(Number(u.id)));
+  }
+  return list;
+};
+
+export const parseUserIds = (raw: unknown): number[] =>
+  Array.from(
+    new Set(
+      String(raw ?? "")
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isInteger(n) && n > 0)
+    )
+  ).slice(0, 1000);
+
+/** { [userId]: publicConfig } for every requested user the caller may see. */
+export const getConfigsForUsers = async (
+  callerId: number,
+  callerRole: string | undefined,
+  callerCompanyId: number | null,
+  userIds: number[]
+) => {
+  if (!userIds.length) return {};
+  const users = await (User as any).findAll({ where: { id: userIds }, attributes: ["id", "role"], raw: true });
+  const allowed = await filterActableUsers(callerId, callerRole, callerCompanyId, users);
+  const ids = allowed.map((u) => Number(u.id));
+  if (!ids.length) return {};
+  const rows: any[] = await (UserGeoFencing as any).findAll({ where: { userId: ids } });
+  const byUser = new Map(rows.map((r) => [Number(r.userId), r]));
+  const out: Record<number, any> = {};
+  for (const id of ids) out[id] = toPublicConfig(byUser.get(id) ?? null, id);
+  return out;
+};
+
+/**
+ * Bulk save (Field Operations → Bulk geo-fencing): one permission check for
+ * the whole list instead of one per user, then the same validation + save as
+ * the single save. Users the caller may not manage are reported, not saved.
+ */
+export const saveConfigsForUsers = async (
+  callerId: number,
+  callerRole: string | undefined,
+  callerCompanyId: number | null,
+  userIds: number[],
+  body: any
+) => {
+  if (!userIds.length) throw new ServiceError("Select at least one user");
+  const users = await (User as any).findAll({
+    where: { id: userIds },
+    attributes: ["id", "firstName", "lastName", "email", "role", "status", "isGeofenceRequired"],
+  });
+  const allowed = await filterActableUsers(callerId, callerRole, callerCompanyId, users);
+  const allowedIds = new Set(allowed.map((u: any) => Number(u.id)));
+  const failed: Array<{ userId: number; message: string }> = userIds
+    .filter((id) => !allowedIds.has(id))
+    .map((id) => ({ userId: id, message: "Not on your team (or not allowed)" }));
+
+  // Validate once up front so a bad payload fails fast with one clear error.
+  if (allowed.length) await applyConfigToUser(allowed[0], callerId, callerCompanyId, body);
+  const rest = allowed.slice(1);
+  const results = await Promise.allSettled(rest.map((u: any) => applyConfigToUser(u, callerId, callerCompanyId, body)));
+  results.forEach((r, i) => {
+    if (r.status === "rejected") failed.push({ userId: Number(rest[i].id), message: (r.reason as any)?.message || "Failed" });
+  });
+  return { saved: allowed.length - failed.filter((f) => allowedIds.has(f.userId)).length, failed };
 };
