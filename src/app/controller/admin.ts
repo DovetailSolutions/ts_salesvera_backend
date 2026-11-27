@@ -1,5 +1,6 @@
 
 import { Op, fn, col, cast,literal, Sequelize } from "sequelize";
+import { assertCancelAllowedForCompany, orderCompanyOf } from "../../modules/saleOrder/saleOrderCancel.service";
 import { employeeIdSearchConditions } from "../../modules/shared/employeeIdSearch";
 import { dropFellowAdmins } from "../../modules/shared/userHierarchy";
 import {sequelize} from "../../config/dbConnection";
@@ -4430,7 +4431,7 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     const companyName = String(req.query.companyName || "").toLowerCase();
 
     // ✅ Validate status
-    const allowedStatus = ["draft", "accepted", "rejected"];
+    const allowedStatus = ["draft", "accepted", "rejected", "cancelled", "sent", "imported"];
     if (status && !allowedStatus.includes(status)) {
       return badRequest(res, "Invalid status value");
     }
@@ -4466,10 +4467,12 @@ export const getQuotationPdfList2 = async (req: Request, res: Response) => {
     // ✅ Base where condition for Quotations
     // We now filter by all IDs discovered in the hierarchy (Self + all Descendants)
     console.log("Team user IDs for getQuotationPdfList2:", teamUserIds);
+    // Cancelled orders stay in the list (shown with a "Cancelled" badge and
+    // filterable) so a cancel is visible; only deleted ones are hidden.
     let whereCondition: any = {
       userId: { [Op.in]: teamUserIds },
       status: {
-        [Op.notIn]: ["cancelled", "deleted"]
+        [Op.notIn]: ["deleted"]
       }
     };
     // const callerCompanyId = (userData as any)?.companyId ? Number((userData as any).companyId) : null;
@@ -4565,6 +4568,11 @@ export const updateQuotation = async(req:Request,res:Response):Promise<void>=>{
       if(!quotationData) return false;
       await InventoryService.assertCanChangeSaleOrder(actor, Number((quotationData as any).userId));
       const previousStatus = quotationData.status;
+      // A manual cancel is refused for a Tally-connected company (cancel it
+      // in Tally instead) — see modules/saleOrder/saleOrderCancel.service.ts.
+      if (status === "cancelled" && previousStatus !== "cancelled" && req.body?.guid === undefined) {
+        await assertCancelAllowedForCompany(orderCompanyOf(quotationData) ?? (userData as any)?.companyId);
+      }
       quotationData.status = status;
       quotationData.TallyAPISync = true
       await InventoryService.applySaleOrderStock(quotationData, previousStatus, status, actor, transaction);
