@@ -13,14 +13,19 @@ type UserWithChildren = any & {
 // shared as before.
 export async function dropFellowAdmins(callerId: number | string, ids: number[]): Promise<number[]> {
   if (!Array.isArray(ids) || ids.length === 0) return ids;
-  const caller: any = await User.findByPk(Number(callerId), { attributes: ["id", "role"] });
-  if (caller?.role !== "admin") return ids;
-  const admins = (await User.findAll({
-    where: { id: { [Op.in]: ids.map(Number) }, role: "admin" },
-    attributes: ["id"],
+  // PERF: one query — the caller's own row plus every admin among `ids`.
+  const cid = Number(callerId);
+  const rows = (await User.findAll({
+    where: {
+      [Op.or]: [{ id: cid }, { id: { [Op.in]: ids.map(Number) }, role: "admin" }],
+    },
+    attributes: ["id", "role"],
+    raw: true,
   })) as any[];
-  if (admins.length === 0) return ids;
-  const drop = new Set(admins.map((a) => Number(a.id)));
+  const caller = rows.find((r) => Number(r.id) === cid);
+  if (caller?.role !== "admin") return ids;
+  const drop = new Set(rows.filter((r) => r.role === "admin" && Number(r.id) !== cid).map((r) => Number(r.id)));
+  if (drop.size === 0) return ids;
   return ids.filter((id) => !drop.has(Number(id)));
 }
 

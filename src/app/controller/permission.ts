@@ -8,7 +8,7 @@ import { User, Company, CompanyAdmin } from "../../config/dbConnection";
 import { invalidatePermissionCache, invalidateCompanyPermissionCache } from "../../config/permissionCache";
 import { PERMISSION_TEMPLATES } from "../../config/permissionTemplates";
 import { hasCompanyAccess } from "../../modules/shared/companyAccess";
-import { getCompanyScopedChildUserIds, getOrgWideUserIdsForCaller } from "../../modules/shared/userHierarchy";
+import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, getOrgWideUserIdsForCaller } from "../../modules/shared/userHierarchy";
 
 // ============================================================
 // Permission Controller
@@ -187,8 +187,11 @@ const resolveRoleTargetUserIds = async (
 
   if (roleAdminIds.size === 0) return { userIds: [] };
 
+  // PERF: batched level-by-level walk (same result as getCompanyScopedChildUserIds,
+  // one query per hierarchy level instead of one per person — the per-person
+  // walk took ~5s for a 40-person company on the remote DB).
   const scopedIdSets = await Promise.all(
-    Array.from(roleAdminIds).map((rootId) => getCompanyScopedChildUserIds(rootId, effectiveCompanyId))
+    Array.from(roleAdminIds).map((rootId) => getCompanyScopedChildUserIdsFast(rootId, effectiveCompanyId))
   );
   const allChildIds = Array.from(new Set(scopedIdSets.flat()));
 
@@ -742,18 +745,37 @@ export const assignPermissionsToRole = async (req: AuthRequest, res: Response): 
       });
     }
 
-    // Bulk assign
-    let totalAssigned = 0;
+    // Bulk assign — PERF: was one findOrCreate per (user × permission), i.e.
+    // hundreds of sequential DB round trips (35 employees × 20 permissions =
+    // 700 → minutes; the request looked hung). Now: one read of what already
+    // exists + one bulk insert of the missing rows. Same rows as before
+    // (unique key userId+permissionId+companyId); ignoreDuplicates covers a
+    // concurrent grant.
+    const validPermIds = permsToAssign.map((p: any) => Number(p.id));
+    // A permission already held — for this company OR saved without a company
+    // (older grants; permissions are read company-agnostically) — is skipped,
+    // so a bulk grant doesn't add duplicate rows for what people already have.
+    const existing = (await UserPermission.findAll({
+      where: {
+        userId: { [Op.in]: userIds },
+        permissionId: { [Op.in]: validPermIds },
+        [Op.or]: [{ companyId: effectiveCompanyId as any }, { companyId: null as any }],
+      },
+      attributes: ["userId", "permissionId"],
+      raw: true,
+    })) as any[];
+    const have = new Set(existing.map((r) => `${r.userId}:${r.permissionId}`));
+    const rows: any[] = [];
     for (const uid of userIds) {
-      for (const permId of permissionIds) {
-        const [, wasCreated] = await UserPermission.findOrCreate({
-          where: { userId: uid, permissionId: permId, companyId: effectiveCompanyId },
-          defaults: { userId: uid, permissionId: permId, companyId: effectiveCompanyId, grantedBy: callerId },
-        });
-        if (wasCreated) totalAssigned++;
+      for (const permId of validPermIds) {
+        if (!have.has(`${uid}:${permId}`)) {
+          rows.push({ userId: uid, permissionId: permId, companyId: effectiveCompanyId, grantedBy: callerId });
+        }
       }
-      invalidatePermissionCache(uid);
     }
+    if (rows.length) await UserPermission.bulkCreate(rows, { ignoreDuplicates: true });
+    const totalAssigned = rows.length;
+    for (const uid of userIds) invalidatePermissionCache(uid);
 
     return res.status(200).json({
       success: true,

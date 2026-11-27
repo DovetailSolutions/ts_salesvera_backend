@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { SubscriptionAddon, SubscriptionPlan, User } from "../../config/dbConnection";
-import { getActiveSubscriptionForUser } from "./subscriptionLimit.service";
+import { getActiveSubscriptionForUser, invalidateTenantStatus } from "./subscriptionLimit.service";
 import {
   ADDONS,
   AddonCode,
@@ -53,6 +53,7 @@ const cache = new Map<number, { value: Entitlements; expires: number }>();
 export const invalidateEntitlements = (tenantUserId?: number | null) => {
   if (tenantUserId == null) cache.clear();
   else cache.delete(Number(tenantUserId));
+  invalidateTenantStatus(tenantUserId);
 };
 
 const fullAccess = (tenantUserId: number | null): Entitlements => ({
