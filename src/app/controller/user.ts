@@ -1,4 +1,5 @@
 import { Op, fn, col, where, cast, literal } from "sequelize";
+import { assertCancelAllowedForCompany, orderCompanyOf } from "../../modules/saleOrder/saleOrderCancel.service";
 import { employeeIdSearchConditions } from "../../modules/shared/employeeIdSearch";
 import { sequelize } from "../../config/dbConnection"
 import PDFDocument from "pdfkit";
@@ -2929,6 +2930,11 @@ export const updateQuotation = async (req: Request, res: Response): Promise<void
       if (!quotationData) return false;
       await InventoryService.assertCanChangeSaleOrder(actor, Number((quotationData as any).userId));
       const previousStatus = quotationData.status;
+      // A manual cancel (not the Tally sync, which sends the Tally guid) is
+      // refused for a Tally-connected company — cancel it in Tally instead.
+      if (status === "cancelled" && previousStatus !== "cancelled" && req.body.guid === undefined) {
+        await assertCancelAllowedForCompany(orderCompanyOf(quotationData) ?? (userData as any)?.companyId);
+      }
       quotationData.status = status;
       // FIX: guid/alterid (the Tally link) were overwritten with null whenever
       // the caller sent only a status — e.g. the web "Accept" action — which

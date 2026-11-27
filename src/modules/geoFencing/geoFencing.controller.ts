@@ -94,3 +94,59 @@ export const reverseGeocode = async (req: Request, res: Response): Promise<void>
     handleServiceError(res, error);
   }
 };
+
+// GET /admin/geo-fencing/suggest?q=… → live address suggestions
+export const suggestPlaces = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const data = await GeoFencingService.suggestPlaces(String(req.query.q || ""));
+    res.status(200).json({ success: true, message: "Suggestions", data });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// GET /admin/geo-fencing/place/:placeId → coordinates of a picked suggestion
+export const placeDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const data = await GeoFencingService.placeDetails(String(req.params.placeId || ""));
+    res.status(200).json({ success: true, message: "Place details", data });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// GET /admin/geo-fencing/bulk?userIds=1,2,3 → { [userId]: config }
+export const getForUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const u = req.userData as JwtPayload;
+    const data = await GeoFencingService.getConfigsForUsers(
+      Number((u as any)?.userId),
+      (u as any)?.role,
+      (u as any)?.companyId ? Number((u as any).companyId) : null,
+      GeoFencingService.parseUserIds(req.query.userIds)
+    );
+    res.status(200).json({ success: true, message: "Geo-fencing configs fetched", data });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};
+
+// PUT /admin/geo-fencing/bulk  { userIds: number[], enabled, latitude, longitude, radius, radiusUnit, … }
+export const saveForUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const u = req.userData as JwtPayload;
+    const ids = Array.isArray(req.body?.userIds)
+      ? GeoFencingService.parseUserIds(req.body.userIds.join(","))
+      : GeoFencingService.parseUserIds(req.body?.userIds);
+    const data = await GeoFencingService.saveConfigsForUsers(
+      Number((u as any)?.userId),
+      (u as any)?.role,
+      (u as any)?.companyId ? Number((u as any).companyId) : null,
+      ids,
+      req.body || {}
+    );
+    res.status(200).json({ success: true, message: `Geo-fencing saved for ${data.saved} user(s)`, data });
+  } catch (error) {
+    handleServiceError(res, error);
+  }
+};

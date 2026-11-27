@@ -17,6 +17,8 @@ const router = Router();
 
 router.get("/attendance-security/my", tokenCheck, Controller.getMy);
 
+router.get("/attendance-security/settings-bulk", tokenCheck, checkPermission("attendance-security", "view"), Controller.getForUsers);
+
 router.get(
   "/attendance-security/settings/:userId",
   tokenCheck,
