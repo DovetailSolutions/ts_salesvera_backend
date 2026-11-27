@@ -55,6 +55,7 @@ import {
 import * as Middleware from "../middlewear/comman";
 import { sendEmail, forgotpassword } from "../../config/email";
 import { invalidatePermissionCache } from "../../config/permissionCache";
+import { grantDefaultEmployeePermissions } from "../../modules/shared/defaultPermissions";
 import { userHasPermission } from "../../config/checkPermission";
 import { getCompanyScopedChildUserIds, getCompanyScopedChildUserIdsFast, collectUserCompanyIds } from "../../modules/shared/userHierarchy";
 import { resolveDefaultBranchAndShift, hasCompanyAccess } from "../../modules/shared/companyAccess";
@@ -1415,6 +1416,26 @@ export const BulkAddSalePerson = async (
             }
           });
 
+          // Default permissions for the new employees — the same employee
+          // template the single "Add employee" form applies (config/
+          // permissionTemplates.ts), limited to what the uploader holds
+          // (you can only grant what you have). Bulk-uploaded employees used
+          // to get NO permissions, so they could log in but use nothing.
+          // Best effort: the accounts are already created either way.
+          let defaultPermissionsGranted = 0;
+          const newEmployeeIds = created.map((c) => Number(c.id)).filter(Boolean);
+          if (newEmployeeIds.length) {
+            try {
+              defaultPermissionsGranted = await grantDefaultEmployeePermissions(
+                newEmployeeIds,
+                Number(loginUser),
+                String(loginRole || "")
+              );
+            } catch (permErr) {
+              console.error("Bulk upload: default permission grant failed:", permErr);
+            }
+          }
+
           // Send the credentials emails now that the accounts are committed,
           // and record per user whether it went out.
           const emailResults = await Promise.allSettled(
@@ -1437,6 +1458,7 @@ export const BulkAddSalePerson = async (
           });
 
           createSuccess(res, "Bulk sale person upload completed", {
+            defaultPermissionsGranted,
             emailsSent: emailResults.filter((r) => r.status === "fulfilled").length,
             emailsFailed: emailFailed,
             totalCSV: rows.length,

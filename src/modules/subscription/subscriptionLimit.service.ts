@@ -99,9 +99,22 @@ export const getBlockedTenantStatus = async (
   else tenantUserId = await getOwningTenantUserId(userId, role);
   if (!tenantUserId) return null;
 
+  // PERF: this runs on EVERY authenticated request (tokenCheck). A short
+  // per-tenant cache saves a DB round trip per call; invalidateTenantStatus
+  // (called from invalidateEntitlements on plan/status changes) clears it.
+  const hit = tenantStatusCache.get(tenantUserId);
+  if (hit && hit.expires > Date.now()) return hit.value;
   const subscription = await getActiveSubscriptionForUser(tenantUserId);
-  if (!subscription) return null;
-  return INACTIVE_STATUSES.includes(subscription.status) ? subscription.status : null;
+  const value = subscription && INACTIVE_STATUSES.includes(subscription.status) ? subscription.status : null;
+  tenantStatusCache.set(tenantUserId, { value, expires: Date.now() + TENANT_STATUS_TTL_MS });
+  return value;
+};
+
+const TENANT_STATUS_TTL_MS = 15_000;
+const tenantStatusCache = new Map<number, { value: string | null; expires: number }>();
+export const invalidateTenantStatus = (tenantUserId?: number | null) => {
+  if (tenantUserId == null) tenantStatusCache.clear();
+  else tenantStatusCache.delete(Number(tenantUserId));
 };
 
 // Roles that may still SIGN IN while their tenant's access is inactive, and

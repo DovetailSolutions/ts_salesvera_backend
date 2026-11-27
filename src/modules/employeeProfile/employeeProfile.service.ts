@@ -406,7 +406,8 @@ export const getCompanyEmployeeIds = async (caller: {
   callerRole?: string;
   callerCompanyId: number | null;
 }): Promise<Record<number, string>> => {
-  const ids = await getOrgWideUserIdsForCaller(caller.callerId, String(caller.callerRole || ""), caller.callerCompanyId);
+  // PERF: batched team walk (one query per hierarchy level).
+  const ids = await getOrgWideUserIdsForCaller(caller.callerId, String(caller.callerRole || ""), caller.callerCompanyId, getCompanyScopedChildUserIdsFast);
   const all = Array.from(new Set([caller.callerId, ...ids.map(Number)]));
   if (!all.length) return {};
   const rows = (await EmployeeExtraDetails.findAll({
